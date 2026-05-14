@@ -22,7 +22,7 @@ SETTINGS_DEPENDENCY = Depends(get_settings)
 def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging(settings)
-    app = FastAPI(title="Seller Profit Bot API", version="1.4.5", debug=settings.app_debug)
+    app = FastAPI(title="Seller Profit Bot API", version="1.4.6", debug=settings.app_debug)
     app.include_router(web_router)
 
     @app.get("/health")
