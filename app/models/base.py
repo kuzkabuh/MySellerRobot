@@ -1,0 +1,46 @@
+"""version: 1.0.0
+description: Declarative base and shared timestamp mixin.
+updated: 2026-05-14
+"""
+
+from datetime import datetime
+from typing import Annotated
+
+from sqlalchemy import DateTime, MetaData, func
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+convention = {
+    "ix": "ix_%(column_0_label)s",
+    "uq": "uq_%(table_name)s_%(column_0_name)s",
+    "ck": "ck_%(table_name)s_%(constraint_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    "pk": "pk_%(table_name)s",
+}
+
+int_pk = Annotated[int, mapped_column(primary_key=True)]
+created_at_col = Annotated[
+    datetime,
+    mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False),
+]
+updated_at_col = Annotated[
+    datetime,
+    mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    ),
+]
+
+
+class Base(DeclarativeBase):
+    """Base class for SQLAlchemy models."""
+
+    metadata = MetaData(naming_convention=convention)
+
+
+class TimestampMixin:
+    """Created and updated timestamps."""
+
+    created_at: Mapped[created_at_col]
+    updated_at: Mapped[updated_at_col]

@@ -1,0 +1,439 @@
+"""version: 1.0.0
+description: Main database models for sellers, marketplaces, orders, profit, alerts, and billing.
+updated: 2026-05-14
+"""
+
+from datetime import date, datetime, time
+from decimal import Decimal
+from typing import Any
+
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    Date,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    Time,
+    UniqueConstraint,
+)
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.models.base import Base, TimestampMixin, int_pk
+from app.models.enums import (
+    AccountStatus,
+    AlertType,
+    CalculationType,
+    Marketplace,
+    NotificationType,
+    SaleModel,
+    SyncJobStatus,
+    UserStatus,
+)
+
+JsonType = JSON().with_variant(JSONB, "postgresql")
+
+
+class User(TimestampMixin, Base):
+    __tablename__ = "users"
+
+    id: Mapped[int_pk]
+    telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
+    username: Mapped[str | None] = mapped_column(String(255))
+    first_name: Mapped[str | None] = mapped_column(String(255))
+    status: Mapped[UserStatus] = mapped_column(Enum(UserStatus), default=UserStatus.ACTIVE)
+    tariff: Mapped[str] = mapped_column(String(64), default="Free")
+    timezone: Mapped[str] = mapped_column(String(64), default="Europe/Moscow")
+    language: Mapped[str] = mapped_column(String(16), default="ru")
+    notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    subscription_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    accounts: Mapped[list["MarketplaceAccount"]] = relationship(back_populates="user")
+
+
+class MarketplaceAccount(TimestampMixin, Base):
+    __tablename__ = "marketplace_accounts"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "marketplace", "name", name="uq_accounts_user_marketplace_name"
+        ),
+        Index("ix_accounts_user_marketplace_active", "user_id", "marketplace", "is_active"),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    marketplace: Mapped[Marketplace] = mapped_column(Enum(Marketplace), index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    encrypted_api_key: Mapped[str] = mapped_column(Text)
+    encrypted_client_id: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[AccountStatus] = mapped_column(Enum(AccountStatus), default=AccountStatus.DRAFT)
+    last_success_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error_message: Mapped[str | None] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    notification_settings: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
+
+    user: Mapped[User] = relationship(back_populates="accounts")
+
+
+class Product(TimestampMixin, Base):
+    __tablename__ = "products"
+    __table_args__ = (
+        UniqueConstraint(
+            "marketplace_account_id",
+            "marketplace",
+            "external_product_id",
+            name="uq_products_account_marketplace_external",
+        ),
+        Index("ix_products_user_article", "user_id", "seller_article"),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    marketplace_account_id: Mapped[int] = mapped_column(
+        ForeignKey("marketplace_accounts.id", ondelete="CASCADE"),
+        index=True,
+    )
+    marketplace: Mapped[Marketplace] = mapped_column(Enum(Marketplace), index=True)
+    external_product_id: Mapped[str] = mapped_column(String(128))
+    seller_article: Mapped[str | None] = mapped_column(String(255), index=True)
+    marketplace_article: Mapped[str | None] = mapped_column(String(255), index=True)
+    title: Mapped[str | None] = mapped_column(String(1024))
+    brand: Mapped[str | None] = mapped_column(String(255))
+    image_url: Mapped[str | None] = mapped_column(Text)
+    category: Mapped[str | None] = mapped_column(String(255))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    costs: Mapped[list["ProductCostHistory"]] = relationship(back_populates="product")
+
+
+class ProductCostHistory(TimestampMixin, Base):
+    __tablename__ = "product_cost_history"
+    __table_args__ = (
+        Index("ix_cost_history_product_period", "product_id", "valid_from", "valid_to"),
+    )
+
+    id: Mapped[int_pk]
+    product_id: Mapped[int] = mapped_column(
+        ForeignKey("products.id", ondelete="CASCADE"), index=True
+    )
+    cost_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    package_cost: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    additional_cost: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    tax_rate: Mapped[Decimal] = mapped_column(Numeric(5, 4), default=0)
+    valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    comment: Mapped[str | None] = mapped_column(Text)
+
+    product: Mapped[Product] = relationship(back_populates="costs")
+
+
+class Order(TimestampMixin, Base):
+    __tablename__ = "orders"
+    __table_args__ = (
+        UniqueConstraint(
+            "marketplace_account_id",
+            "marketplace",
+            "order_external_id",
+            name="uq_orders_account_marketplace_external",
+        ),
+        Index("ix_orders_user_date", "user_id", "order_date"),
+        Index("ix_orders_deadline_status", "deadline_at", "status"),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    marketplace_account_id: Mapped[int] = mapped_column(
+        ForeignKey("marketplace_accounts.id", ondelete="CASCADE"),
+        index=True,
+    )
+    marketplace: Mapped[Marketplace] = mapped_column(Enum(Marketplace), index=True)
+    order_external_id: Mapped[str] = mapped_column(String(255))
+    posting_number: Mapped[str | None] = mapped_column(String(255), index=True)
+    assembly_id: Mapped[str | None] = mapped_column(String(255), index=True)
+    srid: Mapped[str | None] = mapped_column(String(255), index=True)
+    order_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    event_received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    sale_model: Mapped[SaleModel | None] = mapped_column(Enum(SaleModel))
+    status: Mapped[str] = mapped_column(String(128), index=True)
+    warehouse: Mapped[str | None] = mapped_column(String(255))
+    deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    raw_payload: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
+
+    items: Mapped[list["OrderItem"]] = relationship(back_populates="order")
+
+
+class OrderItem(TimestampMixin, Base):
+    __tablename__ = "order_items"
+    __table_args__ = (Index("ix_order_items_articles", "seller_article", "marketplace_article"),)
+
+    id: Mapped[int_pk]
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"), index=True)
+    product_id: Mapped[int | None] = mapped_column(ForeignKey("products.id", ondelete="SET NULL"))
+    seller_article: Mapped[str | None] = mapped_column(String(255))
+    marketplace_article: Mapped[str | None] = mapped_column(String(255))
+    title: Mapped[str | None] = mapped_column(String(1024))
+    quantity: Mapped[int] = mapped_column(Integer, default=1)
+    buyer_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    seller_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    discounted_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    payout_amount_estimated: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    commission_estimated: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    logistics_estimated: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    other_marketplace_expenses_estimated: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    cost_price_used: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    package_cost_used: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    tax_amount_estimated: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    profit_estimated: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    margin_percent_estimated: Mapped[Decimal | None] = mapped_column(Numeric(7, 2))
+
+    order: Mapped[Order] = relationship(back_populates="items")
+    snapshots: Mapped[list["ProfitSnapshot"]] = relationship(back_populates="order_item")
+
+
+class ProfitSnapshot(TimestampMixin, Base):
+    __tablename__ = "profit_snapshots"
+    __table_args__ = (
+        Index(
+            "ix_profit_snapshots_item_type", "order_item_id", "calculation_type", "calculated_at"
+        ),
+    )
+
+    id: Mapped[int_pk]
+    order_item_id: Mapped[int] = mapped_column(
+        ForeignKey("order_items.id", ondelete="CASCADE"),
+        index=True,
+    )
+    calculation_type: Mapped[CalculationType] = mapped_column(Enum(CalculationType), index=True)
+    gross_revenue: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    marketplace_commission: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    logistics_cost: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    acquiring_cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    storage_cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    return_cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    other_marketplace_costs: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    cost_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    package_cost: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    additional_seller_cost: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    tax_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    profit: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    margin_percent: Mapped[Decimal] = mapped_column(Numeric(7, 2), default=0)
+    calculated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    calculation_source: Mapped[str] = mapped_column(String(255))
+    raw_financial_data: Mapped[dict[str, Any] | None] = mapped_column(JsonType)
+
+    order_item: Mapped[OrderItem] = relationship(back_populates="snapshots")
+
+
+class FinancialReportRow(TimestampMixin, Base):
+    __tablename__ = "financial_report_rows"
+    __table_args__ = (
+        UniqueConstraint(
+            "marketplace_account_id",
+            "marketplace",
+            "external_row_id",
+            name="uq_financial_rows_external",
+        ),
+        Index("ix_financial_rows_period", "marketplace_account_id", "operation_date"),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    marketplace_account_id: Mapped[int] = mapped_column(ForeignKey("marketplace_accounts.id"))
+    marketplace: Mapped[Marketplace] = mapped_column(Enum(Marketplace), index=True)
+    external_row_id: Mapped[str] = mapped_column(String(255))
+    order_external_id: Mapped[str | None] = mapped_column(String(255), index=True)
+    product_external_id: Mapped[str | None] = mapped_column(String(255), index=True)
+    operation_type: Mapped[str] = mapped_column(String(255), index=True)
+    operation_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    currency: Mapped[str] = mapped_column(String(16), default="RUB")
+    raw_payload: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
+
+
+class SalesEvent(TimestampMixin, Base):
+    __tablename__ = "sales_events"
+    __table_args__ = (
+        UniqueConstraint("marketplace_account_id", "marketplace", "external_event_id"),
+        Index("ix_sales_events_date", "user_id", "event_date"),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    marketplace_account_id: Mapped[int] = mapped_column(ForeignKey("marketplace_accounts.id"))
+    marketplace: Mapped[Marketplace] = mapped_column(Enum(Marketplace))
+    external_event_id: Mapped[str] = mapped_column(String(255))
+    order_external_id: Mapped[str | None] = mapped_column(String(255), index=True)
+    event_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    quantity: Mapped[int] = mapped_column(Integer, default=1)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    raw_payload: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
+
+
+class ReturnsEvent(TimestampMixin, Base):
+    __tablename__ = "returns_events"
+    __table_args__ = (
+        UniqueConstraint("marketplace_account_id", "marketplace", "external_event_id"),
+        Index("ix_returns_events_date", "user_id", "event_date"),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    marketplace_account_id: Mapped[int] = mapped_column(ForeignKey("marketplace_accounts.id"))
+    marketplace: Mapped[Marketplace] = mapped_column(Enum(Marketplace))
+    external_event_id: Mapped[str] = mapped_column(String(255))
+    order_external_id: Mapped[str | None] = mapped_column(String(255), index=True)
+    event_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    quantity: Mapped[int] = mapped_column(Integer, default=1)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    reason: Mapped[str | None] = mapped_column(String(512))
+    raw_payload: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
+
+
+class StockSnapshot(TimestampMixin, Base):
+    __tablename__ = "stock_snapshots"
+    __table_args__ = (Index("ix_stock_snapshots_product_date", "product_id", "snapshot_at"),)
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    marketplace_account_id: Mapped[int] = mapped_column(ForeignKey("marketplace_accounts.id"))
+    product_id: Mapped[int | None] = mapped_column(ForeignKey("products.id", ondelete="SET NULL"))
+    marketplace: Mapped[Marketplace] = mapped_column(Enum(Marketplace))
+    warehouse: Mapped[str | None] = mapped_column(String(255))
+    quantity: Mapped[int] = mapped_column(Integer, default=0)
+    average_daily_sales_7d: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    days_until_stockout: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    snapshot_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    raw_payload: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
+
+
+class NotificationSetting(TimestampMixin, Base):
+    __tablename__ = "notification_settings"
+    __table_args__ = (UniqueConstraint("user_id", "marketplace_account_id", "notification_type"),)
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    marketplace_account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("marketplace_accounts.id")
+    )
+    notification_type: Mapped[NotificationType] = mapped_column(Enum(NotificationType))
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    quiet_from: Mapped[time | None] = mapped_column(Time)
+    quiet_to: Mapped[time | None] = mapped_column(Time)
+    settings: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
+
+
+class AlertRule(TimestampMixin, Base):
+    __tablename__ = "alert_rules"
+    __table_args__ = (UniqueConstraint("user_id", "marketplace_account_id", "alert_type"),)
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    marketplace_account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("marketplace_accounts.id")
+    )
+    alert_type: Mapped[AlertType] = mapped_column(Enum(AlertType), index=True)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    threshold: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    settings: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
+
+
+class AlertEvent(TimestampMixin, Base):
+    __tablename__ = "alert_events"
+    __table_args__ = (
+        UniqueConstraint("rule_id", "idempotency_key", name="uq_alert_events_rule_key"),
+        Index("ix_alert_events_user_created", "user_id", "created_at"),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    rule_id: Mapped[int | None] = mapped_column(ForeignKey("alert_rules.id", ondelete="SET NULL"))
+    alert_type: Mapped[AlertType] = mapped_column(Enum(AlertType), index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(255))
+    title: Mapped[str] = mapped_column(String(255))
+    message: Mapped[str] = mapped_column(Text)
+    payload: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class DailyReport(TimestampMixin, Base):
+    __tablename__ = "daily_reports"
+    __table_args__ = (UniqueConstraint("user_id", "report_date"),)
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    report_date: Mapped[date] = mapped_column(Date, index=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
+    message_text: Mapped[str] = mapped_column(Text)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class SyncJob(TimestampMixin, Base):
+    __tablename__ = "sync_jobs"
+    __table_args__ = (Index("ix_sync_jobs_account_type", "marketplace_account_id", "job_type"),)
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    marketplace_account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("marketplace_accounts.id")
+    )
+    job_type: Mapped[str] = mapped_column(String(128), index=True)
+    status: Mapped[SyncJobStatus] = mapped_column(
+        Enum(SyncJobStatus), default=SyncJobStatus.PENDING
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    retries: Mapped[int] = mapped_column(Integer, default=0)
+    payload: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
+
+
+class ApiRequestLog(TimestampMixin, Base):
+    __tablename__ = "api_request_logs"
+    __table_args__ = (Index("ix_api_logs_account_created", "marketplace_account_id", "created_at"),)
+
+    id: Mapped[int_pk]
+    marketplace_account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("marketplace_accounts.id")
+    )
+    marketplace: Mapped[Marketplace | None] = mapped_column(Enum(Marketplace))
+    method: Mapped[str] = mapped_column(String(16))
+    url: Mapped[str] = mapped_column(Text)
+    status_code: Mapped[int | None] = mapped_column(Integer)
+    duration_ms: Mapped[int | None] = mapped_column(Integer)
+    error_message: Mapped[str | None] = mapped_column(Text)
+
+
+class SubscriptionPlan(TimestampMixin, Base):
+    __tablename__ = "subscription_plans"
+
+    id: Mapped[int_pk]
+    code: Mapped[str] = mapped_column(String(64), unique=True)
+    title: Mapped[str] = mapped_column(String(255))
+    monthly_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    marketplace_limit: Mapped[int] = mapped_column(Integer, default=1)
+    sku_limit: Mapped[int] = mapped_column(Integer, default=100)
+    features: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class Subscription(TimestampMixin, Base):
+    __tablename__ = "subscriptions"
+    __table_args__ = (Index("ix_subscriptions_user_status", "user_id", "status"),)
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    plan_id: Mapped[int] = mapped_column(ForeignKey("subscription_plans.id"))
+    status: Mapped[str] = mapped_column(String(64), default="ACTIVE")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    payment_provider: Mapped[str | None] = mapped_column(String(128))
+    external_subscription_id: Mapped[str | None] = mapped_column(String(255))

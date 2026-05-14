@@ -1,0 +1,61 @@
+# version: 1.0.0
+# description: Project metadata and tooling configuration.
+# updated: 2026-05-14
+[project]
+name = "seller-profit-bot"
+version = "0.1.0"
+description = "Telegram bot for WB and Ozon sellers with profit analytics"
+requires-python = ">=3.12"
+dependencies = [
+    "aiogram>=3.6,<4",
+    "alembic>=1.13,<2",
+    "arq>=0.26,<1",
+    "asyncpg>=0.29,<1",
+    "cryptography>=42,<44",
+    "fastapi>=0.111,<1",
+    "greenlet>=3,<4",
+    "httpx>=0.27,<1",
+    "openpyxl>=3.1,<4",
+    "pydantic>=2.7,<3",
+    "pydantic-settings>=2.2,<3",
+    "python-dotenv>=1,<2",
+    "python-json-logger>=2,<3",
+    "redis>=5,<6",
+    "sqlalchemy>=2.0,<3",
+    "structlog>=24,<25",
+    "uvicorn[standard]>=0.29,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "black>=24,<25",
+    "mypy>=1.10,<2",
+    "pytest>=8,<9",
+    "pytest-asyncio>=0.23,<1",
+    "pytest-httpx>=0.30,<1",
+    "ruff>=0.4,<1",
+    "types-openpyxl>=3.1,<4",
+]
+
+[tool.setuptools]
+packages = ["app"]
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "C4"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["sqlalchemy.ext.mypy.plugin"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
