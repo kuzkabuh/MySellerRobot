@@ -9,7 +9,7 @@ from typing import Any, cast
 
 from app.core.config import get_settings
 from app.integrations.base import AsyncApiClient
-from app.models.enums import Marketplace, SaleModel
+from app.models.enums import Marketplace, SaleModel, SourceEventType, UrgencyType
 from app.schemas.orders import NormalizedOrder, NormalizedOrderItem
 from app.schemas.products import ProductUpsert
 
@@ -36,6 +36,20 @@ class WildberriesClient:
 
     async def get_new_fbs_orders(self) -> list[dict[str, Any]]:
         data = await self.marketplace.request("GET", "/api/v3/orders/new", headers=self.headers)
+        return list(data.get("orders", []))
+
+    async def get_fbs_orders(
+        self,
+        *,
+        date_from: datetime,
+        date_to: datetime,
+    ) -> list[dict[str, Any]]:
+        data = await self.marketplace.request(
+            "GET",
+            "/api/v3/orders",
+            headers=self.headers,
+            params={"dateFrom": date_from.isoformat(), "dateTo": date_to.isoformat()},
+        )
         return list(data.get("orders", []))
 
     async def get_fbs_orders_status(self, order_ids: list[int]) -> list[dict[str, Any]]:
@@ -125,11 +139,100 @@ class WildberriesClient:
             srid=payload.get("rid"),
             order_date=order_date,
             sale_model=SaleModel.FBS,
+            fulfillment_type="FBS",
+            urgency_type=UrgencyType.ACTION_REQUIRED,
+            source_event_type=SourceEventType.LIVE_ORDER,
             status="new",
+            raw_status="new",
+            normalized_status="new",
             warehouse=str(payload.get("warehouseId") or payload.get("officeId") or ""),
+            warehouse_type="seller",
+            delivery_schema=str(payload.get("deliveryType") or "fbs").upper(),
+            deadline_at=self._parse_optional_date(payload.get("sellerDate")),
+            processing_deadline_at=self._parse_optional_date(payload.get("sellerDate")),
+            requires_seller_action=True,
             items=[item],
             raw_payload=payload,
         )
+
+    def normalize_historical_fbs_order(self, payload: dict[str, Any]) -> NormalizedOrder:
+        order = self.normalize_fbs_order(payload)
+        raw_status = str(payload.get("status") or payload.get("wbStatus") or "history_order")
+        order.status = raw_status
+        order.raw_status = raw_status
+        order.normalized_status = raw_status.lower()
+        order.source_event_type = SourceEventType.STATISTICS_ORDER
+        order.urgency_type = UrgencyType.INFORMATIONAL
+        order.requires_seller_action = False
+        return order
+
+    def normalize_report_order(self, payload: dict[str, Any]) -> NormalizedOrder:
+        order_date = self._parse_optional_date(
+            payload.get("orderDate") or payload.get("date") or payload.get("saleDt")
+        ) or datetime.now(tz=UTC)
+        nm_id = str(payload.get("nmID") or payload.get("nmId") or payload.get("nmId") or "")
+        article = payload.get("supplierArticle") or payload.get("saName")
+        title = payload.get("title") or payload.get("subjectName")
+        revenue = Decimal(
+            str(
+                payload.get("retailPriceWithDiscRub")
+                or payload.get("retailPrice")
+                or payload.get("ppvzForPay")
+                or 0
+            )
+        )
+        item = NormalizedOrderItem(
+            external_product_id=nm_id,
+            seller_article=article,
+            marketplace_article=nm_id,
+            title=title,
+            quantity=int(payload.get("quantity") or 1),
+            buyer_price=revenue,
+            seller_price=revenue,
+            discounted_price=revenue,
+            payout_amount_estimated=Decimal(str(payload.get("ppvzForPay") or revenue)),
+            raw_payload=payload,
+        )
+        external_id = str(
+            payload.get("srid")
+            or payload.get("rrdId")
+            or payload.get("realizationreportId")
+            or f"wb-report-{nm_id}-{order_date.isoformat()}"
+        )
+        return NormalizedOrder(
+            marketplace=Marketplace.WB,
+            order_external_id=external_id,
+            srid=str(payload.get("srid") or "") or None,
+            order_date=order_date,
+            sale_model=SaleModel.FBO,
+            fulfillment_type="FBO",
+            urgency_type=UrgencyType.INFORMATIONAL,
+            source_event_type=SourceEventType.REPORT_ORDER,
+            status=str(payload.get("orderStatus") or payload.get("status") or "report_order"),
+            raw_status=str(payload.get("orderStatus") or payload.get("status") or "report_order"),
+            normalized_status="ordered",
+            warehouse=str(payload.get("officeName") or payload.get("warehouseName") or ""),
+            warehouse_type="marketplace",
+            delivery_schema="FBO",
+            requires_seller_action=False,
+            items=[item],
+            raw_payload=payload,
+        )
+
+    @staticmethod
+    def _parse_optional_date(value: object) -> datetime | None:
+        if not value:
+            return None
+        if isinstance(value, datetime):
+            return value
+        text = str(value)
+        try:
+            return datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            try:
+                return datetime.strptime(text, "%d.%m.%Y").replace(tzinfo=UTC)
+            except ValueError:
+                return None
 
     def normalize_card_product(
         self,

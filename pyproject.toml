@@ -3,7 +3,7 @@
 # updated: 2026-05-14
 [project]
 name = "seller-profit-bot"
-version = "0.1.0"
+version = "1.4.2"
 description = "Telegram bot for WB and Ozon sellers with profit analytics"
 requires-python = ">=3.12"
 dependencies = [
@@ -37,8 +37,10 @@ dev = [
     "types-openpyxl>=3.1,<4",
 ]
 
-[tool.setuptools]
-packages = ["app"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+namespaces = false
 
 [tool.black]
 line-length = 100

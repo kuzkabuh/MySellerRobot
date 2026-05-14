@@ -3,12 +3,14 @@ description: Marketplace account connection, verification, and token storage ser
 updated: 2026-05-14
 """
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.security import TokenCipher
 from app.integrations.base import MarketplaceApiError
 from app.integrations.ozon import OzonClient
@@ -16,6 +18,10 @@ from app.integrations.wb import WildberriesClient
 from app.models.domain import MarketplaceAccount
 from app.models.enums import AccountStatus, Marketplace
 from app.repositories.accounts import MarketplaceAccountRepository
+from app.services.history_backfill_service import HistoryBackfillService
+from app.services.product_sync_service import ProductSyncService
+
+logger = logging.getLogger(__name__)
 
 
 class AccountConnectionError(RuntimeError):
@@ -64,6 +70,7 @@ class MarketplaceAccountService:
             )
             account.last_success_sync_at = datetime.now(tz=UTC)
             await self.session.commit()
+            await self._bootstrap_account_data(account)
             return account
         except IntegrityError as exc:
             await self.session.rollback()
@@ -98,3 +105,26 @@ class MarketplaceAccountService:
         await self.repo.disable(account)
         await self.session.commit()
         return True
+
+    async def _bootstrap_account_data(self, account: MarketplaceAccount) -> None:
+        settings = get_settings()
+        try:
+            await ProductSyncService(self.session, self.cipher).sync_account_products(account)
+        except Exception:
+            logger.exception("initial_product_sync_failed", extra={"account_id": account.id})
+            await self.session.rollback()
+        try:
+            await HistoryBackfillService(
+                self.session,
+                self.cipher,
+                chunk_days=settings.backfill_chunk_days,
+            ).schedule_initial(
+                account,
+                days=settings.backfill_default_days,
+            )
+        except Exception:
+            logger.exception(
+                "initial_history_backfill_schedule_failed",
+                extra={"account_id": account.id},
+            )
+            await self.session.rollback()

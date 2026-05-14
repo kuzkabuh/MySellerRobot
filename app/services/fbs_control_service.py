@@ -26,7 +26,10 @@ class FbsControlService:
         risks = await self.collect_deadline_risks()
         created = 0
         for order in risks:
-            key = f"fbs_deadline:{order.id}:{order.deadline_at:%Y%m%d%H%M}"
+            deadline = order.processing_deadline_at or order.deadline_at
+            if deadline is None:
+                continue
+            key = f"fbs_deadline:{order.id}:{deadline:%Y%m%d%H%M}"
             exists = await self._alert_exists(key)
             if exists:
                 continue
@@ -50,13 +53,15 @@ class FbsControlService:
     def format_deadline_alert(self, orders: list[Order]) -> str:
         if not orders:
             return "FBS-заказов с риском просрочки нет."
-        lines = ["🚨 Риск просрочки FBS", ""]
+        lines = ["🚨 Риск просрочки FBS/rFBS", ""]
         for order in orders[:10]:
-            deadline = order.deadline_at.astimezone(UTC) if order.deadline_at else None
+            raw_deadline = order.processing_deadline_at or order.deadline_at
+            deadline = raw_deadline.astimezone(UTC) if raw_deadline else None
             deadline_text = deadline.strftime("%d.%m.%Y %H:%M") if deadline else "н/д"
+            sale_model = order.sale_model or "FBS"
             lines.append(
-                f"{order.marketplace.value}: заказ {order.order_external_id}, "
-                f"обработать до {deadline_text}"
+                f"{order.marketplace.value}: {sale_model} заказ "
+                f"{order.order_external_id}, обработать до {deadline_text}"
             )
         if len(orders) > 10:
             lines.append(f"И ещё заказов: {len(orders) - 10}")

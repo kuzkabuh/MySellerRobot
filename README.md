@@ -58,6 +58,32 @@ Telegram-бот для селлеров Wildberries и Ozon. Главная ид
 - добавлен `FinanceService` для нормализованных финансовых строк и фактических `ProfitSnapshot`;
 - ARQ cron-задачи настроены для polling заказов, ежедневных отчётов, FBS-контроля и остатков.
 
+## Технический рефакторинг после этапов 0-2 итерации 2
+
+Проведена диагностика запуска и упаковки проекта с настройкой `setuptools`:
+
+```toml
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+namespaces = false
+```
+
+Что исправлено:
+
+- добавлен пакетный маркер `app/utils/__init__.py`, чтобы все внутренние Python-пакеты
+  корректно находились без namespace packages;
+- добавлены фабрики `create_bot`, `create_storage`, `create_dispatcher` для безопасных smoke-тестов
+  Telegram-бота без запуска polling;
+- расчёт плановой прибыли вынесен в `OrderProfitService`, теперь онлайн-заказы и исторический
+  backfill используют один публичный сервис;
+- настройки исторической загрузки вынесены в ENV: `BACKFILL_DEFAULT_DAYS`,
+  `BACKFILL_CHUNK_DAYS`;
+- worker-задача исторической синхронизации приведена к единым абсолютным импортам и отправляет
+  пользователю сообщение о неуспешном завершении задачи;
+- добавлены smoke-тесты для обнаружения пакета `app`, FastAPI factory, aiogram Dispatcher,
+  worker settings и backfill-настроек.
+
 ## Почему arq
 
 Для фоновых задач выбран `arq`, потому что проект асинхронный: aiogram, FastAPI, httpx и клиенты маркетплейсов работают через async I/O. `arq` использует Redis, проще Celery для async-кода, поддерживает retries/job timeout и хорошо подходит для polling-задач: новые заказы, остатки, FBS-дедлайны, ежедневные отчёты. Celery мощнее для сложных distributed workflow, но в этом MVP дал бы больше инфраструктурной тяжести и синхронных обёрток.
@@ -212,7 +238,42 @@ make format
 - `ENCRYPTION_KEY` — Fernet key для шифрования API-ключей;
 - `APP_SECRET_KEY` — секрет защищённых service endpoints;
 - `ORDER_POLL_INTERVAL_SECONDS` — базовый интервал polling;
+- `BACKFILL_DEFAULT_DAYS` — период первичной исторической загрузки после подключения кабинета;
+- `BACKFILL_CHUNK_DAYS` — размер чанка исторической загрузки в днях;
 - `DEFAULT_TAX_RATE`, `DEFAULT_PACKAGE_COST` — значения по умолчанию.
+
+## Диагностика и эксплуатационные команды
+
+Локальные smoke-проверки:
+
+```bash
+python -c "import app; import app.utils"
+python -c "from app.core.config import get_settings; print(get_settings().app_env)"
+python -c "from app.api.main import create_app; print(create_app().title)"
+python -c "from app.bot.main import create_dispatcher; print(len(create_dispatcher().sub_routers))"
+python -c "from app.workers.settings import WorkerSettings; print(len(WorkerSettings.functions))"
+```
+
+Проверка миграций:
+
+```bash
+python -m alembic history
+python -m alembic heads
+python -m alembic upgrade head
+```
+
+Docker-проверка:
+
+```bash
+docker compose build
+docker compose run --rm api alembic upgrade head
+docker compose up -d
+docker compose ps
+docker compose logs api --tail=100
+docker compose logs bot --tail=100
+docker compose logs worker --tail=100
+curl http://localhost:8000/health
+```
 
 ## Этапы
 
@@ -312,6 +373,130 @@ TODO:
 - добавить фактическое сопоставление финансовых строк;
 - реализовать экранные разделы с пагинацией;
 - добавить больше интеграционных тестов.
+
+## Итерация 2. Этап 1: FBO + FBS + rFBS
+
+Готово:
+
+- модель заказа расширена полями `fulfillment_type`, `urgency_type`, `source_event_type`,
+  `processing_deadline_at`, `requires_seller_action`, `warehouse_type`, `delivery_schema`,
+  `raw_status`, `normalized_status`, `first_notified_at`, `last_notified_at`;
+- добавлены настройки уведомлений для FBS, rFBS, FBO и режим FBO: сразу, дайджест 30 минут,
+  только ежедневная сводка;
+- Ozon polling получает FBS/rFBS через `POST /v3/posting/fbs/list` и FBO через
+  `POST /v2/posting/fbo/list`;
+- добавлена поддержка Ozon `POST /v3/posting/fbs/unfulfilled/list` для следующих этапов
+  FBS/rFBS-контроля;
+- WB FBS использует официальный `GET /api/v3/orders/new`; FBO-события нормализуются из
+  отчётных/статистических данных как информационные события, без имитации онлайн-FBO;
+- Telegram-карточки различают срочные FBS/rFBS-заказы и справочные FBO-заказы;
+- добавлена идемпотентная очередь `fbo_digest_queue` и worker-задача `send_fbo_digests`;
+- FBS/rFBS deadline-контроль теперь опирается на `processing_deadline_at` и
+  `requires_seller_action`;
+- добавлены unit/integration tests для нормализации, политики уведомлений, FBO-дайджеста и
+  API-клиентов.
+
+Проверенные официальные источники API:
+
+- Wildberries FBS Orders: `https://dev.wildberries.ru/en/docs/openapi/orders-fbs`;
+- Ozon Seller API: `https://docs.ozon.ru/global/api/intro/`;
+- Ozon FBS methods из официальной справки включают `POST /v3/posting/fbs/list`,
+  `POST /v3/posting/fbs/get`, `POST /v3/posting/fbs/unfulfilled/list`.
+
+Команды проверки:
+
+```bash
+docker compose run --rm api alembic upgrade head
+docker compose run --rm api pytest
+docker compose run --rm api ruff check app tests migrations
+docker compose run --rm api mypy app
+```
+
+Локально без Docker:
+
+```bash
+python -m alembic upgrade head
+python -m pytest
+python -m ruff check app tests migrations
+python -m mypy app
+```
+
+## Итерация 2. Этап 2: первичная историческая синхронизация
+
+Готово:
+
+- после подключения кабинета бот проверяет ключ, синхронизирует товары и создаёт задачу
+  `INITIAL_HISTORY_BACKFILL` за последние 30 дней;
+- в карточке кабинета добавлена кнопка `🔄 Загрузить историю` с периодами 30 / 90 / 180 дней;
+- `sync_jobs` расширена полями периода, прогресса, статуса, счётчиков и JSON-метаданных;
+- добавлен сервис `HistoryBackfillService` с чанками по 7 дней, идемпотентным импортом и
+  статусами `COMPLETED`, `COMPLETED_WITH_WARNINGS`, `FAILED`, `CANCELLED`;
+- добавлен worker `process_history_backfills`, который берёт pending-задачи и присылает
+  Telegram-уведомление о завершении;
+- исторические заказы сохраняются через upsert: повторный импорт не создаёт дубли, а уточняет
+  уже сохранённые записи;
+- для импортированных заказов запускается расчёт плановой прибыли с учётом истории
+  себестоимости;
+- продажи, возвраты и финансовые строки сохраняются отдельно в `sales_events`,
+  `returns_events`, `financial_report_rows`.
+
+Что грузится:
+
+- Wildberries:
+  - FBS-заказы за период через `GET /api/v3/orders`;
+  - финансовые строки и отчётные FBO/реализации через новую ветку
+    `POST /api/finance/v1/sales-reports/detailed`;
+  - старый `GET /api/v5/supplier/reportDetailByPeriod` не используется, так как официально
+    объявлен к отключению 15 июля 2026 года.
+- Ozon:
+  - FBS/rFBS через `POST /v3/posting/fbs/list`;
+  - FBO через `POST /v2/posting/fbo/list`;
+  - возвраты через `POST /v1/returns/list`;
+  - финансовые отчёты помечаются как отдельный частичный блок, потому что часть отчётов
+    формируется асинхронно и может быть недоступна сразу.
+
+Как запустить вручную из Telegram:
+
+1. `⚙ Настройки`;
+2. `Мои кабинеты`;
+3. выбрать кабинет;
+4. `🔄 Загрузить историю`;
+5. выбрать период.
+
+Как проверить через worker:
+
+```bash
+docker compose run --rm api alembic upgrade head
+docker compose up -d worker
+docker compose run --rm api pytest
+```
+
+Локальные команды:
+
+```bash
+python -m alembic upgrade head
+python -m pytest
+python -m ruff check app tests migrations
+python -m mypy app
+```
+
+Новый порядок этапов:
+
+- Этап 0 — аудит и проектирование — выполнен.
+- Этап 1 — FBO + FBS + rFBS уведомления — выполнен.
+- Этап 2 — первичная историческая синхронизация данных — выполнен.
+- Этап 3 — Web-кабинет: каркас и авторизация.
+- Этап 4 — Главный дашборд.
+- Этап 5 — Заказы, прибыль и детальные карточки.
+- Этап 6 — MasterProduct и сравнение WB/Ozon.
+- Этап 7 — План/факт и отклонения.
+- Этап 8 — Безубыточная цена и симулятор.
+- Этап 9 — Остатки, прогноз out-of-stock и потери выручки.
+- Этап 10 — Расширенные алерты и качество данных.
+- Этап 11 — Ролевой доступ.
+- Этап 12 — AI-аналитик.
+- Этап 13 — Экспорты и финансовый раздел.
+- Этап 14 — Финальная стабилизация.
 
 ## Production checklist
 

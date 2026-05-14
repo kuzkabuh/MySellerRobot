@@ -11,7 +11,9 @@ from app.workers.tasks import (
     check_fbs_deadlines,
     check_low_stocks,
     poll_new_orders,
+    process_history_backfills,
     send_daily_reports,
+    send_fbo_digests,
 )
 
 settings = get_settings()
@@ -25,7 +27,14 @@ def _redis_settings() -> RedisSettings:
 
 
 class WorkerSettings:
-    functions = [poll_new_orders, send_daily_reports, check_fbs_deadlines, check_low_stocks]
+    functions = [
+        poll_new_orders,
+        send_daily_reports,
+        send_fbo_digests,
+        process_history_backfills,
+        check_fbs_deadlines,
+        check_low_stocks,
+    ]
     order_poll_minutes = {
         0,
         3,
@@ -54,6 +63,8 @@ class WorkerSettings:
             minute=order_poll_minutes,
         ),
         cron(send_daily_reports, hour=settings.daily_report_hour, minute=0),
+        cron(send_fbo_digests, minute={0, 30}),
+        cron(process_history_backfills, minute={2, 12, 22, 32, 42, 52}),
         cron(check_fbs_deadlines, minute={0, 15, 30, 45}),
         cron(check_low_stocks, hour={8, 14, 20}, minute=10),
     ]

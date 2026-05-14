@@ -37,6 +37,8 @@ class Settings(BaseSettings):
 
     order_poll_interval_seconds: int = 180
     daily_report_hour: int = 9
+    backfill_default_days: int = 30
+    backfill_chunk_days: int = 7
     default_tax_rate: float = 0.06
     default_package_cost: float = 0
     log_level: str = "INFO"

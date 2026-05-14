@@ -30,7 +30,32 @@ class NotificationService:
                     InlineKeyboardButton(
                         text="📦 О товаре", callback_data=f"order:{order_id}:product"
                     ),
+                    InlineKeyboardButton(
+                        text="⚙ Настройки уведомлений",
+                        callback_data="settings:notifications",
+                    ),
+                ],
+                [
                     InlineKeyboardButton(text="❌ Скрыть", callback_data="hide"),
+                ],
+            ]
+        )
+        await self.bot.send_message(telegram_id, text, reply_markup=keyboard)
+
+    async def send_fbo_digest(self, telegram_id: int, text: str) -> None:
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="📋 Открыть список заказов",
+                        callback_data="orders:fbo",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="⚙ Настройки уведомлений",
+                        callback_data="settings:notifications",
+                    )
                 ],
             ]
         )

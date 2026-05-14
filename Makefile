@@ -7,12 +7,12 @@ install:
 	pip install -e ".[dev]"
 
 lint:
-	ruff check app tests
+	ruff check app tests migrations
 	mypy app
 
 format:
-	black app tests
-	ruff check app tests --fix
+	black app tests migrations
+	ruff check app tests migrations --fix
 
 test:
 	pytest

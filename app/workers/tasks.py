@@ -14,8 +14,11 @@ from sqlalchemy.orm import selectinload
 from app.core.config import get_settings
 from app.core.db import AsyncSessionFactory
 from app.models.domain import MarketplaceAccount, User
+from app.repositories.sync_jobs import SyncJobRepository
 from app.services.daily_report_service import DailyReportService
+from app.services.fbo_digest_service import FboDigestService
 from app.services.fbs_control_service import FbsControlService
+from app.services.history_backfill_service import BackfillCounters, HistoryBackfillService
 from app.services.notification_service import NotificationService
 from app.services.order_processing_service import OrderProcessingService
 from app.services.stock_service import StockService
@@ -75,6 +78,26 @@ async def check_fbs_deadlines(ctx: dict[str, Any]) -> None:
         logger.info("fbs_deadline_alerts_created", extra={"created": created})
 
 
+async def send_fbo_digests(ctx: dict[str, Any]) -> None:
+    settings = get_settings()
+    bot = Bot(settings.bot_token.get_secret_value())
+    notifier = NotificationService(bot)
+    async with AsyncSessionFactory() as session:
+        service = FboDigestService(session)
+        notifications = await service.collect_pending()
+        for notification in notifications:
+            try:
+                await notifier.send_fbo_digest(notification.telegram_id, notification.text)
+                await service.mark_sent(notification.row_ids)
+            except Exception:
+                logger.exception(
+                    "fbo_digest_send_failed",
+                    extra={"user_id": notification.user_id},
+                )
+                await session.rollback()
+    await bot.session.close()
+
+
 async def check_low_stocks(ctx: dict[str, Any]) -> None:
     async with AsyncSessionFactory() as session:
         accounts = (
@@ -87,3 +110,39 @@ async def check_low_stocks(ctx: dict[str, Any]) -> None:
             await service.sync_account_stocks(account)
         created = await service.create_low_stock_alerts()
         logger.info("low_stock_alerts_created", extra={"created": created})
+
+
+async def process_history_backfills(ctx: dict[str, Any]) -> None:
+    settings = get_settings()
+    bot = Bot(settings.bot_token.get_secret_value())
+    async with AsyncSessionFactory() as session:
+        jobs = await SyncJobRepository(session).pending_history_jobs(limit=3)
+        for job in jobs:
+            try:
+                service = HistoryBackfillService(session)
+                counters = await service.run_job(job.id)
+                refreshed_job = await SyncJobRepository(session).get(job.id)
+                user = (
+                    await session.execute(select(User).where(User.id == job.user_id))
+                ).scalar_one_or_none()
+                if user and refreshed_job:
+                    await bot.send_message(
+                        user.telegram_id,
+                        service.format_completion_message(refreshed_job, counters),
+                    )
+            except Exception:
+                logger.exception("history_backfill_worker_failed", extra={"job_id": job.id})
+                await session.rollback()
+                refreshed_job = await SyncJobRepository(session).get(job.id)
+                user = (
+                    await session.execute(select(User).where(User.id == job.user_id))
+                ).scalar_one_or_none()
+                if user and refreshed_job:
+                    await bot.send_message(
+                        user.telegram_id,
+                        HistoryBackfillService.format_completion_message(
+                            refreshed_job,
+                            BackfillCounters(),
+                        ),
+                    )
+    await bot.session.close()

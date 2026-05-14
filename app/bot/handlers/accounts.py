@@ -12,6 +12,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 from app.bot.keyboards.main import (
     account_actions,
+    account_history_periods,
     accounts_list_menu,
     accounts_menu,
     back_to_settings,
@@ -27,6 +28,7 @@ from app.services.account_service import (
     CreateAccountCommand,
     MarketplaceAccountService,
 )
+from app.services.history_backfill_service import HistoryBackfillService
 
 router = Router(name="accounts")
 logger = logging.getLogger(__name__)
@@ -173,6 +175,19 @@ async def account_action_handler(callback: CallbackQuery) -> None:
             return
         accounts = await service.list_accounts(user.id)
         account = next((item for item in accounts if item.id == account_id), None)
+        if action.startswith("history_") and account is not None:
+            days = int(action.removeprefix("history_"))
+            job = await HistoryBackfillService(session).schedule_manual(account, days=days)
+            await callback.answer("Задача загрузки истории создана")
+            await _edit_or_answer(
+                callback,
+                "🔄 Загрузка истории запущена.\n\n"
+                f"Период: последние {days} дней.\n"
+                f"Задача: #{job.id}.\n\n"
+                "Когда данные будут готовы, бот сообщит об этом.",
+                account_actions(account.id, account.is_active),
+            )
+            return
     if account is None:
         await callback.answer("Кабинет не найден", show_alert=True)
         return
@@ -181,6 +196,12 @@ async def account_action_handler(callback: CallbackQuery) -> None:
             callback,
             f"Удалить кабинет «{account.name}»?\n\nAPI-ключи будут отключены в боте.",
             confirm_delete_account(account.id),
+        )
+    elif action == "history":
+        await _edit_or_answer(
+            callback,
+            "Выберите период исторической загрузки.",
+            account_history_periods(account.id),
         )
     else:
         await _edit_or_answer(
@@ -224,9 +245,11 @@ async def _connect_account(
             )
         await state.clear()
         await message.answer(
-            "Кабинет подключён.\n\n"
+            "✅ Кабинет подключён.\n\n"
             f"{_format_account_card(account)}\n\n"
-            "Теперь можно синхронизировать товары и загрузить себестоимость.",
+            "Начинаю первичную загрузку заказов, продаж и аналитики за последние 30 дней.\n"
+            "Когда данные будут готовы, бот сообщит об этом.\n\n"
+            "Теперь можно загрузить себестоимость.",
             reply_markup=accounts_menu(),
         )
     except AccountConnectionError as exc:

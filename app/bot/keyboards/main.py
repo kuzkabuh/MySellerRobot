@@ -87,6 +87,14 @@ def account_actions(account_id: int, is_active: bool) -> InlineKeyboardMarkup:
         buttons.append(
             [
                 InlineKeyboardButton(
+                    text="🔄 Загрузить историю",
+                    callback_data=f"account:{account_id}:history",
+                )
+            ]
+        )
+        buttons.append(
+            [
+                InlineKeyboardButton(
                     text="Удалить кабинет",
                     callback_data=f"account:{account_id}:delete_confirm",
                 )
@@ -94,6 +102,32 @@ def account_actions(account_id: int, is_active: bool) -> InlineKeyboardMarkup:
         )
     buttons.append([InlineKeyboardButton(text="Назад", callback_data="accounts")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def account_history_periods(account_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Последние 30 дней",
+                    callback_data=f"account:{account_id}:history_30",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Последние 90 дней",
+                    callback_data=f"account:{account_id}:history_90",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Последние 180 дней",
+                    callback_data=f"account:{account_id}:history_180",
+                )
+            ],
+            [InlineKeyboardButton(text="Назад", callback_data=f"account:{account_id}:view")],
+        ]
+    )
 
 
 def confirm_delete_account(account_id: int) -> InlineKeyboardMarkup:

@@ -9,7 +9,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.models.enums import Marketplace, SaleModel
+from app.models.enums import Marketplace, SaleModel, SourceEventType, UrgencyType
 
 
 class NormalizedOrderItem(BaseModel):
@@ -36,8 +36,17 @@ class NormalizedOrder(BaseModel):
     srid: str | None = None
     order_date: datetime
     sale_model: SaleModel | None = None
+    fulfillment_type: str | None = None
+    urgency_type: UrgencyType | None = None
+    source_event_type: SourceEventType | None = None
     status: str
+    raw_status: str | None = None
+    normalized_status: str | None = None
     warehouse: str | None = None
+    warehouse_type: str | None = None
+    delivery_schema: str | None = None
     deadline_at: datetime | None = None
+    processing_deadline_at: datetime | None = None
+    requires_seller_action: bool = False
     items: list[NormalizedOrderItem]
     raw_payload: dict[str, Any] = Field(default_factory=dict)

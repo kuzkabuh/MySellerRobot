@@ -31,10 +31,13 @@ from app.models.enums import (
     AccountStatus,
     AlertType,
     CalculationType,
+    FboNotificationMode,
     Marketplace,
     NotificationType,
     SaleModel,
+    SourceEventType,
     SyncJobStatus,
+    UrgencyType,
     UserStatus,
 )
 
@@ -162,9 +165,22 @@ class Order(TimestampMixin, Base):
     order_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     event_received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     sale_model: Mapped[SaleModel | None] = mapped_column(Enum(SaleModel))
+    fulfillment_type: Mapped[str | None] = mapped_column(String(64))
+    urgency_type: Mapped[UrgencyType | None] = mapped_column(Enum(UrgencyType))
+    source_event_type: Mapped[SourceEventType | None] = mapped_column(Enum(SourceEventType))
     status: Mapped[str] = mapped_column(String(128), index=True)
+    raw_status: Mapped[str | None] = mapped_column(String(128), index=True)
+    normalized_status: Mapped[str | None] = mapped_column(String(128), index=True)
     warehouse: Mapped[str | None] = mapped_column(String(255))
+    warehouse_type: Mapped[str | None] = mapped_column(String(128))
+    delivery_schema: Mapped[str | None] = mapped_column(String(128))
     deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    processing_deadline_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True
+    )
+    requires_seller_action: Mapped[bool] = mapped_column(Boolean, default=False)
+    first_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     raw_payload: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
 
     items: Mapped[list["OrderItem"]] = relationship(back_populates="order")
@@ -330,6 +346,27 @@ class NotificationSetting(TimestampMixin, Base):
     settings: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
 
 
+class FboDigestQueue(TimestampMixin, Base):
+    __tablename__ = "fbo_digest_queue"
+    __table_args__ = (
+        UniqueConstraint("user_id", "order_id", name="uq_fbo_digest_user_order"),
+        Index("ix_fbo_digest_user_sent", "user_id", "sent_at"),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"), index=True)
+    marketplace: Mapped[Marketplace] = mapped_column(Enum(Marketplace), index=True)
+    revenue: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    estimated_profit: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    queued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    mode: Mapped[FboNotificationMode] = mapped_column(
+        Enum(FboNotificationMode),
+        default=FboNotificationMode.DIGEST_30_MIN,
+    )
+
+
 class AlertRule(TimestampMixin, Base):
     __tablename__ = "alert_rules"
     __table_args__ = (UniqueConstraint("user_id", "marketplace_account_id", "alert_type"),)
@@ -385,15 +422,25 @@ class SyncJob(TimestampMixin, Base):
     marketplace_account_id: Mapped[int | None] = mapped_column(
         ForeignKey("marketplace_accounts.id")
     )
+    marketplace: Mapped[Marketplace | None] = mapped_column(Enum(Marketplace), index=True)
     job_type: Mapped[str] = mapped_column(String(128), index=True)
+    date_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    date_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     status: Mapped[SyncJobStatus] = mapped_column(
         Enum(SyncJobStatus), default=SyncJobStatus.PENDING
     )
+    progress_percent: Mapped[int] = mapped_column(Integer, default=0)
+    processed_chunks: Mapped[int] = mapped_column(Integer, default=0)
+    total_chunks: Mapped[int] = mapped_column(Integer, default=0)
+    records_loaded: Mapped[int] = mapped_column(Integer, default=0)
+    records_skipped: Mapped[int] = mapped_column(Integer, default=0)
+    records_failed: Mapped[int] = mapped_column(Integer, default=0)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error_message: Mapped[str | None] = mapped_column(Text)
     retries: Mapped[int] = mapped_column(Integer, default=0)
     payload: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
+    job_metadata: Mapped[dict[str, Any]] = mapped_column("metadata", JsonType, default=dict)
 
 
 class ApiRequestLog(TimestampMixin, Base):

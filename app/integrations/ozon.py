@@ -9,7 +9,7 @@ from typing import Any, cast
 
 from app.core.config import get_settings
 from app.integrations.base import AsyncApiClient
-from app.models.enums import Marketplace, SaleModel
+from app.models.enums import Marketplace, SaleModel, SourceEventType, UrgencyType
 from app.schemas.orders import NormalizedOrder, NormalizedOrderItem
 from app.schemas.products import ProductUpsert
 
@@ -83,6 +83,56 @@ class OzonClient:
             ),
         )
 
+    async def get_fbs_unfulfilled(
+        self,
+        cutoff_from: datetime,
+        cutoff_to: datetime,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        return cast(
+            dict[str, Any],
+            await self.client.request(
+                "POST",
+                "/v3/posting/fbs/unfulfilled/list",
+                headers=self.headers,
+                json={
+                    "dir": "ASC",
+                    "filter": {
+                        "cutoff_from": cutoff_from.isoformat(),
+                        "cutoff_to": cutoff_to.isoformat(),
+                    },
+                    "limit": limit,
+                    "offset": offset,
+                },
+            ),
+        )
+
+    async def get_fbo_postings(
+        self,
+        since: datetime,
+        to: datetime,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        return cast(
+            dict[str, Any],
+            await self.client.request(
+                "POST",
+                "/v2/posting/fbo/list",
+                headers=self.headers,
+                json={
+                    "dir": "ASC",
+                    "filter": {"since": since.isoformat(), "to": to.isoformat()},
+                    "limit": limit,
+                    "offset": offset,
+                    "with": {"analytics_data": True, "financial_data": True},
+                },
+            ),
+        )
+
     async def get_product_list(self, last_id: str = "", limit: int = 100) -> dict[str, Any]:
         return cast(
             dict[str, Any],
@@ -109,14 +159,27 @@ class OzonClient:
             ),
         )
 
-    async def get_returns(self, last_id: int = 0, limit: int = 100) -> dict[str, Any]:
+    async def get_returns(
+        self,
+        last_id: int = 0,
+        limit: int = 100,
+        *,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
+    ) -> dict[str, Any]:
+        filter_payload: dict[str, Any] = {}
+        if date_from and date_to:
+            filter_payload["date"] = {
+                "from": date_from.isoformat(),
+                "to": date_to.isoformat(),
+            }
         return cast(
             dict[str, Any],
             await self.client.request(
                 "POST",
                 "/v1/returns/list",
                 headers=self.headers,
-                json={"filter": {}, "last_id": last_id, "limit": limit},
+                json={"filter": filter_payload, "last_id": last_id, "limit": limit},
             ),
         )
 
@@ -139,17 +202,75 @@ class OzonClient:
         )
 
     def normalize_fbs_posting(self, payload: dict[str, Any]) -> NormalizedOrder:
+        sale_model = self._detect_fbs_sale_model(payload)
         created = payload.get("in_process_at") or payload.get("shipment_date")
         order_date = (
             datetime.fromisoformat(created.replace("Z", "+00:00"))
             if created
             else datetime.now(tz=UTC)
         )
+        items = self._normalize_products(payload)
+        return NormalizedOrder(
+            marketplace=Marketplace.OZON,
+            order_external_id=str(payload["posting_number"]),
+            posting_number=payload.get("posting_number"),
+            order_date=order_date,
+            sale_model=sale_model,
+            fulfillment_type=sale_model.value,
+            urgency_type=UrgencyType.ACTION_REQUIRED,
+            source_event_type=SourceEventType.POSTING_EVENT,
+            status=payload.get("status", "unknown"),
+            raw_status=payload.get("status", "unknown"),
+            normalized_status=self._normalize_status(payload.get("status")),
+            warehouse=payload.get("delivery_method", {}).get("warehouse"),
+            warehouse_type="seller",
+            delivery_schema=sale_model.value,
+            deadline_at=self._parse_dt(payload.get("shipment_date")),
+            processing_deadline_at=self._parse_dt(payload.get("shipment_date")),
+            requires_seller_action=True,
+            items=items,
+            raw_payload=payload,
+        )
+
+    def normalize_fbo_posting(self, payload: dict[str, Any]) -> NormalizedOrder:
+        created = (
+            payload.get("in_process_at")
+            or payload.get("created_at")
+            or payload.get("shipment_date")
+        )
+        order_date = (
+            datetime.fromisoformat(created.replace("Z", "+00:00"))
+            if created
+            else datetime.now(tz=UTC)
+        )
+        items = self._normalize_products(payload)
+        return NormalizedOrder(
+            marketplace=Marketplace.OZON,
+            order_external_id=str(payload["posting_number"]),
+            posting_number=payload.get("posting_number"),
+            order_date=order_date,
+            sale_model=SaleModel.FBO,
+            fulfillment_type="FBO",
+            urgency_type=UrgencyType.INFORMATIONAL,
+            source_event_type=SourceEventType.POSTING_EVENT,
+            status=payload.get("status", "unknown"),
+            raw_status=payload.get("status", "unknown"),
+            normalized_status=self._normalize_status(payload.get("status")),
+            warehouse=payload.get("analytics_data", {}).get("warehouse_name"),
+            warehouse_type="marketplace",
+            delivery_schema="FBO",
+            requires_seller_action=False,
+            items=items,
+            raw_payload=payload,
+        )
+
+    def _normalize_products(self, payload: dict[str, Any]) -> list[NormalizedOrderItem]:
         items: list[NormalizedOrderItem] = []
-        financial_products = {
-            str(item.get("product_id") or item.get("offer_id")): item
-            for item in payload.get("financial_data", {}).get("products", [])
-        }
+        financial_products: dict[str, dict[str, Any]] = {}
+        for item in payload.get("financial_data", {}).get("products", []):
+            for field in ["product_id", "offer_id", "sku"]:
+                if item.get(field):
+                    financial_products[str(item[field])] = item
         for product in payload.get("products", []):
             key = str(product.get("sku") or product.get("offer_id") or product.get("product_id"))
             finance = financial_products.get(key, {})
@@ -171,24 +292,31 @@ class OzonClient:
                     raw_payload=product,
                 )
             )
-        return NormalizedOrder(
-            marketplace=Marketplace.OZON,
-            order_external_id=str(payload["posting_number"]),
-            posting_number=payload.get("posting_number"),
-            order_date=order_date,
-            sale_model=SaleModel.FBS,
-            status=payload.get("status", "unknown"),
-            warehouse=payload.get("delivery_method", {}).get("warehouse"),
-            deadline_at=self._parse_dt(payload.get("shipment_date")),
-            items=items,
-            raw_payload=payload,
-        )
+        return items
 
     @staticmethod
     def _parse_dt(value: str | None) -> datetime | None:
         if not value:
             return None
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+    @staticmethod
+    def _normalize_status(value: str | None) -> str:
+        return (value or "unknown").lower()
+
+    @staticmethod
+    def _detect_fbs_sale_model(payload: dict[str, Any]) -> SaleModel:
+        delivery_method = payload.get("delivery_method") or {}
+        schema = str(
+            payload.get("delivery_schema")
+            or payload.get("schema")
+            or delivery_method.get("tpl_provider")
+            or delivery_method.get("provider_type")
+            or ""
+        ).lower()
+        if "rfbs" in schema or "real" in schema:
+            return SaleModel.RFBS
+        return SaleModel.FBS
 
     def normalize_product(
         self,
