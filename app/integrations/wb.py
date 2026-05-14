@@ -11,6 +11,7 @@ from app.core.config import get_settings
 from app.integrations.base import AsyncApiClient
 from app.models.enums import Marketplace, SaleModel
 from app.schemas.orders import NormalizedOrder, NormalizedOrderItem
+from app.schemas.products import ProductUpsert
 
 
 class WildberriesClient:
@@ -19,6 +20,7 @@ class WildberriesClient:
     def __init__(self, api_key: str) -> None:
         settings = get_settings()
         self.api_key = api_key
+        self.common = AsyncApiClient(settings.wb_base_common_url)
         self.marketplace = AsyncApiClient(settings.wb_base_marketplace_url)
         self.content = AsyncApiClient(settings.wb_base_content_url)
         self.analytics = AsyncApiClient(settings.wb_base_analytics_url)
@@ -27,6 +29,10 @@ class WildberriesClient:
     @property
     def headers(self) -> dict[str, str]:
         return {"Authorization": self.api_key}
+
+    async def check_connection(self) -> bool:
+        await self.common.request("GET", "/ping", headers=self.headers)
+        return True
 
     async def get_new_fbs_orders(self) -> list[dict[str, Any]]:
         data = await self.marketplace.request("GET", "/api/v3/orders/new", headers=self.headers)
@@ -123,4 +129,30 @@ class WildberriesClient:
             warehouse=str(payload.get("warehouseId") or payload.get("officeId") or ""),
             items=[item],
             raw_payload=payload,
+        )
+
+    def normalize_card_product(
+        self,
+        *,
+        payload: dict[str, Any],
+        user_id: int,
+        account_id: int,
+    ) -> ProductUpsert:
+        nm_id = str(payload.get("nmID") or payload.get("nmId") or "")
+        photos = payload.get("photos") or []
+        image_url = None
+        if photos and isinstance(photos[0], dict):
+            image_url = photos[0].get("big") or photos[0].get("c516x688")
+        return ProductUpsert(
+            user_id=user_id,
+            marketplace_account_id=account_id,
+            marketplace=Marketplace.WB,
+            external_product_id=nm_id,
+            seller_article=payload.get("vendorCode"),
+            marketplace_article=nm_id,
+            title=payload.get("title"),
+            brand=payload.get("brand"),
+            image_url=image_url,
+            category=payload.get("subjectName") or payload.get("object"),
+            is_active=not bool(payload.get("isDeleted")),
         )

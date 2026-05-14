@@ -6,9 +6,25 @@ updated: 2026-05-14
 from datetime import date
 from decimal import Decimal
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.repositories.orders import OrderRepository
+
 
 class DailyReportService:
     """Build compact Russian daily reports."""
+
+    def __init__(self, session: AsyncSession | None = None) -> None:
+        self.session = session
+
+    async def build_payload(
+        self,
+        user_id: int,
+        report_date: date,
+    ) -> dict[str, dict[str, Decimal | int]]:
+        if self.session is None:
+            raise RuntimeError("Для построения отчёта нужна DB-сессия")
+        return await OrderRepository(self.session).daily_marketplace_summary(user_id, report_date)
 
     def format_report(self, report_date: date, payload: dict[str, dict[str, Decimal | int]]) -> str:
         lines = [f"📊 Итоги за {report_date:%d.%m.%Y}", ""]
@@ -38,3 +54,8 @@ class DailyReportService:
             ]
         )
         return "\n".join(lines)
+
+    def format_today_summary(self, payload: dict[str, dict[str, Decimal | int]]) -> str:
+        if not payload:
+            return "📊 За сегодня пока нет заказов."
+        return self.format_report(date.today(), payload).replace("Итоги за", "Сегодня на")

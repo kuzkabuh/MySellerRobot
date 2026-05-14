@@ -26,6 +26,17 @@ async def test_wb_get_new_fbs_orders(httpx_mock: HTTPXMock) -> None:
 
 
 @pytest.mark.asyncio
+async def test_wb_check_connection_uses_common_ping(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(
+        method="GET",
+        url="https://common-api.wildberries.ru/ping",
+        json={"Status": "OK"},
+    )
+
+    assert await WildberriesClient("token").check_connection()
+
+
+@pytest.mark.asyncio
 async def test_ozon_get_fbs_postings(httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
         method="POST",
@@ -39,3 +50,14 @@ async def test_ozon_get_fbs_postings(httpx_mock: HTTPXMock) -> None:
     )
 
     assert data["result"]["postings"][0]["posting_number"] == "123"
+
+
+@pytest.mark.asyncio
+async def test_ozon_check_connection_uses_product_list(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api-seller.ozon.ru/v3/product/list",
+        json={"result": {"items": []}},
+    )
+
+    assert await OzonClient("client", "key").check_connection()

@@ -3,6 +3,7 @@ description: ARQ worker configuration.
 updated: 2026-05-14
 """
 
+from arq import cron
 from arq.connections import RedisSettings
 
 from app.core.config import get_settings
@@ -25,6 +26,37 @@ def _redis_settings() -> RedisSettings:
 
 class WorkerSettings:
     functions = [poll_new_orders, send_daily_reports, check_fbs_deadlines, check_low_stocks]
+    order_poll_minutes = {
+        0,
+        3,
+        6,
+        9,
+        12,
+        15,
+        18,
+        21,
+        24,
+        27,
+        30,
+        33,
+        36,
+        39,
+        42,
+        45,
+        48,
+        51,
+        54,
+        57,
+    }
+    cron_jobs = [
+        cron(
+            poll_new_orders,
+            minute=order_poll_minutes,
+        ),
+        cron(send_daily_reports, hour=settings.daily_report_hour, minute=0),
+        cron(check_fbs_deadlines, minute={0, 15, 30, 45}),
+        cron(check_low_stocks, hour={8, 14, 20}, minute=10),
+    ]
     redis_settings = _redis_settings()
     max_jobs = 10
     job_timeout = 300

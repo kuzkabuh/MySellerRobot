@@ -4,8 +4,7 @@ updated: 2026-05-14
 """
 
 import logging
-from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from datetime import date, timedelta
 from typing import Any
 
 from aiogram import Bot
@@ -14,16 +13,12 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
 from app.core.db import AsyncSessionFactory
-from app.core.security import TokenCipher
-from app.integrations.ozon import OzonClient
-from app.integrations.wb import WildberriesClient
-from app.models.domain import MarketplaceAccount
-from app.models.enums import Marketplace
-from app.repositories.orders import OrderRepository
-from app.schemas.profit import CostInput, ProfitInput
-from app.services.message_formatter import MessageFormatter
+from app.models.domain import MarketplaceAccount, User
+from app.services.daily_report_service import DailyReportService
+from app.services.fbs_control_service import FbsControlService
 from app.services.notification_service import NotificationService
-from app.services.profit_calculator import ProfitCalculator
+from app.services.order_processing_service import OrderProcessingService
+from app.services.stock_service import StockService
 
 logger = logging.getLogger(__name__)
 
@@ -32,9 +27,6 @@ async def poll_new_orders(ctx: dict[str, Any]) -> None:
     """Poll active marketplace accounts and store unseen orders."""
 
     settings = get_settings()
-    cipher = TokenCipher()
-    formatter = MessageFormatter()
-    calculator = ProfitCalculator()
     bot = Bot(settings.bot_token.get_secret_value())
     notifier = NotificationService(bot)
     async with AsyncSessionFactory() as session:
@@ -47,42 +39,13 @@ async def poll_new_orders(ctx: dict[str, Any]) -> None:
         ).scalars()
         for account in accounts:
             try:
-                if account.marketplace == Marketplace.WB:
-                    api_key = cipher.decrypt(account.encrypted_api_key)
-                    wb_client = WildberriesClient(api_key)
-                    raw_orders = await wb_client.get_new_fbs_orders()
-                    normalized_orders = [wb_client.normalize_fbs_order(item) for item in raw_orders]
-                else:
-                    api_key = cipher.decrypt(account.encrypted_api_key)
-                    client_id = cipher.decrypt(account.encrypted_client_id or "")
-                    ozon_client = OzonClient(client_id=client_id, api_key=api_key)
-                    now = datetime.now(tz=UTC)
-                    data = await ozon_client.get_fbs_postings(now - timedelta(minutes=30), now)
-                    normalized_orders = [
-                        ozon_client.normalize_fbs_posting(item)
-                        for item in data.get("result", {}).get("postings", [])
-                    ]
-                repo = OrderRepository(session)
-                for normalized in normalized_orders:
-                    if await repo.exists(account.id, normalized):
-                        continue
-                    order = await repo.create(account.user_id, account.id, normalized)
-                    item = normalized.items[0]
-                    profit = calculator.calculate(
-                        ProfitInput(
-                            gross_revenue=item.discounted_price,
-                            expected_payout=item.payout_amount_estimated,
-                            marketplace_commission=item.commission_estimated or Decimal("0"),
-                            logistics_cost=item.logistics_estimated or Decimal("0"),
-                            other_marketplace_costs=(
-                                item.other_marketplace_expenses_estimated or Decimal("0")
-                            ),
-                            cost=CostInput(),
-                        )
+                notifications = await OrderProcessingService(session).poll_account(account)
+                for notification in notifications:
+                    await notifier.send_new_order(
+                        notification.telegram_id,
+                        notification.text,
+                        notification.order_id,
                     )
-                    text = formatter.new_order_card(normalized, item, profit, detailed=False)
-                    await notifier.send_new_order(account.user.telegram_id, text, order.id)
-                await session.commit()
             except Exception:
                 logger.exception("marketplace_poll_failed", extra={"account_id": account.id})
                 await session.rollback()
@@ -90,12 +53,37 @@ async def poll_new_orders(ctx: dict[str, Any]) -> None:
 
 
 async def send_daily_reports(ctx: dict[str, Any]) -> None:
-    logger.info("daily_reports_task_placeholder")
+    settings = get_settings()
+    bot = Bot(settings.bot_token.get_secret_value())
+    async with AsyncSessionFactory() as session:
+        users = (
+            await session.execute(select(User).where(User.notifications_enabled.is_(True)))
+        ).scalars()
+        for user in users:
+            report_date = date.today() - timedelta(days=1)
+            service = DailyReportService(session)
+            payload = await service.build_payload(user.id, report_date)
+            if not payload:
+                continue
+            await bot.send_message(user.telegram_id, service.format_report(report_date, payload))
+    await bot.session.close()
 
 
 async def check_fbs_deadlines(ctx: dict[str, Any]) -> None:
-    logger.info("fbs_deadline_task_placeholder")
+    async with AsyncSessionFactory() as session:
+        created = await FbsControlService(session).create_deadline_alerts()
+        logger.info("fbs_deadline_alerts_created", extra={"created": created})
 
 
 async def check_low_stocks(ctx: dict[str, Any]) -> None:
-    logger.info("low_stock_task_placeholder")
+    async with AsyncSessionFactory() as session:
+        accounts = (
+            await session.execute(
+                select(MarketplaceAccount).where(MarketplaceAccount.is_active.is_(True))
+            )
+        ).scalars()
+        service = StockService(session)
+        for account in accounts:
+            await service.sync_account_stocks(account)
+        created = await service.create_low_stock_alerts()
+        logger.info("low_stock_alerts_created", extra={"created": created})

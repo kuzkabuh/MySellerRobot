@@ -1,0 +1,311 @@
+"""version: 1.0.0
+description: Telegram marketplace account connection and management handlers.
+updated: 2026-05-14
+"""
+
+import logging
+
+from aiogram import F, Router
+from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
+
+from app.bot.keyboards.main import (
+    account_actions,
+    accounts_list_menu,
+    accounts_menu,
+    back_to_settings,
+    confirm_delete_account,
+)
+from app.bot.states import ConnectOzonStates, ConnectWildberriesStates
+from app.core.db import AsyncSessionFactory
+from app.models.domain import MarketplaceAccount, User
+from app.models.enums import Marketplace
+from app.repositories.users import UserRepository
+from app.services.account_service import (
+    AccountConnectionError,
+    CreateAccountCommand,
+    MarketplaceAccountService,
+)
+
+router = Router(name="accounts")
+logger = logging.getLogger(__name__)
+
+
+@router.message(Command("cancel"))
+async def cancel_handler(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer("Действие отменено.", reply_markup=back_to_settings())
+
+
+@router.callback_query(F.data == "connect_wb")
+async def start_wb_connection(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await state.set_state(ConnectWildberriesStates.waiting_for_name)
+    await _answer_callback_message(
+        callback,
+        "Введите название кабинета Wildberries. Например: Основной WB",
+    )
+    await callback.answer()
+
+
+@router.message(ConnectWildberriesStates.waiting_for_name)
+async def wb_name_handler(message: Message, state: FSMContext) -> None:
+    name = _clean_text(message.text)
+    if not name:
+        await message.answer("Название не должно быть пустым.")
+        return
+    await state.update_data(name=name)
+    await state.set_state(ConnectWildberriesStates.waiting_for_api_key)
+    await message.answer(
+        "Теперь отправьте API-ключ Wildberries.\n\n"
+        "Нужен ключ с доступом к FBS-заказам, товарам, остаткам и отчётам. "
+        "После проверки ключ будет сохранён в зашифрованном виде."
+    )
+
+
+@router.message(ConnectWildberriesStates.waiting_for_api_key)
+async def wb_api_key_handler(message: Message, state: FSMContext) -> None:
+    api_key = _clean_text(message.text)
+    await _try_delete_sensitive_message(message)
+    if not api_key:
+        await message.answer("Ключ не должен быть пустым.")
+        return
+    data = await state.get_data()
+    await _connect_account(
+        message=message,
+        state=state,
+        marketplace=Marketplace.WB,
+        name=str(data["name"]),
+        api_key=api_key,
+    )
+
+
+@router.callback_query(F.data == "connect_ozon")
+async def start_ozon_connection(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await state.set_state(ConnectOzonStates.waiting_for_name)
+    await _answer_callback_message(
+        callback,
+        "Введите название кабинета Ozon. Например: Основной Ozon",
+    )
+    await callback.answer()
+
+
+@router.message(ConnectOzonStates.waiting_for_name)
+async def ozon_name_handler(message: Message, state: FSMContext) -> None:
+    name = _clean_text(message.text)
+    if not name:
+        await message.answer("Название не должно быть пустым.")
+        return
+    await state.update_data(name=name)
+    await state.set_state(ConnectOzonStates.waiting_for_client_id)
+    await message.answer("Отправьте Client ID из настроек Seller API в кабинете Ozon.")
+
+
+@router.message(ConnectOzonStates.waiting_for_client_id)
+async def ozon_client_id_handler(message: Message, state: FSMContext) -> None:
+    client_id = _clean_text(message.text)
+    await _try_delete_sensitive_message(message)
+    if not client_id:
+        await message.answer("Client ID не должен быть пустым.")
+        return
+    await state.update_data(client_id=client_id)
+    await state.set_state(ConnectOzonStates.waiting_for_api_key)
+    await message.answer("Теперь отправьте API key Ozon. После проверки он будет зашифрован.")
+
+
+@router.message(ConnectOzonStates.waiting_for_api_key)
+async def ozon_api_key_handler(message: Message, state: FSMContext) -> None:
+    api_key = _clean_text(message.text)
+    await _try_delete_sensitive_message(message)
+    if not api_key:
+        await message.answer("API key не должен быть пустым.")
+        return
+    data = await state.get_data()
+    await _connect_account(
+        message=message,
+        state=state,
+        marketplace=Marketplace.OZON,
+        name=str(data["name"]),
+        api_key=api_key,
+        client_id=str(data["client_id"]),
+    )
+
+
+@router.callback_query(F.data == "accounts")
+async def accounts_list_handler(callback: CallbackQuery) -> None:
+    user = await _get_or_create_user_from_callback(callback)
+    if user is None:
+        await callback.answer("Не удалось определить пользователя", show_alert=True)
+        return
+    async with AsyncSessionFactory() as session:
+        service = MarketplaceAccountService(session)
+        accounts = await service.list_accounts(user.id)
+    text = _format_accounts_list(accounts)
+    await _edit_or_answer(callback, text, accounts_list_menu(accounts))
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("account:"))
+async def account_action_handler(callback: CallbackQuery) -> None:
+    user = await _get_or_create_user_from_callback(callback)
+    if user is None:
+        await callback.answer("Не удалось определить пользователя", show_alert=True)
+        return
+    parts = (callback.data or "").split(":")
+    if len(parts) != 3 or not parts[1].isdigit():
+        await callback.answer("Некорректная команда", show_alert=True)
+        return
+    account_id = int(parts[1])
+    action = parts[2]
+    async with AsyncSessionFactory() as session:
+        service = MarketplaceAccountService(session)
+        if action == "delete":
+            deleted = await service.delete_account(user.id, account_id)
+            await callback.answer("Кабинет удалён" if deleted else "Кабинет не найден")
+            accounts = await service.list_accounts(user.id)
+            await _edit_or_answer(
+                callback,
+                _format_accounts_list(accounts),
+                accounts_list_menu(accounts),
+            )
+            return
+        accounts = await service.list_accounts(user.id)
+        account = next((item for item in accounts if item.id == account_id), None)
+    if account is None:
+        await callback.answer("Кабинет не найден", show_alert=True)
+        return
+    if action == "delete_confirm":
+        await _edit_or_answer(
+            callback,
+            f"Удалить кабинет «{account.name}»?\n\nAPI-ключи будут отключены в боте.",
+            confirm_delete_account(account.id),
+        )
+    else:
+        await _edit_or_answer(
+            callback,
+            _format_account_card(account),
+            account_actions(account.id, account.is_active),
+        )
+    await callback.answer()
+
+
+async def _connect_account(
+    *,
+    message: Message,
+    state: FSMContext,
+    marketplace: Marketplace,
+    name: str,
+    api_key: str,
+    client_id: str | None = None,
+) -> None:
+    if message.from_user is None:
+        await message.answer("Не удалось определить Telegram-пользователя.")
+        return
+    await message.answer("Проверяю подключение к маркетплейсу...")
+    try:
+        async with AsyncSessionFactory() as session:
+            user_repo = UserRepository(session)
+            user = await user_repo.get_or_create(
+                telegram_id=message.from_user.id,
+                username=message.from_user.username,
+                first_name=message.from_user.first_name,
+            )
+            service = MarketplaceAccountService(session)
+            account = await service.connect(
+                CreateAccountCommand(
+                    user_id=user.id,
+                    marketplace=marketplace,
+                    name=name,
+                    api_key=api_key,
+                    client_id=client_id,
+                )
+            )
+        await state.clear()
+        await message.answer(
+            "Кабинет подключён.\n\n"
+            f"{_format_account_card(account)}\n\n"
+            "Теперь можно синхронизировать товары и загрузить себестоимость.",
+            reply_markup=accounts_menu(),
+        )
+    except AccountConnectionError as exc:
+        logger.info("marketplace_account_connection_rejected")
+        await message.answer(str(exc), reply_markup=back_to_settings())
+    except ValueError:
+        logger.exception("token_cipher_configuration_error")
+        await message.answer(
+            "Не настроен ключ шифрования ENCRYPTION_KEY. "
+            "Сгенерируйте Fernet-ключ и обновите .env.",
+            reply_markup=back_to_settings(),
+        )
+    except Exception:
+        logger.exception("marketplace_account_connection_failed")
+        await message.answer(
+            "Не удалось подключить кабинет из-за технической ошибки. Попробуйте позже.",
+            reply_markup=back_to_settings(),
+        )
+
+
+async def _get_or_create_user_from_callback(callback: CallbackQuery) -> User | None:
+    if callback.from_user is None:
+        return None
+    async with AsyncSessionFactory() as session:
+        repo = UserRepository(session)
+        user = await repo.get_or_create(
+            telegram_id=callback.from_user.id,
+            username=callback.from_user.username,
+            first_name=callback.from_user.first_name,
+        )
+        await session.commit()
+        return user
+
+
+def _format_accounts_list(accounts: list[MarketplaceAccount]) -> str:
+    if not accounts:
+        return "У вас пока нет подключённых кабинетов."
+    lines = ["Мои кабинеты", ""]
+    for account in accounts:
+        status = "активен" if account.is_active else "отключён"
+        lines.append(f"#{account.id} — {account.marketplace.value}: {account.name} ({status})")
+    lines.append("")
+    lines.append("Чтобы открыть карточку кабинета, используйте кнопки ниже.")
+    return "\n".join(lines)
+
+
+def _format_account_card(account: MarketplaceAccount) -> str:
+    client_id = "сохранён" if account.encrypted_client_id else "не требуется"
+    return (
+        f"Маркетплейс: {account.marketplace.value}\n"
+        f"Название: {account.name}\n"
+        f"Статус: {account.status.value}\n"
+        f"Client ID: {client_id}\n"
+        "Ключ API: сохранён в зашифрованном виде"
+    )
+
+
+async def _answer_callback_message(callback: CallbackQuery, text: str) -> None:
+    message = callback.message
+    if isinstance(message, Message):
+        await message.answer(text)
+
+
+async def _edit_or_answer(
+    callback: CallbackQuery,
+    text: str,
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> None:
+    message = callback.message
+    if isinstance(message, Message):
+        await message.edit_text(text, reply_markup=reply_markup)
+
+
+def _clean_text(value: str | None) -> str:
+    return (value or "").strip()
+
+
+async def _try_delete_sensitive_message(message: Message) -> None:
+    try:
+        await message.delete()
+    except Exception:
+        logger.debug("failed_to_delete_sensitive_message")

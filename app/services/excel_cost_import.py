@@ -9,12 +9,27 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Font, PatternFill
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.worksheet import Worksheet
 
 REQUIRED_COLUMNS = [
     "Маркетплейс",
     "Кабинет",
     "Артикул продавца",
     "Артикул маркетплейса / offer_id",
+    "Себестоимость",
+    "Упаковка",
+    "Дополнительные расходы",
+    "Налог, %",
+    "Дата начала действия",
+]
+TEMPLATE_COLUMNS = [
+    "Маркетплейс",
+    "Кабинет",
+    "Артикул продавца",
+    "Артикул маркетплейса / offer_id",
+    "Название товара",
     "Себестоимость",
     "Упаковка",
     "Дополнительные расходы",
@@ -36,6 +51,15 @@ class CostImportRow:
     valid_from: datetime
 
 
+@dataclass(slots=True)
+class CostTemplateProductRow:
+    marketplace: str
+    account: str
+    seller_article: str | None
+    marketplace_article: str | None
+    title: str | None
+
+
 class ExcelCostImportService:
     """Create and parse cost history Excel files."""
 
@@ -45,8 +69,51 @@ class ExcelCostImportService:
         if sheet is None:
             raise ValueError("Не удалось создать лист Excel")
         sheet.title = "Себестоимость"
-        sheet.append(REQUIRED_COLUMNS)
-        sheet.append(["WB", "Основной WB", "SKU-001", "123456789", 520, 25, 0, 6, "2026-05-14"])
+        self._append_header(sheet)
+        sheet.append(
+            [
+                "WB",
+                "Основной WB",
+                "SKU-001",
+                "123456789",
+                "Полотенце Fresh",
+                520,
+                25,
+                0,
+                6,
+                "2026-05-14",
+            ]
+        )
+        workbook.save(path)
+        return path
+
+    def create_template_for_products(
+        self,
+        path: Path,
+        products: list[CostTemplateProductRow],
+    ) -> Path:
+        workbook = Workbook()
+        sheet = workbook.active
+        if sheet is None:
+            raise ValueError("Не удалось создать лист Excel")
+        sheet.title = "Себестоимость"
+        self._append_header(sheet)
+        for product in products:
+            sheet.append(
+                [
+                    product.marketplace,
+                    product.account,
+                    product.seller_article or "",
+                    product.marketplace_article or "",
+                    product.title or "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                ]
+            )
+        self._autosize_columns(sheet)
         workbook.save(path)
         return path
 
@@ -97,3 +164,19 @@ class ExcelCostImportService:
         if isinstance(value, datetime):
             return value
         return datetime.fromisoformat(str(value))
+
+    @staticmethod
+    def _append_header(sheet: Worksheet) -> None:
+        sheet.append(TEMPLATE_COLUMNS)
+        for cell in sheet[1]:
+            cell.font = Font(bold=True)
+            cell.fill = PatternFill("solid", fgColor="D9EAF7")
+
+    @staticmethod
+    def _autosize_columns(sheet: Worksheet) -> None:
+        for column in sheet.columns:
+            max_length = 0
+            letter = get_column_letter(column[0].column or 1)
+            for cell in column:
+                max_length = max(max_length, len(str(cell.value or "")))
+            sheet.column_dimensions[letter].width = min(max_length + 3, 45)

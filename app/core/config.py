@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
 
     wb_base_marketplace_url: str = "https://marketplace-api.wildberries.ru"
+    wb_base_common_url: str = "https://common-api.wildberries.ru"
     wb_base_content_url: str = "https://content-api.wildberries.ru"
     wb_base_analytics_url: str = "https://seller-analytics-api.wildberries.ru"
     wb_base_finance_url: str = "https://finance-api.wildberries.ru"

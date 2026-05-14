@@ -11,6 +11,7 @@ from app.core.config import get_settings
 from app.integrations.base import AsyncApiClient
 from app.models.enums import Marketplace, SaleModel
 from app.schemas.orders import NormalizedOrder, NormalizedOrderItem
+from app.schemas.products import ProductUpsert
 
 
 class OzonClient:
@@ -92,6 +93,10 @@ class OzonClient:
                 json={"filter": {"visibility": "ALL"}, "last_id": last_id, "limit": limit},
             ),
         )
+
+    async def check_connection(self) -> bool:
+        await self.get_product_list(limit=1)
+        return True
 
     async def get_product_info_stocks(self, offer_ids: list[str] | None = None) -> dict[str, Any]:
         return cast(
@@ -184,3 +189,26 @@ class OzonClient:
         if not value:
             return None
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+    def normalize_product(
+        self,
+        *,
+        payload: dict[str, Any],
+        user_id: int,
+        account_id: int,
+    ) -> ProductUpsert:
+        product_id = str(payload.get("product_id") or payload.get("id") or payload.get("sku") or "")
+        offer_id = str(payload.get("offer_id") or "")
+        return ProductUpsert(
+            user_id=user_id,
+            marketplace_account_id=account_id,
+            marketplace=Marketplace.OZON,
+            external_product_id=product_id or offer_id,
+            seller_article=offer_id or None,
+            marketplace_article=str(payload.get("sku") or product_id or ""),
+            title=payload.get("name"),
+            brand=payload.get("brand"),
+            image_url=payload.get("primary_image") or payload.get("image"),
+            category=payload.get("category_name"),
+            is_active=payload.get("visibility") != "HIDDEN",
+        )
