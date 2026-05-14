@@ -13,6 +13,7 @@ from app.models.domain import (
     FinancialReportRow,
     MarketplaceAccount,
     NotificationSetting,
+    OneTimeLoginToken,
     Order,
     OrderItem,
     Product,
@@ -25,6 +26,7 @@ from app.models.domain import (
     SubscriptionPlan,
     SyncJob,
     User,
+    UserWebSession,
 )
 
 __all__ = [
@@ -37,6 +39,7 @@ __all__ = [
     "FboDigestQueue",
     "MarketplaceAccount",
     "NotificationSetting",
+    "OneTimeLoginToken",
     "Order",
     "OrderItem",
     "Product",
@@ -49,4 +52,5 @@ __all__ = [
     "SubscriptionPlan",
     "SyncJob",
     "User",
+    "UserWebSession",
 ]

@@ -21,6 +21,9 @@ def main_menu() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(text="⚠ Контроль", callback_data="control"),
+                InlineKeyboardButton(text="🌐 Web-кабинет", callback_data="web_cabinet"),
+            ],
+            [
                 InlineKeyboardButton(text="⚙ Настройки", callback_data="settings"),
             ],
         ]

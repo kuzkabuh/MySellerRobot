@@ -15,6 +15,16 @@ def test_create_app() -> None:
     app = create_app()
 
     assert app.title == "Seller Profit Bot API"
+    assert app.version == "1.4.3"
+
+
+def test_web_routes_are_registered() -> None:
+    app = create_app()
+    paths = {route.path for route in app.routes}
+
+    assert "/web/login" in paths
+    assert "/web/" in paths
+    assert "/web/logout" in paths
 
 
 def test_app_package_discovery_includes_utility_package() -> None:

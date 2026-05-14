@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.core.logging import configure_logging
+from app.web.routes import router as web_router
 
 SESSION_DEPENDENCY = Depends(get_session)
 SETTINGS_DEPENDENCY = Depends(get_settings)
@@ -21,7 +22,8 @@ SETTINGS_DEPENDENCY = Depends(get_settings)
 def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging(settings)
-    app = FastAPI(title="Seller Profit Bot API", version="0.1.0", debug=settings.app_debug)
+    app = FastAPI(title="Seller Profit Bot API", version="1.4.3", debug=settings.app_debug)
+    app.include_router(web_router)
 
     @app.get("/health")
     async def health(session: AsyncSession = SESSION_DEPENDENCY) -> dict[str, str]:

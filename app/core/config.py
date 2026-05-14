@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     daily_report_hour: int = 9
     backfill_default_days: int = 30
     backfill_chunk_days: int = 7
+    web_base_url: str = "http://localhost:8000"
+    web_login_token_ttl_minutes: int = 10
+    web_session_ttl_hours: int = 168
     default_tax_rate: float = 0.06
     default_package_cost: float = 0
     log_level: str = "INFO"

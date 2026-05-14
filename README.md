@@ -84,6 +84,9 @@ namespaces = false
 - добавлены smoke-тесты для обнаружения пакета `app`, FastAPI factory, aiogram Dispatcher,
   worker settings и backfill-настроек.
 
+Текущая версия после Этапа 3: `1.4.3`. Версия хранится в `VERSION` и в
+`pyproject.toml`.
+
 ## Почему arq
 
 Для фоновых задач выбран `arq`, потому что проект асинхронный: aiogram, FastAPI, httpx и клиенты маркетплейсов работают через async I/O. `arq` использует Redis, проще Celery для async-кода, поддерживает retries/job timeout и хорошо подходит для polling-задач: новые заказы, остатки, FBS-дедлайны, ежедневные отчёты. Celery мощнее для сложных distributed workflow, но в этом MVP дал бы больше инфраструктурной тяжести и синхронных обёрток.
@@ -240,6 +243,9 @@ make format
 - `ORDER_POLL_INTERVAL_SECONDS` — базовый интервал polling;
 - `BACKFILL_DEFAULT_DAYS` — период первичной исторической загрузки после подключения кабинета;
 - `BACKFILL_CHUNK_DAYS` — размер чанка исторической загрузки в днях;
+- `WEB_BASE_URL` — публичный адрес API/web-сервиса для одноразовых ссылок из Telegram;
+- `WEB_LOGIN_TOKEN_TTL_MINUTES` — срок жизни одноразовой ссылки web-входа;
+- `WEB_SESSION_TTL_HOURS` — срок жизни web-сессии в cookie;
 - `DEFAULT_TAX_RATE`, `DEFAULT_PACKAGE_COST` — значения по умолчанию.
 
 ## Диагностика и эксплуатационные команды
@@ -497,6 +503,46 @@ python -m mypy app
 - Этап 12 — AI-аналитик.
 - Этап 13 — Экспорты и финансовый раздел.
 - Этап 14 — Финальная стабилизация.
+
+## Итерация 2. Этап 3: web-кабинет, каркас и авторизация
+
+Готово:
+
+- выбран быстрый MVP-подход: FastAPI routes + серверный HTML без отдельной сборки frontend;
+- добавлены таблицы `one_time_login_tokens` и `user_web_sessions`;
+- вход в web-кабинет выполняется через одноразовую ссылку из Telegram;
+- в БД хранится только SHA-256 hash одноразового токена и web-сессии;
+- одноразовая ссылка помечается использованной после входа;
+- web-сессия хранится в `HttpOnly` cookie;
+- добавлен базовый layout web-кабинета с левым меню:
+  Главная, Заказы, Прибыль, Товары, Остатки, Аналитика, Контроль, Себестоимость, Настройки;
+- добавлена базовая главная страница `/web/` с KPI за сегодня;
+- в Telegram-главное меню добавлена кнопка `🌐 Web-кабинет`;
+- добавлены smoke/unit tests для маршрутов web-кабинета и сервиса авторизации.
+
+Как проверить:
+
+```bash
+docker compose run --rm api alembic upgrade head
+docker compose up -d
+curl http://localhost:8000/health
+```
+
+Проверка входа:
+
+1. Открыть бота в Telegram.
+2. Нажать `🌐 Web-кабинет`.
+3. Перейти по одноразовой ссылке.
+4. После входа откроется `/web/`.
+
+Локальные проверки:
+
+```bash
+python -m alembic upgrade head
+python -m pytest
+python -m ruff check app tests migrations
+python -m mypy app
+```
 
 ## Production checklist
 

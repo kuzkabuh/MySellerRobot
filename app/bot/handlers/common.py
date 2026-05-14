@@ -16,6 +16,7 @@ from app.repositories.users import UserRepository
 from app.services.daily_report_service import DailyReportService
 from app.services.fbs_control_service import FbsControlService
 from app.services.message_formatter import rub
+from app.services.web_auth_service import WebAuthService
 
 router = Router(name="common")
 
@@ -119,6 +120,10 @@ async def callback_handler(callback: CallbackQuery) -> None:
         user_id = await _get_or_create_user_id(callback)
         if user_id:
             await message.answer(await _control_text(user_id))
+    elif data == "web_cabinet":
+        user_id = await _get_or_create_user_id(callback)
+        if user_id:
+            await message.answer(await _web_login_text(user_id))
     elif data == "orders":
         await message.answer("🛒 Последние заказы будут расширены пагинацией в следующем проходе.")
     elif data.startswith("connect_"):
@@ -216,3 +221,14 @@ async def _control_text(user_id: int) -> str:
     async with AsyncSessionFactory() as session:
         risks = await FbsControlService(session).collect_deadline_risks(user_id=user_id)
         return FbsControlService(session).format_deadline_alert(risks)
+
+
+async def _web_login_text(user_id: int) -> str:
+    async with AsyncSessionFactory() as session:
+        link = await WebAuthService(session).create_login_link(user_id)
+        await session.commit()
+    return (
+        "🌐 Web-кабинет готов к входу.\n\n"
+        "Ссылка одноразовая и действует ограниченное время:\n"
+        f"{link.url}"
+    )

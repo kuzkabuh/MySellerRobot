@@ -59,6 +59,8 @@ class User(TimestampMixin, Base):
     subscription_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     accounts: Mapped[list["MarketplaceAccount"]] = relationship(back_populates="user")
+    web_login_tokens: Mapped[list["OneTimeLoginToken"]] = relationship(back_populates="user")
+    web_sessions: Mapped[list["UserWebSession"]] = relationship(back_populates="user")
 
 
 class MarketplaceAccount(TimestampMixin, Base):
@@ -84,6 +86,43 @@ class MarketplaceAccount(TimestampMixin, Base):
     notification_settings: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
 
     user: Mapped[User] = relationship(back_populates="accounts")
+
+
+class OneTimeLoginToken(TimestampMixin, Base):
+    __tablename__ = "one_time_login_tokens"
+    __table_args__ = (
+        UniqueConstraint("token_hash", name="uq_one_time_login_tokens_token_hash"),
+        Index("ix_one_time_login_tokens_user_expires", "user_id", "expires_at"),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    ip_address: Mapped[str | None] = mapped_column(String(64))
+    user_agent: Mapped[str | None] = mapped_column(String(512))
+
+    user: Mapped[User] = relationship(back_populates="web_login_tokens")
+
+
+class UserWebSession(TimestampMixin, Base):
+    __tablename__ = "user_web_sessions"
+    __table_args__ = (
+        UniqueConstraint("session_hash", name="uq_user_web_sessions_session_hash"),
+        Index("ix_user_web_sessions_user_expires", "user_id", "expires_at"),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    session_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    ip_address: Mapped[str | None] = mapped_column(String(64))
+    user_agent: Mapped[str | None] = mapped_column(String(512))
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    user: Mapped[User] = relationship(back_populates="web_sessions")
 
 
 class Product(TimestampMixin, Base):
