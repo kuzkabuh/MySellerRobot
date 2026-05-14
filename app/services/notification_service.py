@@ -60,3 +60,23 @@ class NotificationService:
             ]
         )
         await self.bot.send_message(telegram_id, text, reply_markup=keyboard)
+
+    async def send_sale_completed(self, telegram_id: int, text: str) -> None:
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="💰 Экономика продажи",
+                        callback_data="profit:today",
+                    ),
+                    InlineKeyboardButton(text="📦 Товар", callback_data="products_costs_menu"),
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="🌐 Открыть в web-кабинете",
+                        callback_data="web_cabinet",
+                    )
+                ],
+            ]
+        )
+        await self.bot.send_message(telegram_id, text, reply_markup=keyboard)

@@ -51,22 +51,27 @@ class DailyReportService:
     def format_report(self, report_date: date, payload: dict[str, dict[str, Decimal | int]]) -> str:
         lines = [f"📊 Итоги за {report_date:%d.%m.%Y}", ""]
         total_revenue = Decimal("0")
+        total_sales_revenue = Decimal("0")
         total_profit = Decimal("0")
         for marketplace, data in payload.items():
             revenue = Decimal(str(data.get("revenue", 0)))
             sales_revenue = Decimal(str(data.get("sales_revenue", 0)))
             profit = Decimal(str(data.get("estimated_profit", 0)))
+            sales_profit = Decimal(str(data.get("sales_estimated_profit", 0)))
             total_revenue += revenue
+            total_sales_revenue += sales_revenue
             total_profit += profit
+            sales_label = "Выкупов" if marketplace == Marketplace.WB.value else "Завершённых продаж"
             title = self._marketplace_title(marketplace)
             lines.extend(
                 [
                     f"{title}:",
                     f"— Заказов: {data.get('orders', 0)} на {rub(revenue)}",
-                    f"— Продаж: {data.get('sales', 0)} на {rub(sales_revenue)}",
+                    f"— {sales_label}: {data.get('sales', 0)} на {rub(sales_revenue)}",
                     f"— Возвратов: {data.get('returns', 0)}",
                     f"— Отмен: {data.get('cancellations', 0)}",
-                    f"— Плановая прибыль: {rub(profit)}",
+                    f"— Плановая прибыль по заказам: {rub(profit)}",
+                    f"— Плановая прибыль по выкупам: {rub(sales_profit)}",
                     "",
                 ]
             )
@@ -74,6 +79,7 @@ class DailyReportService:
             [
                 "Итого:",
                 f"💰 Выручка по заказам: {rub(total_revenue)}",
+                f"✅ Выкуплено / завершено продаж: {rub(total_sales_revenue)}",
                 f"📈 Плановая прибыль: {rub(total_profit)}",
             ]
         )
@@ -109,6 +115,7 @@ class DailyReportService:
                 "orders": 0,
                 "sales": 0,
                 "sales_revenue": Decimal("0"),
+                "sales_estimated_profit": Decimal("0"),
                 "returns": 0,
                 "cancellations": 0,
                 "revenue": Decimal("0"),
@@ -165,17 +172,19 @@ class DailyReportService:
                 SalesEvent.marketplace,
                 func.coalesce(func.sum(SalesEvent.quantity), 0),
                 func.coalesce(func.sum(SalesEvent.amount), 0),
+                func.coalesce(func.sum(SalesEvent.estimated_profit), 0),
             )
             .where(SalesEvent.user_id == user_id)
             .where(SalesEvent.event_date >= start)
             .where(SalesEvent.event_date < end)
             .group_by(SalesEvent.marketplace)
         )
-        for marketplace, quantity, amount in result.all():
+        for marketplace, quantity, amount, estimated_profit in result.all():
             if marketplace not in payload:
                 payload[marketplace] = self._empty_payload([marketplace])[marketplace]
             payload[marketplace]["sales"] = int(quantity or 0)
             payload[marketplace]["sales_revenue"] = Decimal(str(amount or 0))
+            payload[marketplace]["sales_estimated_profit"] = Decimal(str(estimated_profit or 0))
 
     async def _fill_returns(
         self,

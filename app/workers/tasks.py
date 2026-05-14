@@ -21,6 +21,7 @@ from app.services.fbs_control_service import FbsControlService
 from app.services.history_backfill_service import BackfillCounters, HistoryBackfillService
 from app.services.notification_service import NotificationService
 from app.services.order_processing_service import OrderProcessingService
+from app.services.sales_event_sync_service import SalesEventSyncService
 from app.services.stock_service import StockService
 
 logger = logging.getLogger(__name__)
@@ -126,6 +127,54 @@ async def send_fbo_digests(ctx: dict[str, Any]) -> None:
                 logger.exception(
                     "fbo_digest_send_failed",
                     extra={"user_id": notification.user_id},
+                )
+                await session.rollback()
+    await bot.session.close()
+
+
+async def sync_sale_events(ctx: dict[str, Any]) -> None:
+    settings = get_settings()
+    bot = Bot(settings.bot_token.get_secret_value())
+    notifier = NotificationService(bot)
+    async with AsyncSessionFactory() as session:
+        result = await session.execute(
+            select(MarketplaceAccount)
+            .options(selectinload(MarketplaceAccount.user))
+            .where(MarketplaceAccount.is_active.is_(True))
+        )
+        accounts = list(result.scalars().all())
+        service = SalesEventSyncService(session)
+        for account in accounts:
+            try:
+                sync_result = await service.sync_account(account)
+                logger.info(
+                    "sale_events_sync_finished",
+                    extra={
+                        "account_id": sync_result.account_id,
+                        "marketplace": sync_result.marketplace.value,
+                        "orders_fetched": sync_result.orders_fetched,
+                        "orders_created": sync_result.orders_created,
+                        "sales_fetched": sync_result.sales_fetched,
+                        "sales_created": sync_result.sales_created,
+                        "failed": sync_result.failed,
+                    },
+                )
+            except Exception:
+                logger.exception(
+                    "sale_events_sync_failed",
+                    extra={"account_id": account.id, "marketplace": account.marketplace.value},
+                )
+                await session.rollback()
+        notifications = await service.pending_notifications(limit=100)
+        for notification in notifications:
+            try:
+                await notifier.send_sale_completed(notification.telegram_id, notification.text)
+                await service.mark_notified(notification.event_id)
+                await session.commit()
+            except Exception:
+                logger.exception(
+                    "sale_completed_notification_failed",
+                    extra={"event_id": notification.event_id},
                 )
                 await session.rollback()
     await bot.session.close()

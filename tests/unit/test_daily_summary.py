@@ -16,6 +16,7 @@ def test_summary_formats_wb_and_ozon_blocks_and_total() -> None:
             "orders": 3,
             "sales": 1,
             "sales_revenue": Decimal("1290"),
+            "sales_estimated_profit": Decimal("210"),
             "returns": 0,
             "cancellations": 0,
             "revenue": Decimal("3870"),
@@ -25,6 +26,7 @@ def test_summary_formats_wb_and_ozon_blocks_and_total() -> None:
             "orders": 4,
             "sales": 0,
             "sales_revenue": Decimal("0"),
+            "sales_estimated_profit": Decimal("0"),
             "returns": 0,
             "cancellations": 0,
             "revenue": Decimal("4404"),
@@ -36,6 +38,9 @@ def test_summary_formats_wb_and_ozon_blocks_and_total() -> None:
 
     assert "🟣 Wildberries:" in text
     assert "🔵 Ozon:" in text
+    assert "— Выкупов: 1 на 1 290 ₽" in text
+    assert "— Завершённых продаж: 0 на 0 ₽" in text
+    assert "Выкуплено / завершено продаж: 1 290 ₽" in text
     assert "Выручка по заказам: 8 274 ₽" in text
     assert "Плановая прибыль: 2 802 ₽" in text
 
@@ -46,6 +51,7 @@ def test_summary_keeps_zero_wb_block() -> None:
             "orders": 0,
             "sales": 0,
             "sales_revenue": Decimal("0"),
+            "sales_estimated_profit": Decimal("0"),
             "returns": 0,
             "cancellations": 0,
             "revenue": Decimal("0"),

@@ -3,9 +3,11 @@ description: Common Telegram command, menu, web-link, and admin handlers.
 updated: 2026-05-14
 """
 
+import logging
 from datetime import UTC, date, datetime
+from urllib.parse import urlparse
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy import func, select
@@ -18,13 +20,21 @@ from app.bot.keyboards.main import (
     notification_settings_menu,
     orders_menu,
     profit_menu,
+    sale_notification_settings_menu,
     settings_menu,
     summary_menu,
     web_cabinet_link,
 )
 from app.core.config import get_settings
 from app.core.db import AsyncSessionFactory
-from app.models.domain import Order, OrderItem, ProfitSnapshot, StockSnapshot, User
+from app.models.domain import (
+    MarketplaceAccount,
+    Order,
+    OrderItem,
+    ProfitSnapshot,
+    StockSnapshot,
+    User,
+)
 from app.models.enums import CalculationType, SaleModel
 from app.repositories.users import UserRepository
 from app.services.admin_service import AdminService
@@ -34,6 +44,7 @@ from app.services.message_formatter import rub
 from app.services.web_auth_service import WebAuthService
 
 router = Router(name="common")
+logger = logging.getLogger(__name__)
 
 
 WELCOME_TEXT = (
@@ -123,6 +134,14 @@ async def settings_handler(message: Message) -> None:
     await message.answer("⚙ Настройки", reply_markup=settings_menu())
 
 
+@router.message(F.text == "🌐 Web-кабинет")
+async def web_cabinet_text_handler(message: Message) -> None:
+    user_id = await _ensure_user(message)
+    if user_id is None:
+        return
+    await _send_web_cabinet_link(message, user_id)
+
+
 @router.callback_query()
 async def callback_handler(callback: CallbackQuery) -> None:
     data = callback.data or ""
@@ -181,11 +200,26 @@ async def callback_handler(callback: CallbackQuery) -> None:
                 _notifications_text(user),
                 reply_markup=notification_settings_menu(user.notifications_enabled),
             )
+    elif data == "sale_notifications":
+        user = await _get_or_create_user(callback)
+        if user:
+            enabled = await _sale_notifications_enabled(user.id)
+            await message.edit_text(
+                _sale_notifications_text(enabled),
+                reply_markup=sale_notification_settings_menu(enabled),
+            )
+    elif data == "sale_notifications:toggle":
+        user = await _get_or_create_user(callback)
+        if user:
+            enabled = await _toggle_sale_notifications(user.id)
+            await message.edit_text(
+                _sale_notifications_text(enabled),
+                reply_markup=sale_notification_settings_menu(enabled),
+            )
     elif data == "web_cabinet":
         user_id = await _get_or_create_user_id(callback)
         if user_id:
-            text, url = await _web_login_payload(user_id)
-            await message.answer(text, reply_markup=web_cabinet_link(url))
+            await _send_web_cabinet_link(message, user_id)
     elif data == "admin_menu" or data.startswith("admin:"):
         await _handle_admin_callback(callback, message, data)
     elif data in {"report_time", "timezone"}:
@@ -326,6 +360,49 @@ def _notifications_text(user: User) -> str:
     )
 
 
+def _sale_notifications_text(enabled: bool) -> str:
+    status = "включены" if enabled else "отключены"
+    return (
+        "✅ Уведомления о продажах и выкупах\n\n"
+        f"Сейчас уведомления о выкупах: {status}.\n\n"
+        "Бот будет присылать отдельное сообщение, когда маркетплейс зафиксирует "
+        "выкуп Wildberries или завершённую продажу Ozon."
+    )
+
+
+async def _sale_notifications_enabled(user_id: int) -> bool:
+    async with AsyncSessionFactory() as session:
+        result = await session.execute(
+            select(MarketplaceAccount).where(MarketplaceAccount.user_id == user_id)
+        )
+        accounts = list(result.scalars().all())
+        if not accounts:
+            return True
+        return all(
+            (account.notification_settings or {}).get("SALE_COMPLETED", True)
+            for account in accounts
+        )
+
+
+async def _toggle_sale_notifications(user_id: int) -> bool:
+    async with AsyncSessionFactory() as session:
+        result = await session.execute(
+            select(MarketplaceAccount).where(MarketplaceAccount.user_id == user_id)
+        )
+        accounts = list(result.scalars().all())
+        current_enabled = all(
+            (account.notification_settings or {}).get("SALE_COMPLETED", True)
+            for account in accounts
+        )
+        new_value = not current_enabled
+        for account in accounts:
+            settings = dict(account.notification_settings or {})
+            settings["SALE_COMPLETED"] = new_value
+            account.notification_settings = settings
+        await session.commit()
+        return new_value
+
+
 async def _toggle_notifications(callback: CallbackQuery) -> User | None:
     async with AsyncSessionFactory() as session:
         repo = UserRepository(session)
@@ -355,6 +432,36 @@ async def _web_login_payload(user_id: int) -> tuple[str, str]:
     )
 
 
+async def _send_web_cabinet_link(message: Message, user_id: int) -> None:
+    try:
+        text, url = await _web_login_payload(user_id)
+        if not _is_public_web_url(url):
+            await message.answer(
+                "🌐 Web-кабинет\n\n"
+                "Ссылка входа создана, но публичный адрес web-кабинета настроен некорректно.\n"
+                "Администратору нужно указать внешний HTTPS-адрес в WEB_BASE_URL "
+                "или WEB_APP_BASE_URL."
+            )
+            return
+        await message.answer(text, reply_markup=web_cabinet_link(url))
+    except Exception:
+        logger.exception("web_cabinet_link_failed", extra={"user_id": user_id})
+        await message.answer(
+            "🌐 Web-кабинет\n\n"
+            "Не удалось сформировать ссылку входа. Попробуйте ещё раз чуть позже "
+            "или напишите администратору."
+        )
+
+
+def _is_public_web_url(url: str) -> bool:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"https", "http"}:
+        return False
+    if parsed.scheme == "http" and parsed.hostname not in {"127.0.0.1", "localhost"}:
+        return False
+    return parsed.hostname not in {"127.0.0.1", "localhost"}
+
+
 async def _handle_admin_callback(callback: CallbackQuery, message: Message, data: str) -> None:
     if not _is_admin_telegram(callback.from_user.id):
         await message.answer("Админское меню доступно только администраторам.")
@@ -372,6 +479,10 @@ async def _handle_admin_callback(callback: CallbackQuery, message: Message, data
             text = await service.sync_jobs_text()
         elif data == "admin:orders":
             text = await service.order_diagnostics_text()
+        elif data == "admin:wb":
+            text = await service.wildberries_diagnostics_text()
+        elif data == "admin:events":
+            text = await service.event_diagnostics_text()
         else:
             text = await service.system_text()
     await message.answer(text, reply_markup=admin_menu())

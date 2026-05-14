@@ -9,9 +9,10 @@ from typing import Any, cast
 
 from app.core.config import get_settings
 from app.integrations.base import AsyncApiClient
-from app.models.enums import Marketplace, SaleModel, SourceEventType, UrgencyType
+from app.models.enums import Marketplace, SaleEventType, SaleModel, SourceEventType, UrgencyType
 from app.schemas.orders import NormalizedOrder, NormalizedOrderItem
 from app.schemas.products import ProductUpsert
+from app.schemas.sales import NormalizedSaleEvent
 
 
 class OzonClient:
@@ -263,6 +264,52 @@ class OzonClient:
             items=items,
             raw_payload=payload,
         )
+
+    def normalize_completed_sale_events(
+        self,
+        payload: dict[str, Any],
+        *,
+        sale_model: SaleModel,
+    ) -> list[NormalizedSaleEvent]:
+        status = str(payload.get("status") or "").lower()
+        event_date = self._parse_dt(
+            payload.get("delivering_date")
+            or payload.get("delivered_at")
+            or payload.get("shipment_date")
+            or payload.get("in_process_at")
+            or payload.get("created_at")
+        ) or datetime.now(tz=UTC)
+        posting_number = str(payload.get("posting_number") or "")
+        events: list[NormalizedSaleEvent] = []
+        for product in payload.get("products", []):
+            if not isinstance(product, dict):
+                continue
+            product_key = str(
+                product.get("sku") or product.get("offer_id") or product.get("product_id") or ""
+            )
+            amount = Decimal(str(product.get("price") or 0)) * Decimal(
+                str(product.get("quantity") or 1)
+            )
+            events.append(
+                NormalizedSaleEvent(
+                    marketplace=Marketplace.OZON,
+                    external_event_id=f"ozon-sale-{posting_number}-{product_key}",
+                    order_external_id=posting_number or None,
+                    event_type=SaleEventType.DELIVERED_TO_CUSTOMER,
+                    event_date=event_date,
+                    external_product_id=product_key or None,
+                    seller_article=product.get("offer_id"),
+                    marketplace_article=str(product.get("sku") or "") or None,
+                    title=product.get("name"),
+                    quantity=int(product.get("quantity") or 1),
+                    amount=amount,
+                    expected_payout=amount,
+                    sale_model=sale_model.value,
+                    status=status,
+                    raw_payload=payload,
+                )
+            )
+        return events
 
     def _normalize_products(self, payload: dict[str, Any]) -> list[NormalizedOrderItem]:
         items: list[NormalizedOrderItem] = []

@@ -9,9 +9,10 @@ from typing import Any, cast
 
 from app.core.config import get_settings
 from app.integrations.base import AsyncApiClient
-from app.models.enums import Marketplace, SaleModel, SourceEventType, UrgencyType
+from app.models.enums import Marketplace, SaleEventType, SaleModel, SourceEventType, UrgencyType
 from app.schemas.orders import NormalizedOrder, NormalizedOrderItem
 from app.schemas.products import ProductUpsert
+from app.schemas.sales import NormalizedSaleEvent
 
 
 class WildberriesClient:
@@ -25,6 +26,7 @@ class WildberriesClient:
         self.content = AsyncApiClient(settings.wb_base_content_url)
         self.analytics = AsyncApiClient(settings.wb_base_analytics_url)
         self.finance = AsyncApiClient(settings.wb_base_finance_url)
+        self.statistics = AsyncApiClient(settings.wb_base_statistics_url)
 
     @property
     def headers(self) -> dict[str, str]:
@@ -109,6 +111,24 @@ class WildberriesClient:
                 json=payload,
             ),
         )
+
+    async def get_supplier_orders(self, date_from: datetime) -> list[dict[str, Any]]:
+        data = await self.statistics.request(
+            "GET",
+            "/api/v1/supplier/orders",
+            headers=self.headers,
+            params={"dateFrom": date_from.isoformat(), "flag": 0},
+        )
+        return list(data) if isinstance(data, list) else []
+
+    async def get_supplier_sales(self, date_from: datetime) -> list[dict[str, Any]]:
+        data = await self.statistics.request(
+            "GET",
+            "/api/v1/supplier/sales",
+            headers=self.headers,
+            params={"dateFrom": date_from.isoformat(), "flag": 0},
+        )
+        return list(data) if isinstance(data, list) else []
 
     def normalize_fbs_order(self, payload: dict[str, Any]) -> NormalizedOrder:
         created = payload.get("createdAt")
@@ -219,6 +239,74 @@ class WildberriesClient:
             raw_payload=payload,
         )
 
+    def normalize_statistics_order(self, payload: dict[str, Any]) -> NormalizedOrder:
+        order_date = self._parse_optional_date(payload.get("date")) or datetime.now(tz=UTC)
+        nm_id = str(payload.get("nmId") or payload.get("nmID") or "")
+        revenue = Decimal(str(payload.get("finishedPrice") or payload.get("totalPrice") or 0))
+        item = NormalizedOrderItem(
+            external_product_id=nm_id,
+            seller_article=payload.get("supplierArticle"),
+            marketplace_article=nm_id,
+            title=payload.get("subject"),
+            quantity=1,
+            buyer_price=revenue,
+            seller_price=revenue,
+            discounted_price=revenue,
+            payout_amount_estimated=revenue,
+            raw_payload=payload,
+        )
+        external_id = str(
+            payload.get("srid")
+            or payload.get("odid")
+            or f"wb-stat-order-{nm_id}-{order_date.isoformat()}"
+        )
+        is_cancel = bool(payload.get("isCancel"))
+        return NormalizedOrder(
+            marketplace=Marketplace.WB,
+            order_external_id=external_id,
+            srid=str(payload.get("srid") or "") or None,
+            order_date=order_date,
+            sale_model=SaleModel.FBO,
+            fulfillment_type="FBO",
+            urgency_type=UrgencyType.INFORMATIONAL,
+            source_event_type=SourceEventType.STATISTICS_ORDER,
+            status="cancelled" if is_cancel else "statistics_order",
+            raw_status="cancelled" if is_cancel else "statistics_order",
+            normalized_status="cancelled" if is_cancel else "ordered",
+            warehouse=str(payload.get("warehouseName") or ""),
+            warehouse_type="marketplace",
+            delivery_schema="FBO",
+            requires_seller_action=False,
+            items=[item],
+            raw_payload=payload,
+        )
+
+    def normalize_supplier_sale(self, payload: dict[str, Any]) -> NormalizedSaleEvent:
+        event_date = self._parse_optional_date(payload.get("date")) or datetime.now(tz=UTC)
+        nm_id = str(payload.get("nmId") or payload.get("nmID") or "")
+        sale_id = str(
+            payload.get("saleID")
+            or payload.get("srid")
+            or f"wb-sale-{nm_id}-{event_date.isoformat()}"
+        )
+        amount = Decimal(str(payload.get("finishedPrice") or payload.get("totalPrice") or 0))
+        payout = Decimal(str(payload.get("forPay") or amount))
+        return NormalizedSaleEvent(
+            marketplace=Marketplace.WB,
+            external_event_id=f"wb-sale-{sale_id}",
+            order_external_id=str(payload.get("srid") or "") or None,
+            event_type=SaleEventType.BUYOUT,
+            event_date=event_date,
+            external_product_id=nm_id,
+            seller_article=payload.get("supplierArticle"),
+            marketplace_article=nm_id,
+            title=payload.get("subject"),
+            quantity=1,
+            amount=amount,
+            expected_payout=payout,
+            raw_payload=payload,
+        )
+
     @staticmethod
     def _parse_optional_date(value: object) -> datetime | None:
         if not value:
@@ -227,7 +315,8 @@ class WildberriesClient:
             return value
         text = str(value)
         try:
-            return datetime.fromisoformat(text.replace("Z", "+00:00"))
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
         except ValueError:
             try:
                 return datetime.strptime(text, "%d.%m.%Y").replace(tzinfo=UTC)

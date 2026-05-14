@@ -81,6 +81,11 @@ def control_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Уведомления о заказах", callback_data="notifications")],
+            [
+                InlineKeyboardButton(
+                    text="Уведомления о выкупах", callback_data="sale_notifications"
+                )
+            ],
             [InlineKeyboardButton(text="FBS/rFBS контроль", callback_data="control:fbs")],
             [InlineKeyboardButton(text="Остатки", callback_data="stocks")],
             [InlineKeyboardButton(text="Убыточные заказы", callback_data="profit:loss")],
@@ -104,6 +109,8 @@ def admin_menu() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🔄 Синхронизации", callback_data="admin:sync")],
             [InlineKeyboardButton(text="📊 Системная статистика", callback_data="admin:system")],
             [InlineKeyboardButton(text="🧪 Диагностика заказов", callback_data="admin:orders")],
+            [InlineKeyboardButton(text="🧪 Диагностика Wildberries", callback_data="admin:wb")],
+            [InlineKeyboardButton(text="🧪 Диагностика событий", callback_data="admin:events")],
             [InlineKeyboardButton(text="Назад", callback_data="back_main")],
         ]
     )
@@ -140,6 +147,16 @@ def notification_settings_menu(enabled: bool) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=text, callback_data="notifications:toggle")],
+            [InlineKeyboardButton(text="Назад", callback_data="control_menu")],
+        ]
+    )
+
+
+def sale_notification_settings_menu(enabled: bool) -> InlineKeyboardMarkup:
+    text = "Отключить уведомления о выкупах" if enabled else "Включить уведомления о выкупах"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=text, callback_data="sale_notifications:toggle")],
             [InlineKeyboardButton(text="Назад", callback_data="control_menu")],
         ]
     )

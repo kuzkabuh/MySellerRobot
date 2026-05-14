@@ -14,6 +14,7 @@ from app.workers.tasks import (
     process_history_backfills,
     send_daily_reports,
     send_fbo_digests,
+    sync_sale_events,
 )
 
 settings = get_settings()
@@ -34,6 +35,7 @@ class WorkerSettings:
         process_history_backfills,
         check_fbs_deadlines,
         check_low_stocks,
+        sync_sale_events,
     ]
     order_poll_minutes = {
         0,
@@ -64,6 +66,7 @@ class WorkerSettings:
         ),
         cron(send_daily_reports, hour=settings.daily_report_hour, minute=0),
         cron(send_fbo_digests, minute={0, 30}),
+        cron(sync_sale_events, minute={5, 20, 35, 50}),
         cron(process_history_backfills, minute={2, 12, 22, 32, 42, 52}),
         cron(check_fbs_deadlines, minute={0, 15, 30, 45}),
         cron(check_low_stocks, hour={8, 14, 20}, minute=10),

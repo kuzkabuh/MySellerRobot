@@ -178,6 +178,17 @@ class HistoryBackfillService:
         counters = BackfillCounters()
         client = WildberriesClient(self.cipher.decrypt(account.encrypted_api_key))
         try:
+            for payload in await client.get_supplier_orders(date_from):
+                if not isinstance(payload, dict):
+                    continue
+                event_date = self._parse_dt(payload.get("date"))
+                if not (date_from <= event_date < date_to):
+                    continue
+                normalized = client.normalize_statistics_order(payload)
+                created = await self._upsert_order_with_profit(account, normalized)
+                counters.orders += int(created)
+                counters.profit_items += len(normalized.items)
+                counters.skipped += int(not created)
             for payload in await client.get_fbs_orders(date_from=date_from, date_to=date_to):
                 if not isinstance(payload, dict):
                     continue
@@ -193,6 +204,29 @@ class HistoryBackfillService:
             await self.session.rollback()
 
         try:
+            for payload in await client.get_supplier_sales(date_from):
+                if not isinstance(payload, dict):
+                    continue
+                event = client.normalize_supplier_sale(payload)
+                if not (date_from <= event.event_date < date_to):
+                    continue
+                created = await self.sales.add_once(
+                    user_id=account.user_id,
+                    account_id=account.id,
+                    marketplace=Marketplace.WB,
+                    external_event_id=event.external_event_id,
+                    order_external_id=event.order_external_id,
+                    event_date=event.event_date,
+                    quantity=event.quantity,
+                    amount=event.amount,
+                    raw_payload=event.raw_payload,
+                    event_type=event.event_type,
+                    seller_article=event.seller_article,
+                    marketplace_article=event.marketplace_article,
+                    expected_payout=event.expected_payout,
+                )
+                counters.sales += int(created)
+                counters.skipped += int(not created)
             data = await client.get_sales_report_details(
                 date_from.date().isoformat(),
                 date_to.date().isoformat(),

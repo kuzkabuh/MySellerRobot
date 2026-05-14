@@ -1,15 +1,15 @@
-"""version: 1.0.0
-description: Telegram admin diagnostics for users, accounts, sync jobs, and order polling.
+"""version: 1.1.0
+description: Telegram admin diagnostics for users, accounts, sync jobs, orders, and sale events.
 updated: 2026-05-14
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.domain import MarketplaceAccount, Order, SyncJob, User
+from app.models.domain import MarketplaceAccount, Order, SalesEvent, SyncJob, User
 from app.models.enums import AccountStatus, Marketplace, SyncJobStatus
 
 
@@ -123,6 +123,74 @@ class AdminService:
             )
         return "\n".join(lines)
 
+    async def wildberries_diagnostics_text(self) -> str:
+        today = datetime.now(tz=UTC).date()
+        yesterday = today - timedelta(days=1)
+        account = (
+            await self.session.execute(
+                select(MarketplaceAccount)
+                .where(MarketplaceAccount.marketplace == Marketplace.WB)
+                .where(MarketplaceAccount.is_active.is_(True))
+                .order_by(MarketplaceAccount.id.asc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        today_orders = await self._orders_on_local_day(Marketplace.WB, today)
+        yesterday_orders = await self._orders_on_local_day(Marketplace.WB, yesterday)
+        latest = (
+            await self.session.execute(
+                select(Order)
+                .where(Order.marketplace == Marketplace.WB)
+                .order_by(Order.order_date.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        lines = ["🧪 Диагностика Wildberries", ""]
+        if account is None:
+            lines.append("Активных WB-кабинетов нет.")
+            return "\n".join(lines)
+        lines.extend(
+            [
+                f"Кабинет: {account.name}",
+                f"Последняя успешная синхронизация: {self._dt(account.last_success_sync_at)}",
+                f"Последняя ошибка: {account.last_error_message or 'нет'}",
+                f"Заказов сегодня в БД: {today_orders}",
+                f"Заказов вчера в БД: {yesterday_orders}",
+            ]
+        )
+        if latest:
+            lines.extend(
+                [
+                    "",
+                    "Последний WB-заказ в БД:",
+                    f"— дата: {self._dt(latest.order_date)}",
+                    f"— external_id: {latest.order_external_id}",
+                    f"— статус: {latest.status}",
+                ]
+            )
+        return "\n".join(lines)
+
+    async def event_diagnostics_text(self) -> str:
+        since = datetime.now(tz=UTC) - timedelta(days=1)
+        latest_wb_sale = await self._latest_sale(Marketplace.WB)
+        latest_ozon_sale = await self._latest_sale(Marketplace.OZON)
+        sent_today = await self._scalar(
+            select(func.count(SalesEvent.id)).where(SalesEvent.notification_sent_at >= since)
+        )
+        pending = await self._scalar(
+            select(func.count(SalesEvent.id)).where(SalesEvent.notification_sent_at.is_(None))
+        )
+        return "\n".join(
+            [
+                "🧪 Диагностика событий",
+                "",
+                f"Последний выкуп WB: {self._sale_line(latest_wb_sale)}",
+                f"Последняя завершённая продажа Ozon: {self._sale_line(latest_ozon_sale)}",
+                f"Уведомлений о выкупах за 24 часа: {sent_today}",
+                f"Ожидают уведомления: {pending}",
+            ]
+        )
+
     async def system_text(self) -> str:
         users = await self._scalar(select(func.count(User.id)))
         accounts = await self._scalar(
@@ -142,6 +210,34 @@ class AdminService:
                 f"Ожидающих sync-задач: {jobs_pending}",
             ]
         )
+
+    async def _orders_on_local_day(self, marketplace: Marketplace, day: date) -> int:
+        result = await self.session.execute(
+            select(func.count(Order.id))
+            .where(Order.marketplace == marketplace)
+            .where(func.date(func.timezone("Europe/Moscow", Order.order_date)) == day)
+        )
+        return int(result.scalar_one() or 0)
+
+    async def _latest_sale(self, marketplace: Marketplace) -> SalesEvent | None:
+        return (
+            await self.session.execute(
+                select(SalesEvent)
+                .where(SalesEvent.marketplace == marketplace)
+                .order_by(SalesEvent.event_date.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+    @staticmethod
+    def _dt(value: datetime | None) -> str:
+        return value.strftime("%d.%m.%Y %H:%M") if value else "нет"
+
+    @staticmethod
+    def _sale_line(value: SalesEvent | None) -> str:
+        if value is None:
+            return "нет"
+        return f"{value.event_date:%d.%m %H:%M}, {value.external_event_id}, {value.amount} ₽"
 
     async def _users_with_marketplace(self, marketplace: Marketplace) -> int:
         return await self._scalar(

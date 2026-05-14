@@ -14,3 +14,13 @@ def test_notification_type_migration_adds_order_values() -> None:
     assert "ORDER_RFBS" in text
     assert "ORDER_FBO" in text
     assert "FBO_DIGEST" in text
+
+
+def test_sales_event_migration_adds_buyout_values() -> None:
+    migration = Path("migrations/versions/20260514_0006_sales_events_buyouts.py")
+    text = migration.read_text(encoding="utf-8")
+
+    assert "SALE_COMPLETED" in text
+    assert "SALE_DIGEST" in text
+    assert "notification_sent_at" in text
+    assert "saleeventtype" in text

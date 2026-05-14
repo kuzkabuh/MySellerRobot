@@ -4,8 +4,9 @@ updated: 2026-05-14
 """
 
 from functools import lru_cache
+from typing import Any
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -32,6 +33,7 @@ class Settings(BaseSettings):
     wb_base_content_url: str = "https://content-api.wildberries.ru"
     wb_base_analytics_url: str = "https://seller-analytics-api.wildberries.ru"
     wb_base_finance_url: str = "https://finance-api.wildberries.ru"
+    wb_base_statistics_url: str = "https://statistics-api.wildberries.ru"
 
     ozon_base_url: str = "https://api-seller.ozon.ru"
 
@@ -40,11 +42,23 @@ class Settings(BaseSettings):
     backfill_default_days: int = 30
     backfill_chunk_days: int = 7
     web_base_url: str = "http://localhost:8000"
+    web_app_base_url: str | None = None
     web_login_token_ttl_minutes: int = 10
     web_session_ttl_hours: int = 168
     default_tax_rate: float = 0.06
     default_package_cost: float = 0
     log_level: str = "INFO"
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_web_base_url_alias(cls, values: Any) -> Any:
+        if (
+            isinstance(values, dict)
+            and values.get("web_app_base_url")
+            and not values.get("web_base_url")
+        ):
+            values["web_base_url"] = values["web_app_base_url"]
+        return values
 
     @property
     def admin_ids(self) -> set[int]:

@@ -34,6 +34,7 @@ from app.models.enums import (
     FboNotificationMode,
     Marketplace,
     NotificationType,
+    SaleEventType,
     SaleModel,
     SourceEventType,
     SyncJobStatus,
@@ -324,11 +325,27 @@ class SalesEvent(TimestampMixin, Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     marketplace_account_id: Mapped[int] = mapped_column(ForeignKey("marketplace_accounts.id"))
     marketplace: Mapped[Marketplace] = mapped_column(Enum(Marketplace))
+    related_order_id: Mapped[int | None] = mapped_column(
+        ForeignKey("orders.id", ondelete="SET NULL"), index=True
+    )
+    related_order_item_id: Mapped[int | None] = mapped_column(
+        ForeignKey("order_items.id", ondelete="SET NULL"), index=True
+    )
     external_event_id: Mapped[str] = mapped_column(String(255))
     order_external_id: Mapped[str | None] = mapped_column(String(255), index=True)
+    event_type: Mapped[SaleEventType] = mapped_column(
+        Enum(SaleEventType), default=SaleEventType.SALE_COMPLETED, index=True
+    )
     event_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    product_id: Mapped[int | None] = mapped_column(ForeignKey("products.id", ondelete="SET NULL"))
+    seller_article: Mapped[str | None] = mapped_column(String(255), index=True)
+    marketplace_article: Mapped[str | None] = mapped_column(String(255), index=True)
     quantity: Mapped[int] = mapped_column(Integer, default=1)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    expected_payout: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    estimated_profit: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    actual_profit: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    notification_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     raw_payload: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
 
 

@@ -84,7 +84,7 @@ namespaces = false
 - добавлены smoke-тесты для обнаружения пакета `app`, FastAPI factory, aiogram Dispatcher,
   worker settings и backfill-настроек.
 
-Текущая версия после Этапа 3.1: `1.4.4`. Версия хранится в `VERSION` и в
+Текущая версия после Этапа 3.2: `1.4.5`. Версия хранится в `VERSION` и в
 `pyproject.toml`.
 
 ## Почему arq
@@ -102,6 +102,7 @@ namespaces = false
 - `https://marketplace-api.wildberries.ru` — FBS-заказы и поставки;
 - `https://content-api.wildberries.ru` — карточки товаров;
 - `https://seller-analytics-api.wildberries.ru` — аналитика и остатки;
+- `https://statistics-api.wildberries.ru` — исторические заказы и продажи/выкупы;
 - `https://finance-api.wildberries.ru` — финансовые отчёты.
 
 Использованные/заложенные методы:
@@ -110,6 +111,8 @@ namespaces = false
 - `GET /api/v3/orders` — список сборочных заданий за период;
 - `POST /api/v3/orders/status` — статусы сборочных заданий;
 - `POST /api/marketplace/v3/orders/meta` — метаданные сборочных заданий;
+- `GET /api/v1/supplier/orders` — заказы из статистики WB для FBO/исторической сводки;
+- `GET /api/v1/supplier/sales` — продажи/выкупы WB для событий завершённой продажи;
 - `GET /api/v3/supplies`, `PATCH /api/v3/supplies/{supplyId}/deliver` — контроль поставок FBS;
 - `POST /content/v2/get/cards/list` — карточки товаров;
 - `POST /api/analytics/v1/stocks-report/wb-warehouses` — актуальный метод остатков WB-складов, заменяет старый `GET /api/v1/supplier/stocks`, который объявлен к отключению 23.06.2026;
@@ -244,6 +247,8 @@ make format
 - `BACKFILL_DEFAULT_DAYS` — период первичной исторической загрузки после подключения кабинета;
 - `BACKFILL_CHUNK_DAYS` — размер чанка исторической загрузки в днях;
 - `WEB_BASE_URL` — публичный адрес API/web-сервиса для одноразовых ссылок из Telegram;
+- `WEB_APP_BASE_URL` — альтернативное имя публичного web-адреса; если задано, используется для
+  ссылок из Telegram;
 - `WEB_LOGIN_TOKEN_TTL_MINUTES` — срок жизни одноразовой ссылки web-входа;
 - `WEB_SESSION_TTL_HOURS` — срок жизни web-сессии в cookie;
 - `DEFAULT_TAX_RATE`, `DEFAULT_PACKAGE_COST` — значения по умолчанию.
@@ -594,6 +599,89 @@ order_poll_notifications_sent
 4. `⚠ Контроль и уведомления` → `Уведомления о заказах` — позволяет включить/отключить
    оперативные уведомления.
 5. Для админа из `ADMIN_TELEGRAM_IDS` в главном меню доступно `🛠 Администрирование`.
+
+## Итерация 2. Этап 3.2: Telegram ↔ Web, WB-сводка и выкупы
+
+Готово:
+
+- исправлен сценарий `🌐 Web-кабинет`: бот обрабатывает и callback-кнопку, и текст главного меню;
+- если `WEB_BASE_URL` указывает на `localhost` или непубличный URL, бот не отправляет некликабельную
+  Telegram-кнопку, а показывает понятное сообщение для настройки публичного HTTPS-адреса;
+- WB-сводка теперь использует не только FBS-сборочные задания, но и официальный Statistics API:
+  `GET /api/v1/supplier/orders` для заказов и `GET /api/v1/supplier/sales` для продаж/выкупов;
+- исторический backfill WB также загружает статистические заказы и продажи, чтобы новый кабинет не
+  показывал пустой дашборд при наличии заказов в кабинете WB;
+- добавлена отдельная нормализованная сущность завершённой продажи в `sales_events`:
+  `BUYOUT`, `SALE_COMPLETED`, `DELIVERED_TO_CUSTOMER`;
+- добавлены уведомления о выкупах WB и завершённых продажах Ozon, отдельно от уведомлений о новых
+  заказах;
+- в `⚠ Контроль и уведомления` добавлены настройки уведомлений о выкупах;
+- сводка разделяет заказы и выкупы/завершённые продажи:
+  `Плановая прибыль по заказам` и `Плановая прибыль по выкупам`;
+- админское меню дополнено диагностикой Wildberries и диагностикой событий.
+
+Термины в проекте:
+
+- заказ — покупатель оформил заказ, событие хранится в `orders`;
+- выкуп / завершённая продажа — покупатель фактически забрал товар или маркетплейс зафиксировал
+  завершение продажи, событие хранится в `sales_events`;
+- возврат — отдельное событие в `returns_events`;
+- финансовое отражение — фактические начисления и удержания в `financial_report_rows`, они не
+  смешиваются с заказами и выкупами.
+
+Как проверить переход в web:
+
+```bash
+docker compose up -d bot api
+```
+
+1. В `.env` указать публичный HTTPS-адрес:
+   `WEB_BASE_URL=https://seller.example.com`.
+2. В Telegram нажать `🌐 Web-кабинет`.
+3. Бот должен прислать сообщение с URL-кнопкой `🔗 Открыть web-кабинет`.
+
+Важно: Telegram не принимает `localhost` в `InlineKeyboardButton(url=...)`. Для локальной разработки
+используйте публичный tunnel или внешний HTTPS-домен.
+
+Как проверить WB-заказы в сводке:
+
+```bash
+docker compose run --rm api alembic upgrade head
+docker compose up -d worker bot
+docker compose logs worker --tail=200
+```
+
+В логах worker должны появляться события `sale_events_sync_finished` и `order_poll_account_finished`.
+Для администратора доступно:
+
+1. `🛠 Администрирование`;
+2. `Диагностика Wildberries`;
+3. `Диагностика событий`.
+
+Эти разделы показывают последнюю WB-синхронизацию, количество заказов за сегодня/вчера, последний
+WB-заказ, последние выкупы и количество отправленных уведомлений.
+
+Как проверить уведомления о выкупах:
+
+```bash
+docker compose logs worker --tail=200
+```
+
+При получении новых записей из `GET /api/v1/supplier/sales` или завершённых Ozon posting бот
+отправляет сообщение:
+
+```text
+✅ Выкуп товара — Wildberries
+```
+
+или:
+
+```text
+✅ Продажа завершена — Ozon
+```
+
+Повторная синхронизация не должна создавать дубли: уникальность обеспечивается по
+`marketplace_account_id`, `marketplace`, `external_event_id`.
 
 ## Production checklist
 

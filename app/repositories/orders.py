@@ -151,6 +151,26 @@ class OrderRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_by_external(
+        self,
+        *,
+        account_id: int,
+        marketplace: Marketplace,
+        order_external_id: str | None,
+    ) -> Order | None:
+        if not order_external_id:
+            return None
+        result = await self.session.execute(
+            select(Order)
+            .options(selectinload(Order.items))
+            .where(
+                Order.marketplace_account_id == account_id,
+                Order.marketplace == marketplace,
+                Order.order_external_id == order_external_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
     @staticmethod
     def _apply_order(order: Order, normalized: NormalizedOrder) -> None:
         order.posting_number = normalized.posting_number or order.posting_number
