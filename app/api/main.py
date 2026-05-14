@@ -1,6 +1,6 @@
-"""version: 1.0.0
+"""version: 1.0.1
 description: FastAPI application factory and service endpoints.
-updated: 2026-05-14
+updated: 2026-05-15
 """
 
 import asyncio
@@ -22,7 +22,7 @@ SETTINGS_DEPENDENCY = Depends(get_settings)
 def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging(settings)
-    app = FastAPI(title="Seller Profit Bot API", version="1.4.6", debug=settings.app_debug)
+    app = FastAPI(title="Seller Profit Bot API", version="1.4.7", debug=settings.app_debug)
     app.include_router(web_router)
 
     @app.get("/health")

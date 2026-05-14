@@ -1,6 +1,6 @@
-# version: 1.0.0
+# version: 1.1.0
 # description: Product architecture, setup, API notes, and MVP status.
-# updated: 2026-05-14
+# updated: 2026-05-15
 
 # Seller Profit Bot / KUZ’KA.SELLER BOT
 
@@ -84,7 +84,7 @@ namespaces = false
 - добавлены smoke-тесты для обнаружения пакета `app`, FastAPI factory, aiogram Dispatcher,
   worker settings и backfill-настроек.
 
-Текущая версия после Этапа 4: `1.4.6`. Версия хранится в `VERSION` и в
+Текущая версия после Этапа 4.1: `1.4.7`. Версия хранится в `VERSION` и в
 `pyproject.toml`.
 
 ## Почему arq
@@ -720,6 +720,43 @@ curl http://localhost:8000/health
 
 Для локальной проверки без Telegram можно создать одноразовую ссылку через сервис
 `WebAuthService` в shell/API-контейнере, если в БД уже есть пользователь.
+
+## Итерация 2. Этап 4.1: production-развёртывание
+
+Готово:
+
+- добавлен отдельный production compose: `docker-compose.prod.yml`;
+- добавлены скрипты:
+  `deploy/install.sh`, `deploy/update.sh`, `deploy/backup.sh`;
+- добавлен Nginx template для доменов:
+  `mpcontrol.online`, `www.mpcontrol.online`, `app.mpcontrol.online`,
+  `api.mpcontrol.online`, `bot.mpcontrol.online`;
+- установка ориентирована на Ubuntu 22.04/24.04, Docker Compose, host Nginx и Certbot;
+- `.env` не перезаписывается ни при установке, ни при обновлении;
+- перед обновлением выполняется backup PostgreSQL в `/opt/mpcontrol/backups`;
+- миграции Alembic применяются автоматически при install/update;
+- добавлена подробная инструкция: `deploy/README_DEPLOY.md`.
+
+Первичная установка на сервере:
+
+```bash
+git clone https://github.com/kuzkabuh/MySellerRobot.git /tmp/mpcontrol-src
+cd /tmp/mpcontrol-src
+sudo REPO_URL="https://github.com/kuzkabuh/MySellerRobot.git" \
+  BRANCH="main" \
+  SSL_EMAIL="owner@mpcontrol.online" \
+  bash deploy/install.sh
+```
+
+Обновление:
+
+```bash
+cd /opt/mpcontrol
+sudo bash deploy/update.sh
+```
+
+Подробности DNS, GitHub Deploy Key, `.env`, SSL, логов и troubleshooting находятся в
+`deploy/README_DEPLOY.md`.
 
 ## Production checklist
 

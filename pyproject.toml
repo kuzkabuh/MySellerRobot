@@ -1,9 +1,9 @@
 # version: 1.0.0
 # description: Project metadata and tooling configuration.
-# updated: 2026-05-14
+# updated: 2026-05-15
 [project]
 name = "seller-profit-bot"
-version = "1.4.6"
+version = "1.4.7"
 description = "Telegram bot for WB and Ozon sellers with profit analytics"
 requires-python = ">=3.12"
 dependencies = [

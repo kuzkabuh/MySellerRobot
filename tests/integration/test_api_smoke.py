@@ -1,6 +1,6 @@
-"""version: 1.1.0
+"""version: 1.1.1
 description: Smoke tests for API, bot, worker, and package startup boundaries.
-updated: 2026-05-14
+updated: 2026-05-15
 """
 
 import importlib.util
@@ -15,7 +15,7 @@ def test_create_app() -> None:
     app = create_app()
 
     assert app.title == "Seller Profit Bot API"
-    assert app.version == "1.4.6"
+    assert app.version == "1.4.7"
 
 
 def test_web_routes_are_registered() -> None:
