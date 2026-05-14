@@ -1,6 +1,6 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: Main Telegram inline keyboards.
-updated: 2026-05-14
+updated: 2026-05-15
 """
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -111,7 +111,67 @@ def admin_menu() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🧪 Диагностика заказов", callback_data="admin:orders")],
             [InlineKeyboardButton(text="🧪 Диагностика Wildberries", callback_data="admin:wb")],
             [InlineKeyboardButton(text="🧪 Диагностика событий", callback_data="admin:events")],
+            [InlineKeyboardButton(text="🚀 Обновление и деплой", callback_data="admin:deploy")],
             [InlineKeyboardButton(text="Назад", callback_data="back_main")],
+        ]
+    )
+
+
+def admin_deploy_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📌 Текущая версия",
+                    callback_data="admin_deploy:version",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔍 Проверить обновления",
+                    callback_data="admin_deploy:check",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬆ Запустить обновление",
+                    callback_data="admin_deploy:update",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🧾 Статус последнего деплоя",
+                    callback_data="admin_deploy:status",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📄 Последний лог обновления",
+                    callback_data="admin_deploy:log",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="💾 Последние backup",
+                    callback_data="admin_deploy:backups",
+                )
+            ],
+            [InlineKeyboardButton(text="Назад", callback_data="admin_menu")],
+        ]
+    )
+
+
+def confirm_deploy_update() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Да, обновить",
+                    callback_data="admin_deploy:update_confirm",
+                ),
+                InlineKeyboardButton(text="❌ Отмена", callback_data="admin_deploy:cancel"),
+            ],
+            [InlineKeyboardButton(text="Назад", callback_data="admin:deploy")],
         ]
     )
 

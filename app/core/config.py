@@ -1,6 +1,6 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: Pydantic settings for application configuration.
-updated: 2026-05-14
+updated: 2026-05-15
 """
 
 from functools import lru_cache
@@ -47,6 +47,14 @@ class Settings(BaseSettings):
     web_session_ttl_hours: int = 168
     default_tax_rate: float = 0.06
     default_package_cost: float = 0
+    deploy_project_dir: str = "/opt/mpcontrol"
+    deploy_log_dir: str = "/opt/mpcontrol/logs/deploy"
+    deploy_runtime_dir: str = "/opt/mpcontrol/runtime"
+    backup_dir: str = "/opt/mpcontrol/backups"
+    backup_retention_days: int = 30
+    enable_telegram_deploy_notifications: bool = True
+    enable_telegram_deploy_commands: bool = False
+    deploy_update_command: str = "bash deploy/update.sh --non-interactive"
     log_level: str = "INFO"
 
     @model_validator(mode="before")

@@ -1,0 +1,47 @@
+# version: 1.0.0
+# description: Production deployment workflow that runs deploy/update.sh on the server over SSH.
+# updated: 2026-05-15
+
+name: Deploy production
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to production
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.PROD_SSH_PRIVATE_KEY }}" > ~/.ssh/mpcontrol_prod
+          chmod 600 ~/.ssh/mpcontrol_prod
+
+      - name: Run production update
+        env:
+          PROD_SSH_HOST: ${{ secrets.PROD_SSH_HOST }}
+          PROD_SSH_PORT: ${{ secrets.PROD_SSH_PORT }}
+          PROD_SSH_USER: ${{ secrets.PROD_SSH_USER }}
+          PROD_PROJECT_DIR: ${{ secrets.PROD_PROJECT_DIR }}
+          PROD_BRANCH: ${{ secrets.PROD_BRANCH }}
+        run: |
+          set -Eeuo pipefail
+          PORT="${PROD_SSH_PORT:-22}"
+          PROJECT_DIR="${PROD_PROJECT_DIR:-/opt/mpcontrol}"
+          BRANCH="${PROD_BRANCH:-main}"
+          ssh -i ~/.ssh/mpcontrol_prod \
+            -p "$PORT" \
+            -o StrictHostKeyChecking=accept-new \
+            "${PROD_SSH_USER}@${PROD_SSH_HOST}" \
+            "cd '$PROJECT_DIR' && BRANCH='$BRANCH' bash deploy/update.sh --non-interactive"
+

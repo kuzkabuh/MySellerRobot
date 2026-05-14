@@ -1,4 +1,4 @@
-# version: 1.0.0
+# version: 1.1.0
 # description: Production deployment guide for MP Control on Ubuntu VPS.
 # updated: 2026-05-15
 
@@ -175,6 +175,9 @@ sudo bash deploy/update.sh
 - не трогает `.env`;
 - предупреждает о новых переменных из `.env.example`;
 - создаёт backup PostgreSQL через `deploy/backup.sh`;
+- создаёт копию `.env` и metadata JSON backup;
+- защищается от параллельных запусков через `runtime/update.lock`;
+- сохраняет статус последнего deploy в `runtime/last_update_status.json`;
 - пересобирает Docker images;
 - применяет миграции;
 - перезапускает сервисы;
@@ -198,6 +201,16 @@ sudo SKIP_PUBLIC_HEALTH=1 bash deploy/update.sh
 sudo SKIP_BACKUP=1 bash deploy/update.sh
 ```
 
+Режимы для CI/CD и диагностики:
+
+```bash
+sudo bash deploy/update.sh --check-only
+sudo bash deploy/update.sh --non-interactive
+```
+
+`--check-only` делает `git fetch`, сравнивает текущий и удалённый commit и не меняет
+рабочее дерево. `--non-interactive` пригоден для GitHub Actions и Telegram-админки.
+
 ## Резервные копии
 
 Ручной backup:
@@ -210,8 +223,67 @@ sudo bash deploy/backup.sh
 Файлы сохраняются в:
 
 ```text
-/opt/mpcontrol/backups/mpcontrol_YYYY-MM-DD_HH-MM-SS.sql.gz
+/opt/mpcontrol/backups/db/mpcontrol_YYYY-MM-DD_HH-MM-SS.sql.gz
+/opt/mpcontrol/backups/env/.env_YYYY-MM-DD_HH-MM-SS.backup
+/opt/mpcontrol/backups/meta/backup_YYYY-MM-DD_HH-MM-SS.json
 ```
+
+Срок хранения задаётся переменной:
+
+```text
+BACKUP_RETENTION_DAYS=30
+```
+
+## GitHub Actions CI/CD
+
+В проекте есть два workflow:
+
+- `.github/workflows/ci.yml` — запускает ruff, black, mypy, pytest, Alembic upgrade и Docker build;
+- `.github/workflows/deploy-production.yml` — после успешного CI на `main` или вручную через
+  `workflow_dispatch` подключается к серверу по SSH и запускает
+  `bash deploy/update.sh --non-interactive`.
+
+Создайте GitHub Secrets:
+
+```text
+PROD_SSH_HOST=your.server.ip
+PROD_SSH_PORT=22
+PROD_SSH_USER=mpcontrol
+PROD_SSH_PRIVATE_KEY=<private key>
+PROD_PROJECT_DIR=/opt/mpcontrol
+PROD_BRANCH=main
+```
+
+Публичный ключ для `PROD_SSH_PRIVATE_KEY` должен быть добавлен в
+`/home/mpcontrol/.ssh/authorized_keys` на сервере. Пользователь должен иметь право запускать
+Docker Compose и писать в `/opt/mpcontrol`.
+
+## Telegram-админка обновлений
+
+Для администраторов из `ADMIN_TELEGRAM_IDS` доступно:
+
+```text
+🛠 Администрирование → 🚀 Обновление и деплой
+```
+
+Раздел показывает текущую версию, проверку обновлений, статус последнего deploy, последние
+строки `logs/deploy/update.log` и последние backup.
+
+По умолчанию запуск обновления из Telegram отключён:
+
+```text
+ENABLE_TELEGRAM_DEPLOY_COMMANDS=false
+```
+
+Чтобы разрешить запуск fixed-команды `DEPLOY_UPDATE_COMMAND`, установите:
+
+```text
+ENABLE_TELEGRAM_DEPLOY_COMMANDS=true
+DEPLOY_UPDATE_COMMAND=bash deploy/update.sh --non-interactive
+```
+
+Команда не принимает пользовательский ввод из Telegram. Параллельный запуск блокируется
+`runtime/update.lock`.
 
 ## Nginx
 

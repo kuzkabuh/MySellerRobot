@@ -1,0 +1,96 @@
+# version: 1.0.0
+# description: CI checks for MP Control Python code, migrations, tests, and Docker build.
+# updated: 2026-05-15
+
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Lint, test, migrate, build
+    runs-on: ubuntu-24.04
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: mpcontrol_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U postgres -d mpcontrol_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - "6379:6379"
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      APP_ENV: test
+      APP_SECRET_KEY: test-secret-key
+      ENCRYPTION_KEY: G_jMn5cM_x6eYb8Itnr_lRazcat8c4uYOuwoB2sniRk=
+      BOT_TOKEN: "123456:test-token"
+      ADMIN_TELEGRAM_IDS: "1"
+      POSTGRES_DB: mpcontrol_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/mpcontrol_test
+      REDIS_URL: redis://localhost:6379/0
+      WEB_BASE_URL: http://localhost:8000
+      WEB_APP_BASE_URL: http://localhost:8000
+      API_BASE_URL: http://localhost:8000
+      PUBLIC_SITE_URL: http://localhost:8000
+      SKIP_PUBLIC_HEALTH: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Ruff
+        run: ruff check .
+
+      - name: Black
+        run: black --check .
+
+      - name: Mypy
+        run: mypy app
+
+      - name: Tests
+        run: pytest
+
+      - name: Alembic heads
+        run: alembic heads
+
+      - name: Alembic upgrade
+        run: alembic upgrade head
+
+      - name: Docker compose build
+        run: docker compose -f docker-compose.yml build

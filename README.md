@@ -84,7 +84,7 @@ namespaces = false
 - добавлены smoke-тесты для обнаружения пакета `app`, FastAPI factory, aiogram Dispatcher,
   worker settings и backfill-настроек.
 
-Текущая версия после Этапа 4.1: `1.4.7`. Версия хранится в `VERSION` и в
+Текущая версия после Этапа 4.2: `1.4.8`. Версия хранится в `VERSION` и в
 `pyproject.toml`.
 
 ## Почему arq
@@ -757,6 +757,54 @@ sudo bash deploy/update.sh
 
 Подробности DNS, GitHub Deploy Key, `.env`, SSL, логов и troubleshooting находятся в
 `deploy/README_DEPLOY.md`.
+
+## Итерация 2. Этап 4.2: CI/CD, backup и обновления из Telegram
+
+Готово:
+
+- добавлен CI workflow `.github/workflows/ci.yml`: ruff, black, mypy, pytest,
+  Alembic upgrade на тестовой PostgreSQL и Docker build;
+- добавлен production deploy workflow `.github/workflows/deploy-production.yml`;
+- `deploy/update.sh` поддерживает обычный режим, `--non-interactive` и `--check-only`;
+- перед обновлением создаётся backup PostgreSQL, `.env` и metadata JSON;
+- обновления защищены lock-файлом в `runtime/update.lock`;
+- результат последнего deploy сохраняется в `runtime/last_update_status.json`;
+- администраторы получают Telegram-уведомление об успехе или ошибке обновления;
+- в Telegram-админке появился раздел `🚀 Обновление и деплой`.
+
+GitHub Secrets для production deploy:
+
+```text
+PROD_SSH_HOST
+PROD_SSH_PORT
+PROD_SSH_USER
+PROD_SSH_PRIVATE_KEY
+PROD_PROJECT_DIR
+PROD_BRANCH
+```
+
+Ручная проверка обновлений на сервере:
+
+```bash
+cd /opt/mpcontrol
+bash deploy/update.sh --check-only
+```
+
+Безопасный ручной deploy:
+
+```bash
+cd /opt/mpcontrol
+bash deploy/update.sh --non-interactive
+```
+
+Telegram-админка:
+
+1. Открыть `🛠 Администрирование`.
+2. Перейти в `🚀 Обновление и деплой`.
+3. Проверить текущую версию, наличие обновлений, статус последнего deploy, лог и backup.
+4. Для запуска обновления из Telegram включить на сервере
+   `ENABLE_TELEGRAM_DEPLOY_COMMANDS=true`. По умолчанию запуск shell-команды из Telegram
+   отключён, но просмотр статусов и логов работает.
 
 ## Production checklist
 

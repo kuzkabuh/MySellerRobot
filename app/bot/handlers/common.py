@@ -1,6 +1,6 @@
-"""version: 1.1.0
+"""version: 1.2.0
 description: Common Telegram command, menu, web-link, and admin handlers.
-updated: 2026-05-14
+updated: 2026-05-15
 """
 
 import logging
@@ -13,7 +13,9 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy import func, select
 
 from app.bot.keyboards.main import (
+    admin_deploy_menu,
     admin_menu,
+    confirm_deploy_update,
     control_menu,
     costs_menu,
     main_menu,
@@ -39,6 +41,7 @@ from app.models.enums import CalculationType, SaleModel
 from app.repositories.users import UserRepository
 from app.services.admin_service import AdminService
 from app.services.daily_report_service import DailyReportService
+from app.services.deployment_service import DeploymentService
 from app.services.fbs_control_service import FbsControlService
 from app.services.message_formatter import rub
 from app.services.web_auth_service import WebAuthService
@@ -220,7 +223,7 @@ async def callback_handler(callback: CallbackQuery) -> None:
         user_id = await _get_or_create_user_id(callback)
         if user_id:
             await _send_web_cabinet_link(message, user_id)
-    elif data == "admin_menu" or data.startswith("admin:"):
+    elif data == "admin_menu" or data.startswith("admin:") or data.startswith("admin_deploy:"):
         await _handle_admin_callback(callback, message, data)
     elif data in {"report_time", "timezone"}:
         await message.answer(
@@ -469,6 +472,12 @@ async def _handle_admin_callback(callback: CallbackQuery, message: Message, data
     if data == "admin_menu":
         await message.edit_text("🛠 Администрирование", reply_markup=admin_menu())
         return
+    if data == "admin:deploy":
+        await message.edit_text("🚀 Обновление и деплой", reply_markup=admin_deploy_menu())
+        return
+    if data.startswith("admin_deploy:"):
+        await _handle_admin_deploy_callback(callback, message, data)
+        return
     async with AsyncSessionFactory() as session:
         service = AdminService(session)
         if data == "admin:users":
@@ -486,6 +495,83 @@ async def _handle_admin_callback(callback: CallbackQuery, message: Message, data
         else:
             text = await service.system_text()
     await message.answer(text, reply_markup=admin_menu())
+
+
+async def _handle_admin_deploy_callback(
+    callback: CallbackQuery,
+    message: Message,
+    data: str,
+) -> None:
+    service = DeploymentService()
+    if data == "admin_deploy:version":
+        version = await service.current_version()
+        text = (
+            "📌 Текущая версия MP Control\n\n"
+            f"Версия: {version.version}\n"
+            f"Ветка: {version.branch}\n"
+            f"Commit: {version.commit}\n"
+            f"Последний commit: {version.commit_date}"
+        )
+        await message.answer(text, reply_markup=admin_deploy_menu())
+        return
+    if data == "admin_deploy:check":
+        result = await service.check_updates()
+        if result.has_updates:
+            text = (
+                "⬆ Доступно обновление\n\n"
+                f"Ветка: {result.branch}\n"
+                f"Текущий commit: {result.current_commit[:7]}\n"
+                f"Новый commit: {result.remote_commit[:7]}\n\n"
+                "Нажмите «Запустить обновление», чтобы обновить сервер."
+            )
+        else:
+            text = (
+                "✅ Установлена последняя версия.\n\n"
+                f"Ветка: {result.branch}\n"
+                f"Commit: {result.current_commit[:7]}"
+            )
+        await message.answer(text, reply_markup=admin_deploy_menu())
+        return
+    if data == "admin_deploy:update":
+        await message.answer(
+            "⬆ Запустить обновление production-сервера?\n\n"
+            "Во время обновления сервисы могут быть кратковременно перезапущены.",
+            reply_markup=confirm_deploy_update(),
+        )
+        return
+    if data == "admin_deploy:update_confirm":
+        text = await service.start_update(callback.from_user.id)
+        await message.answer(text, reply_markup=admin_deploy_menu())
+        return
+    if data == "admin_deploy:status":
+        await message.answer(
+            service.format_status(service.read_last_status()),
+            reply_markup=admin_deploy_menu(),
+        )
+        return
+    if data == "admin_deploy:log":
+        await message.answer(
+            "📄 Последний лог обновления\n\n" f"<pre>{service.read_update_log_tail()}</pre>",
+            reply_markup=admin_deploy_menu(),
+        )
+        return
+    if data == "admin_deploy:backups":
+        backups = service.list_backups()
+        if not backups:
+            text = "💾 Последние backup\n\nРезервных копий пока нет."
+        else:
+            lines = ["💾 Последние backup", ""]
+            for backup in backups:
+                size_mb = backup.size_bytes / 1024 / 1024
+                lines.append(
+                    f"— {backup.created_at}: {size_mb:.1f} МБ, "
+                    f"commit {backup.git_commit[:7]}, версия {backup.app_version}"
+                )
+            text = "\n".join(lines)
+        await message.answer(text, reply_markup=admin_deploy_menu())
+        return
+    if data == "admin_deploy:cancel":
+        await message.answer("Обновление отменено.", reply_markup=admin_deploy_menu())
 
 
 def _is_admin_telegram(telegram_id: int | None) -> bool:
