@@ -15,7 +15,7 @@ def test_create_app() -> None:
     app = create_app()
 
     assert app.title == "Seller Profit Bot API"
-    assert app.version == "1.4.8"
+    assert app.version == "1.4.9"
 
 
 def test_web_routes_are_registered() -> None:
@@ -24,6 +24,9 @@ def test_web_routes_are_registered() -> None:
 
     assert "/web/login" in paths
     assert "/web/" in paths
+    assert "/web/orders" in paths
+    assert "/web/orders/{order_id}" in paths
+    assert "/web/profit" in paths
     assert "/web/logout" in paths
 
 

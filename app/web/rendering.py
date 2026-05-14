@@ -1,4 +1,4 @@
-"""version: 2.0.0
+"""version: 2.1.0
 description: Server-side HTML rendering helpers for the web cabinet.
 updated: 2026-05-15
 """
@@ -193,17 +193,78 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
       border-collapse: collapse;
       font-size: 14px;
     }}
+    .table-wrap {{
+      width: 100%;
+      overflow-x: auto;
+    }}
     .table th, .table td {{
       padding: 10px 8px;
       border-bottom: 1px solid var(--line);
       text-align: left;
+      vertical-align: top;
     }}
     .table th {{ color: var(--muted); font-weight: 600; }}
     .table td.num, .table th.num {{ text-align: right; }}
+    .table a {{ color: var(--accent); text-decoration: none; font-weight: 600; }}
+    .badge {{
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      border-radius: 999px;
+      padding: 3px 8px;
+      background: var(--panel-soft);
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }}
+    .badge.good {{ background: #e6f4ec; color: var(--good); }}
+    .badge.bad {{ background: #fde8e5; color: var(--bad); }}
+    .badge.warn {{ background: #fff3da; color: var(--warn); }}
+    .badge.action {{ background: var(--accent-soft); color: var(--accent); }}
+    .subnav {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 14px;
+    }}
+    .subnav a {{
+      color: var(--text);
+      text-decoration: none;
+      border: 1px solid var(--line);
+      background: white;
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 14px;
+    }}
+    .subnav a.active {{ background: var(--accent); border-color: var(--accent); color: white; }}
+    .detail-grid {{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 14px;
+    }}
+    .kv {{
+      display: grid;
+      grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
+      gap: 8px 12px;
+      font-size: 14px;
+    }}
+    .kv span {{ color: var(--muted); }}
+    .mono {{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      background: var(--panel-soft);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+    }}
     @media (max-width: 1100px) {{
       .filters {{ grid-template-columns: repeat(3, minmax(130px, 1fr)); }}
       .kpi-grid {{ grid-template-columns: repeat(2, minmax(140px, 1fr)); }}
       .dashboard-grid {{ grid-template-columns: 1fr; }}
+      .detail-grid {{ grid-template-columns: 1fr; }}
     }}
     @media (max-width: 760px) {{
       .shell {{ grid-template-columns: 1fr; }}

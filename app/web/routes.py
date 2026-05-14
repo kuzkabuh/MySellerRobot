@@ -1,8 +1,9 @@
-"""version: 2.0.0
-description: FastAPI routes for web cabinet login, sessions, and dashboard.
+"""version: 2.1.0
+description: FastAPI routes for web cabinet login, dashboard, orders, and profit pages.
 updated: 2026-05-15
 """
 
+import json
 from decimal import Decimal
 from html import escape
 
@@ -20,6 +21,15 @@ from app.services.web_dashboard_service import (
     DashboardData,
     KpiMetric,
     WebDashboardService,
+)
+from app.services.web_orders_profit_service import (
+    OrderDetail,
+    OrderRow,
+    OrderWebFilters,
+    ProfitPageData,
+    WebOrdersProfitService,
+    localized_order_date,
+    order_state_label,
 )
 from app.web.rendering import page
 
@@ -119,6 +129,98 @@ async def dashboard(
     return page("Главная", user.first_name or user.username or str(user.telegram_id), content)
 
 
+@router.get("/orders", response_class=HTMLResponse)
+async def orders_page(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+    period: str = Query(default="today"),
+    marketplace: str = Query(default="all"),
+    sale_model: str = Query(default="all"),
+    economy: str = Query(default="all"),
+    status: str = Query(default="all"),
+    sku: str = Query(default=""),
+    sort: str = Query(default="date"),
+    direction: str = Query(default="desc"),
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
+) -> str:
+    filters, rows = await WebOrdersProfitService(session).list_orders(
+        user_id=user.id,
+        timezone=user.timezone,
+        period=period,
+        marketplace=marketplace,
+        sale_model=sale_model,
+        date_from=date_from,
+        date_to=date_to,
+        economy=economy,
+        status=status,
+        sku=sku,
+        sort=sort,
+        direction=direction,
+    )
+    content = _orders_content(filters, rows, user.timezone)
+    return page(
+        "Заказы",
+        user.first_name or user.username or str(user.telegram_id),
+        content,
+        active_path="/web/orders",
+    )
+
+
+@router.get("/orders/{order_id}", response_class=HTMLResponse)
+async def order_detail_page(
+    order_id: int,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    detail = await WebOrdersProfitService(session).order_detail(user_id=user.id, order_id=order_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Заказ не найден")
+    content = _order_detail_content(detail, user.timezone)
+    return page(
+        "Карточка заказа",
+        user.first_name or user.username or str(user.telegram_id),
+        content,
+        active_path="/web/orders",
+    )
+
+
+@router.get("/profit", response_class=HTMLResponse)
+async def profit_page(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+    period: str = Query(default="7d"),
+    marketplace: str = Query(default="all"),
+    sale_model: str = Query(default="all"),
+    economy: str = Query(default="all"),
+    sku: str = Query(default=""),
+    sort: str = Query(default="profit"),
+    direction: str = Query(default="desc"),
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
+) -> str:
+    data = await WebOrdersProfitService(session).profit_by_sku(
+        user_id=user.id,
+        timezone=user.timezone,
+        period=period,
+        marketplace=marketplace,
+        sale_model=sale_model,
+        date_from=date_from,
+        date_to=date_to,
+        economy=economy,
+        sku=sku,
+        sort=sort,
+        direction=direction,
+    )
+    content = _profit_content(data)
+    return page(
+        "Прибыль",
+        user.first_name or user.username or str(user.telegram_id),
+        content,
+        active_path="/web/profit",
+    )
+
+
 @router.get("/{section}", response_class=HTMLResponse)
 async def placeholder(
     section: str,
@@ -148,6 +250,236 @@ async def placeholder(
         user.first_name or user.username or str(user.telegram_id),
         content,
         active_path=f"/web/{section}",
+    )
+
+
+def _orders_content(filters: OrderWebFilters, rows: list[OrderRow], timezone: str) -> str:
+    table_rows = []
+    for row in rows:
+        profit = row.estimated_profit
+        profit_badge = "bad" if profit is not None and profit < 0 else "good"
+        cost_badge = '<span class="badge warn">без себестоимости</span>' if row.missing_cost else ""
+        action_badge = (
+            '<span class="badge action">требует действия</span>'
+            if row.requires_action
+            else '<span class="badge">инфо</span>'
+        )
+        profit_cell = (
+            f'<td class="num"><span class="badge {profit_badge}">'
+            f"{_rub_optional(profit)}</span></td>"
+        )
+        table_rows.append(
+            "<tr>"
+            f"<td>{localized_order_date(row.order_date, timezone)}</td>"
+            f"<td>{_marketplace_label(row.marketplace)}</td>"
+            f"<td>{escape(row.sale_model.value if row.sale_model else 'н/д')}</td>"
+            f'<td><a href="/web/orders/{row.order_id}">{escape(row.title)}</a>'
+            f'<div class="muted">{escape(row.seller_article)}</div>{cost_badge}</td>'
+            f"<td>{escape(row.order_external_id)}"
+            f"<div class=\"muted\">{escape(row.posting_number or '')}</div></td>"
+            f'<td class="num">{row.quantity}</td>'
+            f'<td class="num">{_rub(row.revenue)}</td>'
+            f"{profit_cell}"
+            f'<td class="num">{_percent_optional(row.margin_percent)}</td>'
+            f"<td>{escape(row.status)}<div>{action_badge}</div></td>"
+            f"<td>{escape(row.source_event_type)}</td>"
+            "</tr>"
+        )
+    body = (
+        "".join(table_rows)
+        if table_rows
+        else '<tr><td colspan="11" class="muted">Заказов по выбранным фильтрам пока нет.</td></tr>'
+    )
+    return f"""
+      {_section_subnav("orders")}
+      {_orders_filters(filters)}
+      <section class="band">
+        <h2>Заказы и позиции</h2>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Дата</th><th>МП</th><th>Модель</th><th>Товар</th>
+                <th>Заказ / отправление</th><th class="num">Кол-во</th>
+                <th class="num">Цена</th><th class="num">Плановая прибыль</th>
+                <th class="num">Маржа</th><th>Статус</th><th>Источник</th>
+              </tr>
+            </thead>
+            <tbody>{body}</tbody>
+          </table>
+        </div>
+      </section>
+    """
+
+
+def _order_detail_content(detail: OrderDetail, timezone: str) -> str:
+    order = detail.order
+    item_rows = []
+    for item_detail in detail.items:
+        item = item_detail.item
+        estimated = item_detail.estimated_snapshot
+        actual = item_detail.actual_snapshot
+        estimated_profit = estimated.profit if estimated else item.profit_estimated
+        actual_profit = actual.profit if actual else None
+        item_rows.append(
+            "<tr>"
+            f"<td>{escape(item.title or 'Без названия')}"
+            f"<div class=\"muted\">{escape(item.seller_article or 'н/д')}</div></td>"
+            f'<td class="num">{item.quantity}</td>'
+            f'<td class="num">{_rub(item.discounted_price * item.quantity)}</td>'
+            f'<td class="num">{_rub_optional(item.commission_estimated)}</td>'
+            f'<td class="num">{_rub_optional(item.logistics_estimated)}</td>'
+            f'<td class="num">{_rub_optional(item.cost_price_used)}</td>'
+            f'<td class="num">{_rub_optional(item.package_cost_used)}</td>'
+            f'<td class="num">{_rub_optional(item.tax_amount_estimated)}</td>'
+            f'<td class="num">{_rub_optional(estimated_profit)}</td>'
+            f'<td class="num">{_rub_optional(actual_profit)}</td>'
+            "</tr>"
+        )
+    raw_payload = escape(json.dumps(order.raw_payload or {}, ensure_ascii=False, indent=2))
+    deadline = (
+        localized_order_date(order.processing_deadline_at, timezone)
+        if order.processing_deadline_at
+        else "н/д"
+    )
+    sale_model = escape(order.sale_model.value if order.sale_model else "н/д")
+    order_date = localized_order_date(order.order_date, timezone)
+    order_state = escape(order_state_label(order.normalized_status, order.requires_seller_action))
+    return f"""
+      {_section_subnav("orders")}
+      <section class="detail-grid">
+        <section class="band">
+          <h2>Информация</h2>
+          <div class="kv">
+            <span>Маркетплейс</span><strong>{_marketplace_label(order.marketplace)}</strong>
+            <span>Модель</span><strong>{sale_model}</strong>
+            <span>Статус</span><strong>{escape(order.normalized_status or order.status)}</strong>
+            <span>Дата заказа</span><strong>{order_date}</strong>
+            <span>Дедлайн</span><strong>{deadline}</strong>
+            <span>Заказ</span><strong>{escape(order.order_external_id)}</strong>
+            <span>Действие</span><strong>{order_state}</strong>
+          </div>
+        </section>
+        <section class="band">
+          <h2>План / факт</h2>
+          <div class="kv">
+            <span>Плановая прибыль</span><strong>{_rub(detail.estimated_profit)}</strong>
+            <span>Фактическая прибыль</span><strong>{_rub_optional(detail.actual_profit)}</strong>
+            <span>Отклонение</span><strong>{_rub_optional(detail.deviation)}</strong>
+          </div>
+          <p class="muted">
+            Если фактическая прибыль отсутствует, финансовые отчёты маркетплейса
+            ещё не сопоставлены с заказом.
+          </p>
+        </section>
+      </section>
+      <section class="band" style="margin-top:14px">
+        <h2>Экономика позиций</h2>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Товар</th><th class="num">Кол-во</th><th class="num">Цена</th>
+                <th class="num">Комиссия</th><th class="num">Логистика</th>
+                <th class="num">Себестоимость</th><th class="num">Упаковка</th>
+                <th class="num">Налог</th><th class="num">План</th><th class="num">Факт</th>
+              </tr>
+            </thead>
+            <tbody>{"".join(item_rows)}</tbody>
+          </table>
+        </div>
+      </section>
+      <section class="band" style="margin-top:14px">
+        <h2>Исходные данные</h2>
+        <pre class="mono">{raw_payload}</pre>
+      </section>
+    """
+
+
+def _profit_content(data: ProfitPageData) -> str:
+    summary = data.summary
+    row_html = []
+    for row in data.rows:
+        roi = f"{row.roi_percent}%" if row.roi_percent is not None else "н/д"
+        missing = (
+            f'<span class="badge warn">{row.missing_cost_items} без себестоимости</span>'
+            if row.missing_cost_items
+            else ""
+        )
+        title_cell = (
+            f"<td>{escape(row.title)}"
+            f'<div class="muted">{escape(row.seller_article)}</div>{missing}</td>'
+        )
+        row_html.append(
+            "<tr>"
+            f"{title_cell}"
+            f"<td>{_marketplace_label(row.marketplace)}</td>"
+            f"<td>{escape(row.sale_model.value if row.sale_model else 'н/д')}</td>"
+            f'<td class="num">{row.orders}</td>'
+            f'<td class="num">{row.sales}</td>'
+            f'<td class="num">{_rub(row.revenue)}</td>'
+            f'<td class="num">{_rub(row.cost)}</td>'
+            f'<td class="num">{_rub(row.marketplace_costs)}</td>'
+            f'<td class="num">{_rub(row.estimated_profit)}</td>'
+            f'<td class="num">{_rub(row.actual_profit)}</td>'
+            f'<td class="num">{row.margin_percent.quantize(Decimal("0.1"))}%</td>'
+            f'<td class="num">{roi}</td>'
+            "</tr>"
+        )
+    body = (
+        "".join(row_html)
+        if row_html
+        else (
+            '<tr><td colspan="12" class="muted">'
+            "Данных по прибыли за выбранный период пока нет.</td></tr>"
+        )
+    )
+    estimated_tone = "good" if summary.estimated_profit >= 0 else "bad"
+    deviation_tone = "bad" if summary.deviation < 0 else "good"
+    roi_value = f"{summary.roi_percent}%" if summary.roi_percent is not None else "н/д"
+    return f"""
+      {_section_subnav("profit")}
+      {_profit_filters(data.filters)}
+      <section class="kpi-grid">
+        {_simple_kpi("Плановая прибыль", _rub(summary.estimated_profit), estimated_tone)}
+        {_simple_kpi("Фактическая прибыль", _rub(summary.actual_profit))}
+        {_simple_kpi("Отклонение план/факт", _rub(summary.deviation), deviation_tone)}
+        {_simple_kpi("Прибыль с заказа", _rub(summary.average_unit_profit))}
+        {_simple_kpi("Средняя маржа", f"{summary.average_margin}%")}
+        {_simple_kpi("ROI на себестоимость", roi_value)}
+      </section>
+      <section class="band" style="margin-top:14px">
+        <h2>Прибыль по SKU</h2>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Товар</th><th>МП</th><th>Модель</th><th class="num">Заказов</th>
+                <th class="num">Продаж</th><th class="num">Выручка</th>
+                <th class="num">Себестоимость</th><th class="num">Расходы МП</th>
+                <th class="num">Плановая прибыль</th><th class="num">Фактическая прибыль</th>
+                <th class="num">Маржа</th><th class="num">ROI</th>
+              </tr>
+            </thead>
+            <tbody>{body}</tbody>
+          </table>
+        </div>
+      </section>
+    """
+
+
+def _section_subnav(active: str) -> str:
+    items = {
+        "orders": ("Заказы", "/web/orders"),
+        "profit": ("Прибыль", "/web/profit"),
+    }
+    return (
+        '<div class="subnav">'
+        + "".join(
+            f'<a class="{"active" if key == active else ""}" href="{href}">{label}</a>'
+            for key, (label, href) in items.items()
+        )
+        + "</div>"
     )
 
 
@@ -226,6 +558,95 @@ def _filters(data: DashboardData) -> str:
     """
 
 
+def _orders_filters(filters: OrderWebFilters) -> str:
+    return _shared_order_filters(filters, "/web/orders", include_status=True)
+
+
+def _profit_filters(filters: OrderWebFilters) -> str:
+    return _shared_order_filters(filters, "/web/profit", include_status=False)
+
+
+def _shared_order_filters(
+    filters: OrderWebFilters,
+    action: str,
+    *,
+    include_status: bool,
+) -> str:
+    selected_marketplace = filters.marketplace.value if filters.marketplace else "all"
+    selected_sale_model = filters.sale_model.value if filters.sale_model else "all"
+    status_filter = (
+        _select(
+            "status",
+            "Статус",
+            {
+                "all": "Все",
+                "active": "Активные",
+                "cancelled": "Отменённые",
+                "action_required": "Требуют действия",
+            },
+            filters.status,
+        )
+        if include_status
+        else ""
+    )
+    date_from_value = filters.local_date_from.isoformat()
+    date_to_value = filters.local_date_to.isoformat()
+    return f"""
+      <form class="filters" method="get" action="{escape(action)}">
+        {_select("period", "Период", {
+            "today": "Сегодня",
+            "yesterday": "Вчера",
+            "7d": "7 дней",
+            "30d": "30 дней",
+            "custom": "Произвольный",
+        }, filters.period)}
+        {_select("marketplace", "Маркетплейс", {
+            "all": "Все",
+            Marketplace.WB.value: "Wildberries",
+            Marketplace.OZON.value: "Ozon",
+        }, selected_marketplace)}
+        {_select("sale_model", "Модель", {
+            "all": "Все",
+            "FBO": "FBO",
+            "FBS": "FBS",
+            "rFBS": "rFBS",
+        }, selected_sale_model)}
+        {_select("economy", "Экономика", {
+            "all": "Все",
+            "profit": "Прибыльные",
+            "loss": "Убыточные",
+            "missing_cost": "Без себестоимости",
+        }, filters.economy)}
+        {status_filter}
+        <div>
+          <label for="sku">SKU / артикул</label>
+          <input id="sku" name="sku" type="search" value="{escape(filters.sku)}">
+        </div>
+        <div>
+          <label for="date_from">Дата с</label>
+          <input id="date_from" name="date_from" type="date" value="{date_from_value}">
+        </div>
+        <div>
+          <label for="date_to">Дата по</label>
+          <input id="date_to" name="date_to" type="date" value="{date_to_value}">
+        </div>
+        {_select("sort", "Сортировка", {
+            "date": "Дата",
+            "profit": "Прибыль",
+            "revenue": "Выручка",
+            "margin": "Маржа",
+            "orders": "Заказы",
+            "roi": "ROI",
+        }, filters.sort)}
+        {_select("direction", "Порядок", {
+            "desc": "По убыванию",
+            "asc": "По возрастанию",
+        }, filters.direction)}
+        <button class="button primary" type="submit">Применить</button>
+      </form>
+    """
+
+
 def _select(name: str, label: str, options: dict[str, str], selected: str) -> str:
     items = []
     for value, text in options.items():
@@ -252,6 +673,13 @@ def _kpi(metric: KpiMetric) -> str:
     return (
         f'<article class="kpi {escape(metric.tone)}">'
         f"<span>{escape(metric.label)}</span><strong>{value}</strong>{change}</article>"
+    )
+
+
+def _simple_kpi(label: str, value: str, tone: str = "neutral") -> str:
+    return (
+        f'<article class="kpi {tone}">'
+        f"<span>{escape(label)}</span><strong>{value}</strong></article>"
     )
 
 
@@ -459,3 +887,19 @@ def _empty_chart() -> str:
 
 def _rub(value: Decimal) -> str:
     return f"{value:,.0f} ₽".replace(",", " ")
+
+
+def _rub_optional(value: Decimal | None) -> str:
+    if value is None:
+        return "н/д"
+    return _rub(value)
+
+
+def _percent_optional(value: Decimal | None) -> str:
+    if value is None:
+        return "н/д"
+    return f"{value.quantize(Decimal('0.1'))}%"
+
+
+def _marketplace_label(value: Marketplace) -> str:
+    return "Wildberries" if value == Marketplace.WB else "Ozon"
