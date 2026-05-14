@@ -4,7 +4,7 @@ updated: 2026-05-14
 """
 
 import logging
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from aiogram import Bot
@@ -33,25 +33,58 @@ async def poll_new_orders(ctx: dict[str, Any]) -> None:
     bot = Bot(settings.bot_token.get_secret_value())
     notifier = NotificationService(bot)
     async with AsyncSessionFactory() as session:
-        accounts = (
-            await session.execute(
-                select(MarketplaceAccount)
-                .options(selectinload(MarketplaceAccount.user))
-                .where(MarketplaceAccount.is_active.is_(True))
-            )
-        ).scalars()
+        result = await session.execute(
+            select(MarketplaceAccount)
+            .options(selectinload(MarketplaceAccount.user))
+            .where(MarketplaceAccount.is_active.is_(True))
+        )
+        accounts = list(result.scalars().all())
+        logger.info("order_poll_started", extra={"accounts": len(accounts)})
         for account in accounts:
+            account_id = account.id
+            marketplace = account.marketplace.value
             try:
-                notifications = await OrderProcessingService(session).poll_account(account)
-                for notification in notifications:
-                    await notifier.send_new_order(
-                        notification.telegram_id,
-                        notification.text,
-                        notification.order_id,
-                    )
-            except Exception:
-                logger.exception("marketplace_poll_failed", extra={"account_id": account.id})
-                await session.rollback()
+                poll_result = await OrderProcessingService(session).poll_account_with_stats(account)
+                sent = 0
+                for notification in poll_result.notifications or []:
+                    try:
+                        await notifier.send_new_order(
+                            notification.telegram_id,
+                            notification.text,
+                            notification.order_id,
+                        )
+                        sent += 1
+                    except Exception:
+                        logger.exception(
+                            "new_order_notification_send_failed",
+                            extra={
+                                "account_id": account_id,
+                                "order_id": notification.order_id,
+                                "telegram_id": notification.telegram_id,
+                            },
+                        )
+                logger.info(
+                    "order_poll_notifications_sent",
+                    extra={
+                        "account_id": account_id,
+                        "marketplace": marketplace,
+                        "fetched": poll_result.fetched,
+                        "created": poll_result.created,
+                        "notifications_prepared": poll_result.notification_count,
+                        "notifications_sent": sent,
+                    },
+                )
+            except Exception as exc:
+                logger.exception(
+                    "marketplace_poll_failed",
+                    extra={"account_id": account_id, "marketplace": marketplace},
+                )
+                account.last_error_at = datetime.now(tz=UTC)
+                account.last_error_message = str(exc)[:2000]
+                try:
+                    await session.commit()
+                except Exception:
+                    await session.rollback()
     await bot.session.close()
 
 

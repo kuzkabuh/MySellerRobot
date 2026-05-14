@@ -30,6 +30,23 @@ class NewOrderNotification:
     text: str
 
 
+@dataclass(slots=True)
+class OrderPollResult:
+    account_id: int
+    marketplace: Marketplace
+    fetched: int = 0
+    created: int = 0
+    duplicated: int = 0
+    queued_digest: int = 0
+    skipped_by_policy: int = 0
+    skipped_without_user: int = 0
+    notifications: list[NewOrderNotification] | None = None
+
+    @property
+    def notification_count(self) -> int:
+        return len(self.notifications or [])
+
+
 class OrderProcessingService:
     """Process marketplace orders and prepare Telegram notifications."""
 
@@ -47,21 +64,38 @@ class OrderProcessingService:
         self.formatter = MessageFormatter()
 
     async def poll_account(self, account: MarketplaceAccount) -> list[NewOrderNotification]:
+        result = await self.poll_account_with_stats(account)
+        return result.notifications or []
+
+    async def poll_account_with_stats(self, account: MarketplaceAccount) -> OrderPollResult:
         normalized_orders = await self._fetch_orders(account)
+        result = OrderPollResult(
+            account_id=account.id,
+            marketplace=account.marketplace,
+            fetched=len(normalized_orders),
+            notifications=[],
+        )
         policy = await self.notification_policy.resolve(account)
-        notifications: list[NewOrderNotification] = []
         for normalized in normalized_orders:
             if await self.orders.exists(account.id, normalized):
+                result.duplicated += 1
                 continue
             order = await self.orders.create(account.user_id, account.id, normalized)
+            result.created += 1
             await self.profits.calculate_estimated_profit(account, order, normalized)
             if policy.should_queue_fbo_digest(normalized.sale_model):
                 await self._queue_fbo_digest(account, order, policy.fbo_mode)
+                result.queued_digest += 1
                 continue
             if not policy.is_instant_enabled_for(normalized.sale_model):
+                result.skipped_by_policy += 1
                 continue
             first_item = normalized.items[0] if normalized.items else None
             if not first_item or not account.user:
+                result.skipped_without_user += 1
+                continue
+            if not account.user.notifications_enabled:
+                result.skipped_by_policy += 1
                 continue
             order_with_items = await self.orders.get_with_items(order.id)
             item = (
@@ -70,7 +104,8 @@ class OrderProcessingService:
             profit = self.profits.latest_estimated_result(item) if item else None
             if profit:
                 await self.orders.mark_notified(order.id)
-                notifications.append(
+                result.notifications = result.notifications or []
+                result.notifications.append(
                     NewOrderNotification(
                         telegram_id=account.user.telegram_id,
                         order_id=order.id,
@@ -83,7 +118,20 @@ class OrderProcessingService:
                     )
                 )
         await self.session.commit()
-        return notifications
+        logger.info(
+            "order_poll_account_finished",
+            extra={
+                "account_id": result.account_id,
+                "marketplace": result.marketplace.value,
+                "fetched": result.fetched,
+                "created": result.created,
+                "duplicates": result.duplicated,
+                "queued_digest": result.queued_digest,
+                "skipped_by_policy": result.skipped_by_policy,
+                "notifications": result.notification_count,
+            },
+        )
+        return result
 
     async def _fetch_orders(self, account: MarketplaceAccount) -> list[NormalizedOrder]:
         if account.marketplace == Marketplace.WB:

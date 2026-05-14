@@ -1,9 +1,10 @@
-"""version: 1.0.0
+"""version: 1.0.1
 description: User persistence helpers.
 updated: 2026-05-14
 """
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import User
@@ -32,5 +33,14 @@ class UserRepository:
             return user
         user = User(telegram_id=telegram_id, username=username, first_name=first_name)
         self.session.add(user)
-        await self.session.flush()
-        return user
+        try:
+            await self.session.flush()
+            return user
+        except IntegrityError:
+            await self.session.rollback()
+            existing_user = await self.get_by_telegram_id(telegram_id)
+            if existing_user is None:
+                raise
+            existing_user.username = username
+            existing_user.first_name = first_name
+            return existing_user
