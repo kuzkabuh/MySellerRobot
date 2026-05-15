@@ -1,14 +1,21 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: Product and cost history persistence helpers.
-updated: 2026-05-14
+updated: 2026-05-15
 """
 
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.domain import MarketplaceAccount, Product, ProductCostHistory
+from app.models.domain import (
+    MarketplaceAccount,
+    MasterProduct,
+    MasterProductLink,
+    Product,
+    ProductCostHistory,
+)
 from app.models.enums import Marketplace
 from app.schemas.products import CostUpdate, ProductUpsert
 
@@ -122,6 +129,99 @@ class ProductRepository:
             .order_by(Product.marketplace, MarketplaceAccount.name, Product.seller_article)
         )
         return [(row[0], row[1]) for row in result.all()]
+
+    async def list_active_for_user(self, user_id: int) -> list[Product]:
+        result = await self.session.execute(
+            select(Product)
+            .where(Product.user_id == user_id)
+            .where(Product.is_active.is_(True))
+            .order_by(Product.seller_article, Product.marketplace)
+        )
+        return list(result.scalars().all())
+
+
+class MasterProductRepository:
+    """Repository for unified products across marketplaces."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def get_or_create(
+        self,
+        *,
+        user_id: int,
+        canonical_sku: str,
+        title: str | None,
+        brand: str | None,
+        category: str | None,
+        image_url: str | None,
+    ) -> MasterProduct:
+        existing = await self.session.execute(
+            select(MasterProduct).where(
+                MasterProduct.user_id == user_id,
+                MasterProduct.canonical_sku == canonical_sku,
+            )
+        )
+        row = existing.scalar_one_or_none()
+        if row is None:
+            row = MasterProduct(
+                user_id=user_id,
+                canonical_sku=canonical_sku,
+                title=title,
+                brand=brand,
+                category=category,
+                image_url=image_url,
+            )
+            self.session.add(row)
+        else:
+            row.title = row.title or title
+            row.brand = row.brand or brand
+            row.category = row.category or category
+            row.image_url = row.image_url or image_url
+            row.is_active = True
+        await self.session.flush()
+        return row
+
+    async def link_product(
+        self,
+        *,
+        master_product_id: int,
+        product: Product,
+        match_method: str,
+        confidence: Decimal = Decimal("1.0000"),
+    ) -> MasterProductLink:
+        existing = await self.session.execute(
+            select(MasterProductLink).where(MasterProductLink.product_id == product.id)
+        )
+        row = existing.scalar_one_or_none()
+        if row is None:
+            row = MasterProductLink(
+                master_product_id=master_product_id,
+                product_id=product.id,
+                marketplace=product.marketplace,
+                seller_article=product.seller_article,
+                marketplace_article=product.marketplace_article,
+                match_method=match_method,
+                confidence=confidence,
+            )
+            self.session.add(row)
+        else:
+            row.master_product_id = master_product_id
+            row.marketplace = product.marketplace
+            row.seller_article = product.seller_article
+            row.marketplace_article = product.marketplace_article
+            row.match_method = match_method
+            row.confidence = confidence
+        await self.session.flush()
+        return row
+
+    async def linked_product_ids(self, user_id: int) -> set[int]:
+        result = await self.session.execute(
+            select(MasterProductLink.product_id)
+            .join(MasterProduct, MasterProduct.id == MasterProductLink.master_product_id)
+            .where(MasterProduct.user_id == user_id)
+        )
+        return set(result.scalars().all())
 
 
 class ProductCostRepository:

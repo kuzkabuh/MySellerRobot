@@ -1,6 +1,6 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: SQLAlchemy model exports.
-updated: 2026-05-14
+updated: 2026-05-15
 """
 
 from app.models.base import Base
@@ -12,6 +12,8 @@ from app.models.domain import (
     FboDigestQueue,
     FinancialReportRow,
     MarketplaceAccount,
+    MasterProduct,
+    MasterProductLink,
     NotificationSetting,
     OneTimeLoginToken,
     Order,
@@ -38,6 +40,8 @@ __all__ = [
     "FinancialReportRow",
     "FboDigestQueue",
     "MarketplaceAccount",
+    "MasterProduct",
+    "MasterProductLink",
     "NotificationSetting",
     "OneTimeLoginToken",
     "Order",

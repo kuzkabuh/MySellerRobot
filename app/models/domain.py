@@ -1,6 +1,6 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: Main database models for sellers, marketplaces, orders, profit, alerts, and billing.
-updated: 2026-05-14
+updated: 2026-05-15
 """
 
 from datetime import date, datetime, time
@@ -155,6 +155,54 @@ class Product(TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     costs: Mapped[list["ProductCostHistory"]] = relationship(back_populates="product")
+    master_links: Mapped[list["MasterProductLink"]] = relationship(back_populates="product")
+
+
+class MasterProduct(TimestampMixin, Base):
+    __tablename__ = "master_products"
+    __table_args__ = (
+        UniqueConstraint("user_id", "canonical_sku", name="uq_master_products_user_sku"),
+        Index("ix_master_products_user_active", "user_id", "is_active"),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    canonical_sku: Mapped[str] = mapped_column(String(255), index=True)
+    title: Mapped[str | None] = mapped_column(String(1024))
+    brand: Mapped[str | None] = mapped_column(String(255))
+    category: Mapped[str | None] = mapped_column(String(255))
+    image_url: Mapped[str | None] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    links: Mapped[list["MasterProductLink"]] = relationship(back_populates="master_product")
+
+
+class MasterProductLink(TimestampMixin, Base):
+    __tablename__ = "master_product_links"
+    __table_args__ = (
+        UniqueConstraint("product_id", name="uq_master_product_links_product"),
+        UniqueConstraint(
+            "master_product_id",
+            "marketplace",
+            "seller_article",
+            name="uq_master_product_links_marketplace_article",
+        ),
+        Index("ix_master_product_links_master", "master_product_id", "marketplace"),
+    )
+
+    id: Mapped[int_pk]
+    master_product_id: Mapped[int] = mapped_column(
+        ForeignKey("master_products.id", ondelete="CASCADE"), index=True
+    )
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id", ondelete="CASCADE"))
+    marketplace: Mapped[Marketplace] = mapped_column(Enum(Marketplace), index=True)
+    seller_article: Mapped[str | None] = mapped_column(String(255), index=True)
+    marketplace_article: Mapped[str | None] = mapped_column(String(255), index=True)
+    match_method: Mapped[str] = mapped_column(String(64), default="AUTO_SKU")
+    confidence: Mapped[Decimal] = mapped_column(Numeric(5, 4), default=Decimal("1.0000"))
+
+    master_product: Mapped[MasterProduct] = relationship(back_populates="links")
+    product: Mapped[Product] = relationship(back_populates="master_links")
 
 
 class ProductCostHistory(TimestampMixin, Base):

@@ -1,4 +1,4 @@
-"""version: 2.4.0
+"""version: 2.5.0
 description: FastAPI routes for web login, cabinet dashboard, orders, and profit pages.
 updated: 2026-05-15
 """
@@ -17,6 +17,7 @@ from app.core.db import get_session
 from app.models.domain import User
 from app.models.enums import Marketplace
 from app.repositories.web_auth import WebAuthRepository
+from app.services.master_product_service import MasterProductAnalyticsRow, MasterProductService
 from app.services.web_auth_service import WEB_SESSION_COOKIE, WebAuthService
 from app.services.web_dashboard_service import (
     DailyPoint,
@@ -297,8 +298,19 @@ async def returns_page(user: User = CURRENT_WEB_USER_DEPENDENCY) -> str:
 
 
 @router.get("/products", response_class=HTMLResponse)
-async def products_page(user: User = CURRENT_WEB_USER_DEPENDENCY) -> str:
-    return _placeholder_page("products", user)
+async def products_page(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    rows = await MasterProductService(session).list_analytics(user.id)
+    await session.commit()
+    content = _products_content(rows)
+    return page(
+        "Товары",
+        user.first_name or user.username or str(user.telegram_id),
+        content,
+        active_path="/web/products",
+    )
 
 
 @router.get("/stocks", response_class=HTMLResponse)
@@ -507,6 +519,80 @@ def _order_detail_content(detail: OrderDetail, timezone: str) -> str:
     """
 
 
+def _products_content(rows: list[MasterProductAnalyticsRow]) -> str:
+    row_html = []
+    for row in rows:
+        marketplace_badges = (
+            f'<span class="badge wb">WB: {row.wb_products}</span> '
+            f'<span class="badge ozon">Ozon: {row.ozon_products}</span>'
+        )
+        linked_products = "".join(
+            '<div class="muted">'
+            f"{_marketplace_label(item.marketplace)}: "
+            f"{escape(item.seller_article)} / {escape(item.marketplace_article)}"
+            "</div>"
+            for item in row.marketplace_products
+        )
+        image = (
+            f'<img src="{escape(row.image_url)}" alt="{escape(row.title)}" '
+            'style="width:48px;height:48px;object-fit:cover;border-radius:6px;margin-right:10px">'
+            if row.image_url
+            else '<div class="product-thumb">нет фото</div>'
+        )
+        title_cell = (
+            '<div style="display:flex;align-items:center;gap:10px">'
+            f"{image}<div><strong>{escape(row.title)}</strong>"
+            f'<div class="muted">{escape(row.brand)} · {escape(row.category)}</div>'
+            f"{linked_products}</div></div>"
+        )
+        profit_badge = "bad" if row.estimated_profit < 0 else "good"
+        row_html.append(
+            "<tr>"
+            f"<td>{title_cell}</td>"
+            f"<td>{escape(row.canonical_sku)}</td>"
+            f"<td>{marketplace_badges}</td>"
+            f'<td class="num">{row.orders}</td>'
+            f'<td class="num">{row.sales}</td>'
+            f'<td class="num">{_rub(row.revenue)}</td>'
+            f'<td class="num"><span class="badge {profit_badge}">'
+            f"{_rub(row.estimated_profit)}</span></td>"
+            f'<td class="num">{row.stock_quantity}</td>'
+            "</tr>"
+        )
+    body = (
+        "".join(row_html)
+        if row_html
+        else (
+            '<tr><td colspan="8" class="muted">'
+            "Товары пока не импортированы. Подключите кабинет или запустите "
+            "синхронизацию.</td></tr>"
+        )
+    )
+    return f"""
+      {_section_subnav("products")}
+      <section class="band">
+        <h2>Единые карточки товаров</h2>
+        <p class="muted">
+          Товары WB и Ozon сопоставляются по артикулу продавца. Это база для сравнения
+          площадок, общей прибыли и будущей карточки MasterProduct.
+        </p>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Товар</th><th>Единый SKU</th><th>Площадки</th>
+                <th class="num">Заказов</th><th class="num">Выкупов</th>
+                <th class="num">Выручка</th><th class="num">Плановая прибыль</th>
+                <th class="num">Остаток</th>
+              </tr>
+            </thead>
+            <tbody>{body}</tbody>
+          </table>
+        </div>
+      </section>
+    """
+
+
 def _profit_content(data: ProfitPageData) -> str:
     summary = data.summary
     row_html = []
@@ -583,6 +669,7 @@ def _section_subnav(active: str) -> str:
     items = {
         "orders": ("Заказы", "/web/orders"),
         "profit": ("Прибыль", "/web/profit"),
+        "products": ("Товары", "/web/products"),
     }
     return (
         '<div class="subnav">'

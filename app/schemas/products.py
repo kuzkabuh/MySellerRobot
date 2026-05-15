@@ -1,6 +1,6 @@
-"""version: 1.0.0
-description: Product synchronization and cost update schemas.
-updated: 2026-05-14
+"""version: 1.1.0
+description: Product synchronization, cost update, and master product schemas.
+updated: 2026-05-15
 """
 
 from datetime import datetime
@@ -33,3 +33,28 @@ class CostUpdate(BaseModel):
     tax_rate: Decimal = Decimal("0")
     valid_from: datetime
     comment: str | None = None
+
+
+class MasterProductLinkRead(BaseModel):
+    marketplace: Marketplace
+    seller_article: str
+    marketplace_article: str
+    title: str
+    brand: str
+
+
+class MasterProductAnalyticsRead(BaseModel):
+    master_product_id: int
+    canonical_sku: str
+    title: str
+    brand: str
+    category: str
+    image_url: str | None = None
+    wb_products: int
+    ozon_products: int
+    orders: int
+    sales: int
+    revenue: Decimal
+    estimated_profit: Decimal
+    stock_quantity: int
+    marketplace_products: list[MasterProductLinkRead]

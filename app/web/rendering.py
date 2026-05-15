@@ -1,4 +1,4 @@
-"""version: 2.2.0
+"""version: 2.3.0
 description: Server-side HTML rendering helpers for the web cabinet.
 updated: 2026-05-15
 """
@@ -223,6 +223,20 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
     .badge.bad {{ background: #fde8e5; color: var(--bad); }}
     .badge.warn {{ background: #fff3da; color: var(--warn); }}
     .badge.action {{ background: var(--accent-soft); color: var(--accent); }}
+    .badge.wb {{ background: #f1e8fb; color: var(--wb); }}
+    .badge.ozon {{ background: #e9f1ff; color: var(--ozon); }}
+    .product-thumb {{
+      width: 48px;
+      height: 48px;
+      display: grid;
+      place-items: center;
+      border-radius: 6px;
+      background: var(--panel-soft);
+      color: var(--muted);
+      font-size: 11px;
+      text-align: center;
+      flex: 0 0 auto;
+    }}
     .subnav {{
       display: flex;
       flex-wrap: wrap;

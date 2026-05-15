@@ -1,6 +1,6 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: Product synchronization service for Wildberries and Ozon accounts.
-updated: 2026-05-14
+updated: 2026-05-15
 """
 
 from datetime import UTC, datetime
@@ -13,6 +13,7 @@ from app.integrations.wb import WildberriesClient
 from app.models.domain import MarketplaceAccount
 from app.models.enums import Marketplace
 from app.repositories.products import ProductRepository
+from app.services.master_product_service import MasterProductService
 
 
 class ProductSyncService:
@@ -25,6 +26,7 @@ class ProductSyncService:
     ) -> None:
         self.session = session
         self.repo = ProductRepository(session)
+        self.master_products = MasterProductService(session)
         self.cipher = cipher or TokenCipher()
 
     async def sync_account_products(self, account: MarketplaceAccount) -> int:
@@ -54,7 +56,8 @@ class ProductSyncService:
                     account_id=account.id,
                 )
                 if product.external_product_id:
-                    await self.repo.upsert(product)
+                    saved_product = await self.repo.upsert(product)
+                    await self.master_products.ensure_product_linked(saved_product)
                     count += 1
             response_cursor = data.get("cursor")
             if not isinstance(response_cursor, dict):
@@ -92,7 +95,8 @@ class ProductSyncService:
                     account_id=account.id,
                 )
                 if product.external_product_id:
-                    await self.repo.upsert(product)
+                    saved_product = await self.repo.upsert(product)
+                    await self.master_products.ensure_product_linked(saved_product)
                     count += 1
             last_id = str(result.get("last_id") or "")
             if not last_id:

@@ -125,9 +125,11 @@ class OrderCardService:
             f"🏷 {brand} / {seller_article}",
             "",
             f"💵 Сегодня таких: {product_today_count} на {rub(product_today_sum)}",
-            f"💶 Вчера таких: {product_yesterday_count} на {rub(product_yesterday_sum)}"
-            if product_yesterday_count
-            else "💶 Вчера таких: 0",
+            (
+                f"💶 Вчера таких: {product_yesterday_count} на {rub(product_yesterday_sum)}"
+                if product_yesterday_count
+                else "💶 Вчера таких: 0"
+            ),
             rate_line,
             "",
             f"📦 Товар: {escape(title)}",
@@ -282,11 +284,13 @@ class OrderCardService:
                     f"на {rub(stats.product_today_revenue)}"
                 ),
                 (
-                    f"💶 Вчера таких: {stats.product_yesterday_count} "
-                    f"на {rub(stats.product_yesterday_revenue)}"
-                )
-                if stats.product_yesterday_count
-                else "💶 Вчера таких: 0",
+                    (
+                        f"💶 Вчера таких: {stats.product_yesterday_count} "
+                        f"на {rub(stats.product_yesterday_revenue)}"
+                    )
+                    if stats.product_yesterday_count
+                    else "💶 Вчера таких: 0"
+                ),
                 "",
                 commission_label,
                 logistics_label,
@@ -372,9 +376,7 @@ class OrderCardService:
             percent = f" ({percent_value}%"
             percent += ", базовая)" if economics.commission_is_baseline else ")"
         suffix = (
-            "Базовая комиссия WB"
-            if economics.commission_is_baseline
-            else "Комиссия маркетплейса"
+            "Базовая комиссия WB" if economics.commission_is_baseline else "Комиссия маркетплейса"
         )
         return f"💼 {suffix}: {rub(economics.commission)}{percent}"
 
@@ -437,9 +439,13 @@ class OrderCardService:
             SalesEvent.user_id == event.user_id,
             SalesEvent.event_date >= start,
         )
-        order_query = select(func.count(OrderItem.id)).join(Order).where(
-            Order.user_id == event.user_id,
-            Order.order_date >= start,
+        order_query = (
+            select(func.count(OrderItem.id))
+            .join(Order)
+            .where(
+                Order.user_id == event.user_id,
+                Order.order_date >= start,
+            )
         )
         if event.marketplace_article:
             buyout_query = buyout_query.where(
