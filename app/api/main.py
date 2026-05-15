@@ -28,6 +28,26 @@ def create_app() -> FastAPI:
     app = FastAPI(title="Seller Profit Bot API", version="1.4.17", debug=settings.app_debug)
     app.include_router(web_router)
 
+    @app.middleware("http")
+    async def log_requests(request: Request, call_next):
+        import logging
+        logger = logging.getLogger("app.api.main")
+        logger.info(
+            "incoming_request",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "query": str(request.url.query),
+                "headers": dict(request.headers),
+            },
+        )
+        response = await call_next(request)
+        logger.info(
+            "response",
+            extra={"path": request.url.path, "status": response.status_code},
+        )
+        return response
+
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> Response:
         if request.url.path.startswith("/web") and exc.status_code in {401, 404}:
