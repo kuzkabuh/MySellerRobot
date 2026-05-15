@@ -636,7 +636,7 @@ docker compose up -d bot api
 ```
 
 1. В `.env` указать публичный HTTPS-адрес:
-   `WEB_BASE_URL=https://seller.example.com`.
+   `WEB_BASE_URL=https://app.mpcontrol.online`.
 2. В Telegram нажать `🌐 Web-кабинет`.
 3. Бот должен прислать сообщение с URL-кнопкой `🔗 Открыть web-кабинет`.
 
