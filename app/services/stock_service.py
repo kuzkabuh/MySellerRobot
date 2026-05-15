@@ -1,6 +1,6 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: Stock synchronization, stockout forecast, and low-stock alert service.
-updated: 2026-05-14
+updated: 2026-05-15
 """
 
 from datetime import UTC, datetime
@@ -15,6 +15,7 @@ from app.integrations.wb import WildberriesClient
 from app.models.domain import AlertEvent, MarketplaceAccount, Product, StockSnapshot
 from app.models.enums import AlertType, Marketplace
 from app.repositories.products import ProductRepository
+from app.services.stock_forecast_service import StockForecastService
 
 
 class StockService:
@@ -108,6 +109,43 @@ class StockService:
                 )
             )
             created += 1
+        await self.session.commit()
+        return created
+
+    async def create_stockout_forecast_alerts(self, threshold_days: int = 7) -> int:
+        user_result = await self.session.execute(select(StockSnapshot.user_id).distinct())
+        created = 0
+        for user_id in user_result.scalars().all():
+            rows = await StockForecastService(self.session).forecast(user_id=int(user_id))
+            for row in rows:
+                if row.product_id is None or row.days_until_stockout is None:
+                    continue
+                if row.days_until_stockout > threshold_days:
+                    continue
+                key = f"stockout:{row.product_id}:{row.warehouse}:{row.days_until_stockout}"
+                if await self._alert_exists(key):
+                    continue
+                self.session.add(
+                    AlertEvent(
+                        user_id=int(user_id),
+                        rule_id=None,
+                        alert_type=AlertType.STOCKOUT_FORECAST,
+                        idempotency_key=key,
+                        title="Риск out-of-stock",
+                        message=(
+                            f"📦 {row.title}: запас закончится примерно через "
+                            f"{row.days_until_stockout} дн. Возможная упущенная выручка "
+                            f"за 30 дней: {row.lost_revenue_30d:.0f} ₽."
+                        ),
+                        payload={
+                            "product_id": row.product_id,
+                            "warehouse": row.warehouse,
+                            "days_until_stockout": str(row.days_until_stockout),
+                            "lost_revenue_30d": str(row.lost_revenue_30d),
+                        },
+                    )
+                )
+                created += 1
         await self.session.commit()
         return created
 

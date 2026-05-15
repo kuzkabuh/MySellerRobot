@@ -1,6 +1,6 @@
-"""version: 1.1.0
-description: ARQ background task functions.
-updated: 2026-05-14
+"""version: 1.2.0
+description: ARQ background task functions with stockout forecast alert creation.
+updated: 2026-05-15
 """
 
 import logging
@@ -200,7 +200,11 @@ async def check_low_stocks(ctx: dict[str, Any]) -> None:
         for account in accounts:
             await service.sync_account_stocks(account)
         created = await service.create_low_stock_alerts()
-        logger.info("low_stock_alerts_created", extra={"created": created})
+        forecast_created = await service.create_stockout_forecast_alerts()
+        logger.info(
+            "stock_alerts_created",
+            extra={"low_stock_created": created, "stockout_forecast_created": forecast_created},
+        )
 
 
 async def process_history_backfills(ctx: dict[str, Any]) -> None:

@@ -374,6 +374,7 @@ proxy_pass http://127.0.0.1:8000;
 После входа создаётся полноценная web-сессия через cookie `seller_web_session` с `Path=/`.
 Поэтому пользователь может переходить по разделам
 `/web/profit`, `/web/orders`, `/web/sales`, `/web/returns`, `/web/products`, `/web/costs`
+`/web/plan-fact`, `/web/break-even`, `/web/stocks`, `/web/alerts`, `/web/data-quality`
 и `/web/settings` без повторной одноразовой ссылки из Telegram. В production cookie
 помечается как `HttpOnly` и `Secure`.
 

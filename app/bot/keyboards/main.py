@@ -1,4 +1,4 @@
-"""version: 1.3.0
+"""version: 1.4.0
 description: Main Telegram inline keyboards.
 updated: 2026-05-15
 """
@@ -82,6 +82,12 @@ def profit_menu() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="План/факт и отклонения", callback_data="profit:plan_fact")],
             [
                 InlineKeyboardButton(
+                    text="Безубыточная цена",
+                    callback_data="profit:break_even",
+                )
+            ],
+            [
+                InlineKeyboardButton(
                     text="Заказы без себестоимости",
                     callback_data="profit:missing_cost",
                 )
@@ -103,6 +109,7 @@ def control_menu() -> InlineKeyboardMarkup:
             ],
             [InlineKeyboardButton(text="FBS/rFBS контроль", callback_data="control:fbs")],
             [InlineKeyboardButton(text="Остатки", callback_data="stocks")],
+            [InlineKeyboardButton(text="Прогноз out-of-stock", callback_data="control:stockout")],
             [InlineKeyboardButton(text="Убыточные заказы", callback_data="profit:loss")],
             [InlineKeyboardButton(text="Низкая маржа", callback_data="control:low_margin")],
             [
@@ -111,6 +118,7 @@ def control_menu() -> InlineKeyboardMarkup:
                     callback_data="control:sync_errors",
                 )
             ],
+            [InlineKeyboardButton(text="Качество данных", callback_data="control:data_quality")],
             [InlineKeyboardButton(text="Назад", callback_data="back_main")],
         ]
     )

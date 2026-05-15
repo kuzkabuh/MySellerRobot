@@ -1,5 +1,5 @@
-"""version: 1.6.0
-description: Smoke tests for API, bot, worker, package startup, and web cabinet navigation.
+"""version: 1.7.0
+description: Smoke tests for API, bot, worker, package startup, and web navigation.
 updated: 2026-05-15
 """
 
@@ -29,7 +29,7 @@ def test_create_app() -> None:
     app = create_app()
 
     assert app.title == "Seller Profit Bot API"
-    assert app.version == "1.4.18"
+    assert app.version == "1.4.21"
 
 
 def test_web_routes_are_registered() -> None:
@@ -45,6 +45,11 @@ def test_web_routes_are_registered() -> None:
     assert "/web/returns" in paths
     assert "/web/products" in paths
     assert "/web/costs" in paths
+    assert "/web/plan-fact" in paths
+    assert "/web/break-even" in paths
+    assert "/web/stocks" in paths
+    assert "/web/alerts" in paths
+    assert "/web/data-quality" in paths
     assert "/web/settings" in paths
     assert "/web/web/login" in paths
     assert "/web/web" in paths

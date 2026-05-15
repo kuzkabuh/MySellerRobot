@@ -1,5 +1,5 @@
-"""version: 1.6.0
-description: Common Telegram command, menu, web-link, and admin deploy handlers.
+"""version: 1.7.0
+description: Common Telegram command, menu, web-link, analytics, and admin deploy handlers.
 updated: 2026-05-15
 """
 
@@ -38,7 +38,6 @@ from app.models.domain import (
     Order,
     OrderItem,
     ProfitSnapshot,
-    StockSnapshot,
     User,
 )
 from app.models.enums import CalculationType, SaleModel
@@ -46,11 +45,14 @@ from app.repositories.orders import OrderRepository
 from app.repositories.users import UserRepository
 from app.services.admin_service import AdminService
 from app.services.daily_report_service import DailyReportService
+from app.services.data_quality_service import DataQualityService
 from app.services.deployment_service import DeploymentService
 from app.services.fbs_control_service import FbsControlService
 from app.services.marketplace_estimates import PlannedEconomics, calculate_planned_economics
 from app.services.message_formatter import format_user_datetime, rub
 from app.services.plan_fact_service import PlanFactService
+from app.services.stock_forecast_service import StockForecastService
+from app.services.unit_economics_service import UnitEconomicsService
 from app.services.web_auth_service import WebAuthService
 
 router = Router(name="common")
@@ -186,6 +188,8 @@ async def callback_handler(callback: CallbackQuery) -> None:
         if user_id:
             if data == "profit:plan_fact":
                 await message.answer(await _plan_fact_text(user_id))
+            elif data == "profit:break_even":
+                await message.answer(await _break_even_text(user_id))
             else:
                 await message.answer(await _profit_text(user_id))
     elif data == "products_costs_menu":
@@ -199,7 +203,12 @@ async def callback_handler(callback: CallbackQuery) -> None:
     elif data.startswith("control:") or data == "control":
         user_id = await _get_or_create_user_id(callback)
         if user_id:
-            await message.answer(await _control_text(user_id))
+            if data == "control:stockout":
+                await message.answer(await _stockout_text(user_id))
+            elif data == "control:data_quality":
+                await message.answer(await _data_quality_text(user_id))
+            else:
+                await message.answer(await _control_text(user_id))
     elif data in {"notifications", "settings:notifications"}:
         user = await _get_or_create_user(callback)
         if user:
@@ -372,6 +381,29 @@ async def _plan_fact_text(user_id: int) -> str:
     return "\n".join(lines)
 
 
+async def _break_even_text(user_id: int) -> str:
+    async with AsyncSessionFactory() as session:
+        rows = await UnitEconomicsService(session).rows(user_id=user_id, limit=5)
+    if not rows:
+        return (
+            "🧮 Безубыточная цена\n\n"
+            "Пока недостаточно заказов с рассчитанной экономикой. "
+            "После синхронизации заказов расчёт появится в web-кабинете."
+        )
+    lines = [
+        "🧮 Безубыточная цена",
+        "",
+        "Первые товары по последним заказам:",
+    ]
+    for row in rows:
+        lines.append(
+            f"— {row.seller_article}: безубыток {rub(row.break_even_price)}, "
+            f"цена для цели {rub(row.target_margin_price)}; {row.recommendation}"
+        )
+    lines.append("\nПодробный симулятор доступен в web-кабинете: /web/break-even")
+    return "\n".join(lines)
+
+
 async def _orders_text(user_id: int, mode: str = "orders:last10") -> str:
     query = (
         select(Order).where(Order.user_id == user_id).order_by(Order.order_date.desc()).limit(10)
@@ -412,21 +444,40 @@ def _today_start_utc(timezone_name: str) -> datetime:
 
 async def _stocks_text(user_id: int) -> str:
     async with AsyncSessionFactory() as session:
-        result = await session.execute(
-            select(StockSnapshot)
-            .where(StockSnapshot.user_id == user_id)
-            .order_by(StockSnapshot.snapshot_at.desc())
-            .limit(10)
-        )
-        snapshots = list(result.scalars().all())
-    if not snapshots:
+        rows = await StockForecastService(session).forecast(user_id=user_id)
+    if not rows:
         return "📦 Остатков пока нет. Фоновая синхронизация обновит их автоматически."
-    lines = ["📦 Последние остатки", ""]
-    for snapshot in snapshots:
+    lines = ["📦 Остатки и прогноз out-of-stock", ""]
+    for row in rows[:10]:
+        days = f"{row.days_until_stockout} дн." if row.days_until_stockout is not None else "н/д"
         lines.append(
-            f"{snapshot.marketplace.value}: {snapshot.quantity} шт., "
-            f"склад {snapshot.warehouse or 'н/д'}"
+            f"— {row.seller_article}: {row.quantity} шт., склад {row.warehouse}, "
+            f"хватит на {days}, потери 30д {rub(row.lost_revenue_30d)}"
         )
+    return "\n".join(lines)
+
+
+async def _stockout_text(user_id: int) -> str:
+    async with AsyncSessionFactory() as session:
+        rows = await StockForecastService(session).forecast(user_id=user_id)
+    risky = [row for row in rows if row.status in {"out_of_stock", "critical", "warning"}]
+    if not risky:
+        return "📦 Прогноз out-of-stock\n\nКритичных рисков по остаткам сейчас не найдено."
+    lines = ["📦 Риски out-of-stock", ""]
+    for row in risky[:7]:
+        days = f"{row.days_until_stockout} дн." if row.days_until_stockout is not None else "н/д"
+        lines.append(f"— {row.seller_article}: {days}, {row.recommendation}")
+    return "\n".join(lines)
+
+
+async def _data_quality_text(user_id: int) -> str:
+    async with AsyncSessionFactory() as session:
+        report = await DataQualityService(session).report(user_id=user_id)
+    lines = ["🧪 Качество данных", "", f"Индекс: {report.score}/100", ""]
+    for metric in report.metrics:
+        lines.append(f"— {metric.title}: {metric.value} ({metric.status})")
+    lines.append("\nЧто сделать:")
+    lines.extend(f"— {item}" for item in report.recommendations[:5])
     return "\n".join(lines)
 
 

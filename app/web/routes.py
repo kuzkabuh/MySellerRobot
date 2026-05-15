@@ -1,4 +1,4 @@
-"""version: 2.7.0
+"""version: 2.8.0
 description: FastAPI web cabinet routes with session auth and legacy path compatibility.
 updated: 2026-05-15
 """
@@ -10,15 +10,19 @@ from html import escape
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.db import get_session
-from app.models.domain import User
+from app.models.domain import AlertEvent, User
 from app.models.enums import Marketplace
 from app.repositories.web_auth import WebAuthRepository
+from app.services.data_quality_service import DataQualityReport, DataQualityService
 from app.services.master_product_service import MasterProductAnalyticsRow, MasterProductService
 from app.services.plan_fact_service import PlanFactPageData, PlanFactService
+from app.services.stock_forecast_service import StockForecastRow, StockForecastService
+from app.services.unit_economics_service import BreakEvenRow, UnitEconomicsService
 from app.services.web_auth_service import WEB_SESSION_COOKIE, WebAuthService
 from app.services.web_dashboard_service import (
     DailyPoint,
@@ -324,6 +328,27 @@ async def plan_fact_page(
     )
 
 
+@router.get("/break-even", response_class=HTMLResponse)
+async def break_even_page(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+    target_margin: str = Query(default="20"),
+    price_delta: str = Query(default="0"),
+) -> str:
+    rows = await UnitEconomicsService(session).rows(
+        user_id=user.id,
+        target_margin_percent=_decimal_from_query(target_margin, Decimal("20")),
+        price_delta_percent=_decimal_from_query(price_delta, Decimal("0")),
+    )
+    content = _break_even_content(rows, target_margin, price_delta)
+    return page(
+        "Безубыточная цена",
+        user.first_name or user.username or str(user.telegram_id),
+        content,
+        active_path="/web/break-even",
+    )
+
+
 @router.get("/sales", response_class=HTMLResponse)
 async def sales_page(user: User = CURRENT_WEB_USER_DEPENDENCY) -> str:
     return _placeholder_page("sales", user)
@@ -351,8 +376,53 @@ async def products_page(
 
 
 @router.get("/stocks", response_class=HTMLResponse)
-async def stocks_page(user: User = CURRENT_WEB_USER_DEPENDENCY) -> str:
-    return _placeholder_page("stocks", user)
+async def stocks_page(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    rows = await StockForecastService(session).forecast(user_id=user.id)
+    content = _stocks_forecast_content(rows)
+    return page(
+        "Остатки",
+        user.first_name or user.username or str(user.telegram_id),
+        content,
+        active_path="/web/stocks",
+    )
+
+
+@router.get("/alerts", response_class=HTMLResponse)
+async def alerts_page(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    result = await session.execute(
+        select(AlertEvent)
+        .where(AlertEvent.user_id == user.id)
+        .order_by(AlertEvent.created_at.desc())
+        .limit(50)
+    )
+    content = _alerts_content(list(result.scalars().all()))
+    return page(
+        "Алерты",
+        user.first_name or user.username or str(user.telegram_id),
+        content,
+        active_path="/web/alerts",
+    )
+
+
+@router.get("/data-quality", response_class=HTMLResponse)
+async def data_quality_page(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    report = await DataQualityService(session).report(user_id=user.id)
+    content = _data_quality_content(report)
+    return page(
+        "Качество данных",
+        user.first_name or user.username or str(user.telegram_id),
+        content,
+        active_path="/web/data-quality",
+    )
 
 
 @router.get("/analytics", response_class=HTMLResponse)
@@ -463,12 +533,26 @@ async def double_web_compat(
                 date_to=_optional_query_param(request, "date_to"),
             )
         )
+    if normalized == "break-even":
+        return HTMLResponse(
+            await break_even_page(
+                user=user,
+                session=session,
+                target_margin=_query_param(request, "target_margin", "20"),
+                price_delta=_query_param(request, "price_delta", "0"),
+            )
+        )
     if normalized == "products":
         return HTMLResponse(await products_page(user=user, session=session))
+    if normalized == "stocks":
+        return HTMLResponse(await stocks_page(user=user, session=session))
+    if normalized == "alerts":
+        return HTMLResponse(await alerts_page(user=user, session=session))
+    if normalized == "data-quality":
+        return HTMLResponse(await data_quality_page(user=user, session=session))
     if normalized in {
         "sales",
         "returns",
-        "stocks",
         "analytics",
         "control",
         "costs",
@@ -482,10 +566,13 @@ def _placeholder_page(section: str, user: User) -> str:
     titles = {
         "orders": "Заказы",
         "profit": "Прибыль",
+        "break-even": "Безубыточность",
         "sales": "Продажи",
         "returns": "Возвраты",
         "products": "Товары",
         "stocks": "Остатки",
+        "alerts": "Алерты",
+        "data-quality": "Качество данных",
         "analytics": "Аналитика",
         "control": "Контроль",
         "costs": "Себестоимость",
@@ -712,6 +799,70 @@ def _plan_fact_content(data: PlanFactPageData) -> str:
     """
 
 
+def _break_even_content(
+    rows: list[BreakEvenRow],
+    target_margin: str,
+    price_delta: str,
+) -> str:
+    body = "".join(
+        "<tr>"
+        f'<td>{escape(row.title)}<div class="muted">{escape(row.seller_article)}</div></td>'
+        f"<td>{_marketplace_label(row.marketplace)}</td>"
+        f'<td class="num">{_rub(row.current_price)}</td>'
+        f'<td class="num">{_rub(row.break_even_price)}</td>'
+        f'<td class="num">{_rub(row.target_margin_price)}</td>'
+        f'<td class="num">{row.commission_rate}%</td>'
+        f'<td class="num">{_rub(row.logistics_cost)}</td>'
+        f'<td class="num">{_rub(row.simulated_price)}</td>'
+        f'<td class="num">{_rub(row.simulated_profit)}</td>'
+        f'<td class="num">{row.simulated_margin_percent}%</td>'
+        f"<td>{escape(row.recommendation)}</td>"
+        "</tr>"
+        for row in rows
+    )
+    if not body:
+        body = (
+            '<tr><td colspan="11" class="muted">'
+            "Недостаточно заказов с экономикой для расчёта безубыточности.</td></tr>"
+        )
+    return f"""
+      {_section_subnav("break_even")}
+      <form class="filters" method="get" action="/web/break-even">
+        <div>
+          <label for="target_margin">Целевая маржа, %</label>
+          <input id="target_margin" name="target_margin" type="number"
+                 value="{escape(target_margin)}">
+        </div>
+        <div>
+          <label for="price_delta">Симуляция цены, %</label>
+          <input id="price_delta" name="price_delta" type="number" value="{escape(price_delta)}">
+        </div>
+        <button class="button primary" type="submit">Пересчитать</button>
+      </form>
+      <section class="band">
+        <h2>Безубыточная цена и симулятор</h2>
+        <p class="muted">
+          Расчёт использует средние комиссию, логистику, налог и себестоимость из последних
+          заказов. Прогнозные значения не считаются фактическим финансовым отчётом.
+        </p>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Товар</th><th>МП</th><th class="num">Текущая цена</th>
+                <th class="num">Безубыток</th><th class="num">Цена для цели</th>
+                <th class="num">Комиссия</th><th class="num">Логистика</th>
+                <th class="num">Цена симуляции</th><th class="num">Прибыль</th>
+                <th class="num">Маржа</th><th>Рекомендация</th>
+              </tr>
+            </thead>
+            <tbody>{body}</tbody>
+          </table>
+        </div>
+      </section>
+    """
+
+
 def _products_content(rows: list[MasterProductAnalyticsRow]) -> str:
     row_html = []
     for row in rows:
@@ -782,6 +933,125 @@ def _products_content(rows: list[MasterProductAnalyticsRow]) -> str:
             <tbody>{body}</tbody>
           </table>
         </div>
+      </section>
+    """
+
+
+def _stocks_forecast_content(rows: list[StockForecastRow]) -> str:
+    body_rows = []
+    for row in rows:
+        days_until_stockout = (
+            str(row.days_until_stockout) if row.days_until_stockout is not None else "н/д"
+        )
+        body_rows.append(
+            "<tr>"
+            f'<td>{escape(row.title)}<div class="muted">{escape(row.seller_article)}</div></td>'
+            f"<td>{_marketplace_label(row.marketplace)}</td>"
+            f"<td>{escape(row.warehouse)}</td>"
+            f'<td class="num">{row.quantity}</td>'
+            f'<td class="num">{row.average_daily_sales}</td>'
+            f'<td class="num">{days_until_stockout}</td>'
+            f'<td class="num">{_rub(row.lost_revenue_30d)}</td>'
+            f"<td>{escape(row.status)}</td>"
+            f"<td>{escape(row.recommendation)}</td>"
+            "</tr>"
+        )
+    body = "".join(body_rows)
+    if not body:
+        body = (
+            '<tr><td colspan="9" class="muted">'
+            "Остатков пока нет. Дождитесь фоновой синхронизации складов.</td></tr>"
+        )
+    return f"""
+      {_section_subnav("stocks")}
+      <section class="band">
+        <h2>Остатки, out-of-stock и потери выручки</h2>
+        <p class="muted">
+          Прогноз: текущий остаток делится на среднедневные выкупы за 30 дней.
+          Упущенная выручка оценивается на горизонте 30 дней после даты возможного stockout.
+        </p>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Товар</th><th>МП</th><th>Склад</th><th class="num">Остаток</th>
+                <th class="num">Продаж/день</th><th class="num">Дней запаса</th>
+                <th class="num">Потери 30д</th><th>Статус</th><th>Рекомендация</th>
+              </tr>
+            </thead>
+            <tbody>{body}</tbody>
+          </table>
+        </div>
+      </section>
+    """
+
+
+def _alerts_content(events: list[AlertEvent]) -> str:
+    body = "".join(
+        "<tr>"
+        f"<td>{escape(event.created_at.strftime('%d.%m.%Y %H:%M'))}</td>"
+        f"<td>{escape(event.alert_type.value)}</td>"
+        f"<td>{escape(event.title)}</td>"
+        f"<td>{escape(event.message)}</td>"
+        f"<td>{'отправлено' if event.sent_at else 'новое'}</td>"
+        "</tr>"
+        for event in events
+    )
+    if not body:
+        body = '<tr><td colspan="5" class="muted">Активных алертов пока нет.</td></tr>'
+    return f"""
+      {_section_subnav("alerts")}
+      <section class="band">
+        <h2>Расширенные алерты</h2>
+        <p class="muted">
+          Здесь отображаются события по низкой марже, убыточным заказам, FBS-дедлайнам,
+          остаткам, out-of-stock и качеству синхронизации.
+        </p>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr><th>Дата</th><th>Тип</th><th>Заголовок</th><th>Сообщение</th><th>Статус</th></tr>
+            </thead>
+            <tbody>{body}</tbody>
+          </table>
+        </div>
+      </section>
+    """
+
+
+def _data_quality_content(report: DataQualityReport) -> str:
+    tone = "good" if report.score >= 80 else "warn" if report.score >= 50 else "bad"
+    metrics = "".join(
+        "<tr>"
+        f"<td>{escape(metric.title)}</td>"
+        f'<td class="num">{metric.value}</td>'
+        f"<td>{escape(metric.status)}</td>"
+        f"<td>{escape(metric.description)}</td>"
+        "</tr>"
+        for metric in report.metrics
+    )
+    recommendations = "".join(f"<li>{escape(item)}</li>" for item in report.recommendations)
+    return f"""
+      {_section_subnav("data_quality")}
+      <section class="kpi-grid">
+        {_simple_kpi("Индекс качества данных", str(report.score), tone)}
+      </section>
+      <section class="band" style="margin-top:14px">
+        <h2>Качество данных</h2>
+        <div class="table-wrap">
+          <table class="table">
+        <thead>
+          <tr>
+            <th>Проверка</th><th class="num">Значение</th><th>Статус</th><th>Комментарий</th>
+          </tr>
+        </thead>
+            <tbody>{metrics}</tbody>
+          </table>
+        </div>
+      </section>
+      <section class="band" style="margin-top:14px">
+        <h2>Что сделать</h2>
+        <ul>{recommendations}</ul>
       </section>
     """
 
@@ -863,7 +1133,11 @@ def _section_subnav(active: str) -> str:
         "orders": ("Заказы", "/web/orders"),
         "profit": ("Прибыль", "/web/profit"),
         "plan_fact": ("План/факт", "/web/plan-fact"),
+        "break_even": ("Безубыточность", "/web/break-even"),
         "products": ("Товары", "/web/products"),
+        "stocks": ("Остатки", "/web/stocks"),
+        "alerts": ("Алерты", "/web/alerts"),
+        "data_quality": ("Качество данных", "/web/data-quality"),
     }
     return (
         '<div class="subnav">'
@@ -1367,3 +1641,10 @@ def _query_param(request: Request, name: str, default: str) -> str:
 
 def _optional_query_param(request: Request, name: str) -> str | None:
     return request.query_params.get(name)
+
+
+def _decimal_from_query(value: str, default: Decimal) -> Decimal:
+    try:
+        return Decimal(value)
+    except Exception:
+        return default

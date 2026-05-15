@@ -1,5 +1,5 @@
-"""version: 1.2.0
-description: Unit tests for Telegram menu structure, web cabinet, and admin deploy buttons.
+"""version: 1.3.0
+description: Unit tests for Telegram menu, analytics actions, web cabinet, and admin deploy buttons.
 updated: 2026-05-15
 """
 
@@ -57,6 +57,14 @@ def test_profit_menu_contains_plan_fact_report() -> None:
     texts = [button.text for row in profit_menu().inline_keyboard for button in row]
 
     assert "План/факт и отклонения" in texts
+    assert "Безубыточная цена" in texts
+
+
+def test_control_menu_contains_stockout_and_quality_actions() -> None:
+    texts = [button.text for row in control_menu().inline_keyboard for button in row]
+
+    assert "Прогноз out-of-stock" in texts
+    assert "Качество данных" in texts
 
 
 def test_web_cabinet_keyboard_uses_url_button() -> None:
