@@ -84,7 +84,7 @@ namespaces = false
 - добавлены smoke-тесты для обнаружения пакета `app`, FastAPI factory, aiogram Dispatcher,
   worker settings и backfill-настроек.
 
-Текущая версия после Этапа 4.3.1: `1.4.12`. Версия хранится в `VERSION` и в
+Текущая версия после Этапа 4.3.2: `1.4.13`. Версия хранится в `VERSION` и в
 `pyproject.toml`.
 
 ## Почему arq
@@ -803,7 +803,7 @@ Telegram-админка:
 2. Перейти в `🚀 Обновление и деплой`.
 3. Проверить текущую версию, наличие обновлений, статус последнего deploy, лог и backup.
 4. Для запуска обновления из Telegram включить на сервере
-   `ENABLE_TELEGRAM_DEPLOY_COMMANDS=true`. Начиная с `1.4.12`, безопасный production-режим
+   `ENABLE_TELEGRAM_DEPLOY_COMMANDS=true`. Начиная с `1.4.13`, безопасный production-режим
    использует host-trigger: бот пишет файл `runtime/telegram_update_request.json`, а systemd
    на сервере запускает фиксированную команду `deploy/update.sh --non-interactive`.
 
@@ -860,6 +860,9 @@ curl -i "https://app.mpcontrol.online/web/login"
   видел статус deploy и metadata;
 - health-check в `deploy/update.sh` ждёт готовности `/health` с повторными попытками, а не
   помечает успешный деплой ошибочным из-за раннего `Empty reply from server`.
+- `deploy/update.sh` заранее обнаруживает локально изменённые tracked-файлы на сервере, сохраняет
+  diff в `runtime/local_changes_*.diff` и останавливает update с понятным сообщением, не затирая
+  ручные изменения.
 
 Для включения обновлений из Telegram на сервере:
 

@@ -320,6 +320,23 @@ check_env_diff() {
   fi
 }
 
+check_local_changes() {
+  cd "$PROJECT_DIR"
+  local dirty
+  dirty="$(git status --porcelain --untracked-files=no)"
+  if [[ -z "$dirty" ]]; then
+    log_info "No local tracked changes in production worktree."
+    return
+  fi
+  local diff_path
+  diff_path="${DEPLOY_RUNTIME_DIR}/local_changes_$(date '+%Y%m%d_%H%M%S').diff"
+  git diff > "$diff_path" || true
+  log_error "Local tracked changes block safe update. Diff saved to ${diff_path}."
+  log_error "Review server changes, commit/revert them intentionally, then re-run update."
+  write_status "failed" "Local tracked changes block safe update. Diff saved to ${diff_path}."
+  exit 3
+}
+
 backup_database() {
   if [[ "$SKIP_BACKUP" == "1" ]]; then
     log_warn "Skipping database backup because SKIP_BACKUP=1."
@@ -394,6 +411,7 @@ main_update() {
   show_current_version
   fetch_updates
   check_env_diff
+  check_local_changes
   validate_env
   backup_database
   pull_updates

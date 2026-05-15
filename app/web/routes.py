@@ -1,9 +1,10 @@
-"""version: 2.2.0
-description: FastAPI routes for web cabinet login, dashboard, orders, and profit pages.
+"""version: 2.3.0
+description: FastAPI routes for web login, cabinet dashboard, orders, and profit pages.
 updated: 2026-05-15
 """
 
 import json
+import logging
 from decimal import Decimal
 from html import escape
 
@@ -35,6 +36,9 @@ from app.web.rendering import page
 
 router = APIRouter(prefix="/web", tags=["web"])
 SESSION_DEPENDENCY = Depends(get_session)
+WEB_DASHBOARD_PATH = "/web/"
+WEB_LOGIN_REQUIRED_PATH = "/web/login-required"
+logger = logging.getLogger(__name__)
 
 
 async def current_web_user(
@@ -63,11 +67,17 @@ async def login(
     token: str | None = Query(default=None),
 ) -> Response:
     if not token:
+        logger.info("web_login_missing_token", extra={"path": _request_path(request)})
         return HTMLResponse(
             "<h1>Ссылка недействительна</h1>"
             "<p>В ссылке входа отсутствует токен. Запросите новую ссылку в Telegram-боте.</p>",
             status_code=400,
         )
+    masked_token = _mask_token(token)
+    logger.info(
+        "web_login_attempt",
+        extra={"path": _request_path(request), "token": masked_token},
+    )
     web_session = await WebAuthService(session).consume_login_token(
         token,
         ip_address=request.client.host if request.client else None,
@@ -75,12 +85,22 @@ async def login(
     )
     if web_session is None:
         await session.rollback()
+        logger.info(
+            "web_login_failed",
+            extra={"path": _request_path(request), "token": masked_token},
+        )
         return HTMLResponse(
-            "<h1>Ссылка недействительна</h1><p>Запросите новую ссылку в Telegram-боте.</p>",
+            "<h1>Ссылка для входа недействительна</h1>"
+            "<p>Срок действия ссылки истёк, ссылка уже использована или токен повреждён. "
+            "Получите новую ссылку в Telegram-боте.</p>",
             status_code=400,
         )
     await session.commit()
-    response = RedirectResponse(url="/web/", status_code=303)
+    logger.info(
+        "web_login_success",
+        extra={"path": _request_path(request), "target": WEB_DASHBOARD_PATH},
+    )
+    response = RedirectResponse(url=WEB_DASHBOARD_PATH, status_code=303)
     response.set_cookie(
         WEB_SESSION_COOKIE,
         web_session.token,
@@ -107,7 +127,7 @@ async def logout(
 ) -> RedirectResponse:
     await WebAuthService(session).revoke_session(request.cookies.get(WEB_SESSION_COOKIE))
     await session.commit()
-    response = RedirectResponse(url="/web/login-required", status_code=303)
+    response = RedirectResponse(url=WEB_LOGIN_REQUIRED_PATH, status_code=303)
     response.delete_cookie(WEB_SESSION_COOKIE)
     return response
 
@@ -142,6 +162,30 @@ async def dashboard(
     )
     content = _dashboard_content(data)
     return page("Главная", user.first_name or user.username or str(user.telegram_id), content)
+
+
+@router.get("/web", response_class=HTMLResponse, include_in_schema=False)
+@router.get("/web/", response_class=HTMLResponse, include_in_schema=False)
+async def dashboard_compat(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+    period: str = Query(default="today"),
+    marketplace: str = Query(default="all"),
+    sale_model: str = Query(default="all"),
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
+) -> str:
+    """Render cabinet dashboard for legacy double-/web upstream paths."""
+
+    return await dashboard(
+        user=user,
+        session=session,
+        period=period,
+        marketplace=marketplace,
+        sale_model=sale_model,
+        date_from=date_from,
+        date_to=date_to,
+    )
 
 
 @router.get("/orders", response_class=HTMLResponse)
@@ -918,3 +962,14 @@ def _percent_optional(value: Decimal | None) -> str:
 
 def _marketplace_label(value: Marketplace) -> str:
     return "Wildberries" if value == Marketplace.WB else "Ozon"
+
+
+def _mask_token(token: str) -> str:
+    if len(token) <= 12:
+        return "***"
+    return f"{token[:6]}...{token[-4:]}"
+
+
+def _request_path(request: Request) -> str:
+    url = getattr(request, "url", None)
+    return str(getattr(url, "path", "unknown"))

@@ -1,4 +1,4 @@
-"""version: 1.1.0
+"""version: 1.2.0
 description: Unit tests for one-time web cabinet login links and sessions.
 updated: 2026-05-15
 """
@@ -81,6 +81,18 @@ async def test_create_login_link_stores_hash_not_raw_token() -> None:
     assert "/web/web" not in link.url
     assert repo.created_token_hash is not None
     assert repo.created_token_hash not in link.url
+
+
+@pytest.mark.asyncio
+async def test_create_login_link_strips_web_suffix_from_base_url() -> None:
+    repo = FakeWebAuthRepository()
+    service = _service(repo)
+    service.settings.web_base_url = "https://app.mpcontrol.online/web"
+
+    link = await service.create_login_link(user_id=5)
+
+    assert link.url.startswith("https://app.mpcontrol.online/web/login?token=")
+    assert "/web/web" not in link.url
 
 
 @pytest.mark.asyncio

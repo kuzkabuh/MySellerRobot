@@ -1,13 +1,13 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: One-time Telegram-to-web login link and session management service.
-updated: 2026-05-14
+updated: 2026-05-15
 """
 
 import hashlib
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +15,7 @@ from app.core.config import get_settings
 from app.repositories.web_auth import WebAuthRepository
 
 WEB_SESSION_COOKIE = "seller_web_session"
+WEB_LOGIN_PATH = "/web/login"
 
 
 @dataclass(slots=True)
@@ -48,8 +49,8 @@ class WebAuthService:
             expires_at=expires_at,
         )
         query = urlencode({"token": raw_token})
-        base_url = self.settings.web_base_url.rstrip("/")
-        return WebLoginLink(url=f"{base_url}/web/login?{query}", expires_at=expires_at)
+        base_url = self._canonical_web_base_url(self.settings.web_base_url)
+        return WebLoginLink(url=f"{base_url}{WEB_LOGIN_PATH}?{query}", expires_at=expires_at)
 
     async def consume_login_token(
         self,
@@ -85,3 +86,16 @@ class WebAuthService:
     @staticmethod
     def hash_secret(value: str) -> str:
         return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _canonical_web_base_url(raw_url: str) -> str:
+        """Return origin URL without duplicated /web path segments."""
+
+        value = raw_url.rstrip("/")
+        parsed = urlsplit(value)
+        if parsed.path in {"", "/"}:
+            return value
+        path = parsed.path.rstrip("/")
+        if path == "/web":
+            return urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
+        return value

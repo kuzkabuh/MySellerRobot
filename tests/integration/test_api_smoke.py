@@ -1,4 +1,4 @@
-"""version: 1.3.0
+"""version: 1.4.0
 description: Smoke tests for API, bot, worker, and package startup boundaries.
 updated: 2026-05-15
 """
@@ -12,7 +12,7 @@ import pytest
 from app.api.main import create_app
 from app.bot.main import create_dispatcher
 from app.core.config import Settings
-from app.web.routes import login
+from app.web.routes import dashboard_compat, login
 from app.workers.settings import WorkerSettings
 
 
@@ -28,7 +28,7 @@ def test_create_app() -> None:
     app = create_app()
 
     assert app.title == "Seller Profit Bot API"
-    assert app.version == "1.4.12"
+    assert app.version == "1.4.13"
 
 
 def test_web_routes_are_registered() -> None:
@@ -41,6 +41,8 @@ def test_web_routes_are_registered() -> None:
     assert "/web/orders/{order_id}" in paths
     assert "/web/profit" in paths
     assert "/web/web/login" in paths
+    assert "/web/web" in paths
+    assert "/web/web/" in paths
     assert "/web/logout" in paths
 
 
@@ -75,6 +77,20 @@ async def test_web_login_valid_token_redirects(monkeypatch: pytest.MonkeyPatch) 
     assert response.status_code == 303
     assert response.headers["location"] == "/web/"
     assert response.headers["location"] != "/web/web"
+
+
+@pytest.mark.asyncio
+async def test_legacy_double_web_dashboard_route_renders_not_404(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_dashboard(*args, **kwargs):  # type: ignore[no-untyped-def]
+        return "<html>Кабинет</html>"
+
+    monkeypatch.setattr("app.web.routes.dashboard", fake_dashboard)
+
+    response = await dashboard_compat(user=object(), session=object())
+
+    assert "Кабинет" in response
 
 
 def test_app_package_discovery_includes_utility_package() -> None:
