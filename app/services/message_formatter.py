@@ -1,15 +1,15 @@
-"""version: 1.2.0
+"""version: 1.3.0
 description: Russian Telegram message formatting helpers.
 updated: 2026-05-15
 """
 
 from datetime import datetime
 from decimal import Decimal
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.models.enums import Marketplace, SaleModel
 from app.schemas.orders import NormalizedOrder, NormalizedOrderItem
 from app.schemas.profit import ProfitResult
+from app.utils.datetime import format_datetime_for_user
 
 
 def rub(value: Decimal | None) -> str:
@@ -20,13 +20,7 @@ def rub(value: Decimal | None) -> str:
 
 
 def format_user_datetime(value: datetime | None, timezone_name: str = "Europe/Moscow") -> str:
-    if value is None:
-        return "н/д"
-    try:
-        timezone = ZoneInfo(timezone_name)
-    except ZoneInfoNotFoundError:
-        timezone = ZoneInfo("Europe/Moscow")
-    return value.astimezone(timezone).strftime("%d.%m.%Y %H:%M")
+    return format_datetime_for_user(value, timezone_name)
 
 
 class MessageFormatter:

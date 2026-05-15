@@ -154,6 +154,17 @@ def test_new_order_notification_callbacks_are_stable() -> None:
     assert "hide" in callbacks
 
 
+def test_new_order_notification_can_include_wb_product_url_button() -> None:
+    keyboard = NotificationService._build_new_order_keyboard(
+        order_id=10,
+        product_url="https://www.wildberries.ru/catalog/303948126/detail.aspx?targetUrl=XS",
+    )
+    buttons = [button for row in keyboard.inline_keyboard for button in row]
+
+    assert any(button.text == "🛍 Открыть товар на WB" and button.url for button in buttons)
+    assert "order:10:product" not in set(_callbacks(keyboard))
+
+
 def _callbacks(keyboard: InlineKeyboardMarkup) -> list[str]:
     return [
         str(button.callback_data)

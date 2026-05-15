@@ -1,4 +1,4 @@
-"""version: 1.2.0
+"""version: 1.3.0
 description: Shared estimated order profit calculation for online polling and history backfill.
 updated: 2026-05-15
 """
@@ -21,6 +21,7 @@ from app.repositories.products import ProductRepository
 from app.schemas.orders import NormalizedOrder
 from app.schemas.profit import CostInput, ProfitInput, ProfitResult
 from app.services.cost_service import CostService
+from app.services.marketplace_estimates import estimate_marketplace_expenses
 from app.services.profit_calculator import ProfitCalculator
 
 
@@ -62,6 +63,11 @@ class OrderProfitService:
             cost = (
                 await self.costs.get_actual_cost(product.id, order.order_date) if product else None
             )
+            estimates = estimate_marketplace_expenses(order_with_items, item)
+            if item.commission_estimated is None:
+                item.commission_estimated = estimates.commission
+            if item.logistics_estimated is None or item.logistics_estimated == Decimal("0"):
+                item.logistics_estimated = estimates.logistics
             result = self.calculate_item_profit(item, cost)
             self.apply_profit_to_item(item, result)
             self.session.add(

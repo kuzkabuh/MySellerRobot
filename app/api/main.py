@@ -1,4 +1,4 @@
-"""version: 1.0.4
+"""version: 1.0.5
 description: FastAPI application factory and service endpoints.
 updated: 2026-05-15
 """
@@ -25,7 +25,7 @@ SETTINGS_DEPENDENCY = Depends(get_settings)
 def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging(settings)
-    app = FastAPI(title="Seller Profit Bot API", version="1.4.14", debug=settings.app_debug)
+    app = FastAPI(title="Seller Profit Bot API", version="1.4.15", debug=settings.app_debug)
     app.include_router(web_router)
 
     @app.exception_handler(StarletteHTTPException)

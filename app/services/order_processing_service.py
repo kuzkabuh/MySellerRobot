@@ -1,4 +1,4 @@
-"""version: 1.1.0
+"""version: 1.2.0
 description: Online order ingestion, idempotency, product matching, and estimated profit snapshots.
 updated: 2026-05-15
 """
@@ -16,7 +16,7 @@ from app.models.domain import MarketplaceAccount, Order
 from app.models.enums import FboNotificationMode, Marketplace
 from app.repositories.orders import FboDigestQueueRepository, OrderRepository
 from app.schemas.orders import NormalizedOrder
-from app.services.message_formatter import MessageFormatter
+from app.services.order_card_service import OrderCardService
 from app.services.order_notification_policy import OrderNotificationPolicyService
 from app.services.order_profit_service import OrderProfitService
 
@@ -28,6 +28,9 @@ class NewOrderNotification:
     telegram_id: int
     order_id: int
     text: str
+    image_url: str | None = None
+    product_url: str | None = None
+    parse_mode: str | None = "HTML"
 
 
 @dataclass(slots=True)
@@ -61,7 +64,7 @@ class OrderProcessingService:
         self.fbo_queue = FboDigestQueueRepository(session)
         self.notification_policy = OrderNotificationPolicyService(session)
         self.profits = OrderProfitService(session)
-        self.formatter = MessageFormatter()
+        self.cards = OrderCardService(session)
 
     async def poll_account(self, account: MarketplaceAccount) -> list[NewOrderNotification]:
         result = await self.poll_account_with_stats(account)
@@ -101,21 +104,22 @@ class OrderProcessingService:
             item = (
                 order_with_items.items[0] if order_with_items and order_with_items.items else None
             )
-            profit = self.profits.latest_estimated_result(item) if item else None
-            if profit:
+            if item and order_with_items:
+                card = await self.cards.new_order_card(
+                    order=order_with_items,
+                    item=item,
+                    timezone_name=account.user.timezone,
+                )
                 await self.orders.mark_notified(order.id)
                 result.notifications = result.notifications or []
                 result.notifications.append(
                     NewOrderNotification(
                         telegram_id=account.user.telegram_id,
                         order_id=order.id,
-                        text=self.formatter.new_order_card(
-                            normalized,
-                            first_item,
-                            profit,
-                            detailed=False,
-                            timezone_name=account.user.timezone,
-                        ),
+                        text=card.text,
+                        image_url=card.image_url,
+                        product_url=card.product_url,
+                        parse_mode=card.parse_mode,
                     )
                 )
         await self.session.commit()

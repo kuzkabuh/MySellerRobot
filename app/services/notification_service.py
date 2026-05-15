@@ -1,10 +1,12 @@
-"""version: 1.1.0
+"""version: 1.2.0
 description: Telegram notification delivery service.
 updated: 2026-05-15
 """
 
 from aiogram import Bot
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+TELEGRAM_CAPTION_LIMIT = 1024
 
 
 class NotificationService:
@@ -14,19 +16,47 @@ class NotificationService:
         self.bot = bot
 
     async def send_new_order(
-        self, telegram_id: int, text: str, order_id: int | None = None
+        self,
+        telegram_id: int,
+        text: str,
+        order_id: int | None = None,
+        *,
+        image_url: str | None = None,
+        product_url: str | None = None,
+        parse_mode: str | None = None,
     ) -> None:
+        keyboard = self._build_new_order_keyboard(order_id, product_url)
+        if image_url:
+            if len(text) <= TELEGRAM_CAPTION_LIMIT:
+                await self.bot.send_photo(
+                    telegram_id,
+                    photo=image_url,
+                    caption=text,
+                    parse_mode=parse_mode,
+                    reply_markup=keyboard,
+                )
+                return
+            await self.bot.send_photo(telegram_id, photo=image_url)
         await self.bot.send_message(
             telegram_id,
             text,
-            reply_markup=self._build_new_order_keyboard(order_id),
+            parse_mode=parse_mode,
+            reply_markup=keyboard,
         )
 
     @staticmethod
-    def _build_new_order_keyboard(order_id: int | None = None) -> InlineKeyboardMarkup:
+    def _build_new_order_keyboard(
+        order_id: int | None = None,
+        product_url: str | None = None,
+    ) -> InlineKeyboardMarkup:
         details_callback = f"order:{order_id}:details" if order_id else "orders:last10"
         profit_callback = f"order:{order_id}:profit" if order_id else "profit:today"
         product_callback = f"order:{order_id}:product" if order_id else "products_costs_menu"
+        product_button = (
+            InlineKeyboardButton(text="🛍 Открыть товар на WB", url=product_url)
+            if product_url
+            else InlineKeyboardButton(text="📦 О товаре", callback_data=product_callback)
+        )
         return InlineKeyboardMarkup(
             inline_keyboard=[
                 [
@@ -34,7 +64,7 @@ class NotificationService:
                     InlineKeyboardButton(text="💰 Расчёт прибыли", callback_data=profit_callback),
                 ],
                 [
-                    InlineKeyboardButton(text="📦 О товаре", callback_data=product_callback),
+                    product_button,
                     InlineKeyboardButton(
                         text="⚙ Настройки уведомлений",
                         callback_data="settings:notifications",
@@ -65,7 +95,20 @@ class NotificationService:
         )
         await self.bot.send_message(telegram_id, text, reply_markup=keyboard)
 
-    async def send_sale_completed(self, telegram_id: int, text: str) -> None:
+    async def send_sale_completed(
+        self,
+        telegram_id: int,
+        text: str,
+        *,
+        image_url: str | None = None,
+        product_url: str | None = None,
+        parse_mode: str | None = None,
+    ) -> None:
+        product_button = (
+            InlineKeyboardButton(text="🛍 Открыть товар на WB", url=product_url)
+            if product_url
+            else InlineKeyboardButton(text="📦 Товар", callback_data="products_costs_menu")
+        )
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
@@ -73,7 +116,7 @@ class NotificationService:
                         text="💰 Экономика продажи",
                         callback_data="profit:today",
                     ),
-                    InlineKeyboardButton(text="📦 Товар", callback_data="products_costs_menu"),
+                    product_button,
                 ],
                 [
                     InlineKeyboardButton(
@@ -83,4 +126,15 @@ class NotificationService:
                 ],
             ]
         )
-        await self.bot.send_message(telegram_id, text, reply_markup=keyboard)
+        if image_url:
+            if len(text) <= TELEGRAM_CAPTION_LIMIT:
+                await self.bot.send_photo(
+                    telegram_id,
+                    photo=image_url,
+                    caption=text,
+                    parse_mode=parse_mode,
+                    reply_markup=keyboard,
+                )
+                return
+            await self.bot.send_photo(telegram_id, photo=image_url)
+        await self.bot.send_message(telegram_id, text, parse_mode=parse_mode, reply_markup=keyboard)

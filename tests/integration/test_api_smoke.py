@@ -1,4 +1,4 @@
-"""version: 1.4.0
+"""version: 1.5.0
 description: Smoke tests for API, bot, worker, and package startup boundaries.
 updated: 2026-05-15
 """
@@ -28,7 +28,7 @@ def test_create_app() -> None:
     app = create_app()
 
     assert app.title == "Seller Profit Bot API"
-    assert app.version == "1.4.14"
+    assert app.version == "1.4.15"
 
 
 def test_web_routes_are_registered() -> None:
@@ -40,6 +40,11 @@ def test_web_routes_are_registered() -> None:
     assert "/web/orders" in paths
     assert "/web/orders/{order_id}" in paths
     assert "/web/profit" in paths
+    assert "/web/sales" in paths
+    assert "/web/returns" in paths
+    assert "/web/products" in paths
+    assert "/web/costs" in paths
+    assert "/web/settings" in paths
     assert "/web/web/login" in paths
     assert "/web/web" in paths
     assert "/web/web/" in paths
@@ -77,6 +82,7 @@ async def test_web_login_valid_token_redirects(monkeypatch: pytest.MonkeyPatch) 
     assert response.status_code == 303
     assert response.headers["location"] == "/web/"
     assert response.headers["location"] != "/web/web"
+    assert "Path=/web" in response.headers["set-cookie"]
 
 
 @pytest.mark.asyncio

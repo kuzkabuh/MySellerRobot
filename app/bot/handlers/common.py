@@ -1,4 +1,4 @@
-"""version: 1.4.0
+"""version: 1.5.0
 description: Common Telegram command, menu, web-link, and admin deploy handlers.
 updated: 2026-05-15
 """
@@ -48,6 +48,7 @@ from app.services.admin_service import AdminService
 from app.services.daily_report_service import DailyReportService
 from app.services.deployment_service import DeploymentService
 from app.services.fbs_control_service import FbsControlService
+from app.services.marketplace_estimates import PlannedEconomics, calculate_planned_economics
 from app.services.message_formatter import format_user_datetime, rub
 from app.services.web_auth_service import WebAuthService
 
@@ -527,27 +528,27 @@ def _format_order_details(order: Order, timezone_name: str) -> str:
     if deadline:
         lines.append(f"Дедлайн обработки: {format_user_datetime(deadline, timezone_name)}")
     for item in order.items:
-        margin = (
-            item.margin_percent_estimated if item.margin_percent_estimated is not None else "н/д"
-        )
+        economics = calculate_planned_economics(order, item)
+        commission_label = _commission_detail_label(economics)
+        logistics_label = _logistics_detail_label(economics)
         lines.extend(
             [
                 "",
-                f"Товар: {item.title or 'Без названия'}",
-                f"Артикул продавца: {item.seller_article or 'н/д'}",
-                f"Артикул маркетплейса: {item.marketplace_article or 'н/д'}",
-                f"Количество: {item.quantity}",
+                f"📁 Товар: {item.title or 'Без названия'}",
+                f"🏷 Артикул продавца: {item.seller_article or 'н/д'}",
+                f"🆔 Артикул маркетплейса: {item.marketplace_article or 'н/д'}",
+                f"🔢 Количество: {item.quantity}",
                 "",
-                f"💰 Цена продажи: {rub(item.discounted_price)}",
+                f"💰 Цена продажи: {rub(economics.revenue)}",
                 f"💳 Сумма к расчёту: {rub(item.payout_amount_estimated)}",
-                f"🏷 Комиссия маркетплейса: {rub(item.commission_estimated)}",
-                f"🚚 Логистика: {rub(item.logistics_estimated)}",
-                f"📦 Себестоимость: {rub(item.cost_price_used)}",
-                f"💸 Налог: {rub(item.tax_amount_estimated)}",
+                commission_label,
+                logistics_label,
+                f"📦 Себестоимость: {rub(economics.cost_price)}",
+                f"💸 Налог: {rub(economics.tax_amount)}",
                 "",
                 "📊 Плановый результат:",
-                f"Прибыль: {rub(item.profit_estimated)}",
-                f"Маржа: {margin}%",
+                f"Прибыль: {rub(economics.profit)}",
+                f"Маржа: {economics.margin_percent}%",
             ]
         )
     return "\n".join(lines)
@@ -556,19 +557,18 @@ def _format_order_details(order: Order, timezone_name: str) -> str:
 def _format_order_profit(order: Order) -> str:
     lines = ["💰 Расчёт прибыли", ""]
     for item in order.items:
+        economics = calculate_planned_economics(order, item)
         marketplace_costs = (
-            (item.commission_estimated or Decimal("0"))
-            + (item.logistics_estimated or Decimal("0"))
-            + (item.other_marketplace_expenses_estimated or Decimal("0"))
+            economics.commission + economics.logistics + economics.other_marketplace_costs
         )
         lines.extend(
             [
                 f"{item.title or item.seller_article or 'Товар'}",
-                f"Выручка: {rub(item.discounted_price * item.quantity)}",
+                f"Выручка: {rub(economics.revenue)}",
                 f"Расходы маркетплейса: {rub(marketplace_costs)}",
-                f"Себестоимость: {rub(item.cost_price_used)}",
-                f"Налог: {rub(item.tax_amount_estimated)}",
-                f"Плановая прибыль: {rub(item.profit_estimated)}",
+                f"Себестоимость: {rub(economics.cost_price)}",
+                f"Налог: {rub(economics.tax_amount)}",
+                f"Плановая прибыль: {rub(economics.profit)}",
                 "",
             ]
         )
@@ -588,6 +588,25 @@ def _format_order_product(order: Order) -> str:
             ]
         )
     return "\n".join(lines).strip()
+
+
+def _commission_detail_label(economics: PlannedEconomics) -> str:
+    if economics.commission == Decimal("0") and economics.commission_rate is None:
+        return "🏷 Комиссия маркетплейса: будет уточнена после финансового отчёта"
+    if economics.commission_rate is not None:
+        percent = (economics.commission_rate * Decimal("100")).quantize(Decimal("1"))
+        if economics.commission_is_baseline:
+            return f"🏷 Базовая комиссия WB: {rub(economics.commission)} ({percent}%, базовая)"
+        return f"🏷 Комиссия маркетплейса: {rub(economics.commission)} ({percent}%)"
+    return f"🏷 Комиссия маркетплейса: {rub(economics.commission)}"
+
+
+def _logistics_detail_label(economics: PlannedEconomics) -> str:
+    if economics.logistics_is_baseline:
+        return f"🚚 Логистика: {rub(economics.logistics)} (базовая)"
+    if economics.logistics == Decimal("0"):
+        return "🚚 Логистика: будет уточнена после финансового отчёта"
+    return f"🚚 Логистика: {rub(economics.logistics)}"
 
 
 async def _web_login_payload(user_id: int) -> tuple[str, str]:

@@ -1,6 +1,6 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: Synchronize marketplace buyout and completed sale events.
-updated: 2026-05-14
+updated: 2026-05-15
 """
 
 import logging
@@ -18,9 +18,11 @@ from app.models.domain import MarketplaceAccount, OrderItem, ProfitSnapshot, Sal
 from app.models.enums import CalculationType, Marketplace, NotificationType, SaleModel
 from app.repositories.events import SalesEventRepository
 from app.repositories.orders import OrderRepository
+from app.repositories.products import ProductRepository
 from app.schemas.orders import NormalizedOrder
 from app.schemas.sales import NormalizedSaleEvent
 from app.services.message_formatter import rub
+from app.services.order_card_service import OrderCardService
 from app.services.order_profit_service import OrderProfitService
 
 logger = logging.getLogger(__name__)
@@ -44,6 +46,9 @@ class SaleNotification:
     event_id: int
     telegram_id: int
     text: str
+    image_url: str | None = None
+    product_url: str | None = None
+    parse_mode: str | None = "HTML"
 
 
 class SalesEventSyncService:
@@ -57,6 +62,8 @@ class SalesEventSyncService:
         self.orders = OrderRepository(session)
         self.sales = SalesEventRepository(session)
         self.profits = OrderProfitService(session)
+        self.products = ProductRepository(session)
+        self.cards = OrderCardService(session)
 
     async def sync_account(
         self,
@@ -80,11 +87,18 @@ class SalesEventSyncService:
                 continue
             if not self._buyout_notifications_enabled(account):
                 continue
+            card = await self.cards.buyout_card(
+                event=row,
+                timezone_name=account.user.timezone,
+            )
             notifications.append(
                 SaleNotification(
                     event_id=row.id,
                     telegram_id=account.user.telegram_id,
-                    text=self.format_sale_notification(row),
+                    text=card.text,
+                    image_url=card.image_url,
+                    product_url=card.product_url,
+                    parse_mode=card.parse_mode,
                 )
             )
         return notifications
@@ -216,16 +230,28 @@ class SalesEventSyncService:
             order_external_id=event.order_external_id,
         )
         related_item_id: int | None = None
+        product_id: int | None = None
         estimated_profit: Decimal | None = None
         if related_order is not None:
             related_item_id = related_order.items[0].id if related_order.items else None
             _, estimated_profit = await self.orders.order_totals(related_order.id)
+            product_id = related_order.items[0].product_id if related_order.items else None
+        if product_id is None:
+            product = await self.products.find_for_order_item(
+                account_id=account.id,
+                marketplace=account.marketplace,
+                seller_article=event.seller_article,
+                marketplace_article=event.marketplace_article,
+                external_product_id=event.external_product_id,
+            )
+            product_id = product.id if product else None
         return await self.sales.upsert_normalized(
             user_id=account.user_id,
             account_id=account.id,
             event=event,
             related_order_id=related_order.id if related_order else None,
             related_order_item_id=related_item_id,
+            product_id=product_id,
             estimated_profit=estimated_profit,
         )
 

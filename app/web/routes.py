@@ -1,4 +1,4 @@
-"""version: 2.3.0
+"""version: 2.4.0
 description: FastAPI routes for web login, cabinet dashboard, orders, and profit pages.
 updated: 2026-05-15
 """
@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.db import get_session
 from app.models.domain import User
 from app.models.enums import Marketplace
@@ -107,6 +108,11 @@ async def login(
         expires=web_session.expires_at,
         httponly=True,
         samesite="lax",
+        path="/web",
+        secure=(
+            getattr(getattr(request, "url", None), "scheme", "http") == "https"
+            or get_settings().app_env == "production"
+        ),
     )
     return response
 
@@ -128,7 +134,7 @@ async def logout(
     await WebAuthService(session).revoke_session(request.cookies.get(WEB_SESSION_COOKIE))
     await session.commit()
     response = RedirectResponse(url=WEB_LOGIN_REQUIRED_PATH, status_code=303)
-    response.delete_cookie(WEB_SESSION_COOKIE)
+    response.delete_cookie(WEB_SESSION_COOKIE, path="/web")
     return response
 
 
@@ -280,14 +286,60 @@ async def profit_page(
     )
 
 
+@router.get("/sales", response_class=HTMLResponse)
+async def sales_page(user: User = CURRENT_WEB_USER_DEPENDENCY) -> str:
+    return _placeholder_page("sales", user)
+
+
+@router.get("/returns", response_class=HTMLResponse)
+async def returns_page(user: User = CURRENT_WEB_USER_DEPENDENCY) -> str:
+    return _placeholder_page("returns", user)
+
+
+@router.get("/products", response_class=HTMLResponse)
+async def products_page(user: User = CURRENT_WEB_USER_DEPENDENCY) -> str:
+    return _placeholder_page("products", user)
+
+
+@router.get("/stocks", response_class=HTMLResponse)
+async def stocks_page(user: User = CURRENT_WEB_USER_DEPENDENCY) -> str:
+    return _placeholder_page("stocks", user)
+
+
+@router.get("/analytics", response_class=HTMLResponse)
+async def analytics_page(user: User = CURRENT_WEB_USER_DEPENDENCY) -> str:
+    return _placeholder_page("analytics", user)
+
+
+@router.get("/control", response_class=HTMLResponse)
+async def control_page(user: User = CURRENT_WEB_USER_DEPENDENCY) -> str:
+    return _placeholder_page("control", user)
+
+
+@router.get("/costs", response_class=HTMLResponse)
+async def costs_page(user: User = CURRENT_WEB_USER_DEPENDENCY) -> str:
+    return _placeholder_page("costs", user)
+
+
+@router.get("/settings", response_class=HTMLResponse)
+async def settings_page(user: User = CURRENT_WEB_USER_DEPENDENCY) -> str:
+    return _placeholder_page("settings", user)
+
+
 @router.get("/{section}", response_class=HTMLResponse)
 async def placeholder(
     section: str,
     user: User = CURRENT_WEB_USER_DEPENDENCY,
 ) -> str:
+    return _placeholder_page(section, user)
+
+
+def _placeholder_page(section: str, user: User) -> str:
     titles = {
         "orders": "Заказы",
         "profit": "Прибыль",
+        "sales": "Продажи",
+        "returns": "Возвраты",
         "products": "Товары",
         "stocks": "Остатки",
         "analytics": "Аналитика",

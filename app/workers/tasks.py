@@ -1,4 +1,4 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: ARQ background task functions.
 updated: 2026-05-14
 """
@@ -53,6 +53,9 @@ async def poll_new_orders(ctx: dict[str, Any]) -> None:
                             notification.telegram_id,
                             notification.text,
                             notification.order_id,
+                            image_url=notification.image_url,
+                            product_url=notification.product_url,
+                            parse_mode=notification.parse_mode,
                         )
                         sent += 1
                     except Exception:
@@ -168,7 +171,13 @@ async def sync_sale_events(ctx: dict[str, Any]) -> None:
         notifications = await service.pending_notifications(limit=100)
         for notification in notifications:
             try:
-                await notifier.send_sale_completed(notification.telegram_id, notification.text)
+                await notifier.send_sale_completed(
+                    notification.telegram_id,
+                    notification.text,
+                    image_url=notification.image_url,
+                    product_url=notification.product_url,
+                    parse_mode=notification.parse_mode,
+                )
                 await service.mark_notified(notification.event_id)
                 await session.commit()
             except Exception:
