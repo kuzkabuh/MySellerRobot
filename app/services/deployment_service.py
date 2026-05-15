@@ -1,5 +1,5 @@
-"""version: 1.0.0
-description: Service for production deploy status, backups, logs, and fixed update commands.
+"""version: 1.1.0
+description: Deployment status, version metadata, backups, logs, and update triggers.
 updated: 2026-05-15
 """
 
@@ -23,20 +23,37 @@ class DeploymentService:
         self.runtime_dir = Path(self.settings.deploy_runtime_dir)
         self.log_dir = Path(self.settings.deploy_log_dir)
         self.backup_dir = Path(self.settings.backup_dir)
+        self.metadata_file = Path(self.settings.deploy_metadata_file)
+        self.trigger_file = Path(self.settings.deploy_update_trigger_file)
 
     async def current_version(self) -> CurrentVersion:
-        version = self._read_text(self.project_dir / "VERSION", default="unknown").strip()
-        branch = await self._git(["rev-parse", "--abbrev-ref", "HEAD"], default="unknown")
-        commit = await self._git(["rev-parse", "--short", "HEAD"], default="unknown")
-        commit_date = await self._git(
-            ["log", "-1", "--format=%ci"],
-            default="unknown",
+        metadata = self._read_json(self.metadata_file)
+        if metadata is not None:
+            return CurrentVersion(
+                version=str(metadata.get("version") or self._fallback_version()),
+                branch=str(metadata.get("branch") or "не определено"),
+                commit=str(
+                    metadata.get("commit_short") or metadata.get("commit") or "не определено"
+                ),
+                last_commit_message=str(metadata.get("last_commit_message") or "не определено"),
+                updated_at=str(metadata.get("updated_at") or "не определено"),
+                source="deploy_metadata",
+            )
+        version = self._fallback_version()
+        branch = await self._git(["rev-parse", "--abbrev-ref", "HEAD"], default="не определено")
+        commit = await self._git(["rev-parse", "--short", "HEAD"], default="не определено")
+        last_commit_message = await self._git(
+            ["log", "-1", "--format=%s"],
+            default="не определено",
         )
+        updated_at = await self._git(["log", "-1", "--format=%ci"], default="не определено")
         return CurrentVersion(
-            version=version or "unknown",
+            version=version,
             branch=branch,
             commit=commit,
-            commit_date=commit_date,
+            last_commit_message=last_commit_message,
+            updated_at=updated_at,
+            source="version_git_fallback",
         )
 
     async def check_updates(self) -> UpdateCheckResult:
@@ -132,6 +149,10 @@ class DeploymentService:
         if lock_path.exists():
             await self._write_action_log(admin_telegram_id, "START_UPDATE", "locked", {})
             return "Обновление уже выполняется. Повторный запуск заблокирован."
+        if self.settings.telegram_deploy_mode == "trigger":
+            return await self._request_host_update(admin_telegram_id)
+        if self.settings.telegram_deploy_mode != "command":
+            return "Режим обновления из Telegram настроен некорректно."
         command = shlex.split(self.settings.deploy_update_command)
         if not command:
             return "Команда обновления не настроена."
@@ -143,6 +164,35 @@ class DeploymentService:
             stderr=asyncio.subprocess.DEVNULL,
         )
         return "🚀 Обновление запущено. Я пришлю результат после завершения."
+
+    async def _request_host_update(self, admin_telegram_id: int) -> str:
+        if self.trigger_file.exists():
+            await self._write_action_log(admin_telegram_id, "START_UPDATE", "queued", {})
+            return "Обновление уже запрошено и ожидает запуска на сервере."
+        self.trigger_file.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "requested_at": datetime.now(tz=UTC).isoformat(),
+            "admin_telegram_id": admin_telegram_id,
+            "command": "deploy/update.sh --non-interactive",
+        }
+        tmp_path = self.trigger_file.with_suffix(".tmp")
+        await asyncio.to_thread(
+            tmp_path.write_text,
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            "utf-8",
+        )
+        tmp_path.replace(self.trigger_file)
+        await self._write_action_log(
+            admin_telegram_id,
+            "START_UPDATE",
+            "trigger_created",
+            {"trigger_file": str(self.trigger_file)},
+        )
+        return (
+            "🚀 Обновление запрошено.\n\n"
+            "Хост-сервис deploy подхватит запрос и запустит безопасное обновление сервера. "
+            "Результат будет отправлен администраторам после завершения."
+        )
 
     def format_status(self, status: DeploymentStatus | None) -> str:
         if status is None:
@@ -232,6 +282,21 @@ class DeploymentService:
             return path.read_text(encoding="utf-8")
         except OSError:
             return default
+
+    def _fallback_version(self) -> str:
+        version = self._read_text(self.project_dir / "VERSION", default="").strip()
+        if version:
+            return version
+        local_version = self._read_text(Path("VERSION"), default="").strip()
+        return local_version or "не определено"
+
+    @staticmethod
+    def _read_json(path: Path) -> dict[str, Any] | None:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        return data if isinstance(data, dict) else None
 
     @staticmethod
     def _short(value: str | None) -> str:

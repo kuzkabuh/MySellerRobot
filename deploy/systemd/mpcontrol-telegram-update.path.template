@@ -1,0 +1,13 @@
+# version: 1.0.0
+# description: Systemd path watcher for Telegram deploy trigger file.
+# updated: 2026-05-15
+
+[Unit]
+Description=Watch MP Control Telegram deploy trigger
+
+[Path]
+PathChanged=__PROJECT_DIR__/runtime/telegram_update_request.json
+Unit=mpcontrol-telegram-update.service
+
+[Install]
+WantedBy=multi-user.target

@@ -1,4 +1,4 @@
-"""version: 1.2.0
+"""version: 1.3.0
 description: Smoke tests for API, bot, worker, and package startup boundaries.
 updated: 2026-05-15
 """
@@ -28,7 +28,7 @@ def test_create_app() -> None:
     app = create_app()
 
     assert app.title == "Seller Profit Bot API"
-    assert app.version == "1.4.10"
+    assert app.version == "1.4.12"
 
 
 def test_web_routes_are_registered() -> None:
@@ -74,6 +74,7 @@ async def test_web_login_valid_token_redirects(monkeypatch: pytest.MonkeyPatch) 
 
     assert response.status_code == 303
     assert response.headers["location"] == "/web/"
+    assert response.headers["location"] != "/web/web"
 
 
 def test_app_package_discovery_includes_utility_package() -> None:

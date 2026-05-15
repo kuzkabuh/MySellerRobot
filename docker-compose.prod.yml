@@ -1,4 +1,4 @@
-# version: 1.0.0
+# version: 1.1.0
 # description: Production Docker Compose stack for MP Control services.
 # updated: 2026-05-15
 
@@ -43,6 +43,10 @@ services:
       - "127.0.0.1:8000:8000"
     volumes:
       - ./logs:/app/logs
+      - ./runtime:/opt/mpcontrol/runtime:ro
+      - ./logs:/opt/mpcontrol/logs:ro
+      - ./backups:/opt/mpcontrol/backups:ro
+      - ./VERSION:/opt/mpcontrol/VERSION:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -56,6 +60,10 @@ services:
     env_file: .env
     volumes:
       - ./logs:/app/logs
+      - ./runtime:/opt/mpcontrol/runtime
+      - ./logs:/opt/mpcontrol/logs:ro
+      - ./backups:/opt/mpcontrol/backups:ro
+      - ./VERSION:/opt/mpcontrol/VERSION:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -69,6 +77,10 @@ services:
     env_file: .env
     volumes:
       - ./logs:/app/logs
+      - ./runtime:/opt/mpcontrol/runtime:ro
+      - ./logs:/opt/mpcontrol/logs:ro
+      - ./backups:/opt/mpcontrol/backups:ro
+      - ./VERSION:/opt/mpcontrol/VERSION:ro
     depends_on:
       postgres:
         condition: service_healthy

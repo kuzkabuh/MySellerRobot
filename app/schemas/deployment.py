@@ -1,5 +1,5 @@
-"""version: 1.0.0
-description: DTOs for deployment status, update checks, and backup metadata.
+"""version: 1.1.0
+description: DTOs for deployment status, version metadata, update checks, and backup metadata.
 updated: 2026-05-15
 """
 
@@ -16,7 +16,9 @@ class CurrentVersion:
     version: str
     branch: str
     commit: str
-    commit_date: str
+    last_commit_message: str
+    updated_at: str
+    source: str
 
 
 @dataclass(slots=True)

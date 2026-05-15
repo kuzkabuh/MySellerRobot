@@ -1,5 +1,5 @@
-"""version: 1.2.0
-description: Common Telegram command, menu, web-link, and admin handlers.
+"""version: 1.3.0
+description: Common Telegram command, menu, web-link, and admin deploy handlers.
 updated: 2026-05-15
 """
 
@@ -510,7 +510,9 @@ async def _handle_admin_deploy_callback(
             f"Версия: {version.version}\n"
             f"Ветка: {version.branch}\n"
             f"Commit: {version.commit}\n"
-            f"Последний commit: {version.commit_date}"
+            f"Последний commit: {version.last_commit_message}\n"
+            f"Обновлено: {version.updated_at}\n"
+            f"Источник: {version.source}"
         )
         await message.answer(text, reply_markup=admin_deploy_menu())
         return

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# version: 1.1.0
+# version: 1.2.0
 # description: Safe production updater for MP Control with CI/CD modes, lock, backup, and status JSON.
 # updated: 2026-05-15
 
@@ -15,7 +15,11 @@ DEPLOY_RUNTIME_DIR="${DEPLOY_RUNTIME_DIR:-${PROJECT_DIR}/runtime}"
 LOG_FILE="${LOG_FILE:-${PROJECT_DIR}/logs/deploy/update.log}"
 STATUS_FILE="${STATUS_FILE:-${DEPLOY_RUNTIME_DIR}/last_update_status.json}"
 CHECK_STATUS_FILE="${CHECK_STATUS_FILE:-${DEPLOY_RUNTIME_DIR}/last_update_check.json}"
+METADATA_FILE="${DEPLOY_METADATA_FILE:-${DEPLOY_RUNTIME_DIR}/deploy_metadata.json}"
+TRIGGER_FILE="${DEPLOY_UPDATE_TRIGGER_FILE:-${DEPLOY_RUNTIME_DIR}/telegram_update_request.json}"
 LOCK_DIR="${LOCK_DIR:-${DEPLOY_RUNTIME_DIR}/update.lock}"
+HEALTHCHECK_RETRIES="${HEALTHCHECK_RETRIES:-20}"
+HEALTHCHECK_INTERVAL_SECONDS="${HEALTHCHECK_INTERVAL_SECONDS:-3}"
 NON_INTERACTIVE=0
 CHECK_ONLY=0
 STARTED_AT="$(date -Is)"
@@ -177,6 +181,36 @@ notify_admins() {
     log_warn "Telegram deploy notification failed."
 }
 
+write_deploy_metadata() {
+  cd "$PROJECT_DIR"
+  local version commit commit_short branch last_commit_message updated_at
+  version="$(cat VERSION 2>/dev/null || echo unknown)"
+  commit="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+  commit_short="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+  branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "$BRANCH")"
+  last_commit_message="$(git log -1 --format=%s 2>/dev/null || echo unknown)"
+  updated_at="$(date -Is)"
+  python3 - "$METADATA_FILE" "$version" "$branch" "$commit" "$commit_short" \
+    "$last_commit_message" "$updated_at" <<'PY'
+import json
+import sys
+
+metadata_file, version, branch, commit, commit_short, last_commit_message, updated_at = sys.argv[1:]
+payload = {
+    "version": version,
+    "branch": branch,
+    "commit": commit,
+    "commit_short": commit_short,
+    "last_commit_message": last_commit_message,
+    "updated_at": updated_at,
+}
+with open(metadata_file, "w", encoding="utf-8") as fh:
+    json.dump(payload, fh, ensure_ascii=False, indent=2)
+    fh.write("\n")
+PY
+  log_info "Deploy metadata written to ${METADATA_FILE}."
+}
+
 on_error() {
   local exit_code=$?
   local message="Update failed. See ${LOG_FILE} for details."
@@ -184,6 +218,7 @@ on_error() {
   if [[ "$STATUS_WRITTEN" != "true" ]]; then
     write_status "failed" "$message" || true
   fi
+  rm -f "$TRIGGER_FILE" || true
   notify_admins || true
   release_lock
   exit "$exit_code"
@@ -319,13 +354,28 @@ restart_services() {
 }
 
 healthcheck() {
-  log_info "Checking local API health."
-  curl -fsS http://127.0.0.1:8000/health >/dev/null
+  wait_for_health "local API" "http://127.0.0.1:8000/health"
   if [[ "$SKIP_PUBLIC_HEALTH" != "1" ]]; then
-    log_info "Checking public API health."
-    curl -fsS https://api.mpcontrol.online/health >/dev/null
+    wait_for_health "public API" "https://api.mpcontrol.online/health"
   fi
   HEALTHCHECK_PASSED=true
+}
+
+wait_for_health() {
+  local label="$1"
+  local url="$2"
+  local attempt
+  log_info "Checking ${label} health: ${url}"
+  for attempt in $(seq 1 "$HEALTHCHECK_RETRIES"); do
+    if response="$(curl -fsS "$url" 2>/dev/null)"; then
+      log_info "${label} is ready: ${response}"
+      return 0
+    fi
+    log_warn "Healthcheck attempt ${attempt}/${HEALTHCHECK_RETRIES} failed for ${label}; waiting ${HEALTHCHECK_INTERVAL_SECONDS}s."
+    sleep "$HEALTHCHECK_INTERVAL_SECONDS"
+  done
+  log_error "${label} healthcheck failed after ${HEALTHCHECK_RETRIES} attempts."
+  return 1
 }
 
 print_summary() {
@@ -351,6 +401,8 @@ main_update() {
   run_migrations
   restart_services
   healthcheck
+  write_deploy_metadata
+  rm -f "$TRIGGER_FILE"
   write_status "success" "Update completed successfully."
   notify_admins
   print_summary

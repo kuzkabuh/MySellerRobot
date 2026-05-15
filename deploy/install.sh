@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# version: 1.1.0
+# version: 1.2.0
 # description: First-time production installer for MP Control on Ubuntu.
 # updated: 2026-05-15
 
@@ -222,6 +222,20 @@ configure_nginx() {
   systemctl reload nginx
 }
 
+configure_telegram_update_bridge() {
+  log_info "Configuring Telegram deploy trigger bridge."
+  mkdir -p "${PROJECT_DIR}/runtime"
+  chown -R "$PROJECT_USER:$PROJECT_USER" "${PROJECT_DIR}/runtime"
+  sed -e "s#__PROJECT_DIR__#${PROJECT_DIR}#g" -e "s#__PROJECT_USER__#${PROJECT_USER}#g" \
+    "${PROJECT_DIR}/deploy/systemd/mpcontrol-telegram-update.service.template" \
+    > /etc/systemd/system/mpcontrol-telegram-update.service
+  sed -e "s#__PROJECT_DIR__#${PROJECT_DIR}#g" \
+    "${PROJECT_DIR}/deploy/systemd/mpcontrol-telegram-update.path.template" \
+    > /etc/systemd/system/mpcontrol-telegram-update.path
+  systemctl daemon-reload
+  systemctl enable --now mpcontrol-telegram-update.path
+}
+
 server_ipv4() {
   curl -fsS4 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}'
 }
@@ -312,6 +326,7 @@ main() {
   prepare_env
   validate_env
   configure_nginx
+  configure_telegram_update_bridge
   start_services
   obtain_ssl
   healthcheck

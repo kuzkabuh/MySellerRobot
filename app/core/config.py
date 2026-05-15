@@ -1,4 +1,4 @@
-"""version: 1.1.0
+"""version: 1.2.0
 description: Pydantic settings for application configuration.
 updated: 2026-05-15
 """
@@ -54,7 +54,10 @@ class Settings(BaseSettings):
     backup_retention_days: int = 30
     enable_telegram_deploy_notifications: bool = True
     enable_telegram_deploy_commands: bool = False
+    telegram_deploy_mode: str = "trigger"
     deploy_update_command: str = "bash deploy/update.sh --non-interactive"
+    deploy_update_trigger_file: str = "/opt/mpcontrol/runtime/telegram_update_request.json"
+    deploy_metadata_file: str = "/opt/mpcontrol/runtime/deploy_metadata.json"
     log_level: str = "INFO"
 
     @model_validator(mode="before")

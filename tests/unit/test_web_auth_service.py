@@ -1,6 +1,6 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: Unit tests for one-time web cabinet login links and sessions.
-updated: 2026-05-14
+updated: 2026-05-15
 """
 
 from datetime import UTC, datetime, timedelta
@@ -62,7 +62,7 @@ def _service(repo: FakeWebAuthRepository) -> WebAuthService:
     service = object.__new__(WebAuthService)
     service.session = object()
     service.settings = SimpleNamespace(
-        web_base_url="https://seller.example",
+        web_base_url="https://app.mpcontrol.online",
         web_login_token_ttl_minutes=10,
         web_session_ttl_hours=24,
     )
@@ -77,7 +77,8 @@ async def test_create_login_link_stores_hash_not_raw_token() -> None:
 
     link = await service.create_login_link(user_id=5)
 
-    assert link.url.startswith("https://seller.example/web/login?token=")
+    assert link.url.startswith("https://app.mpcontrol.online/web/login?token=")
+    assert "/web/web" not in link.url
     assert repo.created_token_hash is not None
     assert repo.created_token_hash not in link.url
 

@@ -84,7 +84,7 @@ namespaces = false
 - добавлены smoke-тесты для обнаружения пакета `app`, FastAPI factory, aiogram Dispatcher,
   worker settings и backfill-настроек.
 
-Текущая версия после Этапа 4.3: `1.4.10`. Версия хранится в `VERSION` и в
+Текущая версия после Этапа 4.3.1: `1.4.12`. Версия хранится в `VERSION` и в
 `pyproject.toml`.
 
 ## Почему arq
@@ -803,8 +803,9 @@ Telegram-админка:
 2. Перейти в `🚀 Обновление и деплой`.
 3. Проверить текущую версию, наличие обновлений, статус последнего deploy, лог и backup.
 4. Для запуска обновления из Telegram включить на сервере
-   `ENABLE_TELEGRAM_DEPLOY_COMMANDS=true`. По умолчанию запуск shell-команды из Telegram
-   отключён, но просмотр статусов и логов работает.
+   `ENABLE_TELEGRAM_DEPLOY_COMMANDS=true`. Начиная с `1.4.12`, безопасный production-режим
+   использует host-trigger: бот пишет файл `runtime/telegram_update_request.json`, а systemd
+   на сервере запускает фиксированную команду `deploy/update.sh --non-interactive`.
 
 ## Итерация 2. Этап 4.3: комиссия МП, install.sh и web-login
 
@@ -840,6 +841,41 @@ curl -i "https://app.mpcontrol.online/web/login"
 
 Ожидается HTTP 400 с русскоязычной страницей, а не `{"detail":"Not Found"}`. Валидную ссылку
 нужно получить через Telegram-кнопку `🌐 Web-кабинет`.
+
+## Итерация 2. Этап 4.3.1: hotfix web-login, Telegram deploy и версия
+
+Готово:
+
+- успешный `/web/login?token=...` перенаправляет пользователя строго на `/web/`, поэтому браузер
+  больше не уходит на несуществующий путь `/web/web`;
+- ссылка из бота продолжает формироваться как `https://app.mpcontrol.online/web/login?token=...`;
+- `deploy/update.sh` после успешного обновления пишет `runtime/deploy_metadata.json` с версией,
+  веткой, commit, сообщением последнего commit и временем обновления;
+- Telegram-админка сначала читает `deploy_metadata.json`, затем делает fallback к `VERSION` и
+  только потом пытается получить Git-данные, поэтому Docker-контейнер без `.git` больше не
+  показывает массовый `unknown`;
+- обновление из Telegram работает через trigger-файл и host-side systemd watcher, без передачи
+  произвольной shell-команды из пользователя в контейнер;
+- production compose монтирует `runtime`, `logs`, `backups` и `VERSION` в контейнеры, чтобы бот
+  видел статус deploy и metadata;
+- health-check в `deploy/update.sh` ждёт готовности `/health` с повторными попытками, а не
+  помечает успешный деплой ошибочным из-за раннего `Empty reply from server`.
+
+Для включения обновлений из Telegram на сервере:
+
+```env
+ENABLE_TELEGRAM_DEPLOY_COMMANDS=true
+TELEGRAM_DEPLOY_MODE=trigger
+DEPLOY_UPDATE_TRIGGER_FILE=/opt/mpcontrol/runtime/telegram_update_request.json
+DEPLOY_METADATA_FILE=/opt/mpcontrol/runtime/deploy_metadata.json
+```
+
+После установки systemd watcher проверяется так:
+
+```bash
+systemctl status mpcontrol-telegram-update.path
+systemctl status mpcontrol-telegram-update.service
+```
 
 ## Итерация 2. Этап 5: web-страницы заказов и прибыли
 

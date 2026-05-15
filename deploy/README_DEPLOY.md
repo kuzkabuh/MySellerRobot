@@ -1,4 +1,4 @@
-# version: 1.2.0
+# version: 1.3.0
 # description: Production deployment guide for MP Control on Ubuntu VPS.
 # updated: 2026-05-15
 
@@ -278,15 +278,54 @@ Docker Compose и писать в `/opt/mpcontrol`.
 ENABLE_TELEGRAM_DEPLOY_COMMANDS=false
 ```
 
-Чтобы разрешить запуск fixed-команды `DEPLOY_UPDATE_COMMAND`, установите:
+Чтобы разрешить запуск обновления из Telegram, установите:
 
 ```text
 ENABLE_TELEGRAM_DEPLOY_COMMANDS=true
+TELEGRAM_DEPLOY_MODE=trigger
 DEPLOY_UPDATE_COMMAND=bash deploy/update.sh --non-interactive
+DEPLOY_UPDATE_TRIGGER_FILE=/opt/mpcontrol/runtime/telegram_update_request.json
+DEPLOY_METADATA_FILE=/opt/mpcontrol/runtime/deploy_metadata.json
 ```
 
-Команда не принимает пользовательский ввод из Telegram. Параллельный запуск блокируется
-`runtime/update.lock`.
+В production-режиме бот не выполняет произвольный shell внутри контейнера. Он создаёт
+`runtime/telegram_update_request.json`, а host-side systemd watcher
+`mpcontrol-telegram-update.path` запускает фиксированную команду:
+
+```bash
+cd /opt/mpcontrol
+bash deploy/update.sh --non-interactive
+```
+
+`deploy/install.sh` устанавливает и включает:
+
+```text
+/etc/systemd/system/mpcontrol-telegram-update.path
+/etc/systemd/system/mpcontrol-telegram-update.service
+```
+
+Параллельный запуск блокируется `runtime/update.lock`.
+
+Проверка watcher:
+
+```bash
+sudo systemctl status mpcontrol-telegram-update.path
+sudo systemctl status mpcontrol-telegram-update.service
+```
+
+После успешного update скрипт создаёт `runtime/deploy_metadata.json`. Этот файл читает
+Telegram-бот, чтобы показывать версию, ветку, commit и сообщение последнего commit даже внутри
+Docker-контейнера без `.git`.
+
+Health-check в `deploy/update.sh` выполняется с ожиданием готовности API:
+
+```text
+HEALTHCHECK_RETRIES=20
+HEALTHCHECK_INTERVAL_SECONDS=3
+```
+
+Это защищает deploy от ложной ошибки `Empty reply from server`, когда контейнер уже поднят,
+но FastAPI ещё не успел начать отвечать на `/health`.
 
 ## Nginx
 
@@ -318,6 +357,10 @@ https://app.mpcontrol.online/web/login?token=...
 ```nginx
 proxy_pass http://127.0.0.1:8000;
 ```
+
+После успешной проверки токена backend отвечает редиректом на абсолютный путь `/web/`.
+Путь `/web/web` не используется и означает, что на сервере осталась старая конфигурация или
+старая версия приложения.
 
 ## Firewall
 

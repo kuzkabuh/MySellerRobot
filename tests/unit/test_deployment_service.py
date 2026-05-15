@@ -1,5 +1,5 @@
-"""version: 1.0.0
-description: Unit tests for deployment status, backup metadata, and safe update service.
+"""version: 1.1.0
+description: Unit tests for deployment status, version metadata, backups, and updates.
 updated: 2026-05-15
 """
 
@@ -22,6 +22,8 @@ def _settings(tmp_path: Path) -> Settings:
         deploy_log_dir=str(tmp_path / "logs" / "deploy"),
         deploy_runtime_dir=str(tmp_path / "runtime"),
         backup_dir=str(tmp_path / "backups"),
+        deploy_update_trigger_file=str(tmp_path / "runtime" / "telegram_update_request.json"),
+        deploy_metadata_file=str(tmp_path / "runtime" / "deploy_metadata.json"),
         enable_telegram_deploy_commands=False,
     )
 
@@ -126,3 +128,79 @@ async def test_start_update_disabled_writes_audit_log(tmp_path: Path) -> None:
     audit_log = tmp_path / "runtime" / "deployment_actions.log"
     assert audit_log.exists()
     assert "START_UPDATE" in audit_log.read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_current_version_reads_deploy_metadata(tmp_path: Path) -> None:
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    (runtime_dir / "deploy_metadata.json").write_text(
+        json.dumps(
+            {
+                "version": "1.4.12",
+                "branch": "main",
+                "commit": "8d250ca123",
+                "commit_short": "8d250ca",
+                "last_commit_message": "Версия 1.4.12",
+                "updated_at": "2026-05-15T13:45:00+03:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    service = DeploymentService(_settings(tmp_path))
+
+    version = await service.current_version()
+
+    assert version.version == "1.4.12"
+    assert version.branch == "main"
+    assert version.commit == "8d250ca"
+    assert version.last_commit_message == "Версия 1.4.12"
+    assert version.source == "deploy_metadata"
+
+
+@pytest.mark.asyncio
+async def test_current_version_falls_back_to_version_file(tmp_path: Path) -> None:
+    (tmp_path / "VERSION").write_text("1.4.12\n", encoding="utf-8")
+    service = DeploymentService(_settings(tmp_path))
+
+    version = await service.current_version()
+
+    assert version.version == "1.4.12"
+    assert version.branch == "не определено"
+    assert version.source == "version_git_fallback"
+
+
+@pytest.mark.asyncio
+async def test_start_update_creates_host_trigger_when_enabled(tmp_path: Path) -> None:
+    settings = _settings(tmp_path).model_copy(
+        update={
+            "enable_telegram_deploy_commands": True,
+            "telegram_deploy_mode": "trigger",
+        }
+    )
+    service = DeploymentService(settings)
+
+    result = await service.start_update(admin_telegram_id=123)
+
+    trigger = tmp_path / "runtime" / "telegram_update_request.json"
+    assert "Обновление запрошено" in result
+    assert trigger.exists()
+    assert "deploy/update.sh --non-interactive" in trigger.read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_start_update_reports_existing_trigger(tmp_path: Path) -> None:
+    settings = _settings(tmp_path).model_copy(
+        update={
+            "enable_telegram_deploy_commands": True,
+            "telegram_deploy_mode": "trigger",
+        }
+    )
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    (runtime_dir / "telegram_update_request.json").write_text("{}", encoding="utf-8")
+    service = DeploymentService(settings)
+
+    result = await service.start_update(admin_telegram_id=123)
+
+    assert "уже запрошено" in result
