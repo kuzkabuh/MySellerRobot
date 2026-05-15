@@ -1,4 +1,4 @@
-"""version: 1.5.0
+"""version: 1.6.0
 description: Common Telegram command, menu, web-link, and admin deploy handlers.
 updated: 2026-05-15
 """
@@ -50,6 +50,7 @@ from app.services.deployment_service import DeploymentService
 from app.services.fbs_control_service import FbsControlService
 from app.services.marketplace_estimates import PlannedEconomics, calculate_planned_economics
 from app.services.message_formatter import format_user_datetime, rub
+from app.services.plan_fact_service import PlanFactService
 from app.services.web_auth_service import WebAuthService
 
 router = Router(name="common")
@@ -183,7 +184,10 @@ async def callback_handler(callback: CallbackQuery) -> None:
     elif data.startswith("profit:") or data == "profit":
         user_id = await _get_or_create_user_id(callback)
         if user_id:
-            await message.answer(await _profit_text(user_id))
+            if data == "profit:plan_fact":
+                await message.answer(await _plan_fact_text(user_id))
+            else:
+                await message.answer(await _profit_text(user_id))
     elif data == "products_costs_menu":
         await message.edit_text("📦 Товары и себестоимость", reply_markup=costs_menu())
     elif data == "stocks":
@@ -331,6 +335,41 @@ async def _profit_text(user_id: int) -> str:
         f"Плановая прибыль: {rub(profit)}\n"
         f"Средняя маржа: {margin:.2f}%"
     )
+
+
+async def _plan_fact_text(user_id: int) -> str:
+    async with AsyncSessionFactory() as session:
+        user = await session.get(User, user_id)
+        timezone_name = user.timezone if user else "Europe/Moscow"
+        data = await PlanFactService(session).compare(
+            user_id=user_id,
+            timezone=timezone_name,
+            period="30d",
+            sort="deviation",
+            direction="asc",
+            limit=5,
+        )
+    if not data.rows:
+        return (
+            "📉 План/факт\n\n"
+            "Пока нет данных для сравнения. Факт появится после загрузки финансовых отчётов."
+        )
+    lines = [
+        "📉 План/факт за 30 дней",
+        "",
+        f"Плановая прибыль: {rub(data.summary.estimated_profit)}",
+        f"Фактическая прибыль: {rub(data.summary.actual_profit)}",
+        f"Отклонение: {rub(data.summary.deviation)}",
+        f"Позиций без факта: {data.summary.pending_actual}",
+        "",
+        "Главные отклонения:",
+    ]
+    for row in data.rows[:5]:
+        lines.append(
+            f"— {row.seller_article}: {rub(row.deviation)} "
+            f"({row.reason}, план {rub(row.estimated_profit)}, факт {rub(row.actual_profit)})"
+        )
+    return "\n".join(lines)
 
 
 async def _orders_text(user_id: int, mode: str = "orders:last10") -> str:

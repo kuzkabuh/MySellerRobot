@@ -1,4 +1,4 @@
-"""version: 1.2.0
+"""version: 1.3.0
 description: Main Telegram inline keyboards.
 updated: 2026-05-15
 """
@@ -79,6 +79,7 @@ def profit_menu() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="Прибыль за сегодня", callback_data="profit:today")],
             [InlineKeyboardButton(text="Прибыль за 7 дней", callback_data="profit:7d")],
             [InlineKeyboardButton(text="Убыточные заказы", callback_data="profit:loss")],
+            [InlineKeyboardButton(text="План/факт и отклонения", callback_data="profit:plan_fact")],
             [
                 InlineKeyboardButton(
                     text="Заказы без себестоимости",

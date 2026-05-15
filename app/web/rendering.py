@@ -1,4 +1,4 @@
-"""version: 2.3.0
+"""version: 2.4.0
 description: Server-side HTML rendering helpers for the web cabinet.
 updated: 2026-05-15
 """
@@ -9,6 +9,7 @@ NAV_ITEMS = [
     ("Главная", "/web/"),
     ("Заказы", "/web/orders"),
     ("Прибыль", "/web/profit"),
+    ("План/факт", "/web/plan-fact"),
     ("Продажи", "/web/sales"),
     ("Возвраты", "/web/returns"),
     ("Товары", "/web/products"),

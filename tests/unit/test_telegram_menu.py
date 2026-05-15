@@ -53,6 +53,12 @@ def test_admin_deploy_menu_contains_required_actions() -> None:
     assert "💾 Последние backup" in texts
 
 
+def test_profit_menu_contains_plan_fact_report() -> None:
+    texts = [button.text for row in profit_menu().inline_keyboard for button in row]
+
+    assert "План/факт и отклонения" in texts
+
+
 def test_web_cabinet_keyboard_uses_url_button() -> None:
     keyboard = web_cabinet_link("https://seller.example/web/login?token=abc")
     button = keyboard.inline_keyboard[0][0]

@@ -1,4 +1,4 @@
-"""version: 2.5.0
+"""version: 2.6.0
 description: FastAPI routes for web login, cabinet dashboard, orders, and profit pages.
 updated: 2026-05-15
 """
@@ -18,6 +18,7 @@ from app.models.domain import User
 from app.models.enums import Marketplace
 from app.repositories.web_auth import WebAuthRepository
 from app.services.master_product_service import MasterProductAnalyticsRow, MasterProductService
+from app.services.plan_fact_service import PlanFactPageData, PlanFactService
 from app.services.web_auth_service import WEB_SESSION_COOKIE, WebAuthService
 from app.services.web_dashboard_service import (
     DailyPoint,
@@ -287,6 +288,40 @@ async def profit_page(
     )
 
 
+@router.get("/plan-fact", response_class=HTMLResponse)
+async def plan_fact_page(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+    period: str = Query(default="30d"),
+    marketplace: str = Query(default="all"),
+    sale_model: str = Query(default="all"),
+    sku: str = Query(default=""),
+    sort: str = Query(default="deviation"),
+    direction: str = Query(default="asc"),
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
+) -> str:
+    data = await PlanFactService(session).compare(
+        user_id=user.id,
+        timezone=user.timezone,
+        period=period,
+        marketplace=marketplace,
+        sale_model=sale_model,
+        date_from=date_from,
+        date_to=date_to,
+        sku=sku,
+        sort=sort,
+        direction=direction,
+    )
+    content = _plan_fact_content(data)
+    return page(
+        "План/факт",
+        user.first_name or user.username or str(user.telegram_id),
+        content,
+        active_path="/web/plan-fact",
+    )
+
+
 @router.get("/sales", response_class=HTMLResponse)
 async def sales_page(user: User = CURRENT_WEB_USER_DEPENDENCY) -> str:
     return _placeholder_page("sales", user)
@@ -519,6 +554,67 @@ def _order_detail_content(detail: OrderDetail, timezone: str) -> str:
     """
 
 
+def _plan_fact_content(data: PlanFactPageData) -> str:
+    summary = data.summary
+    row_html = []
+    for row in data.rows:
+        deviation_tone = "bad" if row.deviation < 0 else "good"
+        pending = (
+            f'<span class="badge warn">{row.pending_actual} без факта</span>'
+            if row.pending_actual
+            else ""
+        )
+        row_html.append(
+            "<tr>"
+            f'<td>{escape(row.title)}<div class="muted">{escape(row.seller_article)}</div></td>'
+            f"<td>{_marketplace_label(row.marketplace)}</td>"
+            f"<td>{escape(row.sale_model.value if row.sale_model else 'н/д')}</td>"
+            f'<td class="num">{row.orders}</td>'
+            f'<td class="num">{_rub(row.estimated_profit)}</td>'
+            f'<td class="num">{_rub(row.actual_profit)}</td>'
+            f'<td class="num"><span class="badge {deviation_tone}">'
+            f"{_rub(row.deviation)}</span></td>"
+            f'<td class="num">{_percent_optional(row.deviation_percent)}</td>'
+            f"<td>{escape(row.reason)} {pending}</td>"
+            "</tr>"
+        )
+    body = (
+        "".join(row_html)
+        if row_html
+        else '<tr><td colspan="9" class="muted">Данных для сравнения план/факт пока нет.</td></tr>'
+    )
+    deviation_tone = "bad" if summary.deviation < 0 else "good"
+    return f"""
+      {_section_subnav("plan_fact")}
+      {_plan_fact_filters(data)}
+      <section class="kpi-grid">
+        {_simple_kpi("Плановая прибыль", _rub(summary.estimated_profit))}
+        {_simple_kpi("Фактическая прибыль", _rub(summary.actual_profit))}
+        {_simple_kpi("Отклонение", _rub(summary.deviation), deviation_tone)}
+        {_simple_kpi("Без факта", str(summary.pending_actual), "warn")}
+      </section>
+      <section class="band" style="margin-top:14px">
+        <h2>Отклонения по товарам</h2>
+        <p class="muted">
+          Факт появляется после сопоставления финансовых отчётов маркетплейса.
+          Причина отклонения определяется по основному видимому фактору.
+        </p>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Товар</th><th>МП</th><th>Модель</th><th class="num">Заказов</th>
+                <th class="num">План</th><th class="num">Факт</th>
+                <th class="num">Отклонение</th><th class="num">%</th><th>Причина</th>
+              </tr>
+            </thead>
+            <tbody>{body}</tbody>
+          </table>
+        </div>
+      </section>
+    """
+
+
 def _products_content(rows: list[MasterProductAnalyticsRow]) -> str:
     row_html = []
     for row in rows:
@@ -669,6 +765,7 @@ def _section_subnav(active: str) -> str:
     items = {
         "orders": ("Заказы", "/web/orders"),
         "profit": ("Прибыль", "/web/profit"),
+        "plan_fact": ("План/факт", "/web/plan-fact"),
         "products": ("Товары", "/web/products"),
     }
     return (
@@ -762,6 +859,58 @@ def _orders_filters(filters: OrderWebFilters) -> str:
 
 def _profit_filters(filters: OrderWebFilters) -> str:
     return _shared_order_filters(filters, "/web/profit", include_status=False)
+
+
+def _plan_fact_filters(data: PlanFactPageData) -> str:
+    filters = data.filters
+    selected_marketplace = filters.marketplace.value if filters.marketplace else "all"
+    selected_sale_model = filters.sale_model.value if filters.sale_model else "all"
+    date_from_value = filters.local_date_from.isoformat()
+    date_to_value = filters.local_date_to.isoformat()
+    return f"""
+      <form class="filters" method="get" action="/web/plan-fact">
+        {_select("period", "Период", {
+            "today": "Сегодня",
+            "yesterday": "Вчера",
+            "7d": "7 дней",
+            "30d": "30 дней",
+            "custom": "Произвольный",
+        }, filters.period)}
+        {_select("marketplace", "Маркетплейс", {
+            "all": "Все",
+            Marketplace.WB.value: "Wildberries",
+            Marketplace.OZON.value: "Ozon",
+        }, selected_marketplace)}
+        {_select("sale_model", "Модель", {
+            "all": "Все",
+            "FBO": "FBO",
+            "FBS": "FBS",
+            "rFBS": "rFBS",
+        }, selected_sale_model)}
+        <div>
+          <label for="sku">SKU / артикул</label>
+          <input id="sku" name="sku" type="search" value="{escape(filters.sku)}">
+        </div>
+        <div>
+          <label for="date_from">Дата с</label>
+          <input id="date_from" name="date_from" type="date" value="{date_from_value}">
+        </div>
+        <div>
+          <label for="date_to">Дата по</label>
+          <input id="date_to" name="date_to" type="date" value="{date_to_value}">
+        </div>
+        {_select("sort", "Сортировка", {
+            "deviation": "Отклонение",
+            "profit": "Плановая прибыль",
+            "orders": "Заказы",
+        }, filters.sort)}
+        {_select("direction", "Порядок", {
+            "asc": "Сначала худшие",
+            "desc": "Сначала лучшие",
+        }, filters.direction)}
+        <button class="button primary" type="submit">Применить</button>
+      </form>
+    """
 
 
 def _shared_order_filters(
