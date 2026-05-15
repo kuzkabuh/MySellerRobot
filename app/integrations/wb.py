@@ -1,4 +1,4 @@
-"""version: 1.2.0
+"""version: 1.3.0
 description: Wildberries official API client and normalization helpers.
 updated: 2026-05-15
 """
@@ -9,6 +9,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 
 from app.core.config import get_settings
+from app.core.exceptions import ValidationError
 from app.integrations.base import AsyncApiClient
 from app.models.enums import Marketplace, SaleEventType, SaleModel, SourceEventType, UrgencyType
 from app.schemas.orders import NormalizedOrder, NormalizedOrderItem
@@ -24,12 +25,24 @@ class WildberriesClient:
     def __init__(self, api_key: str) -> None:
         settings = get_settings()
         self.api_key = api_key
-        self.common = AsyncApiClient(settings.wb_base_common_url)
-        self.marketplace = AsyncApiClient(settings.wb_base_marketplace_url)
-        self.content = AsyncApiClient(settings.wb_base_content_url)
-        self.analytics = AsyncApiClient(settings.wb_base_analytics_url)
-        self.finance = AsyncApiClient(settings.wb_base_finance_url)
-        self.statistics = AsyncApiClient(settings.wb_base_statistics_url)
+        self.common = AsyncApiClient(
+            settings.wb_base_common_url, marketplace="Wildberries"
+        )
+        self.marketplace = AsyncApiClient(
+            settings.wb_base_marketplace_url, marketplace="Wildberries"
+        )
+        self.content = AsyncApiClient(
+            settings.wb_base_content_url, marketplace="Wildberries"
+        )
+        self.analytics = AsyncApiClient(
+            settings.wb_base_analytics_url, marketplace="Wildberries"
+        )
+        self.finance = AsyncApiClient(
+            settings.wb_base_finance_url, marketplace="Wildberries"
+        )
+        self.statistics = AsyncApiClient(
+            settings.wb_base_statistics_url, marketplace="Wildberries"
+        )
 
     @property
     def headers(self) -> dict[str, str]:
@@ -134,6 +147,10 @@ class WildberriesClient:
         return list(data) if isinstance(data, list) else []
 
     def normalize_fbs_order(self, payload: dict[str, Any]) -> NormalizedOrder:
+        """Normalize WB FBS order to internal format."""
+        if not payload.get("id"):
+            raise ValidationError("Missing required field: id", field="id")
+
         created = payload.get("createdAt")
         order_date = (
             datetime.fromisoformat(created.replace("Z", "+00:00"))

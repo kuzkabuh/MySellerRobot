@@ -1,5 +1,5 @@
-"""version: 1.2.0
-description: Online order ingestion, idempotency, product matching, and estimated profit snapshots.
+"""version: 1.3.0
+description: Enhanced order ingestion with error handling and monitoring.
 updated: 2026-05-15
 """
 
@@ -9,6 +9,8 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import IntegrationError
+from app.core.logging import LogContext, log_exception
 from app.core.security import TokenCipher
 from app.integrations.ozon import OzonClient
 from app.integrations.wb import WildberriesClient
@@ -71,72 +73,112 @@ class OrderProcessingService:
         return result.notifications or []
 
     async def poll_account_with_stats(self, account: MarketplaceAccount) -> OrderPollResult:
-        normalized_orders = await self._fetch_orders(account)
-        result = OrderPollResult(
+        """Poll marketplace account for new orders with comprehensive error handling."""
+        with LogContext(
             account_id=account.id,
-            marketplace=account.marketplace,
-            fetched=len(normalized_orders),
-            notifications=[],
-        )
-        policy = await self.notification_policy.resolve(account)
-        for normalized in normalized_orders:
-            if await self.orders.exists(account.id, normalized):
-                result.duplicated += 1
-                continue
-            order = await self.orders.create(account.user_id, account.id, normalized)
-            result.created += 1
-            await self.profits.calculate_estimated_profit(account, order, normalized)
-            if policy.should_queue_fbo_digest(normalized.sale_model):
-                await self._queue_fbo_digest(account, order, policy.fbo_mode)
-                result.queued_digest += 1
-                continue
-            if not policy.is_instant_enabled_for(normalized.sale_model):
-                result.skipped_by_policy += 1
-                continue
-            first_item = normalized.items[0] if normalized.items else None
-            if not first_item or not account.user:
-                result.skipped_without_user += 1
-                continue
-            if not account.user.notifications_enabled:
-                result.skipped_by_policy += 1
-                continue
-            order_with_items = await self.orders.get_with_items(order.id)
-            item = (
-                order_with_items.items[0] if order_with_items and order_with_items.items else None
+            marketplace=account.marketplace.value,
+            user_id=account.user_id,
+        ):
+            result = OrderPollResult(
+                account_id=account.id,
+                marketplace=account.marketplace,
+                notifications=[],
             )
-            if item and order_with_items:
-                card = await self.cards.new_order_card(
-                    order=order_with_items,
-                    item=item,
-                    timezone_name=account.user.timezone,
+
+            try:
+                logger.info("order_poll_started")
+                normalized_orders = await self._fetch_orders(account)
+                result.fetched = len(normalized_orders)
+
+                policy = await self.notification_policy.resolve(account)
+
+                for normalized in normalized_orders:
+                    try:
+                        if await self.orders.exists(account.id, normalized):
+                            result.duplicated += 1
+                            continue
+
+                        order = await self.orders.create(account.user_id, account.id, normalized)
+                        result.created += 1
+
+                        await self.profits.calculate_estimated_profit(account, order, normalized)
+
+                        if policy.should_queue_fbo_digest(normalized.sale_model):
+                            await self._queue_fbo_digest(account, order, policy.fbo_mode)
+                            result.queued_digest += 1
+                            continue
+
+                        if not policy.is_instant_enabled_for(normalized.sale_model):
+                            result.skipped_by_policy += 1
+                            continue
+
+                        first_item = normalized.items[0] if normalized.items else None
+                        if not first_item or not account.user:
+                            result.skipped_without_user += 1
+                            continue
+
+                        if not account.user.notifications_enabled:
+                            result.skipped_by_policy += 1
+                            continue
+
+                        order_with_items = await self.orders.get_with_items(order.id)
+                        item = (
+                            order_with_items.items[0]
+                            if order_with_items and order_with_items.items
+                            else None
+                        )
+
+                        if item and order_with_items:
+                            card = await self.cards.new_order_card(
+                                order=order_with_items,
+                                item=item,
+                                timezone_name=account.user.timezone,
+                            )
+                            await self.orders.mark_notified(order.id)
+                            result.notifications = result.notifications or []
+                            result.notifications.append(
+                                NewOrderNotification(
+                                    telegram_id=account.user.telegram_id,
+                                    order_id=order.id,
+                                    text=card.text,
+                                    image_url=card.image_url,
+                                    product_url=card.product_url,
+                                    parse_mode=card.parse_mode,
+                                )
+                            )
+
+                    except Exception as exc:
+                        log_exception(
+                            logger,
+                            exc,
+                            "order_processing_failed",
+                            order_external_id=normalized.order_external_id,
+                        )
+                        continue
+
+                await self.session.commit()
+
+                logger.info(
+                    "order_poll_finished",
+                    extra={
+                        "fetched": result.fetched,
+                        "created": result.created,
+                        "duplicates": result.duplicated,
+                        "queued_digest": result.queued_digest,
+                        "skipped_by_policy": result.skipped_by_policy,
+                        "notifications": result.notification_count,
+                    },
                 )
-                await self.orders.mark_notified(order.id)
-                result.notifications = result.notifications or []
-                result.notifications.append(
-                    NewOrderNotification(
-                        telegram_id=account.user.telegram_id,
-                        order_id=order.id,
-                        text=card.text,
-                        image_url=card.image_url,
-                        product_url=card.product_url,
-                        parse_mode=card.parse_mode,
-                    )
-                )
-        await self.session.commit()
-        logger.info(
-            "order_poll_account_finished",
-            extra={
-                "account_id": result.account_id,
-                "marketplace": result.marketplace.value,
-                "fetched": result.fetched,
-                "created": result.created,
-                "duplicates": result.duplicated,
-                "queued_digest": result.queued_digest,
-                "skipped_by_policy": result.skipped_by_policy,
-                "notifications": result.notification_count,
-            },
-        )
-        return result
+
+                return result
+
+            except Exception as exc:
+                await self.session.rollback()
+                log_exception(logger, exc, "order_poll_failed")
+                raise IntegrationError(
+                    f"Failed to poll orders for {account.marketplace.value}",
+                    details={"account_id": account.id},
+                ) from exc
 
     async def _fetch_orders(self, account: MarketplaceAccount) -> list[NormalizedOrder]:
         if account.marketplace == Marketplace.WB:

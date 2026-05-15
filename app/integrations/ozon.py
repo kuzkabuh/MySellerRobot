@@ -1,4 +1,4 @@
-"""version: 1.1.0
+"""version: 1.2.0
 description: Ozon Seller API client and normalization helpers.
 updated: 2026-05-15
 """
@@ -8,6 +8,7 @@ from decimal import Decimal
 from typing import Any, cast
 
 from app.core.config import get_settings
+from app.core.exceptions import ValidationError
 from app.integrations.base import AsyncApiClient
 from app.models.enums import Marketplace, SaleEventType, SaleModel, SourceEventType, UrgencyType
 from app.schemas.orders import NormalizedOrder, NormalizedOrderItem
@@ -21,7 +22,7 @@ class OzonClient:
     def __init__(self, client_id: str, api_key: str) -> None:
         self.client_id = client_id
         self.api_key = api_key
-        self.client = AsyncApiClient(get_settings().ozon_base_url)
+        self.client = AsyncApiClient(get_settings().ozon_base_url, marketplace="Ozon")
 
     @property
     def headers(self) -> dict[str, str]:
@@ -203,6 +204,10 @@ class OzonClient:
         )
 
     def normalize_fbs_posting(self, payload: dict[str, Any]) -> NormalizedOrder:
+        """Normalize Ozon FBS posting to internal format."""
+        if not payload.get("posting_number"):
+            raise ValidationError("Missing required field: posting_number", field="posting_number")
+
         sale_model = self._detect_fbs_sale_model(payload)
         created = payload.get("in_process_at") or payload.get("shipment_date")
         order_date = (
