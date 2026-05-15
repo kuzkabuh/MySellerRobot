@@ -1,11 +1,13 @@
-"""version: 1.3.0
+"""version: 1.4.0
 description: Common Telegram command, menu, web-link, and admin deploy handlers.
 updated: 2026-05-15
 """
 
 import logging
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -13,6 +15,7 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy import func, select
 
 from app.bot.keyboards.main import (
+    TIMEZONE_OPTIONS,
     admin_deploy_menu,
     admin_menu,
     confirm_deploy_update,
@@ -25,6 +28,7 @@ from app.bot.keyboards.main import (
     sale_notification_settings_menu,
     settings_menu,
     summary_menu,
+    timezone_menu,
     web_cabinet_link,
 )
 from app.core.config import get_settings
@@ -38,16 +42,18 @@ from app.models.domain import (
     User,
 )
 from app.models.enums import CalculationType, SaleModel
+from app.repositories.orders import OrderRepository
 from app.repositories.users import UserRepository
 from app.services.admin_service import AdminService
 from app.services.daily_report_service import DailyReportService
 from app.services.deployment_service import DeploymentService
 from app.services.fbs_control_service import FbsControlService
-from app.services.message_formatter import rub
+from app.services.message_formatter import format_user_datetime, rub
 from app.services.web_auth_service import WebAuthService
 
 router = Router(name="common")
 logger = logging.getLogger(__name__)
+SUPPORTED_TIMEZONES = {value for _, value in TIMEZONE_OPTIONS}
 
 
 WELCOME_TEXT = (
@@ -189,7 +195,7 @@ async def callback_handler(callback: CallbackQuery) -> None:
         user_id = await _get_or_create_user_id(callback)
         if user_id:
             await message.answer(await _control_text(user_id))
-    elif data == "notifications":
+    elif data in {"notifications", "settings:notifications"}:
         user = await _get_or_create_user(callback)
         if user:
             await message.edit_text(
@@ -223,16 +229,43 @@ async def callback_handler(callback: CallbackQuery) -> None:
         user_id = await _get_or_create_user_id(callback)
         if user_id:
             await _send_web_cabinet_link(message, user_id)
+    elif data.startswith("order:"):
+        user_id = await _get_or_create_user_id(callback)
+        if user_id:
+            await message.answer(await _order_action_text(user_id, data))
     elif data == "admin_menu" or data.startswith("admin:") or data.startswith("admin_deploy:"):
         await _handle_admin_callback(callback, message, data)
-    elif data in {"report_time", "timezone"}:
+    elif data == "timezone":
+        user = await _get_or_create_user(callback)
+        if user:
+            await message.edit_text(
+                _timezone_text(user.timezone), reply_markup=timezone_menu(user.timezone)
+            )
+    elif data.startswith("timezone:set:"):
+        user = await _set_user_timezone(callback, data.removeprefix("timezone:set:"))
+        if user:
+            await message.edit_text(
+                "✅ Часовой пояс сохранён.\n\n" + _timezone_text(user.timezone),
+                reply_markup=timezone_menu(user.timezone),
+            )
+    elif data == "report_time":
         await message.answer(
-            "Эта настройка будет доступна в web-кабинете. "
-            "Базовая логика уже учитывает часовой пояс пользователя."
+            "⏰ Время ежедневных отчётов\n\n"
+            "По умолчанию ежедневная сводка отправляется утром. "
+            "Точное время будет использовать ваш часовой пояс из настроек."
         )
+    elif data == "hide":
+        try:
+            await message.delete()
+        except Exception:
+            logger.debug("failed_to_hide_notification", extra={"callback_data": data})
     elif data == "help":
         await help_handler(message)
     else:
+        logger.warning(
+            "unknown_callback",
+            extra={"callback_data": data, "telegram_id": callback.from_user.id},
+        )
         await message.answer("Я не нашёл такое действие. Откройте меню и выберите раздел заново.")
     await callback.answer()
 
@@ -300,18 +333,19 @@ async def _profit_text(user_id: int) -> str:
 
 
 async def _orders_text(user_id: int, mode: str = "orders:last10") -> str:
-    now = datetime.now(tz=UTC)
     query = (
         select(Order).where(Order.user_id == user_id).order_by(Order.order_date.desc()).limit(10)
     )
-    if mode == "orders:today":
-        start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        query = query.where(Order.order_date >= start_of_day)
-    if mode == "orders:fbs":
-        query = query.where(Order.requires_seller_action.is_(True))
-    if mode == "orders:fbo":
-        query = query.where(Order.sale_model == SaleModel.FBO)
     async with AsyncSessionFactory() as session:
+        user = await session.get(User, user_id)
+        timezone_name = user.timezone if user else "Europe/Moscow"
+        if mode == "orders:today":
+            start_of_day = _today_start_utc(timezone_name)
+            query = query.where(Order.order_date >= start_of_day)
+        if mode == "orders:fbs":
+            query = query.where(Order.requires_seller_action.is_(True))
+        if mode == "orders:fbo":
+            query = query.where(Order.sale_model == SaleModel.FBO)
         result = await session.execute(query)
         orders = list(result.scalars().all())
     if not orders:
@@ -321,10 +355,19 @@ async def _orders_text(user_id: int, mode: str = "orders:last10") -> str:
         action = "требует обработки" if order.requires_seller_action else "информационный"
         sale_model = order.sale_model.value if order.sale_model else "н/д"
         lines.append(
-            f"— {order.order_date:%d.%m %H:%M} {order.marketplace.value} "
+            f"— {format_user_datetime(order.order_date, timezone_name)} {order.marketplace.value} "
             f"{sale_model} #{order.order_external_id}: {action}"
         )
     return "\n".join(lines)
+
+
+def _today_start_utc(timezone_name: str) -> datetime:
+    try:
+        timezone = ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        timezone = ZoneInfo("Europe/Moscow")
+    now_local = datetime.now(tz=timezone)
+    return now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
 
 
 async def _stocks_text(user_id: int) -> str:
@@ -417,6 +460,134 @@ async def _toggle_notifications(callback: CallbackQuery) -> User | None:
         user.notifications_enabled = not user.notifications_enabled
         await session.commit()
         return user
+
+
+async def _set_user_timezone(callback: CallbackQuery, timezone_name: str) -> User | None:
+    if timezone_name not in SUPPORTED_TIMEZONES:
+        await callback.answer("Неизвестный часовой пояс", show_alert=True)
+        return None
+    async with AsyncSessionFactory() as session:
+        repo = UserRepository(session)
+        user = await repo.get_or_create(
+            telegram_id=callback.from_user.id,
+            username=callback.from_user.username,
+            first_name=callback.from_user.first_name,
+        )
+        user.timezone = timezone_name
+        await session.commit()
+        return user
+
+
+def _timezone_text(timezone_name: str) -> str:
+    title = next(
+        (label for label, value in TIMEZONE_OPTIONS if value == timezone_name),
+        timezone_name,
+    )
+    return (
+        "🕒 Часовой пояс\n\n"
+        f"Текущий часовой пояс: {title}\n\n"
+        "Выберите свой часовой пояс. Он будет использоваться для времени заказов, "
+        "уведомлений и аналитики."
+    )
+
+
+async def _order_action_text(user_id: int, callback_data: str) -> str:
+    parts = callback_data.split(":")
+    if len(parts) != 3 or not parts[1].isdigit():
+        return "Не удалось открыть заказ: кнопка устарела или повреждена."
+    order_id = int(parts[1])
+    action = parts[2]
+    async with AsyncSessionFactory() as session:
+        user = await session.get(User, user_id)
+        order = await OrderRepository(session).get_with_items(order_id)
+        if order is None or order.user_id != user_id:
+            return "Заказ не найден. Возможно, он был удалён или относится к другому кабинету."
+        timezone_name = user.timezone if user else "Europe/Moscow"
+        if action == "details":
+            return _format_order_details(order, timezone_name)
+        if action == "profit":
+            return _format_order_profit(order)
+        if action == "product":
+            return _format_order_product(order)
+    return "Не удалось открыть действие по заказу. Откройте меню и выберите раздел заново."
+
+
+def _format_order_details(order: Order, timezone_name: str) -> str:
+    lines = [
+        "📦 Детали заказа",
+        "",
+        f"Маркетплейс: {order.marketplace.value}",
+        f"Модель продаж: {order.sale_model.value if order.sale_model else 'н/д'}",
+        f"Статус: {order.normalized_status or order.status}",
+        f"Заказ: {order.order_external_id}",
+        f"Склад: {order.warehouse or 'не определено'}",
+        f"Дата и время заказа: {format_user_datetime(order.order_date, timezone_name)}",
+    ]
+    deadline = order.processing_deadline_at or order.deadline_at
+    if deadline:
+        lines.append(f"Дедлайн обработки: {format_user_datetime(deadline, timezone_name)}")
+    for item in order.items:
+        margin = (
+            item.margin_percent_estimated if item.margin_percent_estimated is not None else "н/д"
+        )
+        lines.extend(
+            [
+                "",
+                f"Товар: {item.title or 'Без названия'}",
+                f"Артикул продавца: {item.seller_article or 'н/д'}",
+                f"Артикул маркетплейса: {item.marketplace_article or 'н/д'}",
+                f"Количество: {item.quantity}",
+                "",
+                f"💰 Цена продажи: {rub(item.discounted_price)}",
+                f"💳 Сумма к расчёту: {rub(item.payout_amount_estimated)}",
+                f"🏷 Комиссия маркетплейса: {rub(item.commission_estimated)}",
+                f"🚚 Логистика: {rub(item.logistics_estimated)}",
+                f"📦 Себестоимость: {rub(item.cost_price_used)}",
+                f"💸 Налог: {rub(item.tax_amount_estimated)}",
+                "",
+                "📊 Плановый результат:",
+                f"Прибыль: {rub(item.profit_estimated)}",
+                f"Маржа: {margin}%",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def _format_order_profit(order: Order) -> str:
+    lines = ["💰 Расчёт прибыли", ""]
+    for item in order.items:
+        marketplace_costs = (
+            (item.commission_estimated or Decimal("0"))
+            + (item.logistics_estimated or Decimal("0"))
+            + (item.other_marketplace_expenses_estimated or Decimal("0"))
+        )
+        lines.extend(
+            [
+                f"{item.title or item.seller_article or 'Товар'}",
+                f"Выручка: {rub(item.discounted_price * item.quantity)}",
+                f"Расходы маркетплейса: {rub(marketplace_costs)}",
+                f"Себестоимость: {rub(item.cost_price_used)}",
+                f"Налог: {rub(item.tax_amount_estimated)}",
+                f"Плановая прибыль: {rub(item.profit_estimated)}",
+                "",
+            ]
+        )
+    return "\n".join(lines).strip()
+
+
+def _format_order_product(order: Order) -> str:
+    lines = ["📦 О товаре", ""]
+    for item in order.items:
+        lines.extend(
+            [
+                f"Название: {item.title or 'Без названия'}",
+                f"Артикул продавца: {item.seller_article or 'н/д'}",
+                f"Артикул маркетплейса: {item.marketplace_article or 'н/д'}",
+                f"Количество в заказе: {item.quantity}",
+                "",
+            ]
+        )
+    return "\n".join(lines).strip()
 
 
 async def _web_login_payload(user_id: int) -> tuple[str, str]:

@@ -1,6 +1,6 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: Initial and manual historical marketplace data backfill service.
-updated: 2026-05-14
+updated: 2026-05-15
 """
 
 import logging
@@ -128,6 +128,7 @@ class HistoryBackfillService:
                 self._merge(counters, chunk_result)
                 processed_chunks += 1
                 metadata["blocks"] = self._block_statuses(counters)
+                counters.warnings = self._unique_warnings(counters.warnings)
                 metadata["warnings"] = counters.warnings
                 await self.jobs.update_progress(
                     job,
@@ -459,6 +460,7 @@ class HistoryBackfillService:
             )
         lines = [
             title,
+            f"Маркетплейс: {HistoryBackfillService._marketplace_title(job.marketplace)}",
             "",
             "Загружено:",
             f"— заказов: {counters.orders};",
@@ -469,12 +471,13 @@ class HistoryBackfillService:
             "",
             "Теперь доступна аналитика за загруженный период.",
         ]
-        if counters.warnings:
+        unique_warnings = HistoryBackfillService._unique_warnings(counters.warnings)
+        if unique_warnings:
             lines.extend(
                 [
                     "",
                     "Часть данных загружена неполно:",
-                    *[f"— {item}" for item in counters.warnings[:5]],
+                    *[f"— {item}" for item in unique_warnings[:5]],
                 ]
             )
         return "\n".join(lines)
@@ -533,7 +536,19 @@ class HistoryBackfillService:
         target.profit_items += source.profit_items
         target.skipped += source.skipped
         target.failed += source.failed
-        target.warnings.extend(source.warnings)
+        target.warnings = HistoryBackfillService._unique_warnings(
+            [*target.warnings, *source.warnings]
+        )
+
+    @staticmethod
+    def _unique_warnings(warnings: list[str]) -> list[str]:
+        seen: set[str] = set()
+        unique: list[str] = []
+        for warning in warnings:
+            if warning not in seen:
+                unique.append(warning)
+                seen.add(warning)
+        return unique
 
     @staticmethod
     def _block_statuses(counters: BackfillCounters) -> dict[str, str]:
@@ -544,3 +559,10 @@ class HistoryBackfillService:
             "returns": status if counters.returns else "empty",
             "financial_rows": status if counters.financial_rows else "partial",
         }
+
+    @staticmethod
+    def _marketplace_title(marketplace: Marketplace | str | None) -> str:
+        if marketplace is None:
+            return "не определён"
+        value = marketplace.value if isinstance(marketplace, Marketplace) else str(marketplace)
+        return "Wildberries" if value == Marketplace.WB.value else "Ozon"

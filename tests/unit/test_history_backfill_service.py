@@ -1,6 +1,6 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: Unit tests for historical backfill planning, statuses, and messages.
-updated: 2026-05-14
+updated: 2026-05-15
 """
 
 from datetime import UTC, datetime, timedelta
@@ -82,6 +82,7 @@ def test_completion_message_for_completed_job_contains_counts() -> None:
     text = HistoryBackfillService.format_completion_message(job, counters)
 
     assert "Первичная синхронизация завершена" in text
+    assert "Маркетплейс: Wildberries" in text
     assert "— заказов: 10" in text
     assert "— финансовых строк: 5" in text
 
@@ -103,6 +104,32 @@ def test_completion_message_for_warnings_is_partial() -> None:
 
     assert "завершена частично" in text
     assert "Финансовые отчёты пока недоступны" in text
+
+
+def test_completion_message_deduplicates_warnings_preserving_order() -> None:
+    job = SyncJob(
+        id=1,
+        user_id=1,
+        marketplace_account_id=1,
+        marketplace=Marketplace.WB,
+        job_type=SyncJobType.INITIAL_HISTORY_BACKFILL.value,
+        status=SyncJobStatus.COMPLETED_WITH_WARNINGS,
+        payload={},
+        job_metadata={},
+    )
+    counters = BackfillCounters(
+        warnings=[
+            "WB FBS-заказы за часть периода загружены не полностью.",
+            "WB FBS-заказы за часть периода загружены не полностью.",
+            "WB финансовые строки за часть периода недоступны.",
+            "WB финансовые строки за часть периода недоступны.",
+        ]
+    )
+
+    text = HistoryBackfillService.format_completion_message(job, counters)
+
+    assert text.count("WB FBS-заказы за часть периода загружены не полностью.") == 1
+    assert text.count("WB финансовые строки за часть периода недоступны.") == 1
 
 
 def test_block_statuses_mark_finance_partial_when_no_financial_rows() -> None:

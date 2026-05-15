@@ -1,6 +1,6 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: Unit tests for FBO, FBS, and rFBS order normalization.
-updated: 2026-05-14
+updated: 2026-05-15
 """
 
 from app.integrations.ozon import OzonClient
@@ -28,6 +28,26 @@ def test_wb_fbs_order_requires_seller_action() -> None:
     assert order.source_event_type == SourceEventType.LIVE_ORDER
     assert order.requires_seller_action is True
     assert order.processing_deadline_at is not None
+
+
+def test_wb_fbs_order_price_is_converted_from_kopecks() -> None:
+    order = WildberriesClient("token").normalize_fbs_order(
+        {
+            "id": 13833713,
+            "createdAt": "2026-05-15T08:33:00Z",
+            "warehouseId": 1745949,
+            "nmId": 303948126,
+            "article": "W4079",
+            "convertedFinalPrice": 41100,
+            "finalPrice": 41100,
+        }
+    )
+
+    item = order.items[0]
+
+    assert item.discounted_price == 411
+    assert item.payout_amount_estimated == 411
+    assert item.discounted_price != 41100
 
 
 def test_wb_report_order_is_fbo_informational() -> None:

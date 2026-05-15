@@ -1,4 +1,4 @@
-"""version: 1.1.0
+"""version: 1.2.0
 description: Unit tests for profit calculation.
 updated: 2026-05-15
 """
@@ -78,3 +78,20 @@ def test_missing_commission_does_not_crash_and_warns() -> None:
     assert result.marketplace_commission == Decimal("0.00")
     assert result.profit == Decimal("900.00")
     assert any("Комиссия маркетплейса" in warning for warning in result.warnings)
+
+
+def test_profit_uses_normalized_wb_price_for_margin() -> None:
+    result = ProfitCalculator().calculate(
+        ProfitInput(
+            gross_revenue=Decimal("411"),
+            expected_payout=Decimal("411"),
+            marketplace_commission=Decimal("41"),
+            logistics_cost=Decimal("0"),
+            other_marketplace_costs=Decimal("0"),
+            cost=CostInput(cost_price=Decimal("100"), tax_rate=Decimal("0")),
+        )
+    )
+
+    assert result.gross_revenue == Decimal("411.00")
+    assert result.profit == Decimal("270.00")
+    assert result.margin_percent == Decimal("65.69")

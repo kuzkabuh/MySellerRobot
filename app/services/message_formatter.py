@@ -1,9 +1,11 @@
-"""version: 1.1.0
+"""version: 1.2.0
 description: Russian Telegram message formatting helpers.
 updated: 2026-05-15
 """
 
+from datetime import datetime
 from decimal import Decimal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.models.enums import Marketplace, SaleModel
 from app.schemas.orders import NormalizedOrder, NormalizedOrderItem
@@ -17,6 +19,16 @@ def rub(value: Decimal | None) -> str:
     return f"{rounded:,.0f}".replace(",", " ") + " ₽"
 
 
+def format_user_datetime(value: datetime | None, timezone_name: str = "Europe/Moscow") -> str:
+    if value is None:
+        return "н/д"
+    try:
+        timezone = ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        timezone = ZoneInfo("Europe/Moscow")
+    return value.astimezone(timezone).strftime("%d.%m.%Y %H:%M")
+
+
 class MessageFormatter:
     """Format bot-facing Russian messages."""
 
@@ -26,6 +38,7 @@ class MessageFormatter:
         item: NormalizedOrderItem,
         profit: ProfitResult,
         detailed: bool = False,
+        timezone_name: str = "Europe/Moscow",
     ) -> str:
         marketplace_title = "Wildberries" if order.marketplace == Marketplace.WB else "Ozon"
         sale_model = order.sale_model or SaleModel.FBS
@@ -51,11 +64,11 @@ class MessageFormatter:
             f"🚚 Модель продаж: {sale_model.value}",
             f"🏭 Склад: {order.warehouse or 'н/д'}",
             f"🕒 {'Заказ получен' if is_action_required else 'Дата заказа'}: "
-            f"{order.order_date:%d.%m.%Y %H:%M}",
+            f"{format_user_datetime(order.order_date, timezone_name)}",
         ]
         deadline = order.processing_deadline_at or order.deadline_at
         if deadline and is_action_required:
-            lines.append(f"⏰ {deadline_label}: {deadline:%d.%m.%Y %H:%M}")
+            lines.append(f"⏰ {deadline_label}: {format_user_datetime(deadline, timezone_name)}")
         lines.extend(
             [
                 "",

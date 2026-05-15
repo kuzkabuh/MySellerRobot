@@ -1,6 +1,6 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: Online order ingestion, idempotency, product matching, and estimated profit snapshots.
-updated: 2026-05-14
+updated: 2026-05-15
 """
 
 import logging
@@ -114,6 +114,7 @@ class OrderProcessingService:
                             first_item,
                             profit,
                             detailed=False,
+                            timezone_name=account.user.timezone,
                         ),
                     )
                 )

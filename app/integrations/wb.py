@@ -1,10 +1,11 @@
-"""version: 1.1.0
+"""version: 1.2.0
 description: Wildberries official API client and normalization helpers.
 updated: 2026-05-15
 """
 
+import logging
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 
 from app.core.config import get_settings
@@ -13,6 +14,8 @@ from app.models.enums import Marketplace, SaleEventType, SaleModel, SourceEventT
 from app.schemas.orders import NormalizedOrder, NormalizedOrderItem
 from app.schemas.products import ProductUpsert
 from app.schemas.sales import NormalizedSaleEvent
+
+logger = logging.getLogger(__name__)
 
 
 class WildberriesClient:
@@ -137,7 +140,19 @@ class WildberriesClient:
             if created
             else datetime.now(tz=UTC)
         )
-        price = Decimal(str(payload.get("convertedFinalPrice") or payload.get("finalPrice") or 0))
+        price = self.extract_fbs_order_price(payload)
+        logger.debug(
+            "wb_fbs_price_normalized",
+            extra={
+                "order_id": payload.get("id"),
+                "nm_id": payload.get("nmId"),
+                "raw_converted_final_price": payload.get("convertedFinalPrice"),
+                "raw_final_price": payload.get("finalPrice"),
+                "raw_converted_price": payload.get("convertedPrice"),
+                "raw_price": payload.get("price"),
+                "normalized_price": str(price),
+            },
+        )
         item = NormalizedOrderItem(
             external_product_id=str(
                 payload.get("nmId") or payload.get("chrtId") or payload.get("id")
@@ -331,6 +346,30 @@ class WildberriesClient:
                 return datetime.strptime(text, "%d.%m.%Y").replace(tzinfo=UTC)
             except ValueError:
                 return None
+
+    @classmethod
+    def extract_fbs_order_price(cls, payload: dict[str, Any]) -> Decimal:
+        """Return WB FBS order customer price in rubles.
+
+        Wildberries FBS/DBS order price fields such as convertedFinalPrice,
+        finalPrice, convertedPrice and price are returned in kopecks according
+        to the official Orders API examples and field notes. Statistics/report
+        fields with Rub suffix are normalized separately and already represent
+        rubles.
+        """
+
+        for key in ("convertedFinalPrice", "finalPrice", "convertedPrice", "price"):
+            if payload.get(key) is not None:
+                return cls._kopecks_to_rubles(payload[key])
+        return Decimal("0.00")
+
+    @staticmethod
+    def _kopecks_to_rubles(value: Any) -> Decimal:
+        try:
+            amount = Decimal(str(value))
+        except (InvalidOperation, ValueError):
+            return Decimal("0.00")
+        return (amount / Decimal("100")).quantize(Decimal("0.01"))
 
     @staticmethod
     def _extract_commission(payload: dict[str, Any], revenue: Decimal) -> Decimal | None:

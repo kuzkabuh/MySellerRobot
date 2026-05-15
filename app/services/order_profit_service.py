@@ -1,4 +1,4 @@
-"""version: 1.1.0
+"""version: 1.2.0
 description: Shared estimated order profit calculation for online polling and history backfill.
 updated: 2026-05-15
 """
@@ -57,6 +57,8 @@ class OrderProfitService:
             )
             if product:
                 item.product_id = product.id
+                if not item.title and product.title:
+                    item.title = product.title
             cost = (
                 await self.costs.get_actual_cost(product.id, order.order_date) if product else None
             )

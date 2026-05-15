@@ -1,4 +1,4 @@
-"""version: 1.1.0
+"""version: 1.2.0
 description: Main Telegram inline keyboards.
 updated: 2026-05-15
 """
@@ -6,6 +6,20 @@ updated: 2026-05-15
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.models.domain import MarketplaceAccount
+
+TIMEZONE_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("Калининград UTC+2", "Europe/Kaliningrad"),
+    ("Москва UTC+3", "Europe/Moscow"),
+    ("Самара UTC+4", "Europe/Samara"),
+    ("Екатеринбург UTC+5", "Asia/Yekaterinburg"),
+    ("Омск UTC+6", "Asia/Omsk"),
+    ("Красноярск UTC+7", "Asia/Krasnoyarsk"),
+    ("Иркутск UTC+8", "Asia/Irkutsk"),
+    ("Якутск UTC+9", "Asia/Yakutsk"),
+    ("Владивосток UTC+10", "Asia/Vladivostok"),
+    ("Магадан UTC+11", "Asia/Magadan"),
+    ("Камчатка UTC+12", "Asia/Kamchatka"),
+)
 
 
 def main_menu(is_admin: bool = False) -> InlineKeyboardMarkup:
@@ -220,6 +234,22 @@ def sale_notification_settings_menu(enabled: bool) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="Назад", callback_data="control_menu")],
         ]
     )
+
+
+def timezone_menu(current_timezone: str = "Europe/Moscow") -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for label, value in TIMEZONE_OPTIONS:
+        marker = "✓ " if value == current_timezone else ""
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"{marker}{label}",
+                    callback_data=f"timezone:set:{value}",
+                )
+            ]
+        )
+    rows.append([InlineKeyboardButton(text="Назад", callback_data="settings")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def accounts_menu() -> InlineKeyboardMarkup:
