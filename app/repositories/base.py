@@ -1,19 +1,17 @@
-"""version: 1.0.0
+"""version: 1.0.1
 description: Base repository with common CRUD operations.
 updated: 2026-05-15
 """
 
-from typing import Any, Generic, TypeVar
+from typing import Any, cast
 
 from sqlalchemy import Select, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.base import Base
 
-ModelType = TypeVar("ModelType", bound=Base)
 
-
-class BaseRepository(Generic[ModelType]):
+class BaseRepository[ModelType: Base]:
     """Base repository with common database operations."""
 
     def __init__(self, session: AsyncSession, model: type[ModelType]) -> None:
@@ -22,7 +20,8 @@ class BaseRepository(Generic[ModelType]):
 
     async def get_by_id(self, id: int) -> ModelType | None:
         """Get entity by ID."""
-        result = await self.session.execute(select(self.model).where(self.model.id == id))
+        model_id = cast(Any, self.model).id
+        result = await self.session.execute(select(self.model).where(model_id == id))
         return result.scalar_one_or_none()
 
     async def get_all(
@@ -64,12 +63,13 @@ class BaseRepository(Generic[ModelType]):
 
     async def delete_by_id(self, id: int) -> bool:
         """Delete entity by ID."""
-        result = await self.session.execute(delete(self.model).where(self.model.id == id))
-        return result.rowcount > 0
+        model_id = cast(Any, self.model).id
+        result = await self.session.execute(delete(self.model).where(model_id == id))
+        return int(getattr(result, "rowcount", 0)) > 0
 
     async def exists(self, **filters: Any) -> bool:
         """Check if entity exists with given filters."""
-        query = select(self.model.id)
+        query = select(cast(Any, self.model).id)
         for key, value in filters.items():
             query = query.where(getattr(self.model, key) == value)
         result = await self.session.execute(query)
@@ -77,7 +77,7 @@ class BaseRepository(Generic[ModelType]):
 
     async def count(self, **filters: Any) -> int:
         """Count entities with given filters."""
-        query: Select[tuple[int]] = select(func.count(self.model.id))
+        query: Select[tuple[int]] = select(func.count(cast(Any, self.model).id))
         for key, value in filters.items():
             query = query.where(getattr(self.model, key) == value)
         result = await self.session.execute(query)
@@ -126,4 +126,4 @@ class BaseRepository(Generic[ModelType]):
         if not updates:
             return 0
         result = await self.session.execute(update(self.model), updates)
-        return result.rowcount
+        return int(getattr(result, "rowcount", 0))

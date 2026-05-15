@@ -25,24 +25,14 @@ class WildberriesClient:
     def __init__(self, api_key: str) -> None:
         settings = get_settings()
         self.api_key = api_key
-        self.common = AsyncApiClient(
-            settings.wb_base_common_url, marketplace="Wildberries"
-        )
+        self.common = AsyncApiClient(settings.wb_base_common_url, marketplace="Wildberries")
         self.marketplace = AsyncApiClient(
             settings.wb_base_marketplace_url, marketplace="Wildberries"
         )
-        self.content = AsyncApiClient(
-            settings.wb_base_content_url, marketplace="Wildberries"
-        )
-        self.analytics = AsyncApiClient(
-            settings.wb_base_analytics_url, marketplace="Wildberries"
-        )
-        self.finance = AsyncApiClient(
-            settings.wb_base_finance_url, marketplace="Wildberries"
-        )
-        self.statistics = AsyncApiClient(
-            settings.wb_base_statistics_url, marketplace="Wildberries"
-        )
+        self.content = AsyncApiClient(settings.wb_base_content_url, marketplace="Wildberries")
+        self.analytics = AsyncApiClient(settings.wb_base_analytics_url, marketplace="Wildberries")
+        self.finance = AsyncApiClient(settings.wb_base_finance_url, marketplace="Wildberries")
+        self.statistics = AsyncApiClient(settings.wb_base_statistics_url, marketplace="Wildberries")
 
     @property
     def headers(self) -> dict[str, str]:

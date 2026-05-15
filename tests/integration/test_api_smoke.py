@@ -1,5 +1,5 @@
-"""version: 1.5.0
-description: Smoke tests for API, bot, worker, and package startup boundaries.
+"""version: 1.6.0
+description: Smoke tests for API, bot, worker, package startup, and web cabinet navigation.
 updated: 2026-05-15
 """
 
@@ -8,11 +8,12 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 
 from app.api.main import create_app
 from app.bot.main import create_dispatcher
 from app.core.config import Settings
-from app.web.routes import dashboard_compat, login
+from app.web.routes import dashboard_compat, double_web_compat, login
 from app.workers.settings import WorkerSettings
 
 
@@ -28,7 +29,7 @@ def test_create_app() -> None:
     app = create_app()
 
     assert app.title == "Seller Profit Bot API"
-    assert app.version == "1.4.17"
+    assert app.version == "1.4.18"
 
 
 def test_web_routes_are_registered() -> None:
@@ -82,7 +83,7 @@ async def test_web_login_valid_token_redirects(monkeypatch: pytest.MonkeyPatch) 
     assert response.status_code == 303
     assert response.headers["location"] == "/web/"
     assert response.headers["location"] != "/web/web"
-    assert "Path=/web" in response.headers["set-cookie"]
+    assert "Path=/" in response.headers["set-cookie"]
 
 
 @pytest.mark.asyncio
@@ -97,6 +98,56 @@ async def test_legacy_double_web_dashboard_route_renders_not_404(
     response = await dashboard_compat(user=object(), session=object())
 
     assert "Кабинет" in response
+
+
+@pytest.mark.asyncio
+async def test_legacy_double_web_sections_are_served_for_old_proxy_paths() -> None:
+    user = SimpleNamespace(
+        id=1,
+        timezone="Europe/Moscow",
+        first_name="Тест",
+        username="seller",
+        telegram_id=123456,
+    )
+    request = SimpleNamespace(url=SimpleNamespace(path="/web/web/sales"), query_params={})
+
+    response = await double_web_compat(
+        section="sales",
+        request=request,
+        user=user,
+        session=object(),
+    )
+
+    assert response.status_code == 200
+    body = response.body.decode()
+    assert "Продажи" in body
+    assert "Раздел не найден" not in body
+
+
+@pytest.mark.asyncio
+async def test_unknown_double_web_section_returns_russian_404() -> None:
+    user = SimpleNamespace(
+        id=1,
+        timezone="Europe/Moscow",
+        first_name="Тест",
+        username="seller",
+        telegram_id=123456,
+    )
+    request = SimpleNamespace(
+        url=SimpleNamespace(path="/web/web/missing-section"),
+        query_params={},
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await double_web_compat(
+            section="missing-section",
+            request=request,
+            user=user,
+            session=object(),
+        )
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "Раздел не найден"
 
 
 def test_app_package_discovery_includes_utility_package() -> None:

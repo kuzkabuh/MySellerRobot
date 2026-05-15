@@ -177,4 +177,3 @@ class ProductSyncService:
         """Invalidate product-related cache entries."""
         pattern = cache_key("products", user_id, "*")
         await self.cache.clear_pattern(pattern)
-

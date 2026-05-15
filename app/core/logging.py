@@ -1,4 +1,4 @@
-"""version: 1.1.0
+"""version: 1.1.1
 description: Enhanced structured logging with context and error tracking.
 updated: 2026-05-15
 """
@@ -7,7 +7,7 @@ import logging
 import logging.config
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import structlog
 from pythonjsonlogger import jsonlogger
@@ -29,7 +29,7 @@ class MaskSecretsFilter(logging.Filter):
         return True
 
 
-class CustomJsonFormatter(jsonlogger.JsonFormatter):  # type: ignore[misc]
+class CustomJsonFormatter(jsonlogger.JsonFormatter):
     """Custom JSON formatter with additional context fields."""
 
     def add_fields(
@@ -54,7 +54,7 @@ def configure_logging(settings: Settings) -> None:
 
     log_level = getattr(logging, settings.log_level.upper(), logging.INFO)
 
-    formatter = CustomJsonFormatter(
+    formatter = CustomJsonFormatter(  # type: ignore[no-untyped-call]
         "%(asctime)s %(levelname)s %(name)s %(message)s %(module)s %(funcName)s"
     )
 
@@ -95,7 +95,7 @@ def configure_logging(settings: Settings) -> None:
 
 def get_logger(name: str) -> structlog.BoundLogger:
     """Get a structured logger instance."""
-    return structlog.get_logger(name)
+    return cast(structlog.BoundLogger, structlog.get_logger(name))
 
 
 class LogContext:
@@ -114,12 +114,22 @@ class LogContext:
 
 
 def log_exception(
-    logger: structlog.BoundLogger,
+    logger: structlog.BoundLogger | logging.Logger,
     exc: Exception,
     message: str = "Exception occurred",
     **extra: Any,
 ) -> None:
     """Log an exception with full context."""
+    if isinstance(logger, logging.Logger):
+        logger.exception(
+            message,
+            extra={
+                "exc_type": type(exc).__name__,
+                "exc_message": str(exc),
+                **extra,
+            },
+        )
+        return
     logger.exception(
         message,
         exc_type=type(exc).__name__,

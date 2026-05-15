@@ -1,9 +1,10 @@
-"""version: 1.0.7
-description: FastAPI application factory and service endpoints.
+"""version: 1.0.8
+description: FastAPI application factory, service endpoints, and web error handling.
 updated: 2026-05-15
 """
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
@@ -25,12 +26,16 @@ SETTINGS_DEPENDENCY = Depends(get_settings)
 def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging(settings)
-    app = FastAPI(title="Seller Profit Bot API", version="1.4.17", debug=settings.app_debug)
+    app = FastAPI(title="Seller Profit Bot API", version="1.4.18", debug=settings.app_debug)
     app.include_router(web_router)
 
     @app.middleware("http")
-    async def log_requests(request: Request, call_next):
+    async def log_requests(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
         import logging
+
         logger = logging.getLogger("app.api.main")
         logger.info(
             "incoming_request",

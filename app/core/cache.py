@@ -1,11 +1,12 @@
-"""version: 1.0.0
+"""version: 1.0.1
 description: Redis-based caching utilities with TTL support.
 updated: 2026-05-15
 """
 
 import json
 import logging
-from typing import Any, Callable, TypeVar
+from collections.abc import Callable
+from typing import Any, TypeVar, cast
 
 import redis.asyncio as aioredis
 from redis.asyncio import Redis
@@ -27,10 +28,13 @@ class CacheManager:
         """Get or create Redis connection."""
         if self.redis is None:
             settings = get_settings()
-            self.redis = await aioredis.from_url(
-                settings.redis_url,
-                encoding="utf-8",
-                decode_responses=True,
+            self.redis = cast(
+                Redis,
+                await aioredis.from_url(  # type: ignore[no-untyped-call]
+                    settings.redis_url,
+                    encoding="utf-8",
+                    decode_responses=True,
+                ),
             )
         return self.redis
 
@@ -87,7 +91,7 @@ class CacheManager:
             async for key in redis.scan_iter(match=pattern):
                 keys.append(key)
             if keys:
-                return await redis.delete(*keys)
+                return int(await redis.delete(*keys))
             return 0
         except Exception as exc:
             logger.warning(

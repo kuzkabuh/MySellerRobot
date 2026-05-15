@@ -1,5 +1,5 @@
-"""version: 2.6.0
-description: FastAPI routes for web login, cabinet dashboard, orders, and profit pages.
+"""version: 2.7.0
+description: FastAPI web cabinet routes with session auth and legacy path compatibility.
 updated: 2026-05-15
 """
 
@@ -41,6 +41,7 @@ router = APIRouter(prefix="/web", tags=["web"])
 SESSION_DEPENDENCY = Depends(get_session)
 WEB_DASHBOARD_PATH = "/web/"
 WEB_LOGIN_REQUIRED_PATH = "/web/login-required"
+WEB_SESSION_COOKIE_PATH = "/"
 logger = logging.getLogger(__name__)
 
 
@@ -110,7 +111,7 @@ async def login(
         expires=web_session.expires_at,
         httponly=True,
         samesite="lax",
-        path="/web",
+        path=WEB_SESSION_COOKIE_PATH,
         secure=(
             getattr(getattr(request, "url", None), "scheme", "http") == "https"
             or get_settings().app_env == "production"
@@ -136,6 +137,7 @@ async def logout(
     await WebAuthService(session).revoke_session(request.cookies.get(WEB_SESSION_COOKIE))
     await session.commit()
     response = RedirectResponse(url=WEB_LOGIN_REQUIRED_PATH, status_code=303)
+    response.delete_cookie(WEB_SESSION_COOKIE, path=WEB_SESSION_COOKIE_PATH)
     response.delete_cookie(WEB_SESSION_COOKIE, path="/web")
     return response
 
@@ -379,6 +381,101 @@ async def placeholder(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
 ) -> str:
     return _placeholder_page(section, user)
+
+
+@router.get("/web/{section:path}", response_class=HTMLResponse, include_in_schema=False)
+async def double_web_compat(
+    section: str,
+    request: Request,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> Response:
+    """Serve cabinet pages when an old reverse proxy still prepends /web upstream."""
+
+    normalized = section.strip("/")
+    logger.warning(
+        "legacy_double_web_path",
+        extra={"path": _request_path(request), "section": normalized or "dashboard"},
+    )
+    if normalized == "":
+        return HTMLResponse(
+            await dashboard(
+                user=user,
+                session=session,
+                period=_query_param(request, "period", "today"),
+                marketplace=_query_param(request, "marketplace", "all"),
+                sale_model=_query_param(request, "sale_model", "all"),
+                date_from=_optional_query_param(request, "date_from"),
+                date_to=_optional_query_param(request, "date_to"),
+            )
+        )
+    if normalized == "orders":
+        return HTMLResponse(
+            await orders_page(
+                user=user,
+                session=session,
+                period=_query_param(request, "period", "today"),
+                marketplace=_query_param(request, "marketplace", "all"),
+                sale_model=_query_param(request, "sale_model", "all"),
+                economy=_query_param(request, "economy", "all"),
+                status=_query_param(request, "status", "all"),
+                sku=_query_param(request, "sku", ""),
+                sort=_query_param(request, "sort", "date"),
+                direction=_query_param(request, "direction", "desc"),
+                date_from=_optional_query_param(request, "date_from"),
+                date_to=_optional_query_param(request, "date_to"),
+            )
+        )
+    if normalized.startswith("orders/"):
+        try:
+            order_id = int(normalized.split("/", 1)[1])
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail="Заказ не найден") from exc
+        return HTMLResponse(await order_detail_page(order_id=order_id, user=user, session=session))
+    if normalized == "profit":
+        return HTMLResponse(
+            await profit_page(
+                user=user,
+                session=session,
+                period=_query_param(request, "period", "7d"),
+                marketplace=_query_param(request, "marketplace", "all"),
+                sale_model=_query_param(request, "sale_model", "all"),
+                economy=_query_param(request, "economy", "all"),
+                sku=_query_param(request, "sku", ""),
+                sort=_query_param(request, "sort", "profit"),
+                direction=_query_param(request, "direction", "desc"),
+                date_from=_optional_query_param(request, "date_from"),
+                date_to=_optional_query_param(request, "date_to"),
+            )
+        )
+    if normalized == "plan-fact":
+        return HTMLResponse(
+            await plan_fact_page(
+                user=user,
+                session=session,
+                period=_query_param(request, "period", "30d"),
+                marketplace=_query_param(request, "marketplace", "all"),
+                sale_model=_query_param(request, "sale_model", "all"),
+                sku=_query_param(request, "sku", ""),
+                sort=_query_param(request, "sort", "deviation"),
+                direction=_query_param(request, "direction", "asc"),
+                date_from=_optional_query_param(request, "date_from"),
+                date_to=_optional_query_param(request, "date_to"),
+            )
+        )
+    if normalized == "products":
+        return HTMLResponse(await products_page(user=user, session=session))
+    if normalized in {
+        "sales",
+        "returns",
+        "stocks",
+        "analytics",
+        "control",
+        "costs",
+        "settings",
+    }:
+        return HTMLResponse(_placeholder_page(normalized, user))
+    raise HTTPException(status_code=404, detail="Раздел не найден")
 
 
 def _placeholder_page(section: str, user: User) -> str:
@@ -1261,3 +1358,12 @@ def _mask_token(token: str) -> str:
 def _request_path(request: Request) -> str:
     url = getattr(request, "url", None)
     return str(getattr(url, "path", "unknown"))
+
+
+def _query_param(request: Request, name: str, default: str) -> str:
+    value = request.query_params.get(name)
+    return value if value is not None else default
+
+
+def _optional_query_param(request: Request, name: str) -> str | None:
+    return request.query_params.get(name)

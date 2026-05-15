@@ -1,5 +1,5 @@
-"""version: 1.1.0
-description: Enhanced async HTTP client with retry logic and error handling.
+"""version: 1.1.1
+description: Enhanced async HTTP client with retry logic and explicit exports.
 updated: 2026-05-15
 """
 
@@ -13,6 +13,8 @@ import httpx
 from app.core.exceptions import AuthenticationError, MarketplaceApiError, RateLimitError
 
 logger = logging.getLogger(__name__)
+
+__all__ = ["AsyncApiClient", "MarketplaceApiError"]
 
 
 class AsyncApiClient:
