@@ -1,21 +1,34 @@
-"""version: 1.1.1
+"""version: 1.2.0
 description: Smoke tests for API, bot, worker, and package startup boundaries.
 updated: 2026-05-15
 """
 
 import importlib.util
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+
+import pytest
 
 from app.api.main import create_app
 from app.bot.main import create_dispatcher
 from app.core.config import Settings
+from app.web.routes import login
 from app.workers.settings import WorkerSettings
+
+
+class FakeAsyncSession:
+    async def commit(self) -> None:
+        return None
+
+    async def rollback(self) -> None:
+        return None
 
 
 def test_create_app() -> None:
     app = create_app()
 
     assert app.title == "Seller Profit Bot API"
-    assert app.version == "1.4.9"
+    assert app.version == "1.4.10"
 
 
 def test_web_routes_are_registered() -> None:
@@ -27,7 +40,40 @@ def test_web_routes_are_registered() -> None:
     assert "/web/orders" in paths
     assert "/web/orders/{order_id}" in paths
     assert "/web/profit" in paths
+    assert "/web/web/login" in paths
     assert "/web/logout" in paths
+
+
+@pytest.mark.asyncio
+async def test_web_login_without_token_returns_russian_error() -> None:
+    response = await login(request=SimpleNamespace(), session=FakeAsyncSession(), token=None)
+
+    assert response.status_code == 400
+    assert "Ссылка недействительна" in response.body.decode()
+
+
+@pytest.mark.asyncio
+async def test_web_login_valid_token_redirects(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_consume(self, token, *, ip_address, user_agent):  # type: ignore[no-untyped-def]
+        assert token == "valid-token"
+        return SimpleNamespace(
+            token="web-session-token",
+            expires_at=datetime.now(tz=UTC) + timedelta(hours=1),
+        )
+
+    monkeypatch.setattr(
+        "app.services.web_auth_service.WebAuthService.consume_login_token",
+        fake_consume,
+    )
+
+    request = SimpleNamespace(
+        client=SimpleNamespace(host="127.0.0.1"),
+        headers={"user-agent": "pytest"},
+    )
+    response = await login(request=request, session=FakeAsyncSession(), token="valid-token")
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/web/"
 
 
 def test_app_package_discovery_includes_utility_package() -> None:

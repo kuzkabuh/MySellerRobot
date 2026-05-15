@@ -1,4 +1,4 @@
-"""version: 2.1.0
+"""version: 2.2.0
 description: FastAPI routes for web cabinet login, dashboard, orders, and profit pages.
 updated: 2026-05-15
 """
@@ -59,9 +59,15 @@ CURRENT_WEB_USER_DEPENDENCY = Depends(current_web_user)
 @router.get("/login")
 async def login(
     request: Request,
-    token: str,
     session: AsyncSession = SESSION_DEPENDENCY,
+    token: str | None = Query(default=None),
 ) -> Response:
+    if not token:
+        return HTMLResponse(
+            "<h1>Ссылка недействительна</h1>"
+            "<p>В ссылке входа отсутствует токен. Запросите новую ссылку в Telegram-боте.</p>",
+            status_code=400,
+        )
     web_session = await WebAuthService(session).consume_login_token(
         token,
         ip_address=request.client.host if request.client else None,
@@ -83,6 +89,15 @@ async def login(
         samesite="lax",
     )
     return response
+
+
+@router.get("/web/login")
+async def login_compat(
+    request: Request,
+    session: AsyncSession = SESSION_DEPENDENCY,
+    token: str | None = Query(default=None),
+) -> Response:
+    return await login(request=request, session=session, token=token)
 
 
 @router.get("/logout")

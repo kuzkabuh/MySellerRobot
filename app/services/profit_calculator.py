@@ -1,6 +1,6 @@
-"""version: 1.0.0
-description: Estimated and actual profit calculation service.
-updated: 2026-05-14
+"""version: 1.1.0
+description: Centralized estimated and actual profit calculation service.
+updated: 2026-05-15
 """
 
 from decimal import ROUND_HALF_UP, Decimal
@@ -24,14 +24,17 @@ class ProfitCalculator:
         warnings: list[str] = []
         if missing_cost:
             warnings.append("Себестоимость не задана. Прибыль рассчитана без учёта себестоимости")
+        missing_commission = data.marketplace_commission is None
+        marketplace_commission = data.marketplace_commission or Decimal("0")
+        if missing_commission:
+            warnings.append(
+                "Комиссия маркетплейса не указана. Прибыль рассчитана без учёта комиссии"
+            )
 
         tax_base = data.tax_base if data.tax_base is not None else data.gross_revenue
         tax_amount = money(tax_base * cost.tax_rate)
-        payout_or_revenue = (
-            data.expected_payout if data.expected_payout is not None else data.gross_revenue
-        )
         marketplace_expenses = (
-            data.marketplace_commission
+            marketplace_commission
             + data.logistics_cost
             + data.acquiring_cost
             + data.storage_cost
@@ -39,7 +42,7 @@ class ProfitCalculator:
             + data.other_marketplace_costs
         )
         seller_expenses = cost.cost_price + cost.package_cost + cost.additional_cost + tax_amount
-        profit = money(payout_or_revenue - marketplace_expenses - seller_expenses)
+        profit = money(data.gross_revenue - marketplace_expenses - seller_expenses)
         margin = Decimal("0")
         if data.gross_revenue:
             margin = (profit / data.gross_revenue * Decimal("100")).quantize(
@@ -49,7 +52,10 @@ class ProfitCalculator:
 
         return ProfitResult(
             gross_revenue=money(data.gross_revenue),
-            marketplace_commission=money(data.marketplace_commission),
+            expected_payout=(
+                money(data.expected_payout) if data.expected_payout is not None else None
+            ),
+            marketplace_commission=money(marketplace_commission),
             logistics_cost=money(data.logistics_cost),
             acquiring_cost=money(data.acquiring_cost),
             storage_cost=money(data.storage_cost),

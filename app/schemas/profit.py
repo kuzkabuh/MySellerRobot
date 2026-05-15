@@ -1,6 +1,6 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: Profit calculation schemas.
-updated: 2026-05-14
+updated: 2026-05-15
 """
 
 from datetime import datetime
@@ -20,7 +20,7 @@ class CostInput(BaseModel):
 class ProfitInput(BaseModel):
     gross_revenue: Decimal = Decimal("0")
     expected_payout: Decimal | None = None
-    marketplace_commission: Decimal = Decimal("0")
+    marketplace_commission: Decimal | None = None
     logistics_cost: Decimal = Decimal("0")
     acquiring_cost: Decimal = Decimal("0")
     storage_cost: Decimal = Decimal("0")
@@ -33,6 +33,7 @@ class ProfitInput(BaseModel):
 
 class ProfitResult(BaseModel):
     gross_revenue: Decimal
+    expected_payout: Decimal | None = None
     marketplace_commission: Decimal
     logistics_cost: Decimal
     acquiring_cost: Decimal

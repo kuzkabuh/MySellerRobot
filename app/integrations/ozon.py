@@ -1,6 +1,6 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: Ozon Seller API client and normalization helpers.
-updated: 2026-05-14
+updated: 2026-05-15
 """
 
 from datetime import UTC, datetime
@@ -322,7 +322,13 @@ class OzonClient:
             key = str(product.get("sku") or product.get("offer_id") or product.get("product_id"))
             finance = financial_products.get(key, {})
             price = Decimal(str(product.get("price") or finance.get("price") or 0))
-            commission = abs(Decimal(str(finance.get("commission_amount") or 0)))
+            commission = self._extract_commission(finance)
+            logistics = self._extract_service_amount(finance, ("delivery", "logistic"))
+            other_services = self._extract_service_amount(
+                finance,
+                ("service", "processing", "return", "storage", "last_mile"),
+                exclude=("delivery", "logistic"),
+            )
             payout = Decimal(str(finance.get("payout") or price))
             items.append(
                 NormalizedOrderItem(
@@ -336,10 +342,39 @@ class OzonClient:
                     discounted_price=price,
                     payout_amount_estimated=payout,
                     commission_estimated=commission,
+                    logistics_estimated=logistics,
+                    other_marketplace_expenses_estimated=other_services,
                     raw_payload=product,
                 )
             )
         return items
+
+    @staticmethod
+    def _extract_commission(finance: dict[str, Any]) -> Decimal | None:
+        if finance.get("commission_amount") is None:
+            return None
+        return abs(Decimal(str(finance.get("commission_amount") or 0)))
+
+    @staticmethod
+    def _extract_service_amount(
+        finance: dict[str, Any],
+        keywords: tuple[str, ...],
+        *,
+        exclude: tuple[str, ...] = (),
+    ) -> Decimal:
+        total = Decimal("0")
+        services = finance.get("services") or []
+        if not isinstance(services, list):
+            return total
+        for service in services:
+            if not isinstance(service, dict):
+                continue
+            name = str(service.get("name") or service.get("type") or "").lower()
+            if exclude and any(item in name for item in exclude):
+                continue
+            if any(item in name for item in keywords):
+                total += abs(Decimal(str(service.get("price") or service.get("amount") or 0)))
+        return total
 
     @staticmethod
     def _parse_dt(value: str | None) -> datetime | None:

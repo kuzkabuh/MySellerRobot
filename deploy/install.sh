@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# version: 1.0.0
+# version: 1.1.0
 # description: First-time production installer for MP Control on Ubuntu.
 # updated: 2026-05-15
 
@@ -102,22 +102,46 @@ create_user() {
   usermod -aG docker "$PROJECT_USER" || true
 }
 
+ensure_project_ownership() {
+  if [[ ! -e "$PROJECT_DIR" ]]; then
+    return
+  fi
+  local owner expected_uid
+  owner="$(stat -c '%U' "$PROJECT_DIR" 2>/dev/null || echo unknown)"
+  expected_uid="$(id -u "$PROJECT_USER")"
+  if [[ "$owner" != "$PROJECT_USER" ]]; then
+    log_warn "Обнаружено, что каталог ${PROJECT_DIR} принадлежит пользователю ${owner}."
+    log_warn "Для корректной установки права будут приведены к пользователю ${PROJECT_USER}."
+    chown -R "$PROJECT_USER:$PROJECT_USER" "$PROJECT_DIR"
+  fi
+  git config --global --add safe.directory "$PROJECT_DIR" || true
+  runuser -u "$PROJECT_USER" -- git config --global --add safe.directory "$PROJECT_DIR" || true
+  if [[ "$(stat -c '%u' "$PROJECT_DIR")" != "$expected_uid" ]]; then
+    log_error "Не удалось привести владельца ${PROJECT_DIR} к ${PROJECT_USER}."
+    exit 1
+  fi
+}
+
 clone_repo() {
   mkdir -p "$(dirname "$PROJECT_DIR")"
+  ensure_project_ownership
   if [[ -d "${PROJECT_DIR}/.git" ]]; then
     log_info "Project repository already exists at ${PROJECT_DIR}; updating refs."
-    git -C "$PROJECT_DIR" fetch origin "$BRANCH"
-    git -C "$PROJECT_DIR" checkout "$BRANCH"
-    git -C "$PROJECT_DIR" pull --ff-only origin "$BRANCH"
+    runuser -u "$PROJECT_USER" -- git -C "$PROJECT_DIR" fetch origin "$BRANCH"
+    runuser -u "$PROJECT_USER" -- git -C "$PROJECT_DIR" checkout "$BRANCH"
+    runuser -u "$PROJECT_USER" -- git -C "$PROJECT_DIR" pull --ff-only origin "$BRANCH"
   elif [[ -e "$PROJECT_DIR" && -n "$(find "$PROJECT_DIR" -mindepth 1 -maxdepth 1 2>/dev/null)" ]]; then
     log_error "${PROJECT_DIR} exists and is not an empty Git repository. Aborting."
     exit 1
   else
     log_info "Cloning ${REPO_URL} branch ${BRANCH} into ${PROJECT_DIR}."
-    git clone --branch "$BRANCH" "$REPO_URL" "$PROJECT_DIR"
+    mkdir -p "$PROJECT_DIR"
+    chown "$PROJECT_USER:$PROJECT_USER" "$PROJECT_DIR"
+    runuser -u "$PROJECT_USER" -- git clone --branch "$BRANCH" "$REPO_URL" "$PROJECT_DIR"
   fi
   mkdir -p "${PROJECT_DIR}/logs/deploy" "${PROJECT_DIR}/backups" "${PROJECT_DIR}/public"
   chown -R "$PROJECT_USER:$PROJECT_USER" "$PROJECT_DIR"
+  git config --global --add safe.directory "$PROJECT_DIR" || true
 }
 
 prepare_env() {
@@ -130,6 +154,8 @@ prepare_env() {
     log_warn "Edit ${PROJECT_DIR}/.env and fill production secrets before re-running install.sh."
   else
     log_info ".env already exists and will not be overwritten."
+    chown "$PROJECT_USER:$PROJECT_USER" .env
+    chmod 600 .env
   fi
 }
 

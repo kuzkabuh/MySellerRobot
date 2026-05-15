@@ -1,4 +1,4 @@
-# version: 1.1.0
+# version: 1.2.0
 # description: Production deployment guide for MP Control on Ubuntu VPS.
 # updated: 2026-05-15
 
@@ -130,7 +130,10 @@ docker compose -f docker-compose.prod.yml run --rm api \
 - устанавливает Docker Engine и Docker Compose plugin;
 - создаёт пользователя `mpcontrol`;
 - клонирует репозиторий в `/opt/mpcontrol`;
+- если `/opt/mpcontrol` уже существует и принадлежит другому пользователю, аккуратно меняет
+  владельца только для этой директории и добавляет путь в `git safe.directory`;
 - создаёт `.env`, если его ещё нет;
+- не перезаписывает существующий `.env`, но приводит владельца к `mpcontrol` и ставит `chmod 600`;
 - проверяет обязательные env-переменные;
 - настраивает Nginx;
 - собирает production Docker images;
@@ -299,6 +302,21 @@ DEPLOY_UPDATE_COMMAND=bash deploy/update.sh --non-interactive
 ```bash
 sudo nginx -t
 sudo systemctl reload nginx
+```
+
+Для `app.mpcontrol.online` путь проксируется в FastAPI без добавления лишнего `/web/`.
+Ссылка из Telegram вида:
+
+```text
+https://app.mpcontrol.online/web/login?token=...
+```
+
+должна попадать в backend route `/web/login`. Если после обновления кода всё ещё виден
+`{"detail":"Not Found"}`, перегенерируйте Nginx-конфигурацию или вручную проверьте, что
+`proxy_pass` для `app.mpcontrol.online` равен:
+
+```nginx
+proxy_pass http://127.0.0.1:8000;
 ```
 
 ## Firewall

@@ -1,6 +1,6 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: Wildberries official API client and normalization helpers.
-updated: 2026-05-14
+updated: 2026-05-15
 """
 
 from datetime import UTC, datetime
@@ -150,6 +150,9 @@ class WildberriesClient:
             seller_price=price,
             discounted_price=price,
             payout_amount_estimated=price,
+            commission_estimated=self._extract_commission(payload, price),
+            logistics_estimated=self._extract_logistics(payload),
+            other_marketplace_expenses_estimated=self._extract_other_expenses(payload),
             raw_payload=payload,
         )
         return NormalizedOrder(
@@ -211,6 +214,9 @@ class WildberriesClient:
             seller_price=revenue,
             discounted_price=revenue,
             payout_amount_estimated=Decimal(str(payload.get("ppvzForPay") or revenue)),
+            commission_estimated=self._extract_commission(payload, revenue),
+            logistics_estimated=self._extract_logistics(payload),
+            other_marketplace_expenses_estimated=self._extract_other_expenses(payload),
             raw_payload=payload,
         )
         external_id = str(
@@ -253,6 +259,9 @@ class WildberriesClient:
             seller_price=revenue,
             discounted_price=revenue,
             payout_amount_estimated=revenue,
+            commission_estimated=self._extract_commission(payload, revenue),
+            logistics_estimated=self._extract_logistics(payload),
+            other_marketplace_expenses_estimated=self._extract_other_expenses(payload),
             raw_payload=payload,
         )
         external_id = str(
@@ -322,6 +331,40 @@ class WildberriesClient:
                 return datetime.strptime(text, "%d.%m.%Y").replace(tzinfo=UTC)
             except ValueError:
                 return None
+
+    @staticmethod
+    def _extract_commission(payload: dict[str, Any], revenue: Decimal) -> Decimal | None:
+        for key in (
+            "commission",
+            "commissionRub",
+            "commissionAmount",
+            "ppvzReward",
+            "supplierReward",
+            "retailAmountCommission",
+        ):
+            if payload.get(key) is not None:
+                return abs(Decimal(str(payload[key])))
+        for key in ("commissionPercent", "commissionPercentRub", "ppvzKvw", "ppvzKvwPrc"):
+            if payload.get(key) is not None:
+                percent = Decimal(str(payload[key]))
+                return (revenue * percent / Decimal("100")).quantize(Decimal("0.01"))
+        return None
+
+    @staticmethod
+    def _extract_logistics(payload: dict[str, Any]) -> Decimal:
+        total = Decimal("0")
+        for key in ("deliveryRub", "deliveryAmount", "logisticsCost", "logistics"):
+            if payload.get(key) is not None:
+                total += abs(Decimal(str(payload[key])))
+        return total
+
+    @staticmethod
+    def _extract_other_expenses(payload: dict[str, Any]) -> Decimal:
+        total = Decimal("0")
+        for key in ("penalty", "penaltyRub", "storageFee", "acceptance", "deduction"):
+            if payload.get(key) is not None:
+                total += abs(Decimal(str(payload[key])))
+        return total
 
     def normalize_card_product(
         self,

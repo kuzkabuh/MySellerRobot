@@ -1,6 +1,6 @@
-"""version: 1.0.0
-description: Financial report row import and actual profit recalculation skeleton.
-updated: 2026-05-14
+"""version: 1.1.0
+description: Financial report row import and actual profit recalculation service.
+updated: 2026-05-15
 """
 
 from datetime import UTC, datetime
@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import FinancialReportRow, OrderItem, ProfitSnapshot
 from app.models.enums import CalculationType, Marketplace
+from app.schemas.profit import CostInput, ProfitInput
+from app.services.profit_calculator import ProfitCalculator
 
 
 class FinanceService:
@@ -68,28 +70,43 @@ class FinanceService:
         source: str,
     ) -> ProfitSnapshot:
         gross = item.discounted_price * Decimal(item.quantity)
-        cost = item.cost_price_used or Decimal("0")
-        package = item.package_cost_used or Decimal("0")
+        commission = item.commission_estimated or Decimal("0")
+        other_costs = actual_marketplace_costs - commission
+        if other_costs < 0:
+            other_costs = Decimal("0")
+        result = ProfitCalculator().calculate(
+            ProfitInput(
+                gross_revenue=gross,
+                marketplace_commission=commission,
+                other_marketplace_costs=other_costs,
+                cost=CostInput(
+                    cost_price=item.cost_price_used or Decimal("0"),
+                    package_cost=item.package_cost_used or Decimal("0"),
+                    tax_rate=Decimal("0"),
+                ),
+                tax_base=Decimal("0"),
+            )
+        )
         tax = item.tax_amount_estimated or Decimal("0")
-        profit = gross - actual_marketplace_costs - cost - package - tax
+        profit = result.profit - tax
         margin = (
             Decimal("0")
-            if gross == 0
-            else (profit / gross * Decimal("100")).quantize(Decimal("0.01"))
+            if result.gross_revenue == 0
+            else (profit / result.gross_revenue * Decimal("100")).quantize(Decimal("0.01"))
         )
         snapshot = ProfitSnapshot(
             order_item_id=item.id,
             calculation_type=CalculationType.ACTUAL,
-            gross_revenue=gross,
-            marketplace_commission=Decimal("0"),
-            logistics_cost=Decimal("0"),
-            acquiring_cost=None,
-            storage_cost=None,
-            return_cost=None,
-            other_marketplace_costs=actual_marketplace_costs,
-            cost_price=cost,
-            package_cost=package,
-            additional_seller_cost=Decimal("0"),
+            gross_revenue=result.gross_revenue,
+            marketplace_commission=result.marketplace_commission,
+            logistics_cost=result.logistics_cost,
+            acquiring_cost=result.acquiring_cost,
+            storage_cost=result.storage_cost,
+            return_cost=result.return_cost,
+            other_marketplace_costs=result.other_marketplace_costs,
+            cost_price=result.cost_price,
+            package_cost=result.package_cost,
+            additional_seller_cost=result.additional_seller_cost,
             tax_amount=tax,
             profit=profit,
             margin_percent=margin,

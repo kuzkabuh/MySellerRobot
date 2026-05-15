@@ -1,6 +1,6 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: Russian Telegram message formatting helpers.
-updated: 2026-05-14
+updated: 2026-05-15
 """
 
 from decimal import Decimal
@@ -73,6 +73,7 @@ class MessageFormatter:
                     f"— Прочие расходы МП: {rub(profit.other_marketplace_costs)}",
                     f"— Себестоимость: {rub(profit.cost_price)}",
                     f"— Упаковка: {rub(profit.package_cost)}",
+                    f"— Доп. расходы продавца: {rub(profit.additional_seller_cost)}",
                     f"— Налог: {rub(profit.tax_amount)}",
                 ]
             )
@@ -81,6 +82,9 @@ class MessageFormatter:
         )
         if profit.missing_cost:
             lines.extend(["", "⚠ Себестоимость товара не указана. Прибыль рассчитана неполно."])
+        for warning in profit.warnings:
+            if "Комиссия маркетплейса" in warning:
+                lines.extend(["", f"⚠ {warning}."])
         if profit.profit < 0:
             lines.append("Причина: расходы превышают расчётную выплату.")
         if is_action_required:

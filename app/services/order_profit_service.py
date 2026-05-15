@@ -1,6 +1,6 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: Shared estimated order profit calculation for online polling and history backfill.
-updated: 2026-05-14
+updated: 2026-05-15
 """
 
 from datetime import UTC, datetime
@@ -104,7 +104,7 @@ class OrderProfitService:
             ProfitInput(
                 gross_revenue=gross_revenue * Decimal(item.quantity),
                 expected_payout=item.payout_amount_estimated,
-                marketplace_commission=item.commission_estimated or Decimal("0"),
+                marketplace_commission=item.commission_estimated,
                 logistics_cost=item.logistics_estimated or Decimal("0"),
                 other_marketplace_costs=(item.other_marketplace_expenses_estimated or Decimal("0")),
                 cost=cost_input,
