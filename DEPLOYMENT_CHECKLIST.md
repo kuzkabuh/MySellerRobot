@@ -82,6 +82,11 @@ python -m app.bot.main
    с символами `<`/`>` отображаются как текст.
 7. Откройте web-кабинет и проверьте страницы `/web/`, `/web/orders`, `/web/profit`,
    `/web/settings` на desktop и узком экране.
+8. Проверьте новые рабочие WEB-разделы без заглушек:
+   `/web/sales`, `/web/returns`, `/web/analytics`, `/web/control`, `/web/costs`,
+   `/web/profile`, `/web/subscription`, `/web/accounts`.
+9. На `/web/costs` откройте товар, добавьте новую себестоимость и убедитесь, что запись
+   появляется в истории себестоимости.
 
 ## Откат в случае проблем
 

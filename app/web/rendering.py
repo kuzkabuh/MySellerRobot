@@ -1,25 +1,52 @@
-"""version: 2.6.0
-description: Server-side HTML rendering helpers for the web cabinet with modern design.
-updated: 2026-05-16
+"""version: 3.0.0
+description: Server-side HTML rendering helpers and Material-style web cabinet shell.
+updated: 2026-05-17
 """
+# ruff: noqa: E501
 
 from html import escape
 
-NAV_ITEMS = [
-    ("Главная", "/web/"),
-    ("Заказы", "/web/orders"),
-    ("Прибыль", "/web/profit"),
-    ("План/факт", "/web/plan-fact"),
-    ("Безубыточность", "/web/break-even"),
-    ("Продажи", "/web/sales"),
-    ("Возвраты", "/web/returns"),
-    ("Товары", "/web/products"),
-    ("Остатки", "/web/stocks"),
-    ("Алерты", "/web/alerts"),
-    ("Качество данных", "/web/data-quality"),
-    ("Аналитика", "/web/analytics"),
-    ("Себестоимость", "/web/costs"),
-    ("Настройки", "/web/settings"),
+NAV_GROUPS = [
+    ("Обзор", [("Главная", "/web/")]),
+    (
+        "Операции",
+        [("Заказы", "/web/orders"), ("Продажи", "/web/sales"), ("Возвраты", "/web/returns")],
+    ),
+    (
+        "Финансы",
+        [
+            ("Прибыль", "/web/profit"),
+            ("План/факт", "/web/plan-fact"),
+            ("Безубыточность", "/web/break-even"),
+            ("Себестоимость", "/web/costs"),
+        ],
+    ),
+    (
+        "Товары",
+        [
+            ("Товары", "/web/products"),
+            ("Сопоставление WB / Ozon", "/web/product-matching"),
+            ("Остатки", "/web/stocks"),
+        ],
+    ),
+    (
+        "Контроль",
+        [
+            ("Алерты", "/web/alerts"),
+            ("Качество данных", "/web/data-quality"),
+            ("Контроль ошибок", "/web/control"),
+            ("Аналитика", "/web/analytics"),
+        ],
+    ),
+    (
+        "Аккаунт",
+        [
+            ("Кабинеты МП", "/web/accounts"),
+            ("Подписка и тариф", "/web/subscription"),
+            ("Профиль и настройки", "/web/profile"),
+            ("Настройки", "/web/settings"),
+        ],
+    ),
 ]
 
 
@@ -38,6 +65,25 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
       --primary: #4557f6;
       --primary-hover: #3543d8;
       --primary-soft: #eef0ff;
+      --color-primary: #4557f6;
+      --color-primary-hover: #3543d8;
+      --color-secondary: #006d77;
+      --color-background: #f8fafc;
+      --color-surface: #ffffff;
+      --color-surface-muted: #f9fafb;
+      --color-border: #e2e8f0;
+      --color-text-primary: #0f172a;
+      --color-text-secondary: #475569;
+      --color-success: #10b981;
+      --color-warning: #f59e0b;
+      --color-danger: #ef4444;
+      --color-info: #0ea5e9;
+      --space-1: 4px;
+      --space-2: 8px;
+      --space-3: 12px;
+      --space-4: 16px;
+      --space-5: 20px;
+      --space-6: 24px;
       --secondary: #006d77;
       --surface: #ffffff;
       --surface-alt: #f9fafb;
@@ -137,6 +183,18 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
       color: #fff;
       box-shadow: var(--shadow-sm);
     }}
+    .nav-group {{
+      margin-top: 18px;
+    }}
+    .nav-group:first-child {{ margin-top: 0; }}
+    .nav-title {{
+      color: #94a3b8;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 0 14px 8px;
+    }}
     main {{
       padding: 32px;
       max-width: 1600px;
@@ -147,6 +205,28 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
       gap: 20px;
       align-items: center;
       margin-bottom: 28px;
+    }}
+    .page-header {{
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      align-items: flex-start;
+      margin-bottom: 20px;
+      background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      box-shadow: var(--shadow-sm);
+    }}
+    .page-header h2 {{
+      margin-bottom: 6px;
+      font-size: 24px;
+    }}
+    .page-actions {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: flex-end;
     }}
     h1 {{
       font-size: 28px;
@@ -184,6 +264,7 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
       margin-bottom: 20px;
       box-shadow: var(--shadow-sm);
     }}
+    .filter-panel {{ background: var(--panel); }}
     label {{
       display: block;
       color: var(--text-secondary);
@@ -241,6 +322,9 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
       border-color: var(--accent);
       color: white;
     }}
+    .primary-button {{ background: var(--accent); border-color: var(--accent); color: white; }}
+    .secondary-button {{ background: white; }}
+    .danger-button {{ background: var(--bad); border-color: var(--bad); color: white; }}
     .button.primary:hover {{
       background: var(--accent-hover);
       border-color: var(--accent-hover);
@@ -259,6 +343,7 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
       box-shadow: var(--shadow-sm);
       transition: all 0.2s ease;
     }}
+    .kpi-card {{ background: var(--panel); }}
     .kpi:hover {{
       box-shadow: var(--shadow-md);
       transform: translateY(-2px);
@@ -305,6 +390,24 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
       min-width: 0;
       box-shadow: var(--shadow-sm);
       transition: box-shadow 0.2s ease;
+    }}
+    .section-card, .table-card, .form-card, .alert-card {{
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 24px;
+      box-shadow: var(--shadow-sm);
+    }}
+    .empty-state {{
+      min-height: 160px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      color: var(--muted);
+      background: var(--panel-soft);
+      border: 2px dashed var(--line);
+      border-radius: var(--radius);
+      padding: 24px;
     }}
     .band:hover {{
       box-shadow: var(--shadow);
@@ -398,6 +501,23 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
     .badge.action {{ background: var(--accent-soft); color: var(--accent); }}
     .badge.wb {{ background: #f3e8ff; color: var(--wb); }}
     .badge.ozon {{ background: #dbeafe; color: var(--ozon); }}
+    .status-chip, .pill {{
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 4px 10px;
+      background: var(--panel-soft);
+      border: 1px solid var(--line);
+      font-size: 12px;
+      font-weight: 700;
+    }}
+    .metric-delta {{ color: var(--muted); font-size: 13px; font-weight: 600; }}
+    .tabs, .breadcrumbs {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 16px;
+    }}
     .product-thumb {{
       width: 48px;
       height: 48px;
@@ -490,6 +610,9 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
         align-items: flex-start;
         flex-direction: column;
       }}
+      .page-header {{
+        flex-direction: column;
+      }}
     }}
     @media (max-width: 520px) {{
       .kpi-grid {{ grid-template-columns: 1fr; }}
@@ -520,8 +643,14 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
 
 
 def _nav(active_path: str) -> str:
-    links = []
-    for label, href in NAV_ITEMS:
-        active = ' class="active"' if href == active_path else ""
-        links.append(f'<a{active} href="{href}">{escape(label)}</a>')
-    return "\n".join(links)
+    groups = []
+    for title, items in NAV_GROUPS:
+        links = []
+        for label, href in items:
+            active = ' class="active"' if href == active_path else ""
+            links.append(f'<a{active} href="{href}">{escape(label)}</a>')
+        groups.append(
+            '<div class="nav-group">'
+            f'<div class="nav-title">{escape(title)}</div>' + "\n".join(links) + "</div>"
+        )
+    return "\n".join(groups)

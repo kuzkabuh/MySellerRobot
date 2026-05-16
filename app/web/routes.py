@@ -1,10 +1,12 @@
-"""version: 2.9.0
-description: FastAPI web cabinet routes with session auth, settings, product cards, and confidence.
-updated: 2026-05-15
+"""version: 3.0.0
+description: FastAPI web cabinet routes with full seller workspace pages and forms.
+updated: 2026-05-17
 """
+# ruff: noqa: E501
 
 import json
 import logging
+from datetime import UTC, datetime
 from decimal import Decimal
 from html import escape
 from urllib.parse import parse_qs
@@ -18,7 +20,11 @@ from app.core.config import get_settings
 from app.core.db import get_session
 from app.models.domain import AlertEvent, User
 from app.models.enums import Marketplace
+from app.models.subscriptions import SubscriptionTier
+from app.repositories.products import ProductCostRepository
 from app.repositories.web_auth import WebAuthRepository
+from app.schemas.products import CostUpdate
+from app.services.cost_management_service import CostManagementError
 from app.services.data_quality_service import DataQualityReport, DataQualityService
 from app.services.master_product_service import (
     MasterProductAnalyticsRow,
@@ -28,11 +34,24 @@ from app.services.master_product_service import (
 )
 from app.services.plan_fact_service import PlanFactPageData, PlanFactService
 from app.services.stock_forecast_service import StockForecastRow, StockForecastService
+from app.services.subscription_service import SubscriptionService
 from app.services.unit_economics_service import BreakEvenRow, UnitEconomicsService
 from app.services.web_auth_service import WEB_SESSION_COOKIE, WebAuthService
+from app.services.web_cabinet_service import (
+    AccountsPageData,
+    ControlPageData,
+    CostsPageData,
+    ProductCostDetail,
+    ReturnsPageData,
+    SalesPageData,
+    SubscriptionPageData,
+    WebCabinetService,
+    subscription_status,
+)
 from app.services.web_dashboard_service import (
     DailyPoint,
     DashboardData,
+    DashboardFilters,
     KpiMetric,
     WebDashboardService,
 )
@@ -53,6 +72,7 @@ WEB_DASHBOARD_PATH = "/web/"
 WEB_LOGIN_REQUIRED_PATH = "/web/login-required"
 WEB_SESSION_COOKIE_PATH = "/"
 logger = logging.getLogger(__name__)
+ZERO = Decimal("0")
 
 
 async def current_web_user(
@@ -214,8 +234,10 @@ async def dashboard(
         date_from=date_from,
         date_to=date_to,
     )
-    content = _dashboard_content(data)
-    return page("Главная", user.first_name or user.username or str(user.telegram_id), content)
+    subscription = await WebCabinetService(session).subscription_page(user.id)
+    accounts = await WebCabinetService(session).accounts_page(user.id)
+    content = _dashboard_welcome(user, subscription, accounts) + _dashboard_content(data)
+    return page("Главная", _user_display_name(user), content)
 
 
 @router.get("/web", response_class=HTMLResponse, include_in_schema=False)
@@ -390,13 +412,57 @@ async def break_even_page(
 
 
 @router.get("/sales", response_class=HTMLResponse)
-async def sales_page(user: User = CURRENT_WEB_USER_DEPENDENCY) -> str:
-    return _placeholder_page("sales", user)
+async def sales_page(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+    period: str = Query(default="30d"),
+    marketplace: str = Query(default="all"),
+    sku: str = Query(default=""),
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
+) -> str:
+    data = await WebCabinetService(session).sales_page(
+        user_id=user.id,
+        timezone=user.timezone,
+        period=period,
+        marketplace=marketplace,
+        sku=sku,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    return page(
+        "Продажи",
+        _user_display_name(user),
+        _sales_content(data, user.timezone, sku),
+        active_path="/web/sales",
+    )
 
 
 @router.get("/returns", response_class=HTMLResponse)
-async def returns_page(user: User = CURRENT_WEB_USER_DEPENDENCY) -> str:
-    return _placeholder_page("returns", user)
+async def returns_page(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+    period: str = Query(default="30d"),
+    marketplace: str = Query(default="all"),
+    sku: str = Query(default=""),
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
+) -> str:
+    data = await WebCabinetService(session).returns_page(
+        user_id=user.id,
+        timezone=user.timezone,
+        period=period,
+        marketplace=marketplace,
+        sku=sku,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    return page(
+        "Возвраты",
+        _user_display_name(user),
+        _returns_content(data, user.timezone, sku),
+        active_path="/web/returns",
+    )
 
 
 @router.get("/products", response_class=HTMLResponse)
@@ -524,18 +590,181 @@ async def data_quality_page(
 
 
 @router.get("/analytics", response_class=HTMLResponse)
-async def analytics_page(user: User = CURRENT_WEB_USER_DEPENDENCY) -> str:
-    return _placeholder_page("analytics", user)
+async def analytics_page(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    dashboard_data = await WebDashboardService(session).dashboard(
+        user_id=user.id,
+        timezone=user.timezone,
+        period="30d",
+        marketplace="all",
+        sale_model="all",
+    )
+    profit_data = await WebOrdersProfitService(session).profit_by_sku(
+        user_id=user.id,
+        timezone=user.timezone,
+        period="30d",
+        marketplace="all",
+        sale_model="all",
+        date_from=None,
+        date_to=None,
+    )
+    return page(
+        "Аналитика",
+        _user_display_name(user),
+        _analytics_content(dashboard_data, profit_data),
+        active_path="/web/analytics",
+    )
 
 
 @router.get("/control", response_class=HTMLResponse)
-async def control_page(user: User = CURRENT_WEB_USER_DEPENDENCY) -> str:
-    return _placeholder_page("control", user)
+async def control_page(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    data = await WebCabinetService(session).control_page(user.id)
+    return page(
+        "Контроль ошибок",
+        _user_display_name(user),
+        _control_content(data),
+        active_path="/web/control",
+    )
 
 
 @router.get("/costs", response_class=HTMLResponse)
-async def costs_page(user: User = CURRENT_WEB_USER_DEPENDENCY) -> str:
-    return _placeholder_page("costs", user)
+async def costs_page(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    data = await WebCabinetService(session).costs_page(user.id)
+    return page(
+        "Себестоимость",
+        _user_display_name(user),
+        _costs_content(data),
+        active_path="/web/costs",
+    )
+
+
+@router.get("/costs/{product_id}", response_class=HTMLResponse)
+async def cost_edit_page(
+    product_id: int,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    detail = await WebCabinetService(session).product_cost_detail(
+        user_id=user.id,
+        product_id=product_id,
+    )
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Товар не найден")
+    return page(
+        "Редактирование себестоимости",
+        _user_display_name(user),
+        _cost_edit_content(detail),
+        active_path="/web/costs",
+    )
+
+
+@router.post("/costs/{product_id}")
+async def save_product_cost(
+    product_id: int,
+    request: Request,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    form = await _urlencoded_form(request)
+    try:
+        detail = await WebCabinetService(session).product_cost_detail(
+            user_id=user.id,
+            product_id=product_id,
+        )
+        if detail is None:
+            raise HTTPException(status_code=404, detail="Товар не найден")
+        await ProductCostRepository(session).add_cost(
+            CostUpdate(
+                product_id=product_id,
+                cost_price=_decimal_from_query(_form_value(form, "cost_price", "0"), Decimal("0")),
+                package_cost=_decimal_from_query(
+                    _form_value(form, "package_cost", "0"), Decimal("0")
+                ),
+                additional_cost=_decimal_from_query(
+                    _form_value(form, "additional_cost", "0"), Decimal("0")
+                ),
+                tax_rate=(
+                    _decimal_from_query(_form_value(form, "tax_rate", "0"), Decimal("0"))
+                    / Decimal("100")
+                ).quantize(Decimal("0.0001")),
+                valid_from=_datetime_from_form(_form_value(form, "valid_from", "")),
+                comment=_form_value(form, "comment", ""),
+            )
+        )
+        await session.commit()
+    except CostManagementError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return RedirectResponse(url=f"/web/costs/{product_id}?saved=1", status_code=303)
+
+
+@router.get("/profile", response_class=HTMLResponse)
+async def profile_page(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    subscription = await WebCabinetService(session).subscription_page(user.id)
+    return page(
+        "Профиль",
+        _user_display_name(user),
+        _profile_content(user, subscription),
+        active_path="/web/profile",
+    )
+
+
+@router.post("/profile")
+async def save_profile_settings(
+    request: Request,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    form = await _urlencoded_form(request)
+    db_user = await session.get(User, user.id)
+    if db_user is not None:
+        db_user.timezone = _form_value(form, "timezone", "Europe/Moscow")[:64]
+        db_user.notifications_enabled = _form_value(form, "notifications_enabled", "off") == "on"
+        db_user.low_margin_threshold_percent = _decimal_from_query(
+            _form_value(form, "low_margin_threshold_percent", "10"),
+            Decimal("10"),
+        )
+    await session.commit()
+    return RedirectResponse(url="/web/profile?saved=1", status_code=303)
+
+
+@router.get("/subscription", response_class=HTMLResponse)
+async def subscription_page_web(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    data = await WebCabinetService(session).subscription_page(user.id)
+    tiers = await SubscriptionService(session).get_all_tiers()
+    return page(
+        "Подписка и тариф",
+        _user_display_name(user),
+        _subscription_content(data, tiers),
+        active_path="/web/subscription",
+    )
+
+
+@router.get("/accounts", response_class=HTMLResponse)
+async def accounts_page_web(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    data = await WebCabinetService(session).accounts_page(user.id)
+    return page(
+        "Кабинеты маркетплейсов",
+        _user_display_name(user),
+        _accounts_content(data),
+        active_path="/web/accounts",
+    )
 
 
 @router.get("/settings", response_class=HTMLResponse)
@@ -681,14 +910,48 @@ async def double_web_compat(
         return HTMLResponse(await alerts_page(user=user, session=session))
     if normalized == "data-quality":
         return HTMLResponse(await data_quality_page(user=user, session=session))
-    if normalized in {
-        "sales",
-        "returns",
-        "analytics",
-        "control",
-        "costs",
-    }:
-        return HTMLResponse(_placeholder_page(normalized, user))
+    if normalized == "sales":
+        return HTMLResponse(
+            await sales_page(
+                user=user,
+                session=session,
+                period=_query_param(request, "period", "30d"),
+                marketplace=_query_param(request, "marketplace", "all"),
+                sku=_query_param(request, "sku", ""),
+                date_from=_optional_query_param(request, "date_from"),
+                date_to=_optional_query_param(request, "date_to"),
+            )
+        )
+    if normalized == "returns":
+        return HTMLResponse(
+            await returns_page(
+                user=user,
+                session=session,
+                period=_query_param(request, "period", "30d"),
+                marketplace=_query_param(request, "marketplace", "all"),
+                sku=_query_param(request, "sku", ""),
+                date_from=_optional_query_param(request, "date_from"),
+                date_to=_optional_query_param(request, "date_to"),
+            )
+        )
+    if normalized == "analytics":
+        return HTMLResponse(await analytics_page(user=user, session=session))
+    if normalized == "control":
+        return HTMLResponse(await control_page(user=user, session=session))
+    if normalized == "costs":
+        return HTMLResponse(await costs_page(user=user, session=session))
+    if normalized.startswith("costs/"):
+        try:
+            product_id = int(normalized.split("/", 1)[1])
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail="Товар не найден") from exc
+        return HTMLResponse(await cost_edit_page(product_id=product_id, user=user, session=session))
+    if normalized == "profile":
+        return HTMLResponse(await profile_page(user=user, session=session))
+    if normalized == "subscription":
+        return HTMLResponse(await subscription_page_web(user=user, session=session))
+    if normalized == "accounts":
+        return HTMLResponse(await accounts_page_web(user=user, session=session))
     if normalized == "settings":
         return HTMLResponse(await settings_page(user=user))
     raise HTTPException(status_code=404, detail="Раздел не найден")
@@ -716,7 +979,7 @@ def _placeholder_page(section: str, user: User) -> str:
     content = (
         '<section class="band">'
         f"<h2>{title}</h2>"
-        '<p class="muted">Раздел подготовлен в навигации и будет наполнен в следующих этапах.</p>'
+        '<div class="empty-state">Откройте раздел через основное меню web-кабинета.</div>'
         "</section>"
     )
     return page(
@@ -1014,6 +1277,7 @@ def _products_content(rows: list[MasterProductAnalyticsRow]) -> str:
             '<div class="muted">'
             f"{_marketplace_label(item.marketplace)}: "
             f"{escape(item.seller_article)} / {escape(item.marketplace_article)}"
+            f' · <a href="/web/costs/{item.product_id}">себестоимость</a>'
             "</div>"
             for item in row.marketplace_products
         )
@@ -1087,6 +1351,7 @@ def _master_product_detail_content(detail: MasterProductDetail) -> str:
         f"<td>{escape(item.marketplace_article)}</td>"
         f"<td>{escape(item.title)}</td>"
         f"<td>{escape(item.brand)}</td>"
+        f'<td><a class="button" href="/web/costs/{item.product_id}">Себестоимость</a></td>'
         "</tr>"
         for item in detail.marketplace_products
     )
@@ -1141,7 +1406,7 @@ def _master_product_detail_content(detail: MasterProductDetail) -> str:
         <h2>Связанные карточки</h2>
         <div class="table-wrap"><table class="table">
           <thead><tr><th>МП</th><th>Артикул продавца</th><th>Артикул МП</th>
-          <th>Название</th><th>Бренд</th></tr></thead>
+          <th>Название</th><th>Бренд</th><th>Действие</th></tr></thead>
           <tbody>{product_rows}</tbody>
         </table></div>
       </section>
@@ -1269,22 +1534,440 @@ def _alerts_content(events: list[AlertEvent]) -> str:
     """
 
 
-def _settings_content(user: User) -> str:
-    threshold = user.low_margin_threshold_percent or Decimal("10")
+def _sales_content(data: SalesPageData, timezone: str, sku: str) -> str:
+    rows = "".join(
+        "<tr>"
+        f"<td>{localized_order_date(row.event_date, timezone)}</td>"
+        f"<td>{_marketplace_label(row.marketplace)}</td>"
+        f"<td>{escape(row.event_type)}</td>"
+        f"<td>{escape(row.seller_article)}"
+        f'<div class="muted">{escape(row.marketplace_article)}</div></td>'
+        f'<td class="num">{row.quantity}</td>'
+        f'<td class="num">{_rub(row.amount)}</td>'
+        f'<td class="num">{_rub_optional(row.expected_payout)}</td>'
+        f'<td class="num">{_rub_optional(row.estimated_profit)}</td>'
+        f'<td class="num">{_rub_optional(row.actual_profit)}</td>'
+        f"<td>{escape(row.order_external_id or 'н/д')}</td>"
+        "</tr>"
+        for row in data.rows
+    )
+    if not rows:
+        rows = (
+            '<tr><td colspan="10"><div class="empty-state">'
+            "Продаж за выбранный период пока нет. Дождитесь синхронизации выкупов WB/Ozon."
+            "</div></td></tr>"
+        )
     return f"""
-      <section class="band">
-        <h2>Настройки контроля</h2>
-        <form class="filters" method="post" action="/web/settings/low-margin">
+      {_page_header("Продажи", "Отслеживайте выкупы и завершённые продажи WB/Ozon.", "/web/orders", "Заказы")}
+      {_sales_returns_filters("/web/sales", data.filters, sku)}
+      <section class="kpi-grid">
+        {_simple_kpi("Продаж", str(data.total_quantity))}
+        {_simple_kpi("Выручка", _rub(data.total_amount))}
+        {_simple_kpi("Плановая прибыль", _rub(data.total_profit), "good" if data.total_profit >= 0 else "bad")}
+        {_simple_kpi("Средний чек", _rub(data.total_amount / Decimal(data.total_quantity) if data.total_quantity else ZERO))}
+      </section>
+      <section class="band" style="margin-top:14px">
+        <h2>События продаж</h2>
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Дата</th><th>МП</th><th>Тип</th><th>Товар</th>
+          <th class="num">Кол-во</th><th class="num">Сумма</th><th class="num">Выплата</th>
+          <th class="num">План</th><th class="num">Факт</th><th>Заказ</th></tr></thead>
+          <tbody>{rows}</tbody>
+        </table></div>
+      </section>
+    """
+
+
+def _returns_content(data: ReturnsPageData, timezone: str, sku: str) -> str:
+    rows = "".join(
+        "<tr>"
+        f"<td>{localized_order_date(row.event_date, timezone)}</td>"
+        f"<td>{_marketplace_label(row.marketplace)}</td>"
+        f"<td>{escape(row.order_external_id or 'н/д')}</td>"
+        f'<td class="num">{row.quantity}</td>'
+        f'<td class="num">{_rub(row.amount)}</td>'
+        f"<td>{escape(row.reason)}</td>"
+        "</tr>"
+        for row in data.rows
+    )
+    if not rows:
+        rows = (
+            '<tr><td colspan="6"><div class="empty-state">'
+            "Возвратов за выбранный период нет. Это хороший знак для контроля качества продаж."
+            "</div></td></tr>"
+        )
+    return f"""
+      {_page_header("Возвраты", "Контролируйте возвраты, суммы и причины по маркетплейсам.", "/web/sales", "Продажи")}
+      {_sales_returns_filters("/web/returns", data.filters, sku)}
+      <section class="kpi-grid">
+        {_simple_kpi("Возвратов", str(data.total_quantity), "bad" if data.total_quantity else "neutral")}
+        {_simple_kpi("Сумма возвратов", _rub(data.total_amount), "bad" if data.total_amount else "neutral")}
+      </section>
+      <section class="band" style="margin-top:14px">
+        <h2>События возвратов</h2>
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Дата</th><th>МП</th><th>Связанный заказ</th>
+          <th class="num">Кол-во</th><th class="num">Сумма</th><th>Причина</th></tr></thead>
+          <tbody>{rows}</tbody>
+        </table></div>
+      </section>
+    """
+
+
+def _costs_content(data: CostsPageData) -> str:
+    rows = "".join(
+        "<tr>"
+        f"<td>{escape(row.product.title or 'Без названия')}"
+        f'<div class="muted">{escape(row.product.seller_article or "н/д")}</div></td>'
+        f"<td>{_marketplace_label(row.product.marketplace)}"
+        f'<div class="muted">{escape(row.account_name)}</div></td>'
+        f'<td class="num">{_rub(row.cost.cost_price) if row.cost else "не задана"}</td>'
+        f'<td class="num">{_rub(row.cost.package_cost) if row.cost else "н/д"}</td>'
+        f'<td class="num">{_rub(row.cost.additional_cost) if row.cost else "н/д"}</td>'
+        f'<td class="num">{(row.cost.tax_rate * Decimal("100")).quantize(Decimal("0.01")) if row.cost else "н/д"}%</td>'
+        f"<td>{row.cost.valid_from.strftime('%d.%m.%Y') if row.cost else 'н/д'}</td>"
+        f"<td>{_cost_status_badge(row.cost is not None and row.cost.cost_price > 0)}</td>"
+        f'<td><a class="button" href="/web/costs/{row.product.id}">Редактировать</a></td>'
+        "</tr>"
+        for row in data.rows
+    )
+    if not rows:
+        rows = (
+            '<tr><td colspan="10"><div class="empty-state">'
+            "Товары ещё не синхронизированы. Подключите кабинет в Telegram-боте и дождитесь загрузки."
+            "</div></td></tr>"
+        )
+    return f"""
+      {_page_header("Себестоимость", "Контролируйте себестоимость, упаковку, доп. расходы и налог по товарам.", "/web/products", "Товары")}
+      <section class="kpi-grid">
+        {_simple_kpi("Себестоимость задана", str(data.configured_count), "good")}
+        {_simple_kpi("Без себестоимости", str(data.missing_count), "warn" if data.missing_count else "neutral")}
+      </section>
+      <section class="band" style="margin-top:14px">
+        <h2>Товары и текущая себестоимость</h2>
+        <p class="muted">Новая запись создаётся исторически: предыдущий период закрывается датой начала новой себестоимости.</p>
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Товар</th><th>Кабинет</th><th class="num">Себестоимость</th>
+          <th class="num">Упаковка</th><th class="num">Доп. расходы</th><th class="num">Налог</th>
+          <th>Обновлено</th><th>Статус</th><th>Действие</th></tr></thead>
+          <tbody>{rows}</tbody>
+        </table></div>
+      </section>
+    """
+
+
+def _cost_edit_content(detail: ProductCostDetail) -> str:
+    latest = detail.history[0] if detail.history else None
+    history = (
+        "".join(
+            "<tr>"
+            f"<td>{row.valid_from.strftime('%d.%m.%Y')}</td>"
+            f"<td>{row.valid_to.strftime('%d.%m.%Y') if row.valid_to else 'сейчас'}</td>"
+            f'<td class="num">{_rub(row.cost_price)}</td>'
+            f'<td class="num">{_rub(row.package_cost)}</td>'
+            f'<td class="num">{_rub(row.additional_cost)}</td>'
+            f'<td class="num">{(row.tax_rate * Decimal("100")).quantize(Decimal("0.01"))}%</td>'
+            f"<td>{escape(row.comment or '')}</td>"
+            "</tr>"
+            for row in detail.history
+        )
+        or '<tr><td colspan="7" class="muted">Истории себестоимости пока нет.</td></tr>'
+    )
+    return f"""
+      {_page_header("Редактирование себестоимости", escape(detail.product.title or "Без названия"), "/web/costs", "К списку")}
+      <section class="detail-grid">
+        <section class="band">
+          <h2>Новая себестоимость</h2>
+          <form method="post" action="/web/costs/{detail.product.id}">
+            <label for="cost_price">Себестоимость</label>
+            <input id="cost_price" name="cost_price" type="number" step="0.01" value="{latest.cost_price if latest else 0}">
+            <label for="package_cost">Упаковка</label>
+            <input id="package_cost" name="package_cost" type="number" step="0.01" value="{latest.package_cost if latest else 0}">
+            <label for="additional_cost">Доп. расходы</label>
+            <input id="additional_cost" name="additional_cost" type="number" step="0.01" value="{latest.additional_cost if latest else 0}">
+            <label for="tax_rate">Налог, %</label>
+            <input id="tax_rate" name="tax_rate" type="number" step="0.01" value="{(latest.tax_rate * Decimal("100")).quantize(Decimal("0.01")) if latest else 0}">
+            <label for="valid_from">Дата начала действия</label>
+            <input id="valid_from" name="valid_from" type="date" value="{datetime.now(tz=UTC).date().isoformat()}">
+            <label for="comment">Комментарий</label>
+            <input id="comment" name="comment" type="text" value="WEB-обновление">
+            <p><button class="button primary" type="submit">Сохранить</button></p>
+          </form>
+        </section>
+        <section class="band">
+          <h2>Товар</h2>
+          <div class="kv">
+            <span>Маркетплейс</span><strong>{_marketplace_label(detail.product.marketplace)}</strong>
+            <span>Кабинет</span><strong>{escape(detail.account_name)}</strong>
+            <span>Артикул продавца</span><strong>{escape(detail.product.seller_article or "н/д")}</strong>
+            <span>Артикул МП</span><strong>{escape(detail.product.marketplace_article or detail.product.external_product_id)}</strong>
+          </div>
+        </section>
+      </section>
+      <section class="band" style="margin-top:14px">
+        <h2>История себестоимости</h2>
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>С</th><th>По</th><th class="num">Себестоимость</th>
+          <th class="num">Упаковка</th><th class="num">Доп. расходы</th>
+          <th class="num">Налог</th><th>Комментарий</th></tr></thead>
+          <tbody>{history}</tbody>
+        </table></div>
+      </section>
+    """
+
+
+def _accounts_content(data: AccountsPageData) -> str:
+    rows = "".join(
+        "<tr>"
+        f'<td>{escape(row.account.name)}<div class="muted">#{row.account.id}</div></td>'
+        f"<td>{_marketplace_label(row.account.marketplace)}</td>"
+        f"<td>{_account_status_badge(row.account.status.value, row.account.is_active)}</td>"
+        f"<td>{_dt(row.account.last_success_sync_at)}</td>"
+        f'<td>{_dt(row.account.last_error_at)}<div class="muted">{escape(row.account.last_error_message or row.latest_job_error or "")}</div></td>'
+        f'<td class="num">{row.products_count}</td>'
+        f'<td class="num">{row.orders_30d}</td>'
+        f"<td>{escape(row.latest_job_status or 'нет задач')}</td>"
+        "</tr>"
+        for row in data.rows
+    )
+    if not rows:
+        rows = (
+            '<tr><td colspan="8"><div class="empty-state">'
+            "Кабинеты ещё не подключены. Подключение нового кабинета выполняется через Telegram-бота."
+            "</div></td></tr>"
+        )
+    return f"""
+      {_page_header("Кабинеты маркетплейсов", "Проверяйте подключённые кабинеты, статусы синхронизации и ошибки доступа.", "/web/profile", "Профиль")}
+      <section class="kpi-grid">
+        {_simple_kpi("Подключено кабинетов", f"{data.active_accounts} из {data.tier.max_marketplace_accounts}")}
+        {_simple_kpi("Тариф", escape(data.tier.name))}
+      </section>
+      <section class="band" style="margin-top:14px">
+        <h2>Wildberries и Ozon</h2>
+        <p class="muted">Подключение нового кабинета сейчас выполняется через Telegram-бота: откройте настройки и выберите подключение WB или Ozon.</p>
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Кабинет</th><th>МП</th><th>Статус</th><th>Успешная синхронизация</th>
+          <th>Последняя ошибка</th><th class="num">Товаров</th><th class="num">Заказов 30д</th><th>Последняя задача</th></tr></thead>
+          <tbody>{rows}</tbody>
+        </table></div>
+      </section>
+    """
+
+
+def _subscription_content(data: SubscriptionPageData, tiers: list[SubscriptionTier]) -> str:
+    active = data.active_subscription
+    status = subscription_status(active)
+    expires = (
+        active.expires_at.strftime("%d.%m.%Y") if active and active.expires_at else "бессрочно"
+    )
+    feature_rows = "".join(
+        f"<li>{'✅' if enabled else '❌'} {escape(label)}</li>"
+        for label, enabled in [
+            ("Web-кабинет", data.tier.feature_web_cabinet),
+            ("Расширенная аналитика", data.tier.feature_analytics),
+            ("План/факт", data.tier.feature_plan_fact),
+            ("Безубыточность", data.tier.feature_break_even),
+            ("Прогноз остатков", data.tier.feature_stock_forecast),
+            ("Алерты", data.tier.feature_alerts),
+            ("API-доступ", data.tier.feature_api_access),
+        ]
+    )
+    tier_cards = "".join(_web_tier_card(tier, data.tier.code) for tier in tiers)
+    payment_rows = (
+        "".join(
+            "<tr>"
+            f"<td>{payment.created_at.strftime('%d.%m.%Y')}</td>"
+            f"<td>{_rub(payment.amount)}</td>"
+            f"<td>{escape(payment.status.value)}</td>"
+            f"<td>{escape(payment.provider)}</td>"
+            "</tr>"
+            for payment in data.payments
+        )
+        or '<tr><td colspan="4" class="muted">Платежей пока нет.</td></tr>'
+    )
+    return f"""
+      {_page_header("Подписка и тариф", "Следите за лимитами, функциями и историей платежей.", "/web/accounts", "Кабинеты МП")}
+      <section class="detail-grid">
+        <section class="band">
+          <h2>Текущая подписка</h2>
+          <div class="kv">
+            <span>Тариф</span><strong>{escape(data.tier.name)}</strong>
+            <span>Статус</span><strong>{escape(status)}</strong>
+            <span>Действует до</span><strong>{escape(expires)}</strong>
+            <span>Кабинеты</span><strong>{data.used_accounts} / {data.tier.max_marketplace_accounts}</strong>
+            <span>Заказы за месяц</span><strong>{data.used_orders_month} / {_limit(data.tier.max_orders_per_month)}</strong>
+            <span>SKU</span><strong>{data.used_products} / {_limit(data.tier.max_products)}</strong>
+          </div>
+        </section>
+        <section class="band">
+          <h2>Доступные функции</h2>
+          <ul>{feature_rows}</ul>
+        </section>
+      </section>
+      <section class="dashboard-grid">
+        {tier_cards}
+      </section>
+      <section class="band" style="margin-top:14px">
+        <h2>История платежей</h2>
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Дата</th><th>Сумма</th><th>Статус</th><th>Провайдер</th></tr></thead>
+          <tbody>{payment_rows}</tbody>
+        </table></div>
+      </section>
+    """
+
+
+def _profile_content(user: User, subscription: SubscriptionPageData) -> str:
+    checked = " checked" if user.notifications_enabled else ""
+    return f"""
+      {_page_header("Профиль", "Управляйте настройками пользователя, уведомлениями и подпиской.", "/web/subscription", "Подписка")}
+      <section class="detail-grid">
+        <section class="band">
+          <h2>Данные Telegram</h2>
+          <div class="kv">
+            <span>Имя</span><strong>{escape(user.first_name or "н/д")}</strong>
+            <span>Username</span><strong>{escape("@" + user.username if user.username else "н/д")}</strong>
+            <span>Telegram ID</span><strong>{user.telegram_id}</strong>
+            <span>Язык</span><strong>{escape(user.language)}</strong>
+            <span>Статус</span><strong>{escape(user.status.value)}</strong>
+            <span>Регистрация</span><strong>{_dt(user.created_at)}</strong>
+          </div>
+        </section>
+        <section class="band">
+          <h2>Подписка</h2>
+          <div class="kv">
+            <span>Тариф</span><strong>{escape(subscription.tier.name)}</strong>
+            <span>Статус</span><strong>{escape(subscription_status(subscription.active_subscription))}</strong>
+          </div>
+          <p><a class="button primary" href="/web/subscription">Управление подпиской</a></p>
+        </section>
+      </section>
+      <section class="band" style="margin-top:14px">
+        <h2>Настройки профиля</h2>
+        <form class="filters" method="post" action="/web/profile">
           <div>
-            <label for="threshold">Порог низкой маржи, %</label>
-            <input id="threshold" name="threshold" type="number" min="0" max="100" step="0.01"
-                   value="{threshold}">
+            <label for="timezone">Часовой пояс</label>
+            <input id="timezone" name="timezone" value="{escape(user.timezone)}">
+          </div>
+          <div>
+            <label for="low_margin_threshold_percent">Порог низкой маржи, %</label>
+            <input id="low_margin_threshold_percent" name="low_margin_threshold_percent" type="number" step="0.01" value="{user.low_margin_threshold_percent}">
+          </div>
+          <div>
+            <label for="notifications_enabled">Уведомления</label>
+            <label class="status-chip"><input id="notifications_enabled" name="notifications_enabled" type="checkbox"{checked}> включены</label>
           </div>
           <button class="button primary" type="submit">Сохранить</button>
         </form>
-        <p class="muted">
-          Этот порог используется в Telegram-отчёте «Низкая маржа» и будущих алертах.
-        </p>
+      </section>
+    """
+
+
+def _analytics_content(data: DashboardData, profit: ProfitPageData) -> str:
+    top_rows = (
+        "".join(
+            "<tr>"
+            f'<td>{escape(row.title)}<div class="muted">{escape(row.seller_article)}</div></td>'
+            f"<td>{_marketplace_label(row.marketplace)}</td>"
+            f'<td class="num">{_rub(row.revenue)}</td>'
+            f'<td class="num">{_rub(row.estimated_profit)}</td>'
+            f'<td class="num">{row.margin_percent.quantize(Decimal("0.1"))}%</td>'
+            "</tr>"
+            for row in profit.rows[:8]
+        )
+        or '<tr><td colspan="5" class="muted">Недостаточно данных для топа товаров.</td></tr>'
+    )
+    return f"""
+      {_page_header("Аналитика", "Обзор динамики бизнеса, прибыльности и проблемных зон за 30 дней.", "/web/profit", "Прибыль")}
+      <section class="kpi-grid">
+        {"".join(_kpi(metric) for metric in data.metrics[:6])}
+      </section>
+      <section class="dashboard-grid">
+        <section class="band wide">
+          <h2>Динамика выручки</h2>
+          {_line_chart(data.points, "revenue", "Выручка по дням", "#4557f6")}
+        </section>
+        <section class="band">
+          <h2>Прибыльность по МП</h2>
+          {_marketplace_table(data)}
+        </section>
+        <section class="band">
+          <h2>Товары-лидеры</h2>
+          <div class="table-wrap"><table class="table">
+            <thead><tr><th>Товар</th><th>МП</th><th class="num">Выручка</th><th class="num">Прибыль</th><th class="num">Маржа</th></tr></thead>
+            <tbody>{top_rows}</tbody>
+          </table></div>
+        </section>
+      </section>
+    """
+
+
+def _control_content(data: ControlPageData) -> str:
+    accounts = (
+        "".join(
+            f"<li>{escape(account.name)}: {escape(account.last_error_message or 'ошибка синхронизации')}</li>"
+            for account in data.error_accounts
+        )
+        or "<li>Критичных ошибок кабинетов сейчас нет.</li>"
+    )
+    alerts = (
+        "".join(
+            f"<li>{escape(alert.title)} — {escape(alert.message)}</li>"
+            for alert in data.open_alerts
+        )
+        or "<li>Открытых алертов сейчас нет.</li>"
+    )
+    return f"""
+      {_page_header("Контроль ошибок", "Что требует внимания прямо сейчас.", "/web/data-quality", "Качество данных")}
+      <section class="kpi-grid">
+        {_simple_kpi("Качество данных", str(data.report.score), "good" if data.report.score >= 80 else "warn")}
+        {_simple_kpi("Без себестоимости", str(data.missing_cost_products), "warn" if data.missing_cost_products else "neutral")}
+        {_simple_kpi("Предварительная экономика", str(data.preliminary_orders), "warn" if data.preliminary_orders else "neutral")}
+        {_simple_kpi("Низкие остатки", str(data.low_stock_products), "bad" if data.low_stock_products else "neutral")}
+      </section>
+      <section class="detail-grid" style="margin-top:14px">
+        <section class="band"><h2>Ошибки синхронизации</h2><ul>{accounts}</ul></section>
+        <section class="band"><h2>Актуальные алерты</h2><ul>{alerts}</ul></section>
+      </section>
+    """
+
+
+def _settings_content(user: User) -> str:
+    threshold = user.low_margin_threshold_percent or Decimal("10")
+    checked = "включены" if user.notifications_enabled else "выключены"
+    return f"""
+      {_page_header("Настройки", "Финансовый контроль, локализация, уведомления и быстрые переходы.", "/web/profile", "Профиль")}
+      <section class="detail-grid">
+        <section class="band">
+          <h2>Финансовый контроль</h2>
+          <form class="filters" method="post" action="/web/settings/low-margin">
+            <div>
+              <label for="threshold">Порог низкой маржи, %</label>
+              <input id="threshold" name="threshold" type="number" min="0" max="100" step="0.01"
+                     value="{threshold}">
+            </div>
+            <button class="button primary" type="submit">Сохранить</button>
+          </form>
+          <p class="muted">Порог используется в отчётах, алертах и контрольных web-экранах.</p>
+        </section>
+        <section class="band">
+          <h2>Локализация</h2>
+          <div class="kv">
+            <span>Часовой пояс</span><strong>{escape(user.timezone)}</strong>
+            <span>Язык</span><strong>{escape(user.language)}</strong>
+          </div>
+          <p><a class="button" href="/web/profile">Изменить в профиле</a></p>
+        </section>
+        <section class="band">
+          <h2>Уведомления</h2>
+          <p>Статус Telegram-уведомлений: <span class="badge">{checked}</span></p>
+          <p class="muted">Тонкая настройка уведомлений по кабинетам доступна в Telegram-боте.</p>
+        </section>
+        <section class="band">
+          <h2>Подписка и доступ</h2>
+          <p class="muted">Проверьте текущий тариф, лимиты и доступные возможности.</p>
+          <p><a class="button primary" href="/web/subscription">Открыть подписку</a></p>
+        </section>
       </section>
     """
 
@@ -1457,6 +2140,33 @@ def _dashboard_content(data: DashboardData) -> str:
           <h2>Wildberries / Ozon</h2>
           {_marketplace_table(data)}
         </section>
+      </section>
+    """
+
+
+def _dashboard_welcome(
+    user: User,
+    subscription: SubscriptionPageData,
+    accounts: AccountsPageData,
+) -> str:
+    active = subscription.active_subscription
+    expires = (
+        active.expires_at.strftime("%d.%m.%Y") if active and active.expires_at else "бессрочно"
+    )
+    return f"""
+      <section class="page-header">
+        <div>
+          <h2>Добро пожаловать, {escape(user.first_name or user.username or "селлер")}!</h2>
+          <p class="muted">
+            Тариф: {escape(subscription.tier.name)} · действует до {escape(expires)} ·
+            подключено кабинетов: {accounts.active_accounts} из {subscription.tier.max_marketplace_accounts}
+          </p>
+        </div>
+        <div class="page-actions">
+          <a class="button" href="/web/subscription">Подписка</a>
+          <a class="button" href="/web/accounts">Кабинеты МП</a>
+          <a class="button" href="/web/settings">Настройки</a>
+        </div>
       </section>
     """
 
@@ -1748,6 +2458,123 @@ def _select(name: str, label: str, options: dict[str, str], selected: str) -> st
         f'<div><label for="{escape(name)}">{escape(label)}</label>'
         f'<select id="{escape(name)}" name="{escape(name)}">{"".join(items)}</select></div>'
     )
+
+
+def _page_header(title: str, description: str, href: str, action: str) -> str:
+    return (
+        '<section class="page-header">'
+        f'<div><h2>{escape(title)}</h2><p class="muted">{description}</p></div>'
+        f'<div class="page-actions"><a class="button" href="{escape(href)}">{escape(action)}</a></div>'
+        "</section>"
+    )
+
+
+def _sales_returns_filters(action: str, filters: DashboardFilters, sku: str) -> str:
+    selected_marketplace = filters.marketplace.value if filters.marketplace else "all"
+    return f"""
+      <form class="filters filter-panel" method="get" action="{escape(action)}">
+        {
+        _select(
+            "period",
+            "Период",
+            {
+                "today": "Сегодня",
+                "yesterday": "Вчера",
+                "7d": "7 дней",
+                "30d": "30 дней",
+                "custom": "Произвольный",
+            },
+            filters.period,
+        )
+    }
+        {
+        _select(
+            "marketplace",
+            "Маркетплейс",
+            {
+                "all": "Все",
+                Marketplace.WB.value: "Wildberries",
+                Marketplace.OZON.value: "Ozon",
+            },
+            selected_marketplace,
+        )
+    }
+        <div>
+          <label for="sku">Товар / SKU</label>
+          <input id="sku" name="sku" type="search" value="{escape(sku)}">
+        </div>
+        <div>
+          <label for="date_from">Дата с</label>
+          <input id="date_from" name="date_from" type="date" value="{
+        filters.local_date_from.isoformat()
+    }">
+        </div>
+        <div>
+          <label for="date_to">Дата по</label>
+          <input id="date_to" name="date_to" type="date" value="{
+        filters.local_date_to.isoformat()
+    }">
+        </div>
+        <button class="button primary" type="submit">Применить</button>
+      </form>
+    """
+
+
+def _web_tier_card(tier: SubscriptionTier, current_code: str) -> str:
+    current = tier.code == current_code
+    badge = '<span class="badge good">Текущий тариф</span>' if current else ""
+    price = "Бесплатно" if tier.price_monthly == 0 else f"{_rub(tier.price_monthly)} / месяц"
+    return f"""
+      <section class="band">
+        <h2>{escape(tier.name)} {badge}</h2>
+        <p class="muted">{escape(tier.description or "")}</p>
+        <div class="kv">
+          <span>Стоимость</span><strong>{price}</strong>
+          <span>Кабинеты</span><strong>{tier.max_marketplace_accounts}</strong>
+          <span>Заказы</span><strong>{_limit(tier.max_orders_per_month)}</strong>
+          <span>SKU</span><strong>{_limit(tier.max_products)}</strong>
+        </div>
+        <p class="muted">Оформление и оплата подписки сейчас выполняются через Telegram-бота.</p>
+      </section>
+    """
+
+
+def _account_status_badge(status: str, is_active: bool) -> str:
+    if not is_active:
+        return '<span class="badge">отключён</span>'
+    tone = "good" if status == "ACTIVE" else "warn" if status == "DRAFT" else "bad"
+    label = {"ACTIVE": "активен", "DRAFT": "черновик", "ERROR": "ошибка"}.get(status, status)
+    return f'<span class="badge {tone}">{escape(label)}</span>'
+
+
+def _cost_status_badge(ok: bool) -> str:
+    return (
+        '<span class="badge good">задана</span>'
+        if ok
+        else '<span class="badge warn">не задана</span>'
+    )
+
+
+def _limit(value: int | None) -> str:
+    return "без ограничений" if value is None else str(value)
+
+
+def _dt(value: datetime | None) -> str:
+    return value.strftime("%d.%m.%Y %H:%M") if value else "н/д"
+
+
+def _user_display_name(user: User) -> str:
+    return user.first_name or user.username or str(user.telegram_id)
+
+
+def _form_value(form: dict[str, list[str]], name: str, default: str) -> str:
+    return (form.get(name) or [default])[0]
+
+
+def _datetime_from_form(value: str) -> datetime:
+    if not value:
+        return datetime.now(tz=UTC)
+    return datetime.fromisoformat(value).replace(tzinfo=UTC)
 
 
 def _kpi(metric: KpiMetric) -> str:

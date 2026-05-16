@@ -31,6 +31,7 @@ class MarketplaceProductInfo:
     marketplace_article: str
     title: str
     brand: str
+    product_id: int = 0
 
 
 @dataclass(frozen=True)
@@ -155,6 +156,7 @@ class MasterProductService:
             stock_quantity = await self._latest_stock_quantity(product_ids)
             marketplace_products = tuple(
                 MarketplaceProductInfo(
+                    product_id=product.id,
                     marketplace=product.marketplace,
                     seller_article=product.seller_article or "н/д",
                     marketplace_article=product.marketplace_article or product.external_product_id,
@@ -203,6 +205,7 @@ class MasterProductService:
         products = [link.product for link in master.links if link.product is not None]
         product_infos = tuple(
             MarketplaceProductInfo(
+                product_id=product.id,
                 marketplace=product.marketplace,
                 seller_article=product.seller_article or "н/д",
                 marketplace_article=product.marketplace_article or product.external_product_id,

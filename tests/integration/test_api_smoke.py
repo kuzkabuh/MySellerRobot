@@ -59,11 +59,17 @@ def test_web_routes_are_registered() -> None:
     assert "/web/products/{master_product_id}" in paths
     assert "/web/product-matching" in paths
     assert "/web/costs" in paths
+    assert "/web/costs/{product_id}" in paths
     assert "/web/plan-fact" in paths
     assert "/web/break-even" in paths
     assert "/web/stocks" in paths
     assert "/web/alerts" in paths
+    assert "/web/analytics" in paths
+    assert "/web/control" in paths
     assert "/web/data-quality" in paths
+    assert "/web/profile" in paths
+    assert "/web/subscription" in paths
+    assert "/web/accounts" in paths
     assert "/web/settings" in paths
     assert "/web/web/login" in paths
     assert "/web/web" in paths
@@ -120,7 +126,14 @@ async def test_legacy_double_web_dashboard_route_renders_not_404(
 
 
 @pytest.mark.asyncio
-async def test_legacy_double_web_sections_are_served_for_old_proxy_paths() -> None:
+async def test_legacy_double_web_sections_are_served_for_old_proxy_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_sales_page(*args, **kwargs):  # type: ignore[no-untyped-def]
+        return "<html>Продажи без заглушки</html>"
+
+    monkeypatch.setattr("app.web.routes.sales_page", fake_sales_page)
+
     user = SimpleNamespace(
         id=1,
         timezone="Europe/Moscow",
@@ -140,7 +153,7 @@ async def test_legacy_double_web_sections_are_served_for_old_proxy_paths() -> No
     assert response.status_code == 200
     body = response.body.decode()
     assert "Продажи" in body
-    assert "Раздел не найден" not in body
+    assert "Раздел подготовлен" not in body
 
 
 @pytest.mark.asyncio
