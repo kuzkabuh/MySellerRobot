@@ -24,6 +24,7 @@ dependencies = [
     "sqlalchemy>=2.0,<3",
     "structlog>=24,<25",
     "uvicorn[standard]>=0.29,<1",
+    "yookassa>=3.0,<4",
 ]
 
 [project.optional-dependencies]

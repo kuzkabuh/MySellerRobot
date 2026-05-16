@@ -117,7 +117,7 @@ class Payment(TimestampMixin, Base):
 
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    payment_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     # Relationships
     user: Mapped["User"] = relationship()  # type: ignore

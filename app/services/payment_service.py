@@ -75,7 +75,7 @@ class PaymentService:
             amount=amount,
             currency="RUB",
             status=PaymentStatus.PENDING,
-            metadata=metadata,
+            payment_metadata=metadata,
         )
         self.session.add(payment)
         await self.session.flush()
@@ -116,7 +116,7 @@ class PaymentService:
         payment.payment_method = yookassa_data.get("payment_method", {}).get("type")
 
         # Extract metadata
-        metadata = payment.metadata or {}
+        metadata = payment.payment_metadata or {}
         tier_code = metadata.get("tier_code")
         period = metadata.get("period", "monthly")
 

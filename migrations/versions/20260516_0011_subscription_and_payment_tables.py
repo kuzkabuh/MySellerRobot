@@ -98,7 +98,7 @@ def upgrade() -> None:
         ),
         sa.Column("payment_method", sa.String(64), nullable=True),
         sa.Column("paid_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("metadata", sa.JSON(), nullable=True),
+        sa.Column("payment_metadata", sa.JSON(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
         sa.PrimaryKeyConstraint("id"),
