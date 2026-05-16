@@ -360,7 +360,17 @@ class OzonClient:
                 ("service", "processing", "return", "storage", "last_mile"),
                 exclude=("delivery", "logistic"),
             )
-            payout = Decimal(str(finance.get("payout") or price))
+            payout = Decimal(str(finance.get("payout") or 0))
+
+            # Выручка продавца = цена покупателя - расходы МП
+            seller_payout = payout if payout > 0 else price
+            if payout == 0:
+                # Рассчитываем вручную
+                if commission:
+                    seller_payout -= commission
+                seller_payout -= logistics
+                seller_payout -= other_services
+
             items.append(
                 NormalizedOrderItem(
                     external_product_id=str(product.get("sku") or product.get("product_id") or ""),
@@ -371,7 +381,8 @@ class OzonClient:
                     buyer_price=price,
                     seller_price=price,
                     discounted_price=price,
-                    payout_amount_estimated=payout,
+                    payout_amount_estimated=payout if payout > 0 else price,
+                    seller_payout_estimated=seller_payout,
                     commission_estimated=commission,
                     logistics_estimated=logistics,
                     other_marketplace_expenses_estimated=other_services,

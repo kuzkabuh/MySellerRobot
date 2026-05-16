@@ -176,6 +176,17 @@ class WildberriesClient:
                 "normalized_price": str(price),
             },
         )
+        commission = self._extract_commission(payload, price)
+        logistics = self._extract_logistics(payload)
+        other = self._extract_other_expenses(payload)
+
+        # Выручка продавца = цена покупателя - расходы МП
+        seller_payout = price
+        if commission:
+            seller_payout -= commission
+        seller_payout -= logistics
+        seller_payout -= other
+
         item = NormalizedOrderItem(
             external_product_id=str(
                 payload.get("nmId") or payload.get("chrtId") or payload.get("id")
@@ -188,9 +199,10 @@ class WildberriesClient:
             seller_price=price,
             discounted_price=price,
             payout_amount_estimated=price,
-            commission_estimated=self._extract_commission(payload, price),
-            logistics_estimated=self._extract_logistics(payload),
-            other_marketplace_expenses_estimated=self._extract_other_expenses(payload),
+            seller_payout_estimated=seller_payout,
+            commission_estimated=commission,
+            logistics_estimated=logistics,
+            other_marketplace_expenses_estimated=other,
             raw_payload=payload,
         )
         return NormalizedOrder(
@@ -242,6 +254,21 @@ class WildberriesClient:
                 or 0
             )
         )
+        # ppvzForPay - это выплата продавцу от WB (уже за вычетом всех расходов МП)
+        payout = Decimal(str(payload.get("ppvzForPay") or 0))
+        commission = self._extract_commission(payload, revenue)
+        logistics = self._extract_logistics(payload)
+        other = self._extract_other_expenses(payload)
+
+        # Если есть ppvzForPay, используем его как seller_payout
+        seller_payout = payout if payout > 0 else revenue
+        if payout == 0:
+            # Рассчитываем вручную
+            if commission:
+                seller_payout -= commission
+            seller_payout -= logistics
+            seller_payout -= other
+
         item = NormalizedOrderItem(
             external_product_id=nm_id,
             seller_article=article,
@@ -251,10 +278,11 @@ class WildberriesClient:
             buyer_price=revenue,
             seller_price=revenue,
             discounted_price=revenue,
-            payout_amount_estimated=Decimal(str(payload.get("ppvzForPay") or revenue)),
-            commission_estimated=self._extract_commission(payload, revenue),
-            logistics_estimated=self._extract_logistics(payload),
-            other_marketplace_expenses_estimated=self._extract_other_expenses(payload),
+            payout_amount_estimated=payout if payout > 0 else revenue,
+            seller_payout_estimated=seller_payout,
+            commission_estimated=commission,
+            logistics_estimated=logistics,
+            other_marketplace_expenses_estimated=other,
             raw_payload=payload,
         )
         external_id = str(
@@ -287,6 +315,17 @@ class WildberriesClient:
         order_date = self._parse_optional_date(payload.get("date")) or datetime.now(tz=UTC)
         nm_id = str(payload.get("nmId") or payload.get("nmID") or "")
         revenue = Decimal(str(payload.get("finishedPrice") or payload.get("totalPrice") or 0))
+        commission = self._extract_commission(payload, revenue)
+        logistics = self._extract_logistics(payload)
+        other = self._extract_other_expenses(payload)
+
+        # Выручка продавца = цена покупателя - расходы МП
+        seller_payout = revenue
+        if commission:
+            seller_payout -= commission
+        seller_payout -= logistics
+        seller_payout -= other
+
         item = NormalizedOrderItem(
             external_product_id=nm_id,
             seller_article=payload.get("supplierArticle"),
@@ -297,9 +336,10 @@ class WildberriesClient:
             seller_price=revenue,
             discounted_price=revenue,
             payout_amount_estimated=revenue,
-            commission_estimated=self._extract_commission(payload, revenue),
-            logistics_estimated=self._extract_logistics(payload),
-            other_marketplace_expenses_estimated=self._extract_other_expenses(payload),
+            seller_payout_estimated=seller_payout,
+            commission_estimated=commission,
+            logistics_estimated=logistics,
+            other_marketplace_expenses_estimated=other,
             raw_payload=payload,
         )
         external_id = str(

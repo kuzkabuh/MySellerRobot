@@ -26,10 +26,13 @@ def test_profit_calculation_with_costs() -> None:
         )
     )
 
-    assert result.tax_amount == Decimal("89.40")
+    # Налог теперь считается от выручки продавца (1280), а не от цены покупателя (1490)
+    assert result.tax_amount == Decimal("76.80")  # 1280 * 0.06
     assert result.expected_payout == Decimal("1280.00")
-    assert result.profit == Decimal("492.60")
-    assert result.margin_percent == Decimal("33.06")
+    # Прибыль = 1280 - 520 - 25 - 76.80 = 658.20
+    assert result.profit == Decimal("658.20")
+    # Маржа = 658.20 / 1280 * 100 = 51.42%
+    assert result.margin_percent == Decimal("51.42")
     assert not result.missing_cost
 
 
@@ -93,5 +96,7 @@ def test_profit_uses_normalized_wb_price_for_margin() -> None:
     )
 
     assert result.gross_revenue == Decimal("411.00")
-    assert result.profit == Decimal("270.00")
-    assert result.margin_percent == Decimal("65.69")
+    # Прибыль = expected_payout - cost_price = 411 - 100 = 311
+    assert result.profit == Decimal("311.00")
+    # Маржа = 311 / 411 * 100 = 75.67%
+    assert result.margin_percent == Decimal("75.67")

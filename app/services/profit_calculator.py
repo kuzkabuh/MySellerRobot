@@ -31,8 +31,7 @@ class ProfitCalculator:
                 "Комиссия маркетплейса не указана. Прибыль рассчитана без учёта комиссии"
             )
 
-        tax_base = data.tax_base if data.tax_base is not None else data.gross_revenue
-        tax_amount = money(tax_base * cost.tax_rate)
+        # Расходы маркетплейса
         marketplace_expenses = (
             marketplace_commission
             + data.logistics_cost
@@ -41,20 +40,33 @@ class ProfitCalculator:
             + data.return_cost
             + data.other_marketplace_costs
         )
+
+        # Выручка продавца (после вычета расходов МП)
+        seller_payout = data.expected_payout
+        if seller_payout is None:
+            seller_payout = data.gross_revenue - marketplace_expenses
+
+        # Налоговая база = выручка продавца, а не цена покупателя!
+        tax_base = data.tax_base if data.tax_base is not None else seller_payout
+        tax_amount = money(tax_base * cost.tax_rate)
+
+        # Расходы продавца
         seller_expenses = cost.cost_price + cost.package_cost + cost.additional_cost + tax_amount
-        profit = money(data.gross_revenue - marketplace_expenses - seller_expenses)
+
+        # Чистая прибыль
+        profit = money(seller_payout - seller_expenses)
+
+        # Маржа от выручки продавца
         margin = Decimal("0")
-        if data.gross_revenue:
-            margin = (profit / data.gross_revenue * Decimal("100")).quantize(
+        if seller_payout > 0:
+            margin = (profit / seller_payout * Decimal("100")).quantize(
                 PERCENT_QUANT,
                 rounding=ROUND_HALF_UP,
             )
 
         return ProfitResult(
             gross_revenue=money(data.gross_revenue),
-            expected_payout=(
-                money(data.expected_payout) if data.expected_payout is not None else None
-            ),
+            expected_payout=money(seller_payout),
             marketplace_commission=money(marketplace_commission),
             logistics_cost=money(data.logistics_cost),
             acquiring_cost=money(data.acquiring_cost),

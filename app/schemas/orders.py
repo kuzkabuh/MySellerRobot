@@ -22,6 +22,7 @@ class NormalizedOrderItem(BaseModel):
     seller_price: Decimal = Decimal("0")
     discounted_price: Decimal = Decimal("0")
     payout_amount_estimated: Decimal | None = None
+    seller_payout_estimated: Decimal | None = None
     commission_estimated: Decimal | None = None
     logistics_estimated: Decimal | None = None
     other_marketplace_expenses_estimated: Decimal | None = None

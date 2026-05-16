@@ -30,6 +30,7 @@ class ExpenseEstimate:
 @dataclass(frozen=True, slots=True)
 class PlannedEconomics:
     revenue: Decimal
+    seller_payout: Decimal
     commission: Decimal
     commission_rate: Decimal | None
     commission_is_known: bool
@@ -125,17 +126,42 @@ def calculate_planned_economics(
     expenses = estimate_marketplace_expenses(
         order, item, product_commission_rate=product_commission_rate
     )
-    revenue = quantize_money((item.discounted_price or ZERO) * Decimal(item.quantity or 1))
+
+    # Цена покупателя (buyer price)
+    buyer_price = quantize_money((item.discounted_price or ZERO) * Decimal(item.quantity or 1))
     other = quantize_money(item.other_marketplace_expenses_estimated or ZERO)
+
+    # Выручка продавца (seller payout) = цена покупателя - расходы МП
+    seller_payout = quantize_money(item.payout_amount_estimated or ZERO)
+    if seller_payout == ZERO:
+        # Если нет точного значения, рассчитываем
+        seller_payout = quantize_money(
+            buyer_price - expenses.commission - expenses.logistics - other
+        )
+
+    # Расходы продавца
     cost = quantize_money(item.cost_price_used or ZERO)
     package = quantize_money(item.package_cost_used or ZERO)
+
+    # Налог от выручки продавца, а не от цены покупателя!
+    tax_base = seller_payout
     tax = quantize_money(item.tax_amount_estimated or ZERO)
-    profit = quantize_money(
-        revenue - expenses.commission - expenses.logistics - other - cost - package - tax
+    if tax == ZERO and item.tax_rate:
+        tax = quantize_money(tax_base * item.tax_rate)
+
+    # Чистая прибыль
+    profit = quantize_money(seller_payout - cost - package - tax)
+
+    # Маржа от выручки продавца
+    margin = (
+        quantize_money(profit / seller_payout * Decimal("100"))
+        if seller_payout > ZERO
+        else ZERO
     )
-    margin = quantize_money(profit / revenue * Decimal("100")) if revenue > ZERO else ZERO
+
     return PlannedEconomics(
-        revenue=revenue,
+        revenue=buyer_price,
+        seller_payout=seller_payout,
         commission=expenses.commission,
         commission_rate=expenses.commission_rate,
         commission_is_known=expenses.commission_is_known,
