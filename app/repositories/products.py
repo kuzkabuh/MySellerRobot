@@ -1,5 +1,5 @@
-"""version: 1.1.0
-description: Product and cost history persistence helpers.
+"""version: 1.2.0
+description: Product, marketplace tariff, and cost history persistence helpers.
 updated: 2026-05-15
 """
 
@@ -37,6 +37,15 @@ class ProductRepository:
             self.session.add(existing)
         else:
             for field, value in data.model_dump().items():
+                if (
+                    field
+                    in {
+                        "marketplace_commission_rate",
+                        "marketplace_commission_source",
+                    }
+                    and value is None
+                ):
+                    continue
                 setattr(existing, field, value)
         await self.session.flush()
         return existing

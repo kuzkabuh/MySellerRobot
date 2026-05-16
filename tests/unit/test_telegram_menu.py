@@ -67,6 +67,22 @@ def test_control_menu_contains_stockout_and_quality_actions() -> None:
     assert "Качество данных" in texts
 
 
+def test_menus_do_not_contain_duplicate_callback_actions() -> None:
+    for keyboard in [
+        main_menu(is_admin=True),
+        summary_menu(),
+        orders_menu(),
+        profit_menu(),
+        control_menu(),
+        costs_menu(),
+        admin_menu(),
+        admin_deploy_menu(),
+        settings_menu(),
+    ]:
+        callbacks = _callbacks(keyboard)
+        assert len(callbacks) == len(set(callbacks))
+
+
 def test_web_cabinet_keyboard_uses_url_button() -> None:
     keyboard = web_cabinet_link("https://seller.example/web/login?token=abc")
     button = keyboard.inline_keyboard[0][0]

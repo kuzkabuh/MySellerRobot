@@ -1,5 +1,5 @@
-"""version: 1.1.0
-description: Main database models for sellers, marketplaces, orders, profit, alerts, and billing.
+"""version: 1.2.0
+description: Main database models for sellers, marketplaces, tariffs, orders, profit, and alerts.
 updated: 2026-05-15
 """
 
@@ -152,6 +152,9 @@ class Product(TimestampMixin, Base):
     brand: Mapped[str | None] = mapped_column(String(255))
     image_url: Mapped[str | None] = mapped_column(Text)
     category: Mapped[str | None] = mapped_column(String(255))
+    marketplace_category_id: Mapped[str | None] = mapped_column(String(128))
+    marketplace_commission_rate: Mapped[Decimal | None] = mapped_column(Numeric(7, 4))
+    marketplace_commission_source: Mapped[str | None] = mapped_column(String(128))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     costs: Mapped[list["ProductCostHistory"]] = relationship(back_populates="product")

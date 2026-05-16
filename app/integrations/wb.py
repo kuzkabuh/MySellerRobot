@@ -1,5 +1,5 @@
-"""version: 1.3.0
-description: Wildberries official API client and normalization helpers.
+"""version: 1.4.0
+description: Wildberries official API client, tariff methods, and normalization helpers.
 updated: 2026-05-15
 """
 
@@ -98,6 +98,22 @@ class WildberriesClient:
                 json={"limit": limit, "offset": offset},
             ),
         )
+
+    async def get_commission_tariffs(self, *, locale: str = "ru") -> list[dict[str, Any]]:
+        """Return official WB category commission tariffs.
+
+        Official endpoint:
+        GET https://common-api.wildberries.ru/api/v1/tariffs/commission
+        """
+
+        data = await self.common.request(
+            "GET",
+            "/api/v1/tariffs/commission",
+            headers=self.headers,
+            params={"locale": locale},
+        )
+        report = data.get("report", []) if isinstance(data, dict) else []
+        return list(report) if isinstance(report, list) else []
 
     async def get_sales_report_details(
         self,
@@ -435,5 +451,8 @@ class WildberriesClient:
             brand=payload.get("brand"),
             image_url=image_url,
             category=payload.get("subjectName") or payload.get("object"),
+            marketplace_category_id=(
+                str(payload.get("subjectID") or payload.get("subjectId") or "") or None
+            ),
             is_active=not bool(payload.get("isDeleted")),
         )

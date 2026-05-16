@@ -1,5 +1,5 @@
-"""version: 1.7.0
-description: Common Telegram command, menu, web-link, analytics, and admin deploy handlers.
+"""version: 1.8.0
+description: Common Telegram command, menu, web-link, analytics, alerts, and admin handlers.
 updated: 2026-05-15
 """
 
@@ -13,6 +13,7 @@ from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.keyboards.main import (
     TIMEZONE_OPTIONS,
@@ -37,6 +38,7 @@ from app.models.domain import (
     MarketplaceAccount,
     Order,
     OrderItem,
+    Product,
     ProfitSnapshot,
     User,
 )
@@ -207,6 +209,10 @@ async def callback_handler(callback: CallbackQuery) -> None:
                 await message.answer(await _stockout_text(user_id))
             elif data == "control:data_quality":
                 await message.answer(await _data_quality_text(user_id))
+            elif data == "control:low_margin":
+                await message.answer(await _low_margin_text(user_id))
+            elif data == "control:sync_errors":
+                await message.answer(await _sync_errors_text(user_id))
             else:
                 await message.answer(await _control_text(user_id))
     elif data in {"notifications", "settings:notifications"}:
@@ -481,6 +487,51 @@ async def _data_quality_text(user_id: int) -> str:
     return "\n".join(lines)
 
 
+async def _low_margin_text(user_id: int) -> str:
+    async with AsyncSessionFactory() as session:
+        result = await session.execute(
+            select(OrderItem)
+            .join(Order)
+            .where(Order.user_id == user_id)
+            .where(OrderItem.margin_percent_estimated.is_not(None))
+            .where(OrderItem.margin_percent_estimated < Decimal("10"))
+            .order_by(Order.order_date.desc())
+            .limit(7)
+        )
+        rows = list(result.scalars().all())
+    if not rows:
+        return "📉 Низкая маржа\n\nЗаказов с маржей ниже 10% сейчас не найдено."
+    lines = ["📉 Заказы с низкой маржей", ""]
+    for item in rows:
+        lines.append(
+            f"— {item.seller_article or item.marketplace_article or 'товар'}: "
+            f"маржа {item.margin_percent_estimated or 0}% "
+            f"прибыль {rub(item.profit_estimated or Decimal('0'))}"
+        )
+    return "\n".join(lines)
+
+
+async def _sync_errors_text(user_id: int) -> str:
+    async with AsyncSessionFactory() as session:
+        result = await session.execute(
+            select(MarketplaceAccount)
+            .where(MarketplaceAccount.user_id == user_id)
+            .where(MarketplaceAccount.last_error_at.is_not(None))
+            .order_by(MarketplaceAccount.last_error_at.desc())
+            .limit(7)
+        )
+        accounts = list(result.scalars().all())
+    if not accounts:
+        return "✅ Ошибки синхронизации\n\nАктивных ошибок по подключённым кабинетам не найдено."
+    lines = ["⚠ Ошибки синхронизации", ""]
+    for account in accounts:
+        lines.append(
+            f"— {account.marketplace.value} / {account.name}: "
+            f"{account.last_error_message or 'ошибка без описания'}"
+        )
+    return "\n".join(lines)
+
+
 async def _control_text(user_id: int) -> str:
     async with AsyncSessionFactory() as session:
         risks = await FbsControlService(session).collect_deadline_risks(user_id=user_id)
@@ -595,15 +646,19 @@ async def _order_action_text(user_id: int, callback_data: str) -> str:
             return "Заказ не найден. Возможно, он был удалён или относится к другому кабинету."
         timezone_name = user.timezone if user else "Europe/Moscow"
         if action == "details":
-            return _format_order_details(order, timezone_name)
+            return await _format_order_details(session, order, timezone_name)
         if action == "profit":
-            return _format_order_profit(order)
+            return await _format_order_profit(session, order)
         if action == "product":
             return _format_order_product(order)
     return "Не удалось открыть действие по заказу. Откройте меню и выберите раздел заново."
 
 
-def _format_order_details(order: Order, timezone_name: str) -> str:
+async def _format_order_details(
+    session: AsyncSession,
+    order: Order,
+    timezone_name: str,
+) -> str:
     lines = [
         "📦 Детали заказа",
         "",
@@ -618,7 +673,12 @@ def _format_order_details(order: Order, timezone_name: str) -> str:
     if deadline:
         lines.append(f"Дедлайн обработки: {format_user_datetime(deadline, timezone_name)}")
     for item in order.items:
-        economics = calculate_planned_economics(order, item)
+        product = await _item_product(session, item)
+        economics = calculate_planned_economics(
+            order,
+            item,
+            product_commission_rate=product.marketplace_commission_rate if product else None,
+        )
         commission_label = _commission_detail_label(economics)
         logistics_label = _logistics_detail_label(economics)
         lines.extend(
@@ -644,10 +704,15 @@ def _format_order_details(order: Order, timezone_name: str) -> str:
     return "\n".join(lines)
 
 
-def _format_order_profit(order: Order) -> str:
+async def _format_order_profit(session: AsyncSession, order: Order) -> str:
     lines = ["💰 Расчёт прибыли", ""]
     for item in order.items:
-        economics = calculate_planned_economics(order, item)
+        product = await _item_product(session, item)
+        economics = calculate_planned_economics(
+            order,
+            item,
+            product_commission_rate=product.marketplace_commission_rate if product else None,
+        )
         marketplace_costs = (
             economics.commission + economics.logistics + economics.other_marketplace_costs
         )
@@ -663,6 +728,12 @@ def _format_order_profit(order: Order) -> str:
             ]
         )
     return "\n".join(lines).strip()
+
+
+async def _item_product(session: AsyncSession, item: OrderItem) -> Product | None:
+    if not item.product_id:
+        return None
+    return await session.get(Product, item.product_id)
 
 
 def _format_order_product(order: Order) -> str:
@@ -681,7 +752,7 @@ def _format_order_product(order: Order) -> str:
 
 
 def _commission_detail_label(economics: PlannedEconomics) -> str:
-    if economics.commission == Decimal("0") and economics.commission_rate is None:
+    if not economics.commission_is_known:
         return "🏷 Комиссия маркетплейса: будет уточнена после финансового отчёта"
     if economics.commission_rate is not None:
         percent = (economics.commission_rate * Decimal("100")).quantize(Decimal("1"))

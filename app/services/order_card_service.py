@@ -1,5 +1,5 @@
-"""version: 1.0.0
-description: Build rich Telegram order and buyout notification cards with product context.
+"""version: 1.1.0
+description: Build rich tariff-aware Telegram order and buyout notification cards.
 updated: 2026-05-15
 """
 
@@ -57,7 +57,11 @@ class OrderCardService:
         stats = await self._order_stats(order, item, timezone_name)
         stock = await self._latest_stock(order, item)
         product_url = self._wb_product_url(item.marketplace_article)
-        economics = calculate_planned_economics(order, item)
+        economics = calculate_planned_economics(
+            order,
+            item,
+            product_commission_rate=product.marketplace_commission_rate if product else None,
+        )
         text = self._format_wb_fbs_order(
             order=order,
             item=item,
@@ -69,7 +73,7 @@ class OrderCardService:
         )
         image_url = product.image_url if product else None
         if order.marketplace != Marketplace.WB or order.sale_model != SaleModel.FBS:
-            text = self._format_generic_order(order, item, timezone_name)
+            text = self._format_generic_order(order, item, product, timezone_name)
         profit_changed = economics.profit != item.profit_estimated
         margin_changed = economics.margin_percent != item.margin_percent_estimated
         if profit_changed or margin_changed:
@@ -248,7 +252,11 @@ class OrderCardService:
         timezone_name: str,
         product_url: str | None,
     ) -> str:
-        economics = calculate_planned_economics(order, item)
+        economics = calculate_planned_economics(
+            order,
+            item,
+            product_commission_rate=product.marketplace_commission_rate if product else None,
+        )
         raw = order.raw_payload or {}
         base_price = self._raw_money(raw, "convertedPrice") or self._raw_money(raw, "price")
         discount_line = self._discount_line(base_price, economics.revenue)
@@ -308,8 +316,18 @@ class OrderCardService:
         )
         return "\n".join(lines)
 
-    def _format_generic_order(self, order: Order, item: OrderItem, timezone_name: str) -> str:
-        economics = calculate_planned_economics(order, item)
+    def _format_generic_order(
+        self,
+        order: Order,
+        item: OrderItem,
+        product: Product | None,
+        timezone_name: str,
+    ) -> str:
+        economics = calculate_planned_economics(
+            order,
+            item,
+            product_commission_rate=product.marketplace_commission_rate if product else None,
+        )
         return "\n".join(
             [
                 format_datetime_for_user(order.order_date, timezone_name),
@@ -370,6 +388,8 @@ class OrderCardService:
 
     @staticmethod
     def _commission_label(economics: PlannedEconomics) -> str:
+        if not economics.commission_is_known:
+            return "💼 Комиссия маркетплейса: ожидает тарифа WB или финансового отчёта"
         percent = ""
         if economics.commission_rate is not None:
             percent_value = (economics.commission_rate * Decimal("100")).quantize(Decimal("1"))

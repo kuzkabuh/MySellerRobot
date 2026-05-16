@@ -1,17 +1,28 @@
-"""version: 1.1.0
-description: Unit tests for Telegram order action cards and timezone formatting.
+"""version: 1.2.0
+description: Unit tests for Telegram order action cards, tariffs, and timezone formatting.
 updated: 2026-05-15
 """
 
 from datetime import UTC, datetime
 from decimal import Decimal
 
+import pytest
+
 from app.bot.handlers.common import _format_order_details
-from app.models.domain import Order, OrderItem
+from app.models.domain import Order, OrderItem, Product
 from app.models.enums import Marketplace, SaleModel
 
 
-def test_order_details_card_contains_financial_breakdown_and_user_timezone() -> None:
+class FakeSession:
+    def __init__(self, product: Product | None = None) -> None:
+        self.product = product
+
+    async def get(self, model, row_id):  # type: ignore[no-untyped-def]
+        return self.product
+
+
+@pytest.mark.asyncio
+async def test_order_details_card_contains_financial_breakdown_and_user_timezone() -> None:
     order = Order(
         id=10,
         user_id=1,
@@ -44,7 +55,7 @@ def test_order_details_card_contains_financial_breakdown_and_user_timezone() -> 
         )
     ]
 
-    text = _format_order_details(order, "Europe/Moscow")
+    text = await _format_order_details(FakeSession(), order, "Europe/Moscow")
 
     assert "📦 Детали заказа" in text
     assert "Артикул продавца: W4079" in text
@@ -55,7 +66,8 @@ def test_order_details_card_contains_financial_breakdown_and_user_timezone() -> 
     assert "15.05.2026 11:33" in text
 
 
-def test_order_details_uses_baseline_wb_commission_and_logistics() -> None:
+@pytest.mark.asyncio
+async def test_order_details_uses_wb_tariff_commission_and_baseline_logistics() -> None:
     order = Order(
         id=11,
         user_id=1,
@@ -73,6 +85,7 @@ def test_order_details_uses_baseline_wb_commission_and_logistics() -> None:
         OrderItem(
             id=21,
             order_id=11,
+            product_id=30,
             title="Губка спонж для умывания черный лицо",
             seller_article="W4040",
             marketplace_article="304534278",
@@ -88,7 +101,11 @@ def test_order_details_uses_baseline_wb_commission_and_logistics() -> None:
         )
     ]
 
-    text = _format_order_details(order, "Europe/Moscow")
+    text = await _format_order_details(
+        FakeSession(Product(id=30, marketplace_commission_rate=Decimal("0.33"))),
+        order,
+        "Europe/Moscow",
+    )
 
     assert "Комиссия маркетплейса: н/д" not in text
     assert "🚚 Логистика: 0 ₽" not in text

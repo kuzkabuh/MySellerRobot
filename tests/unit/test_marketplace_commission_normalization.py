@@ -1,5 +1,5 @@
-"""version: 1.0.0
-description: Unit tests for WB and Ozon marketplace commission normalization.
+"""version: 1.1.0
+description: Unit tests for WB/Ozon marketplace commission and tariff normalization.
 updated: 2026-05-15
 """
 
@@ -7,6 +7,10 @@ from decimal import Decimal
 
 from app.integrations.ozon import OzonClient
 from app.integrations.wb import WildberriesClient
+from app.models.domain import Order, OrderItem, Product
+from app.models.enums import Marketplace, SaleModel
+from app.services.marketplace_estimates import calculate_planned_economics
+from app.services.product_sync_service import ProductSyncService
 
 
 def test_wb_report_order_uses_commission_percent_when_amount_absent() -> None:
@@ -74,3 +78,55 @@ def test_ozon_order_uses_financial_commission_and_services() -> None:
     assert item.commission_estimated == Decimal("150")
     assert item.logistics_estimated == Decimal("70")
     assert item.other_marketplace_expenses_estimated == Decimal("20")
+
+
+def test_product_sync_applies_official_wb_commission_tariff() -> None:
+    product = WildberriesClient("token").normalize_card_product(
+        payload={
+            "nmID": 303948126,
+            "vendorCode": "W4079",
+            "title": "Салфетки",
+            "subjectID": 99,
+            "subjectName": "Салфетки для уборки",
+        },
+        user_id=1,
+        account_id=10,
+    )
+
+    ProductSyncService._apply_wb_commission_tariff(
+        product,
+        {"subjectID": 99, "subjectName": "Салфетки для уборки"},
+        {"99": Decimal("0.1250")},
+    )
+
+    assert product.marketplace_category_id == "99"
+    assert product.marketplace_commission_rate == Decimal("0.1250")
+    assert product.marketplace_commission_source == "WB tariffs /api/v1/tariffs/commission"
+
+
+def test_wb_planned_economics_uses_product_tariff_instead_of_fixed_guess() -> None:
+    order = Order(marketplace=Marketplace.WB, sale_model=SaleModel.FBS)
+    item = OrderItem(discounted_price=Decimal("1000"), quantity=1)
+    product = Product(marketplace_commission_rate=Decimal("0.1250"))
+
+    economics = calculate_planned_economics(
+        order,
+        item,
+        product_commission_rate=product.marketplace_commission_rate,
+    )
+
+    assert economics.commission == Decimal("125.00")
+    assert economics.commission_rate == Decimal("0.1250")
+    assert economics.commission_is_known is True
+    assert economics.commission_is_baseline is True
+
+
+def test_wb_planned_economics_does_not_fake_unknown_commission() -> None:
+    order = Order(marketplace=Marketplace.WB, sale_model=SaleModel.FBS)
+    item = OrderItem(discounted_price=Decimal("1000"), quantity=1)
+
+    economics = calculate_planned_economics(order, item)
+
+    assert economics.commission == Decimal("0.00")
+    assert economics.commission_rate is None
+    assert economics.commission_is_known is False

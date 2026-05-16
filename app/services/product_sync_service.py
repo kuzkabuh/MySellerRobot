@@ -1,10 +1,11 @@
-"""version: 1.2.0
-description: Enhanced product synchronization service with caching and error handling.
+"""version: 1.3.0
+description: Enhanced product synchronization service with tariff enrichment and caching.
 updated: 2026-05-15
 """
 
 import logging
 from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +18,7 @@ from app.integrations.wb import WildberriesClient
 from app.models.domain import MarketplaceAccount
 from app.models.enums import Marketplace
 from app.repositories.products import ProductRepository
+from app.schemas.products import ProductUpsert
 from app.services.master_product_service import MasterProductService
 
 logger = logging.getLogger(__name__)
@@ -79,6 +81,7 @@ class ProductSyncService:
     async def _sync_wb(self, account: MarketplaceAccount) -> int:
         """Sync Wildberries products."""
         client = WildberriesClient(self.cipher.decrypt(account.encrypted_api_key))
+        commission_tariffs = await self._load_wb_commission_tariffs(client)
         cursor: dict[str, object] = {"limit": 100}
         count = 0
 
@@ -98,6 +101,7 @@ class ProductSyncService:
                         user_id=account.user_id,
                         account_id=account.id,
                     )
+                    self._apply_wb_commission_tariff(product, card, commission_tariffs)
                     if product.external_product_id:
                         saved_product = await self.repo.upsert(product)
                         await self.master_products.ensure_product_linked(saved_product)
@@ -125,6 +129,44 @@ class ProductSyncService:
             }
 
         return count
+
+    async def _load_wb_commission_tariffs(
+        self,
+        client: WildberriesClient,
+    ) -> dict[str, Decimal]:
+        """Load official WB commission tariffs by subject id and subject name."""
+
+        try:
+            rows = await client.get_commission_tariffs(locale="ru")
+        except Exception:
+            logger.exception("wb_commission_tariffs_load_failed")
+            return {}
+
+        tariffs: dict[str, Decimal] = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            rate = _decimal_percent(row.get("kgvpSupplier"))
+            if rate is None:
+                continue
+            for key in (row.get("subjectID"), row.get("subjectName")):
+                if key:
+                    tariffs[str(key).strip().lower()] = rate
+        return tariffs
+
+    @staticmethod
+    def _apply_wb_commission_tariff(
+        product: ProductUpsert,
+        card: dict[str, object],
+        tariffs: dict[str, Decimal],
+    ) -> None:
+        subject_id = str(card.get("subjectID") or card.get("subjectId") or "").strip().lower()
+        subject_name = str(card.get("subjectName") or card.get("object") or "").strip().lower()
+        rate = tariffs.get(subject_id) or tariffs.get(subject_name)
+        if rate is None:
+            return
+        product.marketplace_commission_rate = rate
+        product.marketplace_commission_source = "WB tariffs /api/v1/tariffs/commission"
 
     async def _sync_ozon(self, account: MarketplaceAccount) -> int:
         """Sync Ozon products."""
@@ -177,3 +219,12 @@ class ProductSyncService:
         """Invalidate product-related cache entries."""
         pattern = cache_key("products", user_id, "*")
         await self.cache.clear_pattern(pattern)
+
+
+def _decimal_percent(value: object) -> Decimal | None:
+    if value is None:
+        return None
+    try:
+        return (Decimal(str(value).replace(",", ".")) / Decimal("100")).quantize(Decimal("0.0001"))
+    except (InvalidOperation, ValueError):
+        return None

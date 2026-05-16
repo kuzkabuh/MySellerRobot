@@ -1,5 +1,5 @@
-"""version: 1.1.0
-description: Product synchronization, cost update, and master product schemas.
+"""version: 1.2.0
+description: Product synchronization, tariff, cost update, and master product schemas.
 updated: 2026-05-15
 """
 
@@ -22,6 +22,9 @@ class ProductUpsert(BaseModel):
     brand: str | None = None
     image_url: str | None = None
     category: str | None = None
+    marketplace_category_id: str | None = None
+    marketplace_commission_rate: Decimal | None = None
+    marketplace_commission_source: str | None = None
     is_active: bool = True
 
 

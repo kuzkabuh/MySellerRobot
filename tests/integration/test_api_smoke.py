@@ -29,7 +29,7 @@ def test_create_app() -> None:
     app = create_app()
 
     assert app.title == "Seller Profit Bot API"
-    assert app.version == "1.4.21"
+    assert app.version == "1.4.22"
 
 
 def test_web_routes_are_registered() -> None:

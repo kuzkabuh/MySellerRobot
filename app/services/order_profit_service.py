@@ -1,5 +1,5 @@
-"""version: 1.3.0
-description: Shared estimated order profit calculation for online polling and history backfill.
+"""version: 1.4.0
+description: Shared tariff-aware estimated order profit calculation for polling and backfill.
 updated: 2026-05-15
 """
 
@@ -63,8 +63,12 @@ class OrderProfitService:
             cost = (
                 await self.costs.get_actual_cost(product.id, order.order_date) if product else None
             )
-            estimates = estimate_marketplace_expenses(order_with_items, item)
-            if item.commission_estimated is None:
+            estimates = estimate_marketplace_expenses(
+                order_with_items,
+                item,
+                product_commission_rate=product.marketplace_commission_rate if product else None,
+            )
+            if item.commission_estimated is None and estimates.commission_is_known:
                 item.commission_estimated = estimates.commission
             if item.logistics_estimated is None or item.logistics_estimated == Decimal("0"):
                 item.logistics_estimated = estimates.logistics
