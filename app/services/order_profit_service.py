@@ -1,5 +1,5 @@
-"""version: 1.4.0
-description: Shared tariff-aware estimated order profit calculation for polling and backfill.
+"""version: 1.5.0
+description: Shared tariff-aware estimated order profit calculation with confidence tracking.
 updated: 2026-05-15
 """
 
@@ -70,8 +70,15 @@ class OrderProfitService:
             )
             if item.commission_estimated is None and estimates.commission_is_known:
                 item.commission_estimated = estimates.commission
+                item.commission_source = estimates.commission_source.value
+            elif item.commission_source is None:
+                item.commission_source = estimates.commission_source.value
             if item.logistics_estimated is None or item.logistics_estimated == Decimal("0"):
                 item.logistics_estimated = estimates.logistics
+                item.logistics_source = estimates.logistics_source.value
+            elif item.logistics_source is None:
+                item.logistics_source = estimates.logistics_source.value
+            item.economy_confidence = estimates.confidence.value
             result = self.calculate_item_profit(item, cost)
             self.apply_profit_to_item(item, result)
             self.session.add(
@@ -93,6 +100,7 @@ class OrderProfitService:
                     margin_percent=result.margin_percent,
                     calculated_at=datetime.now(tz=UTC),
                     calculation_source=calculation_source,
+                    economy_confidence=estimates.confidence.value,
                     raw_financial_data=None,
                 )
             )

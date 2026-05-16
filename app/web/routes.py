@@ -1,5 +1,5 @@
-"""version: 2.8.0
-description: FastAPI web cabinet routes with session auth and legacy path compatibility.
+"""version: 2.9.0
+description: FastAPI web cabinet routes with session auth, settings, product cards, and confidence.
 updated: 2026-05-15
 """
 
@@ -7,6 +7,7 @@ import json
 import logging
 from decimal import Decimal
 from html import escape
+from urllib.parse import parse_qs
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -19,7 +20,12 @@ from app.models.domain import AlertEvent, User
 from app.models.enums import Marketplace
 from app.repositories.web_auth import WebAuthRepository
 from app.services.data_quality_service import DataQualityReport, DataQualityService
-from app.services.master_product_service import MasterProductAnalyticsRow, MasterProductService
+from app.services.master_product_service import (
+    MasterProductAnalyticsRow,
+    MasterProductDetail,
+    MasterProductService,
+    ProductMatchingCandidate,
+)
 from app.services.plan_fact_service import PlanFactPageData, PlanFactService
 from app.services.stock_forecast_service import StockForecastRow, StockForecastService
 from app.services.unit_economics_service import BreakEvenRow, UnitEconomicsService
@@ -375,6 +381,64 @@ async def products_page(
     )
 
 
+@router.get("/products/{master_product_id}", response_class=HTMLResponse)
+async def product_detail_page(
+    master_product_id: int,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    detail = await MasterProductService(session).detail(user.id, master_product_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Товар не найден")
+    return page(
+        "Карточка товара",
+        user.first_name or user.username or str(user.telegram_id),
+        _master_product_detail_content(detail),
+        active_path="/web/products",
+    )
+
+
+@router.get("/product-matching", response_class=HTMLResponse)
+async def product_matching_page(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    data = await MasterProductService(session).matching_candidates(user.id)
+    return page(
+        "Сопоставление товаров",
+        user.first_name or user.username or str(user.telegram_id),
+        _product_matching_content(data),
+        active_path="/web/products",
+    )
+
+
+@router.post("/product-matching/create")
+async def product_matching_create(
+    request: Request,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    form = await _urlencoded_form(request)
+    raw_ids = ",".join(form.get("product_ids", []))
+    ids = _parse_int_list(raw_ids)
+    await MasterProductService(session).create_manual_group(user.id, ids)
+    await session.commit()
+    return RedirectResponse(url="/web/product-matching", status_code=303)
+
+
+@router.post("/product-matching/unlink")
+async def product_matching_unlink(
+    request: Request,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    form = await _urlencoded_form(request)
+    product_id = int((form.get("product_id") or ["0"])[0])
+    await MasterProductService(session).unlink_product(user.id, product_id)
+    await session.commit()
+    return RedirectResponse(url="/web/product-matching", status_code=303)
+
+
 @router.get("/stocks", response_class=HTMLResponse)
 async def stocks_page(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
@@ -442,7 +506,30 @@ async def costs_page(user: User = CURRENT_WEB_USER_DEPENDENCY) -> str:
 
 @router.get("/settings", response_class=HTMLResponse)
 async def settings_page(user: User = CURRENT_WEB_USER_DEPENDENCY) -> str:
-    return _placeholder_page("settings", user)
+    return page(
+        "Настройки",
+        user.first_name or user.username or str(user.telegram_id),
+        _settings_content(user),
+        active_path="/web/settings",
+    )
+
+
+@router.post("/settings/low-margin")
+async def save_low_margin_settings(
+    request: Request,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    form = await _urlencoded_form(request)
+    threshold = (form.get("threshold") or ["10"])[0]
+    value = _decimal_from_query(threshold, Decimal("10"))
+    if value < 0 or value > 100:
+        raise HTTPException(status_code=400, detail="Порог должен быть от 0 до 100%")
+    db_user = await session.get(User, user.id)
+    if db_user is not None:
+        db_user.low_margin_threshold_percent = value
+    await session.commit()
+    return RedirectResponse(url="/web/settings", status_code=303)
 
 
 @router.get("/{section}", response_class=HTMLResponse)
@@ -544,6 +631,16 @@ async def double_web_compat(
         )
     if normalized == "products":
         return HTMLResponse(await products_page(user=user, session=session))
+    if normalized.startswith("products/"):
+        try:
+            product_id = int(normalized.split("/", 1)[1])
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail="Товар не найден") from exc
+        return HTMLResponse(
+            await product_detail_page(master_product_id=product_id, user=user, session=session)
+        )
+    if normalized == "product-matching":
+        return HTMLResponse(await product_matching_page(user=user, session=session))
     if normalized == "stocks":
         return HTMLResponse(await stocks_page(user=user, session=session))
     if normalized == "alerts":
@@ -556,9 +653,10 @@ async def double_web_compat(
         "analytics",
         "control",
         "costs",
-        "settings",
     }:
         return HTMLResponse(_placeholder_page(normalized, user))
+    if normalized == "settings":
+        return HTMLResponse(await settings_page(user=user))
     raise HTTPException(status_code=404, detail="Раздел не найден")
 
 
@@ -606,6 +704,7 @@ def _orders_content(filters: OrderWebFilters, rows: list[OrderRow], timezone: st
             if row.requires_action
             else '<span class="badge">инфо</span>'
         )
+        confidence_badge = _confidence_badge(row.economy_confidence)
         profit_cell = (
             f'<td class="num"><span class="badge {profit_badge}">'
             f"{_rub_optional(profit)}</span></td>"
@@ -623,7 +722,7 @@ def _orders_content(filters: OrderWebFilters, rows: list[OrderRow], timezone: st
             f'<td class="num">{_rub(row.revenue)}</td>'
             f"{profit_cell}"
             f'<td class="num">{_percent_optional(row.margin_percent)}</td>'
-            f"<td>{escape(row.status)}<div>{action_badge}</div></td>"
+            f"<td>{escape(row.status)}<div>{action_badge} {confidence_badge}</div></td>"
             f"<td>{escape(row.source_event_type)}</td>"
             "</tr>"
         )
@@ -663,6 +762,11 @@ def _order_detail_content(detail: OrderDetail, timezone: str) -> str:
         actual = item_detail.actual_snapshot
         estimated_profit = estimated.profit if estimated else item.profit_estimated
         actual_profit = actual.profit if actual else None
+        confidence = (
+            estimated.economy_confidence
+            if estimated and estimated.economy_confidence
+            else item.economy_confidence
+        )
         item_rows.append(
             "<tr>"
             f"<td>{escape(item.title or 'Без названия')}"
@@ -676,6 +780,7 @@ def _order_detail_content(detail: OrderDetail, timezone: str) -> str:
             f'<td class="num">{_rub_optional(item.tax_amount_estimated)}</td>'
             f'<td class="num">{_rub_optional(estimated_profit)}</td>'
             f'<td class="num">{_rub_optional(actual_profit)}</td>'
+            f"<td>{_confidence_badge(confidence)}</td>"
             "</tr>"
         )
     raw_payload = escape(json.dumps(order.raw_payload or {}, ensure_ascii=False, indent=2))
@@ -725,6 +830,7 @@ def _order_detail_content(detail: OrderDetail, timezone: str) -> str:
                 <th class="num">Комиссия</th><th class="num">Логистика</th>
                 <th class="num">Себестоимость</th><th class="num">Упаковка</th>
                 <th class="num">Налог</th><th class="num">План</th><th class="num">Факт</th>
+                <th>Достоверность</th>
               </tr>
             </thead>
             <tbody>{"".join(item_rows)}</tbody>
@@ -885,7 +991,8 @@ def _products_content(rows: list[MasterProductAnalyticsRow]) -> str:
         )
         title_cell = (
             '<div style="display:flex;align-items:center;gap:10px">'
-            f"{image}<div><strong>{escape(row.title)}</strong>"
+            f'{image}<div><strong><a href="/web/products/{row.master_product_id}">'
+            f"{escape(row.title)}</a></strong>"
             f'<div class="muted">{escape(row.brand)} · {escape(row.category)}</div>'
             f"{linked_products}</div></div>"
         )
@@ -918,8 +1025,9 @@ def _products_content(rows: list[MasterProductAnalyticsRow]) -> str:
         <h2>Единые карточки товаров</h2>
         <p class="muted">
           Товары WB и Ozon сопоставляются по артикулу продавца. Это база для сравнения
-          площадок, общей прибыли и будущей карточки MasterProduct.
+          площадок, общей прибыли и карточки MasterProduct.
         </p>
+        <p><a class="button" href="/web/product-matching">Сопоставление товаров</a></p>
         <div class="table-wrap">
           <table class="table">
             <thead>
@@ -933,6 +1041,115 @@ def _products_content(rows: list[MasterProductAnalyticsRow]) -> str:
             <tbody>{body}</tbody>
           </table>
         </div>
+      </section>
+    """
+
+
+def _master_product_detail_content(detail: MasterProductDetail) -> str:
+    product_rows = "".join(
+        "<tr>"
+        f"<td>{_marketplace_label(item.marketplace)}</td>"
+        f"<td>{escape(item.seller_article)}</td>"
+        f"<td>{escape(item.marketplace_article)}</td>"
+        f"<td>{escape(item.title)}</td>"
+        f"<td>{escape(item.brand)}</td>"
+        "</tr>"
+        for item in detail.marketplace_products
+    )
+    comparison_rows = "".join(
+        "<tr>"
+        f"<td>{_marketplace_label(row.marketplace)}</td>"
+        f'<td class="num">{row.orders}</td>'
+        f'<td class="num">{row.sales}</td>'
+        f'<td class="num">{_rub(row.revenue)}</td>'
+        f'<td class="num">{_rub(row.estimated_profit)}</td>'
+        f'<td class="num">{_rub(row.actual_profit)}</td>'
+        f'<td class="num">{_percent_optional(row.margin_percent)}</td>'
+        f'<td class="num">{row.stock_quantity}</td>'
+        "</tr>"
+        for row in detail.marketplace_comparison
+    )
+    recommendations = "".join(f"<li>{escape(item)}</li>" for item in detail.recommendations)
+    image = (
+        f'<img src="{escape(detail.image_url)}" alt="{escape(detail.title)}" '
+        'style="width:96px;height:96px;object-fit:cover;border-radius:6px">'
+        if detail.image_url
+        else '<div class="product-thumb">нет фото</div>'
+    )
+    return f"""
+      {_section_subnav("products")}
+      <section class="band">
+        <div style="display:flex;align-items:center;gap:14px">
+          {image}
+          <div>
+            <h2>{escape(detail.title)}</h2>
+            <p class="muted">{escape(detail.brand)} · {escape(detail.category)}</p>
+            <p class="muted">Единый SKU: {escape(detail.canonical_sku)}</p>
+          </div>
+        </div>
+      </section>
+      <section class="band" style="margin-top:14px">
+        <h2>Сравнение WB / Ozon</h2>
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>МП</th><th class="num">Заказов</th><th class="num">Выкупов</th>
+            <th class="num">Выручка</th><th class="num">План</th><th class="num">Факт</th>
+            <th class="num">Маржа</th><th class="num">Остаток</th></tr></thead>
+            <tbody>{comparison_rows}</tbody>
+          </table>
+        </div>
+      </section>
+      <section class="band" style="margin-top:14px">
+        <h2>Что важно</h2>
+        <ul>{recommendations}</ul>
+      </section>
+      <section class="band" style="margin-top:14px">
+        <h2>Связанные карточки</h2>
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>МП</th><th>Артикул продавца</th><th>Артикул МП</th>
+          <th>Название</th><th>Бренд</th></tr></thead>
+          <tbody>{product_rows}</tbody>
+        </table></div>
+      </section>
+    """
+
+
+def _product_matching_content(candidates: list[ProductMatchingCandidate]) -> str:
+    rows = "".join(
+        "<tr>"
+        f'<td><input type="checkbox" name="product_ids" value="{item.product_id}"></td>'
+        f"<td>{_marketplace_label(item.marketplace)}</td>"
+        f"<td>{escape(item.seller_article)}</td>"
+        f"<td>{escape(item.marketplace_article)}</td>"
+        f"<td>{escape(item.title)}</td>"
+        f"<td>{escape(item.current_group or 'нет группы')}</td>"
+        f'<td><form method="post" action="/web/product-matching/unlink">'
+        f'<input type="hidden" name="product_id" value="{item.product_id}">'
+        '<button class="button" type="submit">Исключить</button></form></td>'
+        "</tr>"
+        for item in candidates
+    )
+    if not rows:
+        rows = (
+            '<tr><td colspan="7" class="muted">'
+            "Товары для сопоставления пока не найдены.</td></tr>"
+        )
+    return f"""
+      {_section_subnav("products")}
+      <section class="band">
+        <h2>Сопоставление товаров</h2>
+        <p class="muted">
+          Отметьте карточки WB/Ozon одного товара и создайте ручную группу. Ручная связь
+          имеет приоритет над автоматическим сопоставлением по артикулу.
+        </p>
+        <form method="post" action="/web/product-matching/create">
+          <div class="table-wrap"><table class="table">
+            <thead><tr><th></th><th>МП</th><th>Артикул продавца</th><th>Артикул МП</th>
+            <th>Название</th><th>Группа</th><th>Действие</th></tr></thead>
+            <tbody>{rows}</tbody>
+          </table></div>
+          <button class="button primary" type="submit">Создать ручную MasterProduct-группу</button>
+        </form>
       </section>
     """
 
@@ -1019,6 +1236,26 @@ def _alerts_content(events: list[AlertEvent]) -> str:
     """
 
 
+def _settings_content(user: User) -> str:
+    threshold = user.low_margin_threshold_percent or Decimal("10")
+    return f"""
+      <section class="band">
+        <h2>Настройки контроля</h2>
+        <form class="filters" method="post" action="/web/settings/low-margin">
+          <div>
+            <label for="threshold">Порог низкой маржи, %</label>
+            <input id="threshold" name="threshold" type="number" min="0" max="100" step="0.01"
+                   value="{threshold}">
+          </div>
+          <button class="button primary" type="submit">Сохранить</button>
+        </form>
+        <p class="muted">
+          Этот порог используется в Telegram-отчёте «Низкая маржа» и будущих алертах.
+        </p>
+      </section>
+    """
+
+
 def _data_quality_content(report: DataQualityReport) -> str:
     tone = "good" if report.score >= 80 else "warn" if report.score >= 50 else "bad"
     metrics = "".join(
@@ -1066,9 +1303,14 @@ def _profit_content(data: ProfitPageData) -> str:
             if row.missing_cost_items
             else ""
         )
+        preliminary = (
+            f'<span class="badge warn">{row.preliminary_items} предв.</span>'
+            if row.preliminary_items
+            else ""
+        )
         title_cell = (
             f"<td>{escape(row.title)}"
-            f'<div class="muted">{escape(row.seller_article)}</div>{missing}</td>'
+            f'<div class="muted">{escape(row.seller_article)}</div>{missing} {preliminary}</td>'
         )
         row_html.append(
             "<tr>"
@@ -1135,6 +1377,7 @@ def _section_subnav(active: str) -> str:
         "plan_fact": ("План/факт", "/web/plan-fact"),
         "break_even": ("Безубыточность", "/web/break-even"),
         "products": ("Товары", "/web/products"),
+        "product_matching": ("Сопоставление", "/web/product-matching"),
         "stocks": ("Остатки", "/web/stocks"),
         "alerts": ("Алерты", "/web/alerts"),
         "data_quality": ("Качество данных", "/web/data-quality"),
@@ -1623,6 +1866,25 @@ def _marketplace_label(value: Marketplace) -> str:
     return "Wildberries" if value == Marketplace.WB else "Ozon"
 
 
+def _confidence_badge(value: str | None) -> str:
+    labels = {
+        "EXACT": ("good", "точный"),
+        "ESTIMATED": ("warn", "оценочный"),
+        "PRELIMINARY": ("warn", "предварительный"),
+    }
+    tone, label = labels.get(value or "PRELIMINARY", labels["PRELIMINARY"])
+    return f'<span class="badge {tone}">{label}</span>'
+
+
+def _parse_int_list(raw: str) -> list[int]:
+    ids: list[int] = []
+    for chunk in raw.replace(";", ",").split(","):
+        chunk = chunk.strip()
+        if chunk.isdigit():
+            ids.append(int(chunk))
+    return ids
+
+
 def _mask_token(token: str) -> str:
     if len(token) <= 12:
         return "***"
@@ -1632,6 +1894,11 @@ def _mask_token(token: str) -> str:
 def _request_path(request: Request) -> str:
     url = getattr(request, "url", None)
     return str(getattr(url, "path", "unknown"))
+
+
+async def _urlencoded_form(request: Request) -> dict[str, list[str]]:
+    raw = (await request.body()).decode("utf-8")
+    return parse_qs(raw, keep_blank_values=True)
 
 
 def _query_param(request: Request, name: str, default: str) -> str:

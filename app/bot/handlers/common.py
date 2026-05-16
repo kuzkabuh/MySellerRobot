@@ -1,5 +1,5 @@
-"""version: 1.8.0
-description: Common Telegram command, menu, web-link, analytics, alerts, and admin handlers.
+"""version: 1.9.0
+description: Common Telegram menu, analytics, alerts, settings, and admin handlers.
 updated: 2026-05-15
 """
 
@@ -11,6 +11,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from aiogram import F, Router
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +24,7 @@ from app.bot.keyboards.main import (
     confirm_deploy_update,
     control_menu,
     costs_menu,
+    low_margin_threshold_menu,
     main_menu,
     notification_settings_menu,
     orders_menu,
@@ -50,7 +53,13 @@ from app.services.daily_report_service import DailyReportService
 from app.services.data_quality_service import DataQualityService
 from app.services.deployment_service import DeploymentService
 from app.services.fbs_control_service import FbsControlService
-from app.services.marketplace_estimates import PlannedEconomics, calculate_planned_economics
+from app.services.integration_error_classifier import classify_integration_error
+from app.services.marketplace_estimates import (
+    PlannedEconomics,
+    calculate_planned_economics,
+    confidence_label,
+    confidence_notes,
+)
 from app.services.message_formatter import format_user_datetime, rub
 from app.services.plan_fact_service import PlanFactService
 from app.services.stock_forecast_service import StockForecastService
@@ -60,6 +69,10 @@ from app.services.web_auth_service import WebAuthService
 router = Router(name="common")
 logger = logging.getLogger(__name__)
 SUPPORTED_TIMEZONES = {value for _, value in TIMEZONE_OPTIONS}
+
+
+class LowMarginStates(StatesGroup):
+    waiting_value = State()
 
 
 WELCOME_TEXT = (
@@ -149,6 +162,29 @@ async def settings_handler(message: Message) -> None:
     await message.answer("⚙ Настройки", reply_markup=settings_menu())
 
 
+@router.message(Command("low_margin"))
+async def low_margin_command_handler(message: Message) -> None:
+    user_id = await _ensure_user(message)
+    if user_id is None:
+        return
+    text = (message.text or "").replace("/low_margin", "", 1).strip()
+    if not text:
+        await message.answer("Укажите порог, например: /low_margin 15")
+        return
+    saved = await _save_low_margin_threshold(user_id, text)
+    await message.answer(saved)
+
+
+@router.message(LowMarginStates.waiting_value)
+async def low_margin_manual_value_handler(message: Message, state: FSMContext) -> None:
+    user_id = await _ensure_user(message)
+    if user_id is None:
+        await state.clear()
+        return
+    await message.answer(await _save_low_margin_threshold(user_id, message.text or ""))
+    await state.clear()
+
+
 @router.message(F.text == "🌐 Web-кабинет")
 async def web_cabinet_text_handler(message: Message) -> None:
     user_id = await _ensure_user(message)
@@ -158,7 +194,7 @@ async def web_cabinet_text_handler(message: Message) -> None:
 
 
 @router.callback_query()
-async def callback_handler(callback: CallbackQuery) -> None:
+async def callback_handler(callback: CallbackQuery, state: FSMContext) -> None:
     data = callback.data or ""
     message = callback.message
     if not isinstance(message, Message):
@@ -210,7 +246,11 @@ async def callback_handler(callback: CallbackQuery) -> None:
             elif data == "control:data_quality":
                 await message.answer(await _data_quality_text(user_id))
             elif data == "control:low_margin":
-                await message.answer(await _low_margin_text(user_id))
+                text, current_threshold = await _low_margin_text(user_id)
+                await message.answer(
+                    text,
+                    reply_markup=low_margin_threshold_menu(current_threshold),
+                )
             elif data == "control:sync_errors":
                 await message.answer(await _sync_errors_text(user_id))
             else:
@@ -249,6 +289,20 @@ async def callback_handler(callback: CallbackQuery) -> None:
         user_id = await _get_or_create_user_id(callback)
         if user_id:
             await _send_web_cabinet_link(message, user_id)
+    elif data.startswith("low_margin:set:"):
+        user_id = await _get_or_create_user_id(callback)
+        if user_id:
+            threshold = data.removeprefix("low_margin:set:")
+            await message.edit_text(
+                await _save_low_margin_threshold(user_id, threshold),
+                reply_markup=low_margin_threshold_menu(Decimal(threshold)),
+            )
+    elif data == "low_margin:manual":
+        await state.set_state(LowMarginStates.waiting_value)
+        await message.answer(
+            "Введите новый порог низкой маржи в процентах, например 12.5.\n"
+            "Допустимый диапазон: от 0 до 100."
+        )
     elif data.startswith("order:"):
         user_id = await _get_or_create_user_id(callback)
         if user_id:
@@ -487,28 +541,63 @@ async def _data_quality_text(user_id: int) -> str:
     return "\n".join(lines)
 
 
-async def _low_margin_text(user_id: int) -> str:
+async def _low_margin_text(user_id: int) -> tuple[str, Decimal]:
     async with AsyncSessionFactory() as session:
+        user = await session.get(User, user_id)
+        threshold = Decimal(str(user.low_margin_threshold_percent if user else Decimal("10")))
         result = await session.execute(
             select(OrderItem)
             .join(Order)
             .where(Order.user_id == user_id)
             .where(OrderItem.margin_percent_estimated.is_not(None))
-            .where(OrderItem.margin_percent_estimated < Decimal("10"))
+            .where(OrderItem.margin_percent_estimated < threshold)
             .order_by(Order.order_date.desc())
             .limit(7)
         )
         rows = list(result.scalars().all())
     if not rows:
-        return "📉 Низкая маржа\n\nЗаказов с маржей ниже 10% сейчас не найдено."
-    lines = ["📉 Заказы с низкой маржей", ""]
+        return (
+            "📉 Низкая маржа\n\n"
+            f"Текущий порог: {threshold}%.\n"
+            "Заказов ниже этого уровня сейчас не найдено.\n\n"
+            "Что делать: периодически проверяйте товары после изменения тарифов и себестоимости.",
+            threshold,
+        )
+    lines = [
+        "📉 Заказы с низкой маржей",
+        "",
+        f"Текущий порог: {threshold}%.",
+        "Почему важно: низкая маржа быстро съедается логистикой, скидками и возвратами.",
+        "Что сделать: проверьте цену, себестоимость, комиссию и наличие акций.",
+        "",
+    ]
     for item in rows:
         lines.append(
             f"— {item.seller_article or item.marketplace_article or 'товар'}: "
             f"маржа {item.margin_percent_estimated or 0}% "
             f"прибыль {rub(item.profit_estimated or Decimal('0'))}"
         )
-    return "\n".join(lines)
+    return "\n".join(lines), threshold
+
+
+async def _save_low_margin_threshold(user_id: int, raw_value: str) -> str:
+    value_text = raw_value.strip().replace(",", ".").replace("%", "")
+    try:
+        threshold = Decimal(value_text).quantize(Decimal("0.01"))
+    except Exception:
+        return "Не удалось сохранить порог. Введите число от 0 до 100, например 15."
+    if threshold < 0 or threshold > 100:
+        return "Порог должен быть от 0 до 100%."
+    async with AsyncSessionFactory() as session:
+        user = await session.get(User, user_id)
+        if user is None:
+            return "Не удалось найти пользователя. Откройте /start и повторите настройку."
+        user.low_margin_threshold_percent = threshold
+        await session.commit()
+    return (
+        "✅ Порог низкой маржи сохранён.\n\n"
+        f"Теперь отчёт и алерты будут считать низкой маржу ниже {threshold}%."
+    )
 
 
 async def _sync_errors_text(user_id: int) -> str:
@@ -525,9 +614,11 @@ async def _sync_errors_text(user_id: int) -> str:
         return "✅ Ошибки синхронизации\n\nАктивных ошибок по подключённым кабинетам не найдено."
     lines = ["⚠ Ошибки синхронизации", ""]
     for account in accounts:
+        advice = classify_integration_error(account.last_error_message)
         lines.append(
             f"— {account.marketplace.value} / {account.name}: "
-            f"{account.last_error_message or 'ошибка без описания'}"
+            f"{account.last_error_message or 'ошибка без описания'}\n"
+            f"  Тип: {advice.title}. Что сделать: {advice.recommendation}"
         )
     return "\n".join(lines)
 
@@ -699,8 +790,10 @@ async def _format_order_details(
                 "📊 Плановый результат:",
                 f"Прибыль: {rub(economics.profit)}",
                 f"Маржа: {economics.margin_percent}%",
+                confidence_label(economics.confidence),
             ]
         )
+        lines.extend(f"ℹ {note}" for note in confidence_notes(economics))
     return "\n".join(lines)
 
 
@@ -724,9 +817,11 @@ async def _format_order_profit(session: AsyncSession, order: Order) -> str:
                 f"Себестоимость: {rub(economics.cost_price)}",
                 f"Налог: {rub(economics.tax_amount)}",
                 f"Плановая прибыль: {rub(economics.profit)}",
+                confidence_label(economics.confidence),
                 "",
             ]
         )
+        lines.extend(f"ℹ {note}" for note in confidence_notes(economics))
     return "\n".join(lines).strip()
 
 
@@ -757,14 +852,14 @@ def _commission_detail_label(economics: PlannedEconomics) -> str:
     if economics.commission_rate is not None:
         percent = (economics.commission_rate * Decimal("100")).quantize(Decimal("1"))
         if economics.commission_is_baseline:
-            return f"🏷 Базовая комиссия WB: {rub(economics.commission)} ({percent}%, базовая)"
+            return f"🏷 Базовая комиссия WB: {rub(economics.commission)} ({percent}%, тариф WB)"
         return f"🏷 Комиссия маркетплейса: {rub(economics.commission)} ({percent}%)"
     return f"🏷 Комиссия маркетплейса: {rub(economics.commission)}"
 
 
 def _logistics_detail_label(economics: PlannedEconomics) -> str:
     if economics.logistics_is_baseline:
-        return f"🚚 Логистика: {rub(economics.logistics)} (базовая)"
+        return f"🚚 Логистика: {rub(economics.logistics)} (предварительно)"
     if economics.logistics == Decimal("0"):
         return "🚚 Логистика: будет уточнена после финансового отчёта"
     return f"🚚 Логистика: {rub(economics.logistics)}"

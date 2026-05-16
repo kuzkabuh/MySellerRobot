@@ -1,5 +1,5 @@
-"""version: 1.0.0
-description: Web cabinet order list, order detail, and SKU profit aggregation service.
+"""version: 1.1.0
+description: Web cabinet order list, order detail, SKU profit, and economy confidence service.
 updated: 2026-05-15
 """
 
@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.domain import Order, OrderItem, ProfitSnapshot, SalesEvent
-from app.models.enums import CalculationType, Marketplace, SaleModel
+from app.models.enums import CalculationType, EconomyConfidence, Marketplace, SaleModel
 from app.services.web_dashboard_service import (
     build_dashboard_filters,
     is_cancelled_status,
@@ -59,6 +59,7 @@ class OrderRow:
     source_event_type: str
     requires_action: bool
     missing_cost: bool
+    economy_confidence: str
 
 
 @dataclass(slots=True)
@@ -93,6 +94,7 @@ class ProfitSkuRow:
     margin_percent: Decimal
     roi_percent: Decimal | None
     missing_cost_items: int
+    preliminary_items: int
 
 
 @dataclass(slots=True)
@@ -169,6 +171,7 @@ class WebOrdersProfitService:
                 Order.source_event_type,
                 Order.requires_seller_action,
                 OrderItem.cost_price_used,
+                OrderItem.economy_confidence,
             )
             .join(OrderItem, OrderItem.order_id == Order.id)
             .where(Order.user_id == user_id)
@@ -201,6 +204,7 @@ class WebOrdersProfitService:
                 source_event_type,
                 requires_action,
                 cost_price_used,
+                economy_confidence,
             ) = row
             rows.append(
                 OrderRow(
@@ -228,6 +232,9 @@ class WebOrdersProfitService:
                     ),
                     requires_action=bool(requires_action),
                     missing_cost=cost_price_used is None,
+                    economy_confidence=str(
+                        economy_confidence or EconomyConfidence.PRELIMINARY.value
+                    ),
                 )
             )
         return filters, rows
@@ -320,6 +327,7 @@ class WebOrdersProfitService:
                 actual_profit,
                 margin,
                 missing_cost_items,
+                preliminary_items,
             ) = row
             key = (marketplace_value, seller_article or "")
             sales = sales_map.get(key, 0)
@@ -341,6 +349,7 @@ class WebOrdersProfitService:
                     margin_percent=_decimal(margin),
                     roi_percent=roi_percent(profit, total_cost),
                     missing_cost_items=int(missing_cost_items or 0),
+                    preliminary_items=int(preliminary_items or 0),
                 )
             )
         rows = _filter_profit_rows(rows, filters.economy)
@@ -388,6 +397,9 @@ class WebOrdersProfitService:
                 ),
                 func.avg(OrderItem.margin_percent_estimated),
                 func.count(OrderItem.id).filter(OrderItem.cost_price_used.is_(None)),
+                func.count(OrderItem.id).filter(
+                    OrderItem.economy_confidence == EconomyConfidence.PRELIMINARY.value
+                ),
             )
             .join(OrderItem, OrderItem.order_id == Order.id)
             .outerjoin(ProfitSnapshot, ProfitSnapshot.order_item_id == OrderItem.id)

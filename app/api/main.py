@@ -1,4 +1,4 @@
-"""version: 1.0.9
+"""version: 1.1.0
 description: FastAPI application factory, service endpoints, and web error handling.
 updated: 2026-05-15
 """
@@ -26,7 +26,7 @@ SETTINGS_DEPENDENCY = Depends(get_settings)
 def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging(settings)
-    app = FastAPI(title="Seller Profit Bot API", version="1.4.22", debug=settings.app_debug)
+    app = FastAPI(title="Seller Profit Bot API", version="1.5.0", debug=settings.app_debug)
     app.include_router(web_router)
 
     @app.middleware("http")

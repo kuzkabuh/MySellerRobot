@@ -8,7 +8,7 @@ from decimal import Decimal
 from app.integrations.ozon import OzonClient
 from app.integrations.wb import WildberriesClient
 from app.models.domain import Order, OrderItem, Product
-from app.models.enums import Marketplace, SaleModel
+from app.models.enums import EconomyConfidence, ExpenseSource, Marketplace, SaleModel
 from app.services.marketplace_estimates import calculate_planned_economics
 from app.services.product_sync_service import ProductSyncService
 
@@ -119,6 +119,8 @@ def test_wb_planned_economics_uses_product_tariff_instead_of_fixed_guess() -> No
     assert economics.commission_rate == Decimal("0.1250")
     assert economics.commission_is_known is True
     assert economics.commission_is_baseline is True
+    assert economics.commission_source == ExpenseSource.WB_TARIFF_API
+    assert economics.confidence == EconomyConfidence.PRELIMINARY
 
 
 def test_wb_planned_economics_does_not_fake_unknown_commission() -> None:
@@ -130,3 +132,37 @@ def test_wb_planned_economics_does_not_fake_unknown_commission() -> None:
     assert economics.commission == Decimal("0.00")
     assert economics.commission_rate is None
     assert economics.commission_is_known is False
+    assert economics.confidence == EconomyConfidence.PRELIMINARY
+
+
+def test_exact_economy_when_marketplace_expenses_are_fact_based() -> None:
+    order = Order(marketplace=Marketplace.OZON, sale_model=SaleModel.FBO)
+    item = OrderItem(
+        discounted_price=Decimal("1000"),
+        quantity=1,
+        commission_estimated=Decimal("150"),
+        logistics_estimated=Decimal("70"),
+    )
+
+    economics = calculate_planned_economics(order, item)
+
+    assert economics.commission_source == ExpenseSource.OZON_FINANCIAL_DATA
+    assert economics.logistics_source == ExpenseSource.OZON_FINANCIAL_DATA
+    assert economics.confidence == EconomyConfidence.EXACT
+
+
+def test_wb_fbs_fallback_logistics_is_not_exact() -> None:
+    order = Order(marketplace=Marketplace.WB, sale_model=SaleModel.FBS)
+    item = OrderItem(
+        discounted_price=Decimal("1000"),
+        quantity=1,
+        commission_estimated=Decimal("120"),
+        logistics_estimated=Decimal("0"),
+    )
+
+    economics = calculate_planned_economics(order, item)
+
+    assert economics.logistics == Decimal("92.00")
+    assert economics.logistics_is_known is False
+    assert economics.logistics_source == ExpenseSource.FALLBACK_DEFAULT
+    assert economics.confidence == EconomyConfidence.PRELIMINARY

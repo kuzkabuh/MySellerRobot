@@ -61,7 +61,8 @@ async def test_order_details_card_contains_financial_breakdown_and_user_timezone
     assert "Артикул продавца: W4079" in text
     assert "Цена продажи: 411 ₽" in text
     assert "Комиссия маркетплейса: 41 ₽" in text
-    assert "Логистика: 92 ₽ (базовая)" in text
+    assert "Логистика: 92 ₽ (предварительно)" in text
+    assert "⚪ Расчёт предварительный" in text
     assert "Прибыль: 153 ₽" in text
     assert "15.05.2026 11:33" in text
 
@@ -109,7 +110,8 @@ async def test_order_details_uses_wb_tariff_commission_and_baseline_logistics() 
 
     assert "Комиссия маркетплейса: н/д" not in text
     assert "🚚 Логистика: 0 ₽" not in text
-    assert "Базовая комиссия WB: 138 ₽ (33%, базовая)" in text
-    assert "Логистика: 92 ₽ (базовая)" in text
+    assert "Базовая комиссия WB: 138 ₽ (33%, тариф WB)" in text
+    assert "Логистика: 92 ₽ (предварительно)" in text
+    assert "⚪ Расчёт предварительный" in text
     assert "Прибыль: -25 ₽" in text
     assert "Маржа: -5.90%" in text

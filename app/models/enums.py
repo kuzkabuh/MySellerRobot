@@ -1,6 +1,6 @@
-"""version: 1.0.0
-description: Domain enum definitions.
-updated: 2026-05-14
+"""version: 1.1.0
+description: Domain enum definitions, feature flags, and economy confidence markers.
+updated: 2026-05-15
 """
 
 from enum import StrEnum
@@ -52,6 +52,31 @@ class FboNotificationMode(StrEnum):
 class CalculationType(StrEnum):
     ESTIMATED = "ESTIMATED"
     ACTUAL = "ACTUAL"
+
+
+class EconomyConfidence(StrEnum):
+    EXACT = "EXACT"
+    ESTIMATED = "ESTIMATED"
+    PRELIMINARY = "PRELIMINARY"
+
+
+class ExpenseSource(StrEnum):
+    FINANCIAL_REPORT = "FINANCIAL_REPORT"
+    WB_TARIFF_API = "WB_TARIFF_API"
+    OZON_FINANCIAL_DATA = "OZON_FINANCIAL_DATA"
+    FALLBACK_DEFAULT = "FALLBACK_DEFAULT"
+    UNKNOWN = "UNKNOWN"
+
+
+class FeatureCode(StrEnum):
+    PLAN_FACT = "PLAN_FACT"
+    MASTER_PRODUCT_ANALYTICS = "MASTER_PRODUCT_ANALYTICS"
+    STOCKOUT_FORECAST = "STOCKOUT_FORECAST"
+    DATA_QUALITY = "DATA_QUALITY"
+    EXPORTS = "EXPORTS"
+    AI_ANALYST = "AI_ANALYST"
+    MULTI_ACCOUNT = "MULTI_ACCOUNT"
+    LONG_HISTORY = "LONG_HISTORY"
 
 
 class AlertType(StrEnum):

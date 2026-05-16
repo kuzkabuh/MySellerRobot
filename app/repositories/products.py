@@ -1,5 +1,5 @@
-"""version: 1.2.0
-description: Product, marketplace tariff, and cost history persistence helpers.
+"""version: 1.3.0
+description: Product, marketplace tariff, manual matching, and cost history persistence helpers.
 updated: 2026-05-15
 """
 
@@ -215,6 +215,8 @@ class MasterProductRepository:
             )
             self.session.add(row)
         else:
+            if row.match_method == "MANUAL" and match_method != "MANUAL":
+                return row
             row.master_product_id = master_product_id
             row.marketplace = product.marketplace
             row.seller_article = product.seller_article

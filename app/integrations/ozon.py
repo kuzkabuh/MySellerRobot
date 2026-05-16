@@ -1,5 +1,5 @@
-"""version: 1.2.0
-description: Ozon Seller API client and normalization helpers.
+"""version: 1.3.0
+description: Ozon Seller API client and product/order normalization helpers.
 updated: 2026-05-15
 """
 
@@ -158,6 +158,32 @@ class OzonClient:
                 "/v4/product/info/stocks",
                 headers=self.headers,
                 json={"filter": {"offer_id": offer_ids or [], "visibility": "ALL"}, "limit": 1000},
+            ),
+        )
+
+    async def get_product_info_list(
+        self,
+        *,
+        product_ids: list[str] | None = None,
+        offer_ids: list[str] | None = None,
+        sku: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Fetch detailed product info for up to 1000 identifiers."""
+
+        payload: dict[str, list[str]] = {}
+        if product_ids:
+            payload["product_id"] = product_ids[:1000]
+        if offer_ids:
+            payload["offer_id"] = offer_ids[:1000]
+        if sku:
+            payload["sku"] = sku[:1000]
+        return cast(
+            dict[str, Any],
+            await self.client.request(
+                "POST",
+                "/v3/product/info/list",
+                headers=self.headers,
+                json=payload,
             ),
         )
 
@@ -423,7 +449,18 @@ class OzonClient:
             marketplace_article=str(payload.get("sku") or product_id or ""),
             title=payload.get("name"),
             brand=payload.get("brand"),
-            image_url=payload.get("primary_image") or payload.get("image"),
-            category=payload.get("category_name"),
+            image_url=_first_ozon_image(payload),
+            category=payload.get("category_name") or payload.get("description_category_name"),
             is_active=payload.get("visibility") != "HIDDEN",
         )
+
+
+def _first_ozon_image(payload: dict[str, Any]) -> str | None:
+    images = payload.get("images")
+    if isinstance(images, list) and images:
+        first = images[0]
+        if isinstance(first, str):
+            return first
+        if isinstance(first, dict):
+            return first.get("file_name") or first.get("url")
+    return payload.get("primary_image") or payload.get("image")

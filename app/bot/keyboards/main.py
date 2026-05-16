@@ -1,7 +1,9 @@
-"""version: 1.4.0
-description: Main Telegram inline keyboards.
+"""version: 1.5.0
+description: Main Telegram inline keyboards and control settings menus.
 updated: 2026-05-15
 """
+
+from decimal import Decimal
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -243,6 +245,27 @@ def sale_notification_settings_menu(enabled: bool) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="Назад", callback_data="control_menu")],
         ]
     )
+
+
+def low_margin_threshold_menu(current_threshold: Decimal) -> InlineKeyboardMarkup:
+    """Build quick controls for the user's low-margin threshold."""
+
+    quick_values = ("5", "10", "15", "20")
+    rows = []
+    for value in quick_values:
+        marker = "✓ " if current_threshold == Decimal(value) else ""
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"{marker}{value}%",
+                    callback_data=f"low_margin:set:{value}",
+                )
+            ]
+        )
+    rows.append([InlineKeyboardButton(text="Ввести вручную", callback_data="low_margin:manual")])
+    rows.append([InlineKeyboardButton(text="Открыть прибыль в web", callback_data="web_cabinet")])
+    rows.append([InlineKeyboardButton(text="Назад", callback_data="control_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def timezone_menu(current_timezone: str = "Europe/Moscow") -> InlineKeyboardMarkup:

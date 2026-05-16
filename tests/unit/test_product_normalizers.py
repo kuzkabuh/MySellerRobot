@@ -1,6 +1,6 @@
-"""version: 1.0.0
-description: Unit tests for marketplace product normalization.
-updated: 2026-05-14
+"""version: 1.1.0
+description: Unit tests for marketplace product normalization and enriched Ozon fields.
+updated: 2026-05-15
 """
 
 from app.integrations.ozon import OzonClient
@@ -35,6 +35,9 @@ def test_ozon_product_normalization() -> None:
             "offer_id": "OZON-SKU-001",
             "sku": 555,
             "name": "Полотенце Ozon",
+            "brand": "Fresh",
+            "description_category_name": "Полотенца",
+            "images": ["https://example.com/ozon.jpg"],
             "visibility": "VISIBLE",
         },
         user_id=1,
@@ -45,3 +48,6 @@ def test_ozon_product_normalization() -> None:
     assert product.external_product_id == "987"
     assert product.seller_article == "OZON-SKU-001"
     assert product.marketplace_article == "555"
+    assert product.brand == "Fresh"
+    assert product.category == "Полотенца"
+    assert product.image_url == "https://example.com/ozon.jpg"

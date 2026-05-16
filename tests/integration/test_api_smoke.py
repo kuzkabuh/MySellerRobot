@@ -29,7 +29,7 @@ def test_create_app() -> None:
     app = create_app()
 
     assert app.title == "Seller Profit Bot API"
-    assert app.version == "1.4.22"
+    assert app.version == "1.5.0"
 
 
 def test_web_routes_are_registered() -> None:
@@ -44,6 +44,8 @@ def test_web_routes_are_registered() -> None:
     assert "/web/sales" in paths
     assert "/web/returns" in paths
     assert "/web/products" in paths
+    assert "/web/products/{master_product_id}" in paths
+    assert "/web/product-matching" in paths
     assert "/web/costs" in paths
     assert "/web/plan-fact" in paths
     assert "/web/break-even" in paths

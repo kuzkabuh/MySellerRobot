@@ -1,5 +1,5 @@
-"""version: 1.2.0
-description: Main database models for sellers, marketplaces, tariffs, orders, profit, and alerts.
+"""version: 1.3.0
+description: Main database models for sellers, marketplaces, tariffs, orders, and alerts.
 updated: 2026-05-15
 """
 
@@ -55,6 +55,9 @@ class User(TimestampMixin, Base):
     status: Mapped[UserStatus] = mapped_column(Enum(UserStatus), default=UserStatus.ACTIVE)
     tariff: Mapped[str] = mapped_column(String(64), default="Free")
     timezone: Mapped[str] = mapped_column(String(64), default="Europe/Moscow")
+    low_margin_threshold_percent: Mapped[Decimal] = mapped_column(
+        Numeric(5, 2), default=Decimal("10.00")
+    )
     language: Mapped[str] = mapped_column(String(16), default="ru")
     notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     subscription_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -293,13 +296,16 @@ class OrderItem(TimestampMixin, Base):
     discounted_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
     payout_amount_estimated: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     commission_estimated: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    commission_source: Mapped[str | None] = mapped_column(String(64))
     logistics_estimated: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    logistics_source: Mapped[str | None] = mapped_column(String(64))
     other_marketplace_expenses_estimated: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     cost_price_used: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     package_cost_used: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     tax_amount_estimated: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     profit_estimated: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     margin_percent_estimated: Mapped[Decimal | None] = mapped_column(Numeric(7, 2))
+    economy_confidence: Mapped[str] = mapped_column(String(32), default="PRELIMINARY")
 
     order: Mapped[Order] = relationship(back_populates="items")
     snapshots: Mapped[list["ProfitSnapshot"]] = relationship(back_populates="order_item")
@@ -334,6 +340,7 @@ class ProfitSnapshot(TimestampMixin, Base):
     margin_percent: Mapped[Decimal] = mapped_column(Numeric(7, 2), default=0)
     calculated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     calculation_source: Mapped[str] = mapped_column(String(255))
+    economy_confidence: Mapped[str] = mapped_column(String(32), default="PRELIMINARY")
     raw_financial_data: Mapped[dict[str, Any] | None] = mapped_column(JsonType)
 
     order_item: Mapped[OrderItem] = relationship(back_populates="snapshots")

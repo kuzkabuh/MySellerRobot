@@ -1,5 +1,5 @@
-"""version: 1.1.0
-description: Financial report row import and actual profit recalculation service.
+"""version: 1.2.0
+description: Financial report row import and exact actual profit recalculation service.
 updated: 2026-05-15
 """
 
@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import FinancialReportRow, OrderItem, ProfitSnapshot
-from app.models.enums import CalculationType, Marketplace
+from app.models.enums import CalculationType, EconomyConfidence, ExpenseSource, Marketplace
 from app.schemas.profit import CostInput, ProfitInput
 from app.services.profit_calculator import ProfitCalculator
 
@@ -112,8 +112,11 @@ class FinanceService:
             margin_percent=margin,
             calculated_at=datetime.now(tz=UTC),
             calculation_source=source,
+            economy_confidence=EconomyConfidence.EXACT.value,
             raw_financial_data=None,
         )
+        item.commission_source = item.commission_source or ExpenseSource.FINANCIAL_REPORT.value
+        item.economy_confidence = EconomyConfidence.EXACT.value
         self.session.add(snapshot)
         await self.session.flush()
         return snapshot

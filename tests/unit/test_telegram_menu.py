@@ -3,6 +3,8 @@ description: Unit tests for Telegram menu, analytics actions, web cabinet, and a
 updated: 2026-05-15
 """
 
+from decimal import Decimal
+
 from aiogram.types import InlineKeyboardMarkup
 
 from app.bot.handlers.common import SUPPORTED_TIMEZONES, _is_public_web_url, _timezone_text
@@ -11,6 +13,7 @@ from app.bot.keyboards.main import (
     admin_menu,
     control_menu,
     costs_menu,
+    low_margin_threshold_menu,
     main_menu,
     notification_settings_menu,
     orders_menu,
@@ -120,6 +123,7 @@ def test_known_callback_buttons_have_common_handler_contract() -> None:
         settings_menu(),
         notification_settings_menu(True),
         sale_notification_settings_menu(True),
+        low_margin_threshold_menu(Decimal("10")),
         timezone_menu("Europe/Moscow"),
         web_cabinet_link("https://app.mpcontrol.online/web/login?token=abc"),
     ]
@@ -143,6 +147,7 @@ def test_known_callback_buttons_have_common_handler_contract() -> None:
         "admin_menu",
         "report_time",
         "timezone",
+        "low_margin:manual",
         "help",
         "hide",
         "connect_wb",
@@ -162,6 +167,7 @@ def test_known_callback_buttons_have_common_handler_contract() -> None:
         "admin:",
         "admin_deploy:",
         "timezone:set:",
+        "low_margin:set:",
     )
 
     unknown = {
@@ -193,6 +199,18 @@ def test_new_order_notification_can_include_wb_product_url_button() -> None:
 
     assert any(button.text == "🛍 Открыть товар на WB" and button.url for button in buttons)
     assert "order:10:product" not in set(_callbacks(keyboard))
+
+
+def test_low_margin_threshold_menu_contains_quick_values_and_manual_input() -> None:
+    keyboard = low_margin_threshold_menu(Decimal("10"))
+    buttons = [button for row in keyboard.inline_keyboard for button in row]
+    texts = {button.text for button in buttons}
+    callbacks = {button.callback_data for button in buttons if button.callback_data}
+
+    assert "✓ 10%" in texts
+    assert "Ввести вручную" in texts
+    assert "low_margin:set:15" in callbacks
+    assert "low_margin:manual" in callbacks
 
 
 def _callbacks(keyboard: InlineKeyboardMarkup) -> list[str]:

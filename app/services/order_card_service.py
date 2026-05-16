@@ -1,5 +1,5 @@
-"""version: 1.1.0
-description: Build rich tariff-aware Telegram order and buyout notification cards.
+"""version: 1.2.0
+description: Build rich tariff-aware Telegram order and buyout cards with economy confidence.
 updated: 2026-05-15
 """
 
@@ -15,7 +15,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.domain import Order, OrderItem, Product, SalesEvent, StockSnapshot
 from app.models.enums import Marketplace, SaleModel
 from app.repositories.products import ProductRepository
-from app.services.marketplace_estimates import PlannedEconomics, calculate_planned_economics
+from app.services.marketplace_estimates import (
+    PlannedEconomics,
+    calculate_planned_economics,
+    confidence_label,
+    confidence_notes,
+)
 from app.services.message_formatter import rub
 from app.utils.datetime import format_datetime_for_user, get_user_timezone, user_day_bounds_utc
 
@@ -312,8 +317,10 @@ class OrderCardService:
                 "📊 Плановый результат:",
                 f"Прибыль: {rub(economics.profit)}",
                 f"Маржа: {economics.margin_percent}%",
+                confidence_label(economics.confidence),
             ]
         )
+        lines.extend(f"ℹ {note}" for note in confidence_notes(economics))
         return "\n".join(lines)
 
     def _format_generic_order(
@@ -336,6 +343,7 @@ class OrderCardService:
                 f"📦 {item.title or item.seller_article or 'Товар'}",
                 f"💰 Цена продажи: {rub(economics.revenue)}",
                 f"📊 Плановая прибыль: {rub(economics.profit)}",
+                confidence_label(economics.confidence),
             ]
         )
 
@@ -394,7 +402,7 @@ class OrderCardService:
         if economics.commission_rate is not None:
             percent_value = (economics.commission_rate * Decimal("100")).quantize(Decimal("1"))
             percent = f" ({percent_value}%"
-            percent += ", базовая)" if economics.commission_is_baseline else ")"
+            percent += ", тариф WB)" if economics.commission_is_baseline else ")"
         suffix = (
             "Базовая комиссия WB" if economics.commission_is_baseline else "Комиссия маркетплейса"
         )
@@ -404,7 +412,7 @@ class OrderCardService:
     def _logistics_label(order: Order, economics: PlannedEconomics) -> str:
         prefix = order.sale_model.value if order.sale_model else "Логистика"
         label = f"🌐 Логистика: {prefix}: {rub(economics.logistics)}"
-        return label + " (базовая)" if economics.logistics_is_baseline else label
+        return label + " (предварительно)" if economics.logistics_is_baseline else label
 
     @staticmethod
     def _stock_line(stock: StockSnapshot | None) -> str | None:

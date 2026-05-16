@@ -1,5 +1,5 @@
-"""version: 1.3.0
-description: Enhanced product synchronization service with tariff enrichment and caching.
+"""version: 1.4.0
+description: Enhanced product synchronization service with WB tariffs, Ozon details, and caching.
 updated: 2026-05-15
 """
 
@@ -184,14 +184,16 @@ class ProductSyncService:
             items = result.get("items", [])
             if not isinstance(items, list) or not items:
                 break
+            details = await self._load_ozon_product_details(client, items)
 
             for item in items:
                 if not isinstance(item, dict):
                     continue
 
                 try:
+                    payload = {**item, **details.get(str(item.get("product_id") or ""), {})}
                     product = client.normalize_product(
-                        payload=item,
+                        payload=payload,
                         user_id=account.user_id,
                         account_id=account.id,
                     )
@@ -214,6 +216,34 @@ class ProductSyncService:
                 break
 
         return count
+
+    async def _load_ozon_product_details(
+        self,
+        client: OzonClient,
+        items: list[object],
+    ) -> dict[str, dict[str, object]]:
+        product_ids = [
+            str(item.get("product_id"))
+            for item in items
+            if isinstance(item, dict) and item.get("product_id")
+        ]
+        if not product_ids:
+            return {}
+        try:
+            payload = await client.get_product_info_list(product_ids=product_ids[:1000])
+        except Exception:
+            logger.exception("ozon_product_details_load_failed")
+            return {}
+        result = payload.get("result")
+        raw_items = result.get("items") if isinstance(result, dict) else payload.get("items")
+        if not isinstance(raw_items, list):
+            return {}
+        details: dict[str, dict[str, object]] = {}
+        for row in raw_items:
+            if isinstance(row, dict) and (row.get("id") or row.get("product_id")):
+                key = str(row.get("id") or row.get("product_id"))
+                details[key] = row
+        return details
 
     async def _invalidate_product_cache(self, user_id: int) -> None:
         """Invalidate product-related cache entries."""
