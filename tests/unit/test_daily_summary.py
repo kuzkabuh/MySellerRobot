@@ -36,13 +36,16 @@ def test_summary_formats_wb_and_ozon_blocks_and_total() -> None:
 
     text = DailyReportService().format_report(date(2026, 5, 14), payload)
 
-    assert "🟣 Wildberries:" in text
-    assert "🔵 Ozon:" in text
-    assert "— Выкупов: 1 на 1 290 ₽" in text
-    assert "— Завершённых продаж: 0 на 0 ₽" in text
-    assert "Выкуплено / завершено продаж: 1 290 ₽" in text
-    assert "Выручка по заказам: 8 274 ₽" in text
-    assert "Плановая прибыль: 2 802 ₽" in text
+    assert "📊 <b>Сводка за 14.05.2026</b>" in text
+    assert "<b>Продажи и заказы:</b>" in text
+    assert "<b>Финансы:</b>" in text
+    assert "<b>🟣 Wildberries</b>" in text
+    assert "<b>🔵 Ozon</b>" in text
+    assert "• Выкупов: 1 на 1 290 ₽" in text
+    assert "• Завершённых продаж: 0 на 0 ₽" in text
+    assert "• Выкуплено / завершено продаж: 1 290 ₽" in text
+    assert "• Выручка по заказам: 8 274 ₽" in text
+    assert "• Плановая прибыль: 2 802 ₽" in text
 
 
 def test_summary_keeps_zero_wb_block() -> None:
@@ -61,6 +64,6 @@ def test_summary_keeps_zero_wb_block() -> None:
 
     text = DailyReportService().format_report(date(2026, 5, 14), payload)
 
-    assert "🟣 Wildberries:" in text
-    assert "— Заказов: 0 на 0 ₽" in text
-    assert "💰 Выручка по заказам: 0 ₽" in text
+    assert "<b>🟣 Wildberries</b>" in text
+    assert "• Заказов: 0 на 0 ₽" in text
+    assert "• Выручка по заказам: 0 ₽" in text

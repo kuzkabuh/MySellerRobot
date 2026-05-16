@@ -1,6 +1,6 @@
-"""version: 1.1.0
-description: Daily and period summary report service for Telegram.
-updated: 2026-05-14
+"""version: 1.2.0
+description: Daily and period summary report service with polished Telegram formatting.
+updated: 2026-05-17
 """
 
 from datetime import UTC, date, datetime, time
@@ -49,46 +49,71 @@ class DailyReportService:
         return {marketplace.value: payload[marketplace] for marketplace in marketplaces}
 
     def format_report(self, report_date: date, payload: dict[str, dict[str, Decimal | int]]) -> str:
-        lines = [f"📊 Итоги за {report_date:%d.%m.%Y}", ""]
+        lines = [f"📊 <b>Сводка за {report_date:%d.%m.%Y}</b>", ""]
         total_revenue = Decimal("0")
         total_sales_revenue = Decimal("0")
         total_profit = Decimal("0")
+        total_orders = 0
+        total_sales = 0
+        total_returns = 0
+        total_cancellations = 0
+        marketplace_blocks: list[str] = []
         for marketplace, data in payload.items():
             revenue = Decimal(str(data.get("revenue", 0)))
             sales_revenue = Decimal(str(data.get("sales_revenue", 0)))
             profit = Decimal(str(data.get("estimated_profit", 0)))
             sales_profit = Decimal(str(data.get("sales_estimated_profit", 0)))
+            orders = int(data.get("orders", 0))
+            sales = int(data.get("sales", 0))
+            returns = int(data.get("returns", 0))
+            cancellations = int(data.get("cancellations", 0))
             total_revenue += revenue
             total_sales_revenue += sales_revenue
             total_profit += profit
+            total_orders += orders
+            total_sales += sales
+            total_returns += returns
+            total_cancellations += cancellations
             sales_label = "Выкупов" if marketplace == Marketplace.WB.value else "Завершённых продаж"
             title = self._marketplace_title(marketplace)
-            lines.extend(
+            marketplace_blocks.extend(
                 [
-                    f"{title}:",
-                    f"— Заказов: {data.get('orders', 0)} на {rub(revenue)}",
-                    f"— {sales_label}: {data.get('sales', 0)} на {rub(sales_revenue)}",
-                    f"— Возвратов: {data.get('returns', 0)}",
-                    f"— Отмен: {data.get('cancellations', 0)}",
-                    f"— Плановая прибыль по заказам: {rub(profit)}",
-                    f"— Плановая прибыль по выкупам: {rub(sales_profit)}",
+                    f"<b>{title}</b>",
+                    f"• Заказов: {orders} на {rub(revenue)}",
+                    f"• {sales_label}: {sales} на {rub(sales_revenue)}",
+                    f"• Возвратов: {returns}",
+                    f"• Отмен: {cancellations}",
+                    f"• Плановая прибыль по заказам: {rub(profit)}",
+                    f"• Плановая прибыль по выкупам: {rub(sales_profit)}",
                     "",
                 ]
             )
         lines.extend(
             [
-                "Итого:",
-                f"💰 Выручка по заказам: {rub(total_revenue)}",
-                f"✅ Выкуплено / завершено продаж: {rub(total_sales_revenue)}",
-                f"📈 Плановая прибыль: {rub(total_profit)}",
+                "<b>Продажи и заказы:</b>",
+                f"• Заказов: {total_orders}",
+                f"• Выкупов / завершённых продаж: {total_sales}",
+                f"• Возвратов: {total_returns}",
+                f"• Отмен: {total_cancellations}",
+                "",
+                "<b>Финансы:</b>",
+                f"• Выручка по заказам: {rub(total_revenue)}",
+                f"• Выкуплено / завершено продаж: {rub(total_sales_revenue)}",
+                f"• Плановая прибыль: {rub(total_profit)}",
+                "",
+                "<b>По маркетплейсам:</b>",
+                *marketplace_blocks,
             ]
         )
-        return "\n".join(lines)
+        return "\n".join(lines).strip()
 
     def format_today_summary(self, payload: dict[str, dict[str, Decimal | int]]) -> str:
         if not payload:
-            return "📊 За сегодня пока нет заказов."
-        return self.format_report(date.today(), payload).replace("Итоги за", "Сегодня на")
+            return (
+                "📊 <b>Сводка за сегодня</b>\n\n"
+                "Заказов пока нет. Данные появятся после синхронизации кабинетов."
+            )
+        return self.format_report(date.today(), payload).replace("Сводка за", "Сегодня")
 
     async def _connected_marketplaces(self, user_id: int) -> list[Marketplace]:
         if self.session is None:

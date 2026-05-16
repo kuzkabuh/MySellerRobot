@@ -1,12 +1,11 @@
-"""version: 1.0.0
-description: FBS deadline control and risk alert service.
-updated: 2026-05-14
+"""version: 1.1.0
+description: FBS deadline control and formatted risk alert service.
+updated: 2026-05-17
 """
-
-from datetime import UTC
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.bot.formatters.common import format_fbs_deadline_alert
 from app.models.domain import AlertEvent, Order
 from app.models.enums import AlertType
 from app.repositories.orders import OrderRepository
@@ -51,21 +50,7 @@ class FbsControlService:
         return created
 
     def format_deadline_alert(self, orders: list[Order]) -> str:
-        if not orders:
-            return "FBS-заказов с риском просрочки нет."
-        lines = ["🚨 Риск просрочки FBS/rFBS", ""]
-        for order in orders[:10]:
-            raw_deadline = order.processing_deadline_at or order.deadline_at
-            deadline = raw_deadline.astimezone(UTC) if raw_deadline else None
-            deadline_text = deadline.strftime("%d.%m.%Y %H:%M") if deadline else "н/д"
-            sale_model = order.sale_model or "FBS"
-            lines.append(
-                f"{order.marketplace.value}: {sale_model} заказ "
-                f"{order.order_external_id}, обработать до {deadline_text}"
-            )
-        if len(orders) > 10:
-            lines.append(f"И ещё заказов: {len(orders) - 10}")
-        return "\n".join(lines)
+        return format_fbs_deadline_alert(orders)
 
     async def _alert_exists(self, idempotency_key: str) -> bool:
         from sqlalchemy import select

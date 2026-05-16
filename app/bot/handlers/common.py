@@ -1,12 +1,13 @@
-"""version: 1.9.0
+"""version: 2.0.0
 description: Common Telegram menu, analytics, alerts, settings, and admin handlers.
-updated: 2026-05-15
+updated: 2026-05-17
 """
 
 import logging
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from html import escape
+from types import SimpleNamespace
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -18,6 +19,14 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.bot.formatters.common import (
+    format_percent,
+    format_profit_overview,
+    format_recent_orders,
+    format_stock_rows,
+    format_stockout_rows,
+    format_sync_errors,
+)
 from app.bot.keyboards.main import (
     TIMEZONE_OPTIONS,
     admin_deploy_menu,
@@ -409,13 +418,10 @@ async def _profit_text(user_id: int) -> str:
             .where(OrderItem.order.has(user_id=user_id))
         )
         count, profit, margin = result.one()
-    if not count:
-        return "💰 Пока нет расчётов прибыли. Дождитесь новых заказов или синхронизации."
-    return (
-        "💰 Прибыль\n\n"
-        f"Позиций с расчётом: {count}\n"
-        f"Плановая прибыль: {rub(profit)}\n"
-        f"Средняя маржа: {margin:.2f}%"
+    return format_profit_overview(
+        int(count or 0),
+        Decimal(str(profit or 0)),
+        Decimal(str(margin or 0)),
     )
 
 
@@ -494,17 +500,12 @@ async def _orders_text(user_id: int, mode: str = "orders:last10") -> str:
             query = query.where(Order.sale_model == SaleModel.FBO)
         result = await session.execute(query)
         orders = list(result.scalars().all())
-    if not orders:
-        return "🛒 Заказов по выбранному фильтру пока нет."
-    lines = ["🛒 Последние заказы", ""]
-    for order in orders:
-        action = "требует обработки" if order.requires_seller_action else "информационный"
-        sale_model = order.sale_model.value if order.sale_model else "н/д"
-        lines.append(
-            f"— {format_user_datetime(order.order_date, timezone_name)} {order.marketplace.value} "
-            f"{sale_model} #{_html(order.order_external_id)}: {action}"
-        )
-    return "\n".join(lines)
+    mode_hint = {
+        "orders:today": "Показываю заказы за сегодня по вашему часовому поясу.",
+        "orders:fbs": "Показываю FBS / rFBS заказы, которые требуют обработки.",
+        "orders:fbo": "Показываю последние FBO заказы.",
+    }.get(mode, "Показываю 10 последних заказов по всем кабинетам.")
+    return format_recent_orders(orders, timezone_name=timezone_name, mode_hint=mode_hint)
 
 
 def _today_start_utc(timezone_name: str) -> datetime:
@@ -519,39 +520,24 @@ def _today_start_utc(timezone_name: str) -> datetime:
 async def _stocks_text(user_id: int) -> str:
     async with AsyncSessionFactory() as session:
         rows = await StockForecastService(session).forecast(user_id=user_id)
-    if not rows:
-        return "📦 Остатков пока нет. Фоновая синхронизация обновит их автоматически."
-    lines = ["📦 Остатки и прогноз out-of-stock", ""]
-    for row in rows[:10]:
-        days = f"{row.days_until_stockout} дн." if row.days_until_stockout is not None else "н/д"
-        lines.append(
-            f"• {_html(row.seller_article)}: {row.quantity} шт., склад {_html(row.warehouse)}, "
-            f"хватит на {days}, потери 30д {rub(row.lost_revenue_30d)}"
-        )
-    return "\n".join(lines)
+    return format_stock_rows(rows)
 
 
 async def _stockout_text(user_id: int) -> str:
     async with AsyncSessionFactory() as session:
         rows = await StockForecastService(session).forecast(user_id=user_id)
     risky = [row for row in rows if row.status in {"out_of_stock", "critical", "warning"}]
-    if not risky:
-        return "📦 Прогноз out-of-stock\n\nКритичных рисков по остаткам сейчас не найдено."
-    lines = ["📦 Риски out-of-stock", ""]
-    for row in risky[:7]:
-        days = f"{row.days_until_stockout} дн." if row.days_until_stockout is not None else "н/д"
-        lines.append(f"• {_html(row.seller_article)}: {days}, {_html(row.recommendation)}")
-    return "\n".join(lines)
+    return format_stockout_rows(risky)
 
 
 async def _data_quality_text(user_id: int) -> str:
     async with AsyncSessionFactory() as session:
         report = await DataQualityService(session).report(user_id=user_id)
-    lines = ["🧪 Качество данных", "", f"Индекс: {report.score}/100", ""]
+    lines = ["🧪 <b>Качество данных</b>", "", f"<b>Индекс:</b> {report.score}/100", ""]
     for metric in report.metrics:
         lines.append(f"• {_html(metric.title)}: {_html(metric.value)} ({_html(metric.status)})")
-    lines.append("\nЧто сделать:")
-    lines.extend(f"— {item}" for item in report.recommendations[:5])
+    lines.append("\n<b>Что сделать:</b>")
+    lines.extend(f"• {_html(item)}" for item in report.recommendations[:5])
     return "\n".join(lines)
 
 
@@ -571,16 +557,16 @@ async def _low_margin_text(user_id: int) -> tuple[str, Decimal]:
         rows = list(result.scalars().all())
     if not rows:
         return (
-            "📉 Низкая маржа\n\n"
-            f"Текущий порог: {threshold}%.\n"
+            "📉 <b>Низкая маржа</b>\n\n"
+            f"<b>Текущий порог:</b> {format_percent(threshold)}.\n"
             "Заказов ниже этого уровня сейчас не найдено.\n\n"
             "Что делать: периодически проверяйте товары после изменения тарифов и себестоимости.",
             threshold,
         )
     lines = [
-        "📉 Заказы с низкой маржей",
+        "📉 <b>Заказы с низкой маржей</b>",
         "",
-        f"Текущий порог: {threshold}%.",
+        f"<b>Текущий порог:</b> {format_percent(threshold)}.",
         "Почему важно: низкая маржа быстро съедается логистикой, скидками и возвратами.",
         "Что сделать: проверьте цену, себестоимость, комиссию и наличие акций.",
         "",
@@ -588,7 +574,7 @@ async def _low_margin_text(user_id: int) -> tuple[str, Decimal]:
     for item in rows:
         lines.append(
             f"• {_html(item.seller_article or item.marketplace_article or 'товар')}: "
-            f"маржа {item.margin_percent_estimated or 0}% "
+            f"маржа {format_percent(item.margin_percent_estimated or 0)} "
             f"прибыль {rub(item.profit_estimated or Decimal('0'))}"
         )
     return "\n".join(lines), threshold
@@ -624,17 +610,16 @@ async def _sync_errors_text(user_id: int) -> str:
             .limit(7)
         )
         accounts = list(result.scalars().all())
-    if not accounts:
-        return "✅ Ошибки синхронизации\n\nАктивных ошибок по подключённым кабинетам не найдено."
-    lines = ["⚠ Ошибки синхронизации", ""]
-    for account in accounts:
-        advice = classify_integration_error(account.last_error_message)
-        lines.append(
-            f"• {account.marketplace.value} / {_html(account.name)}: "
-            f"{_html(account.last_error_message, 'ошибка без описания')}\n"
-            f"  Тип: {_html(advice.title)}. Что сделать: {_html(advice.recommendation)}"
+    rows = [
+        SimpleNamespace(
+            marketplace=account.marketplace,
+            name=account.name,
+            last_error_message=account.last_error_message,
+            advice=classify_integration_error(account.last_error_message),
         )
-    return "\n".join(lines)
+        for account in accounts
+    ]
+    return format_sync_errors(rows)
 
 
 async def _control_text(user_id: int) -> str:
@@ -646,8 +631,8 @@ async def _control_text(user_id: int) -> str:
 def _notifications_text(user: User) -> str:
     status = "включены" if user.notifications_enabled else "отключены"
     return (
-        "⚠ Настройки уведомлений\n\n"
-        f"Сейчас уведомления: {status}.\n\n"
+        "⚠️ <b>Настройки уведомлений</b>\n\n"
+        f"<b>Сейчас уведомления:</b> {status}.\n\n"
         "Эта настройка управляет оперативными сообщениями бота. "
         "Детальные настройки по FBO/FBS/rFBS будут доступны в web-кабинете."
     )
@@ -656,8 +641,8 @@ def _notifications_text(user: User) -> str:
 def _sale_notifications_text(enabled: bool) -> str:
     status = "включены" if enabled else "отключены"
     return (
-        "✅ Уведомления о продажах и выкупах\n\n"
-        f"Сейчас уведомления о выкупах: {status}.\n\n"
+        "✅ <b>Уведомления о продажах и выкупах</b>\n\n"
+        f"<b>Сейчас уведомления о выкупах:</b> {status}.\n\n"
         "Бот будет присылать отдельное сообщение, когда маркетплейс зафиксирует "
         "выкуп Wildberries или завершённую продажу Ozon."
     )
