@@ -1,6 +1,6 @@
-"""version: 1.2.0
-description: Build rich tariff-aware Telegram order and buyout cards with economy confidence.
-updated: 2026-05-15
+"""version: 1.3.0
+description: Build rich tariff-aware Telegram order and buyout cards with marketplace-aware URLs.
+updated: 2026-05-16
 """
 
 from dataclasses import dataclass
@@ -61,7 +61,7 @@ class OrderCardService:
         product = await self._resolve_product(order, item)
         stats = await self._order_stats(order, item, timezone_name)
         stock = await self._latest_stock(order, item)
-        product_url = self._wb_product_url(item.marketplace_article)
+        product_url = self._product_url(order.marketplace, item.marketplace_article)
         economics = calculate_planned_economics(
             order,
             item,
@@ -94,7 +94,7 @@ class OrderCardService:
         timezone_name: str,
     ) -> VisualNotification:
         product = await self._resolve_product_for_event(event)
-        product_url = self._wb_product_url(event.marketplace_article)
+        product_url = self._product_url(event.marketplace, event.marketplace_article)
         image_url = product.image_url if product else None
         today_count, today_sum = await self._event_today_stats(event, timezone_name)
         product_today_count, product_today_sum = await self._event_product_stats(
@@ -348,6 +348,17 @@ class OrderCardService:
         )
 
     @staticmethod
+    def _product_url(marketplace: Marketplace, article: str | None) -> str | None:
+        """Generate marketplace-specific product URL."""
+        if not article:
+            return None
+        if marketplace == Marketplace.WB:
+            return OrderCardService._wb_product_url(article)
+        if marketplace == Marketplace.OZON:
+            return OrderCardService._ozon_product_url(article)
+        return None
+
+    @staticmethod
     def _wb_product_url(article: str | None) -> str | None:
         if not article:
             return None
@@ -355,6 +366,16 @@ class OrderCardService:
         if not digits:
             return None
         return f"https://www.wildberries.ru/catalog/{digits}/detail.aspx?targetUrl=XS"
+
+    @staticmethod
+    def _ozon_product_url(article: str | None) -> str | None:
+        """Generate Ozon product URL from SKU."""
+        if not article:
+            return None
+        digits = "".join(ch for ch in str(article) if ch.isdigit())
+        if not digits:
+            return None
+        return f"https://www.ozon.ru/product/{digits}/"
 
     @staticmethod
     def _link_article(article: str | None, product_url: str | None) -> str:

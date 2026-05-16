@@ -1,6 +1,6 @@
-"""version: 1.3.0
-description: Enhanced order ingestion with error handling and monitoring.
-updated: 2026-05-15
+"""version: 1.4.0
+description: Enhanced order ingestion with marketplace-aware notifications.
+updated: 2026-05-16
 """
 
 import logging
@@ -30,6 +30,7 @@ class NewOrderNotification:
     telegram_id: int
     order_id: int
     text: str
+    marketplace: Marketplace
     image_url: str | None = None
     product_url: str | None = None
     parse_mode: str | None = "HTML"
@@ -141,6 +142,7 @@ class OrderProcessingService:
                                     telegram_id=account.user.telegram_id,
                                     order_id=order.id,
                                     text=card.text,
+                                    marketplace=account.marketplace,
                                     image_url=card.image_url,
                                     product_url=card.product_url,
                                     parse_mode=card.parse_mode,

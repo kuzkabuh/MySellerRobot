@@ -1,6 +1,6 @@
-"""version: 2.5.0
-description: Server-side HTML rendering helpers for the web cabinet.
-updated: 2026-05-15
+"""version: 2.6.0
+description: Server-side HTML rendering helpers for the web cabinet with modern design.
+updated: 2026-05-16
 """
 
 from html import escape
@@ -35,163 +35,291 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
   <style>
     :root {{
       color-scheme: light;
-      --bg: #f5f7fb;
+      --bg: #f8fafc;
       --panel: #ffffff;
-      --panel-soft: #f9fbfd;
-      --text: #202632;
-      --muted: #667085;
-      --line: #d9e0e8;
-      --sidebar: #172033;
-      --sidebar-active: #2b3a55;
-      --accent: #0f6f8f;
-      --accent-soft: #e3f3f7;
-      --wb: #7b3fc5;
-      --ozon: #1267d6;
-      --good: #147d4a;
-      --bad: #b42318;
-      --warn: #a65f00;
+      --panel-soft: #f9fafb;
+      --text: #0f172a;
+      --text-secondary: #475569;
+      --muted: #64748b;
+      --line: #e2e8f0;
+      --sidebar: #1e293b;
+      --sidebar-active: #334155;
+      --sidebar-hover: #2d3a4f;
+      --accent: #0ea5e9;
+      --accent-hover: #0284c7;
+      --accent-soft: #e0f2fe;
+      --wb: #8b5cf6;
+      --ozon: #3b82f6;
+      --good: #10b981;
+      --good-soft: #d1fae5;
+      --bad: #ef4444;
+      --bad-soft: #fee2e2;
+      --warn: #f59e0b;
+      --warn-soft: #fef3c7;
+      --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+      --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+      --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+      --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+      --radius: 10px;
+      --radius-sm: 6px;
+      --radius-lg: 14px;
     }}
     * {{ box-sizing: border-box; }}
     body {{
       margin: 0;
-      font-family: Inter, Arial, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
       background: var(--bg);
       color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }}
     .shell {{
       display: grid;
-      grid-template-columns: 248px minmax(0, 1fr);
+      grid-template-columns: 260px minmax(0, 1fr);
       min-height: 100vh;
     }}
     aside {{
       background: var(--sidebar);
       color: white;
-      padding: 22px 16px;
+      padding: 28px 20px;
+      box-shadow: var(--shadow-lg);
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
     }}
     .brand {{
-      font-size: 18px;
+      font-size: 20px;
       font-weight: 700;
-      margin-bottom: 24px;
-      letter-spacing: 0;
+      margin-bottom: 32px;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
     }}
     nav a {{
-      display: block;
-      color: #d8dee8;
+      display: flex;
+      align-items: center;
+      color: #cbd5e1;
       text-decoration: none;
-      padding: 10px 12px;
-      border-radius: 6px;
+      padding: 11px 14px;
+      border-radius: var(--radius-sm);
       margin-bottom: 4px;
       font-size: 14px;
+      font-weight: 500;
+      transition: all 0.15s ease;
     }}
-    nav a.active, nav a:hover {{ background: var(--sidebar-active); color: #fff; }}
-    main {{ padding: 24px; }}
+    nav a:hover {{
+      background: var(--sidebar-hover);
+      color: #fff;
+      transform: translateX(2px);
+    }}
+    nav a.active {{
+      background: var(--sidebar-active);
+      color: #fff;
+      box-shadow: var(--shadow-sm);
+    }}
+    main {{
+      padding: 32px;
+      max-width: 1600px;
+    }}
     .topbar {{
       display: flex;
       justify-content: space-between;
-      gap: 16px;
+      gap: 20px;
       align-items: center;
-      margin-bottom: 18px;
+      margin-bottom: 28px;
     }}
-    h1 {{ font-size: 24px; margin: 0; letter-spacing: 0; }}
-    h2 {{ font-size: 18px; margin: 0 0 12px; letter-spacing: 0; }}
-    h3 {{ font-size: 15px; margin: 0 0 10px; letter-spacing: 0; }}
-    .muted {{ color: var(--muted); }}
+    h1 {{
+      font-size: 28px;
+      margin: 0;
+      letter-spacing: -0.02em;
+      font-weight: 700;
+      color: var(--text);
+    }}
+    h2 {{
+      font-size: 20px;
+      margin: 0 0 16px;
+      letter-spacing: -0.01em;
+      font-weight: 600;
+      color: var(--text);
+    }}
+    h3 {{
+      font-size: 16px;
+      margin: 0 0 12px;
+      letter-spacing: -0.01em;
+      font-weight: 600;
+    }}
+    .muted {{
+      color: var(--muted);
+      font-size: 14px;
+    }}
     .filters {{
       display: grid;
-      grid-template-columns: repeat(5, minmax(130px, 1fr)) auto;
-      gap: 10px;
+      grid-template-columns: repeat(5, minmax(140px, 1fr)) auto;
+      gap: 12px;
       align-items: end;
       background: var(--panel);
       border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 14px;
-      margin-bottom: 14px;
+      border-radius: var(--radius);
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: var(--shadow-sm);
     }}
-    label {{ display: block; color: var(--muted); font-size: 12px; margin-bottom: 5px; }}
+    label {{
+      display: block;
+      color: var(--text-secondary);
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 6px;
+    }}
     select, input {{
       width: 100%;
-      height: 38px;
+      height: 40px;
       border: 1px solid var(--line);
-      border-radius: 6px;
+      border-radius: var(--radius-sm);
       background: white;
       color: var(--text);
-      padding: 0 10px;
+      padding: 0 12px;
       font: inherit;
       font-size: 14px;
+      transition: all 0.15s ease;
+    }}
+    select:focus, input:focus {{
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }}
+    select:hover, input:hover {{
+      border-color: var(--muted);
     }}
     .button {{
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-height: 38px;
+      min-height: 40px;
       border: 1px solid var(--line);
       color: var(--text);
       text-decoration: none;
-      border-radius: 6px;
-      padding: 9px 12px;
+      border-radius: var(--radius-sm);
+      padding: 10px 16px;
       background: white;
       cursor: pointer;
       font: inherit;
+      font-size: 14px;
+      font-weight: 500;
       white-space: nowrap;
+      transition: all 0.15s ease;
+      box-shadow: var(--shadow-sm);
     }}
-    .button.primary {{ background: var(--accent); border-color: var(--accent); color: white; }}
+    .button:hover {{
+      background: var(--panel-soft);
+      border-color: var(--muted);
+      transform: translateY(-1px);
+      box-shadow: var(--shadow);
+    }}
+    .button.primary {{
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+    }}
+    .button.primary:hover {{
+      background: var(--accent-hover);
+      border-color: var(--accent-hover);
+    }}
     .kpi-grid {{
       display: grid;
-      grid-template-columns: repeat(4, minmax(160px, 1fr));
-      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
     }}
     .kpi {{
       background: var(--panel);
       border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 15px;
-      min-height: 112px;
+      border-radius: var(--radius);
+      padding: 20px;
+      min-height: 120px;
+      box-shadow: var(--shadow-sm);
+      transition: all 0.2s ease;
     }}
-    .kpi span {{ display: block; color: var(--muted); font-size: 13px; margin-bottom: 8px; }}
-    .kpi strong {{ display: block; font-size: 22px; line-height: 1.2; overflow-wrap: anywhere; }}
-    .change {{ display: inline-block; margin-top: 9px; font-size: 12px; color: var(--muted); }}
+    .kpi:hover {{
+      box-shadow: var(--shadow-md);
+      transform: translateY(-2px);
+    }}
+    .kpi span {{
+      display: block;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }}
+    .kpi strong {{
+      display: block;
+      font-size: 26px;
+      line-height: 1.2;
+      overflow-wrap: anywhere;
+      font-weight: 700;
+    }}
+    .change {{
+      display: inline-block;
+      margin-top: 10px;
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 500;
+    }}
     .change.up {{ color: var(--good); }}
     .change.down {{ color: var(--bad); }}
     .kpi.good strong {{ color: var(--good); }}
     .kpi.bad strong {{ color: var(--bad); }}
+    .kpi.warn strong {{ color: var(--warn); }}
     .dashboard-grid {{
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 14px;
-      margin-top: 14px;
+      gap: 20px;
+      margin-top: 20px;
     }}
     .band {{
       background: var(--panel);
       border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 16px;
+      border-radius: var(--radius);
+      padding: 24px;
       min-width: 0;
+      box-shadow: var(--shadow-sm);
+      transition: box-shadow 0.2s ease;
+    }}
+    .band:hover {{
+      box-shadow: var(--shadow);
     }}
     .wide {{ grid-column: 1 / -1; }}
     .chart svg {{ width: 100%; height: auto; display: block; }}
     .chart-empty {{
-      min-height: 190px;
+      min-height: 200px;
       display: grid;
       place-items: center;
       color: var(--muted);
       background: var(--panel-soft);
-      border: 1px dashed var(--line);
-      border-radius: 8px;
+      border: 2px dashed var(--line);
+      border-radius: var(--radius);
+      font-weight: 500;
     }}
     .legend {{
       display: flex;
       flex-wrap: wrap;
-      gap: 10px;
-      margin-top: 10px;
+      gap: 16px;
+      margin-top: 14px;
       color: var(--muted);
       font-size: 13px;
+      font-weight: 500;
     }}
     .dot {{
       width: 10px;
       height: 10px;
       border-radius: 50%;
       display: inline-block;
-      margin-right: 5px;
+      margin-right: 6px;
     }}
     .table {{
       width: 100%;
@@ -201,96 +329,149 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
     .table-wrap {{
       width: 100%;
       overflow-x: auto;
+      border-radius: var(--radius-sm);
     }}
     .table th, .table td {{
-      padding: 10px 8px;
+      padding: 12px 10px;
       border-bottom: 1px solid var(--line);
       text-align: left;
       vertical-align: top;
     }}
-    .table th {{ color: var(--muted); font-weight: 600; }}
+    .table thead {{
+      background: var(--panel-soft);
+    }}
+    .table th {{
+      color: var(--text-secondary);
+      font-weight: 600;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }}
+    .table tbody tr {{
+      transition: background 0.15s ease;
+    }}
+    .table tbody tr:hover {{
+      background: var(--panel-soft);
+    }}
     .table td.num, .table th.num {{ text-align: right; }}
-    .table a {{ color: var(--accent); text-decoration: none; font-weight: 600; }}
+    .table a {{
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 600;
+      transition: color 0.15s ease;
+    }}
+    .table a:hover {{
+      color: var(--accent-hover);
+      text-decoration: underline;
+    }}
     .badge {{
       display: inline-flex;
       align-items: center;
       min-height: 24px;
       border-radius: 999px;
-      padding: 3px 8px;
+      padding: 4px 10px;
       background: var(--panel-soft);
       color: var(--muted);
       font-size: 12px;
+      font-weight: 600;
       white-space: nowrap;
     }}
-    .badge.good {{ background: #e6f4ec; color: var(--good); }}
-    .badge.bad {{ background: #fde8e5; color: var(--bad); }}
-    .badge.warn {{ background: #fff3da; color: var(--warn); }}
+    .badge.good {{ background: var(--good-soft); color: var(--good); }}
+    .badge.bad {{ background: var(--bad-soft); color: var(--bad); }}
+    .badge.warn {{ background: var(--warn-soft); color: var(--warn); }}
     .badge.action {{ background: var(--accent-soft); color: var(--accent); }}
-    .badge.wb {{ background: #f1e8fb; color: var(--wb); }}
-    .badge.ozon {{ background: #e9f1ff; color: var(--ozon); }}
+    .badge.wb {{ background: #f3e8ff; color: var(--wb); }}
+    .badge.ozon {{ background: #dbeafe; color: var(--ozon); }}
     .product-thumb {{
       width: 48px;
       height: 48px;
       display: grid;
       place-items: center;
-      border-radius: 6px;
+      border-radius: var(--radius-sm);
       background: var(--panel-soft);
       color: var(--muted);
       font-size: 11px;
       text-align: center;
       flex: 0 0 auto;
+      border: 1px solid var(--line);
     }}
     .subnav {{
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
-      margin-bottom: 14px;
+      gap: 10px;
+      margin-bottom: 20px;
     }}
     .subnav a {{
       color: var(--text);
       text-decoration: none;
       border: 1px solid var(--line);
       background: white;
-      border-radius: 6px;
-      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
       font-size: 14px;
+      font-weight: 500;
+      transition: all 0.15s ease;
+      box-shadow: var(--shadow-sm);
     }}
-    .subnav a.active {{ background: var(--accent); border-color: var(--accent); color: white; }}
+    .subnav a:hover {{
+      background: var(--panel-soft);
+      transform: translateY(-1px);
+      box-shadow: var(--shadow);
+    }}
+    .subnav a.active {{
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+      box-shadow: var(--shadow);
+    }}
     .detail-grid {{
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 14px;
-      margin-top: 14px;
+      gap: 20px;
+      margin-top: 20px;
     }}
     .kv {{
       display: grid;
-      grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
-      gap: 8px 12px;
+      grid-template-columns: minmax(130px, 200px) minmax(0, 1fr);
+      gap: 10px 16px;
       font-size: 14px;
     }}
-    .kv span {{ color: var(--muted); }}
+    .kv span {{
+      color: var(--text-secondary);
+      font-weight: 500;
+    }}
+    .kv strong {{
+      font-weight: 600;
+    }}
     .mono {{
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-family: ui-monospace, 'SF Mono', 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace;
       font-size: 12px;
       white-space: pre-wrap;
       overflow-wrap: anywhere;
       background: var(--panel-soft);
       border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 12px;
+      border-radius: var(--radius-sm);
+      padding: 16px;
+      line-height: 1.5;
     }}
     @media (max-width: 1100px) {{
       .filters {{ grid-template-columns: repeat(3, minmax(130px, 1fr)); }}
-      .kpi-grid {{ grid-template-columns: repeat(2, minmax(140px, 1fr)); }}
+      .kpi-grid {{ grid-template-columns: repeat(2, minmax(160px, 1fr)); }}
       .dashboard-grid {{ grid-template-columns: 1fr; }}
       .detail-grid {{ grid-template-columns: 1fr; }}
     }}
     @media (max-width: 760px) {{
       .shell {{ grid-template-columns: 1fr; }}
-      aside {{ position: static; }}
-      main {{ padding: 16px; }}
+      aside {{
+        position: static;
+        height: auto;
+      }}
+      main {{ padding: 20px; }}
       .filters {{ grid-template-columns: 1fr; }}
-      .topbar {{ align-items: flex-start; flex-direction: column; }}
+      .topbar {{
+        align-items: flex-start;
+        flex-direction: column;
+      }}
     }}
     @media (max-width: 520px) {{
       .kpi-grid {{ grid-template-columns: 1fr; }}

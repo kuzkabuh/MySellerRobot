@@ -55,6 +55,7 @@ async def poll_new_orders(ctx: dict[str, Any]) -> None:
                             notification.order_id,
                             image_url=notification.image_url,
                             product_url=notification.product_url,
+                            marketplace=notification.marketplace,
                             parse_mode=notification.parse_mode,
                         )
                         sent += 1
@@ -176,6 +177,7 @@ async def sync_sale_events(ctx: dict[str, Any]) -> None:
                     notification.text,
                     image_url=notification.image_url,
                     product_url=notification.product_url,
+                    marketplace=notification.marketplace,
                     parse_mode=notification.parse_mode,
                 )
                 await service.mark_notified(notification.event_id)

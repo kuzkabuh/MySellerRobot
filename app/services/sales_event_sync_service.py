@@ -1,6 +1,6 @@
-"""version: 1.1.0
-description: Synchronize marketplace buyout and completed sale events.
-updated: 2026-05-15
+"""version: 1.2.0
+description: Synchronize marketplace buyout and completed sale events with marketplace-aware notifications.
+updated: 2026-05-16
 """
 
 import logging
@@ -46,6 +46,7 @@ class SaleNotification:
     event_id: int
     telegram_id: int
     text: str
+    marketplace: Marketplace
     image_url: str | None = None
     product_url: str | None = None
     parse_mode: str | None = "HTML"
@@ -96,6 +97,7 @@ class SalesEventSyncService:
                     event_id=row.id,
                     telegram_id=account.user.telegram_id,
                     text=card.text,
+                    marketplace=account.marketplace,
                     image_url=card.image_url,
                     product_url=card.product_url,
                     parse_mode=card.parse_mode,

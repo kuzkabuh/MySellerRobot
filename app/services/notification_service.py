@@ -1,10 +1,12 @@
-"""version: 1.2.0
-description: Telegram notification delivery service.
-updated: 2026-05-15
+"""version: 1.3.0
+description: Telegram notification delivery service with marketplace-aware buttons.
+updated: 2026-05-16
 """
 
 from aiogram import Bot
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+from app.models.enums import Marketplace
 
 TELEGRAM_CAPTION_LIMIT = 1024
 
@@ -23,9 +25,10 @@ class NotificationService:
         *,
         image_url: str | None = None,
         product_url: str | None = None,
+        marketplace: Marketplace | None = None,
         parse_mode: str | None = None,
     ) -> None:
-        keyboard = self._build_new_order_keyboard(order_id, product_url)
+        keyboard = self._build_new_order_keyboard(order_id, product_url, marketplace)
         if image_url:
             if len(text) <= TELEGRAM_CAPTION_LIMIT:
                 await self.bot.send_photo(
@@ -48,15 +51,21 @@ class NotificationService:
     def _build_new_order_keyboard(
         order_id: int | None = None,
         product_url: str | None = None,
+        marketplace: Marketplace | None = None,
     ) -> InlineKeyboardMarkup:
         details_callback = f"order:{order_id}:details" if order_id else "orders:last10"
         profit_callback = f"order:{order_id}:profit" if order_id else "profit:today"
         product_callback = f"order:{order_id}:product" if order_id else "products_costs_menu"
-        product_button = (
-            InlineKeyboardButton(text="🛍 Открыть товар на WB", url=product_url)
-            if product_url
-            else InlineKeyboardButton(text="📦 О товаре", callback_data=product_callback)
-        )
+
+        if product_url:
+            if marketplace == Marketplace.OZON:
+                button_text = "🛍 Открыть товар на Ozon"
+            else:
+                button_text = "🛍 Открыть товар на Wildberries"
+            product_button = InlineKeyboardButton(text=button_text, url=product_url)
+        else:
+            product_button = InlineKeyboardButton(text="📦 О товаре", callback_data=product_callback)
+
         return InlineKeyboardMarkup(
             inline_keyboard=[
                 [
@@ -102,13 +111,18 @@ class NotificationService:
         *,
         image_url: str | None = None,
         product_url: str | None = None,
+        marketplace: Marketplace | None = None,
         parse_mode: str | None = None,
     ) -> None:
-        product_button = (
-            InlineKeyboardButton(text="🛍 Открыть товар на WB", url=product_url)
-            if product_url
-            else InlineKeyboardButton(text="📦 Товар", callback_data="products_costs_menu")
-        )
+        if product_url:
+            if marketplace == Marketplace.OZON:
+                button_text = "🛍 Открыть товар на Ozon"
+            else:
+                button_text = "🛍 Открыть товар на Wildberries"
+            product_button = InlineKeyboardButton(text=button_text, url=product_url)
+        else:
+            product_button = InlineKeyboardButton(text="📦 Товар", callback_data="products_costs_menu")
+
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
