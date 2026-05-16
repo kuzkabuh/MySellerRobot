@@ -1,6 +1,6 @@
-"""version: 2.0.0
-description: Payment processing service with YooKassa integration, idempotent and secure.
-updated: 2026-05-16
+"""version: 2.1.0
+description: Payment service with secure YooKassa webhooks and subscription periods.
+updated: 2026-05-17
 """
 
 import logging
@@ -175,32 +175,25 @@ class PaymentService:
             )
             return
 
-        # Update payment status
-        payment.status = PaymentStatus.SUCCEEDED
-        payment.paid_at = datetime.now(tz=UTC)
-        payment.payment_method = yookassa_data.get("payment_method", {}).get("type")
-
-        # Create or renew subscription
-        active_subscription = await self.subscription_service.get_active_subscription(
-            payment.user_id
-        )
-
-        if active_subscription:
-            # Renew existing subscription
-            subscription = await self.subscription_service.renew_subscription(
-                active_subscription.id,
-                payment_id=payment.provider_payment_id,
-            )
-        else:
-            # Create new subscription
+        try:
             subscription = await self.subscription_service.create_subscription(
                 user_id=payment.user_id,
                 tier_code=tier_code,
+                period=period,
                 is_trial=False,
                 payment_provider="yookassa",
                 payment_id=payment.provider_payment_id,
             )
+        except ValueError as exc:
+            logger.error(
+                "payment_subscription_activation_failed",
+                extra={"payment_id": payment.id, "error": str(exc)},
+            )
+            return
 
+        payment.status = PaymentStatus.SUCCEEDED
+        payment.paid_at = datetime.now(tz=UTC)
+        payment.payment_method = yookassa_data.get("payment_method", {}).get("type")
         payment.subscription_id = subscription.id
         await self.session.flush()
 

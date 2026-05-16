@@ -1,6 +1,6 @@
-"""version: 1.0.1
-description: Tests for Release 1.6.2 — Subscription and Payment Infrastructure.
-updated: 2026-05-16
+"""version: 1.0.2
+description: Tests for subscription and payment infrastructure.
+updated: 2026-05-17
 """
 
 from fastapi.testclient import TestClient
@@ -14,7 +14,7 @@ def test_api_imports_successfully() -> None:
     app = create_app()
     assert app is not None
     assert app.title == "Seller Profit Bot API"
-    assert app.version == "1.6.2"
+    assert app.version == "1.6.3"
 
 
 def test_bot_imports_successfully() -> None:

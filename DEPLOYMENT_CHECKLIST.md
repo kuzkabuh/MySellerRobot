@@ -1,4 +1,4 @@
-# Чеклист развертывания обновления 1.6.2
+# Чеклист развертывания обновления 1.6.3
 
 ## Критические исправления
 - ✅ Исправлена ошибка расчета налога (теперь от seller_payout, а не от gross_revenue)
@@ -9,6 +9,7 @@
 - ✅ Включён централизованный HTML parse mode для Telegram-сообщений
 - ✅ Добавлено безопасное HTML-экранирование динамических значений в ключевых сообщениях
 - ✅ Web-кабинет приведён к Material-style design tokens и единой UI-оболочке
+- ✅ Добавлен жизненный цикл подписки: monthly/yearly, trial, expiration и upgrade BASIC → PRO
 - ✅ Добавлена зависимость yookassa в pyproject.toml
 
 ## Шаги развертывания
@@ -29,6 +30,7 @@ alembic upgrade head
 - `20260516_0010` — добавление seller_payout_estimated и tax_rate
 - `20260516_0011` — создание таблиц подписок и платежей
 - `20260516_0012` — выравнивание каталога тарифов и включение ENTERPRISE
+- `20260517_0013` — поле `period` в `user_subscriptions` и статус `REPLACED` для upgrade
 
 ### 3. Настройка переменных окружения
 
@@ -66,6 +68,9 @@ python -c "import app.api.main; print('API OK')"
 # Проверка роутеров
 python -c "from app.bot.main import create_dispatcher; dp = create_dispatcher(); print('Routers:', [r.name for r in dp.sub_routers])"
 
+# Проверка версии API
+python -c "from app.api.main import create_app; app = create_app(); print(app.version)"
+
 # Запуск бота
 python -m app.bot.main
 ```
@@ -92,6 +97,12 @@ python -m app.bot.main
     страница открывается с кодом 200 даже у FREE-пользователя без кабинетов, заказов и подписки.
 11. Проверьте, что миграции/seed создали тариф `free` в `subscription_tiers`. WEB имеет
     защитный fallback, но рабочая БД должна содержать полный каталог тарифов.
+12. Проверьте подписочный lifecycle:
+    - monthly создаёт 30 дней;
+    - yearly создаёт 365 дней;
+    - повторная оплата текущего тарифа продлевает срок от действующего `expires_at`;
+    - BASIC → PRO переводит старую подписку в `REPLACED`;
+    - истёкшие trial/paid подписки не считаются активными.
 
 ## Откат в случае проблем
 

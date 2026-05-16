@@ -1,6 +1,6 @@
-"""version: 1.0.0
-description: Subscription and payment models for monetization.
-updated: 2026-05-16
+"""version: 1.1.0
+description: Subscription and payment models for monetization lifecycle.
+updated: 2026-05-17
 """
 
 from datetime import datetime
@@ -80,6 +80,7 @@ class UserSubscription(TimestampMixin, Base):
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Trial период
+    period: Mapped[str] = mapped_column(String(16), default="monthly")
     is_trial: Mapped[bool] = mapped_column(Boolean, default=False)
     trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

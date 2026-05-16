@@ -1,6 +1,6 @@
-"""version: 1.1.0
-description: Domain enum definitions, feature flags, and economy confidence markers.
-updated: 2026-05-15
+"""version: 1.2.0
+description: Domain enum definitions, subscription statuses, and feature flags.
+updated: 2026-05-17
 """
 
 from enum import StrEnum
@@ -132,6 +132,7 @@ class SubscriptionStatus(StrEnum):
     ACTIVE = "ACTIVE"
     CANCELLED = "CANCELLED"
     EXPIRED = "EXPIRED"
+    REPLACED = "REPLACED"
     TRIAL = "TRIAL"
 
 

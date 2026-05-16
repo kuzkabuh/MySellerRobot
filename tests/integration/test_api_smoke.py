@@ -67,7 +67,7 @@ def test_create_app() -> None:
     app = create_app()
 
     assert app.title == "Seller Profit Bot API"
-    assert app.version == "1.6.2"
+    assert app.version == "1.6.3"
 
 
 def test_web_shell_contains_material_design_tokens() -> None:
