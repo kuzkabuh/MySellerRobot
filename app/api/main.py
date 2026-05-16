@@ -18,6 +18,7 @@ from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.core.logging import configure_logging
 from app.web.routes import router as web_router
+from app.api.webhooks import router as webhooks_router
 
 SESSION_DEPENDENCY = Depends(get_session)
 SETTINGS_DEPENDENCY = Depends(get_settings)
@@ -26,8 +27,9 @@ SETTINGS_DEPENDENCY = Depends(get_settings)
 def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging(settings)
-    app = FastAPI(title="Seller Profit Bot API", version="1.5.0", debug=settings.app_debug)
+    app = FastAPI(title="Seller Profit Bot API", version="1.6.1", debug=settings.app_debug)
     app.include_router(web_router)
+    app.include_router(webhooks_router)
 
     @app.middleware("http")
     async def log_requests(
@@ -37,13 +39,21 @@ def create_app() -> FastAPI:
         import logging
 
         logger = logging.getLogger("app.api.main")
+
+        # Sanitize sensitive headers
+        headers = dict(request.headers)
+        sensitive_headers = {"authorization", "cookie", "x-api-key", "x-admin-secret"}
+        for header in sensitive_headers:
+            if header in headers:
+                headers[header] = "***REDACTED***"
+
         logger.info(
             "incoming_request",
             extra={
                 "method": request.method,
                 "path": request.url.path,
                 "query": str(request.url.query),
-                "headers": dict(request.headers),
+                "headers": headers,
             },
         )
         response = await call_next(request)

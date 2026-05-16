@@ -26,27 +26,39 @@ async def yookassa_webhook(
     """
     try:
         payload = await request.json()
-        event_type = payload.get("event")
-        payment_data = payload.get("object")
+    except Exception as e:
+        logger.error("yookassa_webhook_invalid_json", extra={"error": str(e)})
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
-        if not event_type or not payment_data:
-            logger.error("yookassa_webhook_invalid_payload", extra={"payload": payload})
-            raise HTTPException(status_code=400, detail="Invalid payload")
+    event_type = payload.get("event")
+    payment_data = payload.get("object")
 
+    if not event_type or not payment_data:
+        logger.error(
+            "yookassa_webhook_missing_fields",
+            extra={"has_event": bool(event_type), "has_object": bool(payment_data)},
+        )
+        raise HTTPException(status_code=400, detail="Missing required fields")
+
+    try:
         service = PaymentService(session)
 
         if event_type == "payment.succeeded":
             await service.handle_payment_success(payment_data)
             await session.commit()
+            logger.info("yookassa_webhook_success_processed")
         elif event_type == "payment.canceled":
             await service.handle_payment_cancel(payment_data)
             await session.commit()
+            logger.info("yookassa_webhook_cancel_processed")
         else:
             logger.info("yookassa_webhook_unhandled_event", extra={"event_type": event_type})
 
         return {"status": "ok"}
 
-    except Exception:
-        logger.exception("yookassa_webhook_processing_failed")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("yookassa_webhook_processing_failed", extra={"error": str(e)})
         await session.rollback()
-        raise HTTPException(status_code=500, detail="Webhook processing failed")
+        raise HTTPException(status_code=500, detail="Internal server error")

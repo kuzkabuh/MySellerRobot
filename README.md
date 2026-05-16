@@ -1,10 +1,12 @@
-# version: 1.1.0
+# version: 1.2.0
 # description: Product architecture, setup, API notes, and MVP status.
-# updated: 2026-05-15
+# updated: 2026-05-16
 
 # Seller Profit Bot / KUZ’KA.SELLER BOT
 
 Telegram-бот для селлеров Wildberries и Ozon. Главная идея продукта: бот сообщает не только о новом заказе, а сразу показывает плановую прибыль или убыток по нему.
+
+**Текущая версия:** 1.6.1
 
 ## Статус реализации
 
