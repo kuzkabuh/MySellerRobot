@@ -123,9 +123,9 @@ def upgrade() -> None:
             is_active, sort_order, created_at
         ) VALUES
         (
-            'free', 'FREE', 'Бесплатный тариф для начинающих',
+            'free', 'FREE', 'Бесплатный тариф для начинающих селлеров',
             0, 0,
-            1, 100, NULL,
+            1, 100, 100,
             true, false, false,
             false, false, false,
             false, false,
@@ -134,7 +134,7 @@ def upgrade() -> None:
         (
             'basic', 'BASIC', 'Базовый тариф для малого бизнеса',
             490, 4900,
-            2, 500, NULL,
+            2, 1000, 1000,
             true, true, false,
             false, false, true,
             false, false,
@@ -143,7 +143,7 @@ def upgrade() -> None:
         (
             'pro', 'PRO', 'Профессиональный тариф для активных продавцов',
             1490, 14900,
-            5, NULL, NULL,
+            5, NULL, 10000,
             true, true, true,
             true, true, true,
             false, true,

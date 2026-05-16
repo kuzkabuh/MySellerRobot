@@ -200,6 +200,12 @@ async def callback_handler(callback: CallbackQuery, state: FSMContext) -> None:
     if not isinstance(message, Message):
         await callback.answer("Сообщение недоступно")
         return
+
+    # Subscription menu handlers - delegate to subscription router
+    if data.startswith("subscription"):
+        # These are handled by subscription router, skip here
+        return
+
     if data == "settings":
         await message.edit_text("⚙ Настройки", reply_markup=settings_menu())
     elif data == "back_main":

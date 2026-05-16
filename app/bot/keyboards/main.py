@@ -41,7 +41,10 @@ def main_menu(is_admin: bool = False) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="⚠ Контроль и уведомления", callback_data="control_menu"),
             InlineKeyboardButton(text="🌐 Web-кабинет", callback_data="web_cabinet"),
         ],
-        [InlineKeyboardButton(text="⚙ Настройки", callback_data="settings")],
+        [
+            InlineKeyboardButton(text="💎 Подписка и тарифы", callback_data="subscription_menu"),
+            InlineKeyboardButton(text="⚙ Настройки", callback_data="settings"),
+        ],
     ]
     if is_admin:
         rows.append([InlineKeyboardButton(text="🛠 Администрирование", callback_data="admin_menu")])
@@ -401,3 +404,108 @@ def costs_menu() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="Назад", callback_data="settings")],
         ]
     )
+
+
+def subscription_menu() -> InlineKeyboardMarkup:
+    """Main subscription menu."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📊 Моя подписка", callback_data="subscription:current")],
+            [InlineKeyboardButton(text="💎 Тарифы и цены", callback_data="subscription:pricing")],
+            [InlineKeyboardButton(text="📜 История платежей", callback_data="subscription:payments")],
+            [InlineKeyboardButton(text="❓ Помощь по подпискам", callback_data="subscription:help")],
+            [InlineKeyboardButton(text="Назад", callback_data="back_main")],
+        ]
+    )
+
+
+def subscription_current_menu(has_active: bool = False) -> InlineKeyboardMarkup:
+    """Menu for current subscription view."""
+    buttons = [
+        [InlineKeyboardButton(text="💎 Сменить тариф", callback_data="subscription:pricing")],
+        [InlineKeyboardButton(text="📜 История платежей", callback_data="subscription:payments")],
+    ]
+    if has_active:
+        buttons.insert(
+            1,
+            [InlineKeyboardButton(text="❌ Отменить подписку", callback_data="subscription:cancel_confirm")],
+        )
+    buttons.append([InlineKeyboardButton(text="Назад", callback_data="subscription_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def subscription_pricing_menu() -> InlineKeyboardMarkup:
+    """Menu for pricing/tiers selection."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🆓 FREE — Бесплатно", callback_data="subscription:tier:free")],
+            [InlineKeyboardButton(text="⭐ BASIC — 490₽/мес", callback_data="subscription:tier:basic")],
+            [InlineKeyboardButton(text="💎 PRO — 1490₽/мес", callback_data="subscription:tier:pro")],
+            [InlineKeyboardButton(text="🏢 ENTERPRISE — По запросу", callback_data="subscription:tier:enterprise")],
+            [InlineKeyboardButton(text="📊 Сравнить тарифы", callback_data="subscription:compare")],
+            [InlineKeyboardButton(text="Назад", callback_data="subscription_menu")],
+        ]
+    )
+
+
+def subscription_tier_detail_menu(tier_code: str, current_tier_code: str) -> InlineKeyboardMarkup:
+    """Menu for specific tier details."""
+    buttons = []
+
+    if tier_code != "free" and tier_code != current_tier_code:
+        if tier_code == "basic":
+            buttons.append([
+                InlineKeyboardButton(text="💳 Оплатить 490₽/мес", callback_data=f"subscription:pay:{tier_code}:monthly"),
+                InlineKeyboardButton(text="💳 Оплатить 4900₽/год", callback_data=f"subscription:pay:{tier_code}:yearly"),
+            ])
+        elif tier_code == "pro":
+            buttons.append([
+                InlineKeyboardButton(text="💳 Оплатить 1490₽/мес", callback_data=f"subscription:pay:{tier_code}:monthly"),
+                InlineKeyboardButton(text="💳 Оплатить 14900₽/год", callback_data=f"subscription:pay:{tier_code}:yearly"),
+            ])
+        elif tier_code == "enterprise":
+            buttons.append([
+                InlineKeyboardButton(text="📧 Связаться с нами", url="https://t.me/mpcontrol_support"),
+            ])
+
+    buttons.extend([
+        [InlineKeyboardButton(text="📊 Сравнить тарифы", callback_data="subscription:compare")],
+        [InlineKeyboardButton(text="Назад", callback_data="subscription:pricing")],
+    ])
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def subscription_payment_confirm_menu(tier_code: str, period: str, amount: str) -> InlineKeyboardMarkup:
+    """Confirmation menu before payment."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(
+                text=f"✅ Оплатить {amount}",
+                callback_data=f"subscription:pay_confirm:{tier_code}:{period}"
+            )],
+            [InlineKeyboardButton(text="❌ Отмена", callback_data=f"subscription:tier:{tier_code}")],
+        ]
+    )
+
+
+def subscription_cancel_confirm_menu() -> InlineKeyboardMarkup:
+    """Confirmation menu for subscription cancellation."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Да, отменить", callback_data="subscription:cancel_confirmed"),
+                InlineKeyboardButton(text="❌ Нет, оставить", callback_data="subscription:current"),
+            ],
+        ]
+    )
+
+
+def subscription_payments_menu() -> InlineKeyboardMarkup:
+    """Menu for payment history."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Назад", callback_data="subscription_menu")],
+        ]
+    )
+
