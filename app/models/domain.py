@@ -63,6 +63,7 @@ class User(TimestampMixin, Base):
     subscription_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     accounts: Mapped[list["MarketplaceAccount"]] = relationship(back_populates="user")
+    subscriptions: Mapped[list["UserSubscription"]] = relationship(back_populates="user")
     web_login_tokens: Mapped[list["OneTimeLoginToken"]] = relationship(back_populates="user")
     web_sessions: Mapped[list["UserWebSession"]] = relationship(back_populates="user")
 

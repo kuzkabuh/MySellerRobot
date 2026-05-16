@@ -37,6 +37,10 @@ class Settings(BaseSettings):
 
     ozon_base_url: str = "https://api-seller.ozon.ru"
 
+    # YooKassa payment settings
+    yookassa_shop_id: str = ""
+    yookassa_secret_key: SecretStr = Field(default=SecretStr(""))
+
     order_poll_interval_seconds: int = 180
     daily_report_hour: int = 9
     backfill_default_days: int = 30

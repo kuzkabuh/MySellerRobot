@@ -126,3 +126,17 @@ class SaleEventType(StrEnum):
     BUYOUT = "BUYOUT"
     SALE_COMPLETED = "SALE_COMPLETED"
     DELIVERED_TO_CUSTOMER = "DELIVERED_TO_CUSTOMER"
+
+
+class SubscriptionStatus(StrEnum):
+    ACTIVE = "ACTIVE"
+    CANCELLED = "CANCELLED"
+    EXPIRED = "EXPIRED"
+    TRIAL = "TRIAL"
+
+
+class PaymentStatus(StrEnum):
+    PENDING = "PENDING"
+    SUCCEEDED = "SUCCEEDED"
+    CANCELLED = "CANCELLED"
+    FAILED = "FAILED"
