@@ -1,6 +1,6 @@
 # version: 1.2.0
 # description: Product architecture, setup, API notes, and MVP status.
-# updated: 2026-05-16
+# updated: 2026-05-17
 
 # Seller Profit Bot / KUZ’KA.SELLER BOT
 
@@ -27,6 +27,22 @@ Telegram-бот для селлеров Wildberries и Ozon. Главная ид
   базовой оболочки;
 - добавлены тесты на HTML parse mode, форматирование подписок, админское назначение тарифов и
   web shell.
+
+## WEB stability fix 1.6.2
+
+После расширения WEB-кабинета дополнительно стабилизирован вход по Telegram-ссылке
+`/web/login?token=...`:
+
+- dashboard больше не падает для FREE-пользователя без активной подписки, если каталог тарифов
+  ещё не содержит строку `free`;
+- `SubscriptionService` использует безопасный read-only fallback FREE для рендера WEB и логирует
+  `free_tier_missing_using_safe_fallback`;
+- лимит кабинетов считается SQL-запросом, без async lazy loading через `user.accounts`;
+- добавлен regression smoke-test: одноразовый токен → session cookie → redirect на `/web/` →
+  успешный рендер пустого FREE-кабинета без `Internal Server Error`.
+
+Production-БД всё равно должна быть приведена миграциями и seed-данными к актуальному каталогу
+`subscription_tiers`; fallback нужен как защитный слой для стабильного WEB-рендера.
 
 ## WEB-кабинет
 

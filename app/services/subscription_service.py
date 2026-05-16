@@ -1,16 +1,16 @@
 """version: 1.0.0
-description: Subscription management service with tier limits and feature access.
-updated: 2026-05-16
+description: Subscription service with tier limits, feature access, and safe FREE fallback.
+updated: 2026-05-17
 """
 
 import logging
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.domain import User
+from app.models.domain import MarketplaceAccount, User
 from app.models.enums import SubscriptionStatus
 from app.models.subscriptions import SubscriptionTier, UserSubscription
 
@@ -49,7 +49,8 @@ class SubscriptionService:
         )
         tier = result.scalar_one_or_none()
         if not tier:
-            raise ValueError("FREE tier not found in database")
+            logger.warning("free_tier_missing_using_safe_fallback", extra={"user_id": user_id})
+            return default_free_tier()
         return tier
 
     async def create_subscription(
@@ -155,7 +156,12 @@ class SubscriptionService:
         if not user:
             return (0, 0)
 
-        current_count = len(user.accounts)
+        result = await self.session.execute(
+            select(func.count(MarketplaceAccount.id))
+            .where(MarketplaceAccount.user_id == user_id)
+            .where(MarketplaceAccount.is_active.is_(True))
+        )
+        current_count = int(result.scalar_one() or 0)
         max_allowed = tier.max_marketplace_accounts
 
         return (current_count, max_allowed)
@@ -277,3 +283,34 @@ class SubscriptionService:
         )
 
         return subscription
+
+
+def default_free_tier() -> SubscriptionTier:
+    """Return a read-only FREE tier fallback for stable web rendering.
+
+    The real catalog should still be seeded in subscription_tiers. This fallback keeps
+    FREE users from receiving a 500 if a deployment serves web before the seed migration
+    has populated the tariff catalog.
+    """
+
+    return SubscriptionTier(
+        id=0,
+        code="free",
+        name="FREE",
+        description="Бесплатный тариф для знакомства с MP Control.",
+        price_monthly=ZERO,
+        price_yearly=ZERO,
+        max_marketplace_accounts=1,
+        max_orders_per_month=100,
+        max_products=None,
+        feature_web_cabinet=True,
+        feature_analytics=False,
+        feature_plan_fact=False,
+        feature_break_even=False,
+        feature_stock_forecast=False,
+        feature_alerts=False,
+        feature_priority_support=False,
+        feature_api_access=False,
+        is_active=True,
+        sort_order=0,
+    )

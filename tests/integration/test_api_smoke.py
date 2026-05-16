@@ -1,27 +1,65 @@
 """version: 1.7.0
-description: Smoke tests for API, bot, worker, package startup, and web navigation.
-updated: 2026-05-15
+description: Smoke tests for API, bot, worker, package startup, web login, and navigation.
+updated: 2026-05-17
 """
 
 import importlib.util
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
 from app.api.main import create_app
 from app.bot.main import create_dispatcher
 from app.core.config import Settings
+from app.core.db import get_session
+from app.models.enums import UserStatus
+from app.services.web_auth_service import WEB_SESSION_COOKIE
+from app.services.web_dashboard_service import DashboardData, build_dashboard_filters
 from app.web.routes import dashboard_compat, double_web_compat, login
 from app.workers.settings import WorkerSettings
 
 
 class FakeAsyncSession:
+    async def execute(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+        return EmptyResult()
+
+    async def get(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+        return None
+
+    def add(self, _value) -> None:  # type: ignore[no-untyped-def]
+        return None
+
+    async def flush(self) -> None:
+        return None
+
+    async def refresh(self, *_args, **_kwargs) -> None:  # type: ignore[no-untyped-def]
+        return None
+
     async def commit(self) -> None:
         return None
 
     async def rollback(self) -> None:
+        return None
+
+
+class EmptyResult:
+    def scalar_one_or_none(self):  # type: ignore[no-untyped-def]
+        return None
+
+    def scalar_one(self) -> int:
+        return 0
+
+    def scalars(self):  # type: ignore[no-untyped-def]
+        return self
+
+    def all(self) -> list[object]:
+        return []
+
+    def first(self):  # type: ignore[no-untyped-def]
         return None
 
 
@@ -75,6 +113,98 @@ def test_web_routes_are_registered() -> None:
     assert "/web/web" in paths
     assert "/web/web/" in paths
     assert "/web/logout" in paths
+
+
+def test_web_login_token_flow_renders_empty_free_dashboard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = create_app()
+
+    async def fake_get_session():  # type: ignore[no-untyped-def]
+        yield FakeAsyncSession()
+
+    async def fake_consume(self, token, *, ip_address, user_agent):  # type: ignore[no-untyped-def]
+        assert token == "valid-token"
+        return SimpleNamespace(
+            token="web-session-token",
+            expires_at=datetime.now(tz=UTC) + timedelta(hours=1),
+        )
+
+    async def fake_active_session_user(self, session_hash):  # type: ignore[no-untyped-def]
+        assert session_hash
+        return SimpleNamespace(
+            id=1,
+            telegram_id=123456789,
+            username="seller",
+            first_name="Артем",
+            timezone="Europe/Moscow",
+            language="ru",
+            status=UserStatus.ACTIVE,
+            notifications_enabled=True,
+            low_margin_threshold_percent=10,
+            created_at=datetime(2026, 5, 17, tzinfo=UTC),
+        )
+
+    async def fake_dashboard(
+        self,
+        *,
+        user_id,
+        timezone,
+        period,
+        marketplace,
+        sale_model,
+        date_from,
+        date_to,
+    ):  # type: ignore[no-untyped-def]
+        assert user_id == 1
+        filters = build_dashboard_filters(
+            timezone=timezone,
+            period=period,
+            marketplace=marketplace,
+            sale_model=sale_model,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        return DashboardData(
+            filters=filters,
+            metrics=[],
+            points=[],
+            marketplace_breakdown=[],
+            actual_profit=Decimal("0"),
+        )
+
+    app.dependency_overrides[get_session] = fake_get_session
+    monkeypatch.setattr(
+        "app.services.web_auth_service.WebAuthService.consume_login_token",
+        fake_consume,
+    )
+    monkeypatch.setattr(
+        "app.repositories.web_auth.WebAuthRepository.get_active_session_user",
+        fake_active_session_user,
+    )
+    monkeypatch.setattr(
+        "app.services.web_dashboard_service.WebDashboardService.dashboard",
+        fake_dashboard,
+    )
+
+    with TestClient(app, raise_server_exceptions=True) as client:
+        login_response = client.get("/web/login?token=valid-token", follow_redirects=False)
+
+        assert login_response.status_code == 303
+        assert login_response.headers["location"] == "/web/"
+        assert WEB_SESSION_COOKIE in login_response.cookies
+
+        dashboard_response = client.get("/web/")
+
+    app.dependency_overrides.clear()
+
+    assert dashboard_response.status_code == 200
+    assert "Добро пожаловать, Артем" in dashboard_response.text
+    assert "FREE" in dashboard_response.text
+    assert "Пульс бизнеса" in dashboard_response.text
+    assert "Wildberries / Ozon" in dashboard_response.text
+    assert "Internal Server Error" not in dashboard_response.text
+    assert "Раздел подготовлен" not in dashboard_response.text
 
 
 @pytest.mark.asyncio
