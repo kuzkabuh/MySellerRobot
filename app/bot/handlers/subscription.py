@@ -1,5 +1,6 @@
-"""version: 2.0.0
-description: Telegram bot handlers for subscription management with full menu integration.
+"""version: 3.0.0
+description: Telegram bot handlers for subscription management, admin tariff control,
+    and centralized formatting.
 updated: 2026-05-16
 """
 
@@ -7,34 +8,47 @@ import logging
 
 from aiogram import F, Router
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from app.bot.keyboards.main import (
+    admin_tariff_menu,
+    admin_tariff_select_menu,
     subscription_cancel_confirm_menu,
-    subscription_current_menu,
+    subscription_current_menu_v2,
     subscription_menu,
     subscription_payment_confirm_menu,
     subscription_payments_menu,
-    subscription_pricing_menu,
-    subscription_tier_detail_menu,
+    subscription_pricing_menu_v2,
+    subscription_tier_detail_menu_v2,
 )
+from app.bot.states import AdminTariffStates
 from app.core.config import get_settings
 from app.core.db import AsyncSessionFactory
-from app.models.domain import User
 from app.repositories.users import UserRepository
 from app.services.payment_service import PaymentService
 from app.services.subscription_service import SubscriptionService
+from app.services.subscription_text_formatter import (
+    build_tier_card,
+    format_admin_tariff_confirmation,
+    format_current_subscription,
+    format_pricing_overview,
+    format_subscription_help,
+    format_tier_card,
+    format_user_tariff_notification,
+)
 
 router = Router(name="subscription")
 logger = logging.getLogger(__name__)
 
+# ============================================================
+# PUBLIC SUBSCRIPTION COMMANDS
+# ============================================================
+
 
 @router.message(Command("subscription", "tariff", "pricing"))
 async def show_subscription_info(message: Message) -> None:
-    """Show subscription menu."""
-    if not message.from_user:
-        return
-
+    """Show subscription main menu."""
     await message.answer("💎 Подписка и тарифы", reply_markup=subscription_menu())
 
 
@@ -43,14 +57,18 @@ async def subscription_menu_handler(callback: CallbackQuery) -> None:
     """Show subscription main menu."""
     if not callback.message:
         return
-
     await callback.message.edit_text("💎 Подписка и тарифы", reply_markup=subscription_menu())
     await callback.answer()
 
 
+# ============================================================
+# CURRENT SUBSCRIPTION
+# ============================================================
+
+
 @router.callback_query(F.data == "subscription:current")
 async def show_current_subscription(callback: CallbackQuery) -> None:
-    """Show current subscription details."""
+    """Show current subscription details using centralized formatter."""
     if not callback.from_user or not callback.message:
         return
 
@@ -65,101 +83,75 @@ async def show_current_subscription(callback: CallbackQuery) -> None:
         current_tier = await service.get_user_tier(user.id)
         active_subscription = await service.get_active_subscription(user.id)
 
-        lines = [
-            "📊 <b>Моя подписка</b>",
-            "",
-            f"Текущий тариф: <b>{current_tier.name}</b>",
+        is_free = current_tier.code == "free"
+        is_active = active_subscription is not None and not is_free
+        is_trial = active_subscription.is_trial if active_subscription else False
+
+        expires_at = None
+        trial_ends_at = None
+        if active_subscription:
+            if active_subscription.expires_at:
+                expires_at = active_subscription.expires_at.strftime("%d.%m.%Y")
+            if active_subscription.trial_ends_at:
+                trial_ends_at = active_subscription.trial_ends_at.strftime("%d.%m.%Y")
+
+        features = [
+            ("Web-кабинет", bool(current_tier.feature_web_cabinet)),
+            ("Уведомления о новых заказах", True),
+            ("Карточки заказов с плановой прибылью", True),
+            ("Расширенная аналитика", bool(current_tier.feature_analytics)),
+            ("План/факт анализ", bool(current_tier.feature_plan_fact)),
+            ("Безубыточная цена", bool(current_tier.feature_break_even)),
+            ("Прогноз остатков", bool(current_tier.feature_stock_forecast)),
+            ("Умные алерты", bool(current_tier.feature_alerts)),
         ]
 
-        if active_subscription:
-            if active_subscription.is_trial:
-                lines.append(
-                    f"🎁 Пробный период до {active_subscription.trial_ends_at:%d.%m.%Y}"
-                )
-            if active_subscription.expires_at:
-                lines.append(f"Действует до: {active_subscription.expires_at:%d.%m.%Y}")
-            lines.append(f"Автопродление: {'включено' if active_subscription.auto_renew else 'отключено'}")
-
-        lines.extend([
-            "",
-            "📊 <b>Лимиты тарифа:</b>",
-            f"• Кабинетов МП: {len(user.accounts)}/{current_tier.max_marketplace_accounts}",
-        ])
-
-        if current_tier.max_orders_per_month:
-            lines.append(f"• Заказов в месяц: до {current_tier.max_orders_per_month}")
-        else:
-            lines.append("• Заказов в месяц: без ограничений")
-
-        if current_tier.max_products:
-            lines.append(f"• SKU в аналитике: до {current_tier.max_products}")
-        else:
-            lines.append("• SKU в аналитике: без ограничений")
-
-        lines.extend([
-            "",
-            "✨ <b>Доступные функции:</b>",
-            f"{'✅' if current_tier.feature_web_cabinet else '❌'} Web-кабинет",
-            f"{'✅' if current_tier.feature_analytics else '❌'} Расширенная аналитика",
-            f"{'✅' if current_tier.feature_plan_fact else '❌'} План/факт анализ",
-            f"{'✅' if current_tier.feature_break_even else '❌'} Безубыточная цена",
-            f"{'✅' if current_tier.feature_stock_forecast else '❌'} Прогноз остатков",
-            f"{'✅' if current_tier.feature_alerts else '❌'} Умные алерты",
-            f"{'✅' if current_tier.feature_priority_support else '❌'} Приоритетная поддержка",
-            f"{'✅' if current_tier.feature_api_access else '❌'} API-доступ",
-        ])
-
-        has_active = active_subscription is not None and current_tier.code != "free"
+        text = format_current_subscription(
+            tier_name=current_tier.name,
+            is_active=is_active,
+            expires_at=expires_at,
+            is_trial=is_trial,
+            trial_ends_at=trial_ends_at,
+            features=features,
+            is_free=is_free,
+        )
 
         await callback.message.edit_text(
-            "\n".join(lines),
-            reply_markup=subscription_current_menu(has_active=has_active),
+            text,
+            reply_markup=subscription_current_menu_v2(has_active=is_active),
         )
         await callback.answer()
 
 
+# ============================================================
+# PRICING OVERVIEW
+# ============================================================
+
+
 @router.callback_query(F.data == "subscription:pricing")
 async def show_pricing(callback: CallbackQuery) -> None:
-    """Show pricing and tiers."""
+    """Show pricing overview using centralized formatter."""
     if not callback.message:
         return
 
-    text = [
-        "💎 <b>Тарифы и цены</b>",
-        "",
-        "Выберите тариф, чтобы узнать подробности:",
-        "",
-        "🆓 <b>FREE</b> — Бесплатно",
-        "• 1 кабинет МП",
-        "• 100 заказов/месяц",
-        "• Базовые уведомления",
-        "",
-        "⭐ <b>BASIC</b> — 490₽/мес или 4 900₽/год",
-        "• 2 кабинета МП",
-        "• 1 000 заказов/месяц",
-        "• Расширенная аналитика",
-        "• Алерты и контроль",
-        "",
-        "💎 <b>PRO</b> — 1 490₽/мес или 14 900₽/год",
-        "• 5 кабинетов МП",
-        "• Заказы без ограничений",
-        "• План/факт, безубыточность",
-        "• Прогноз остатков",
-        "• Приоритетная поддержка",
-        "",
-        "🏢 <b>ENTERPRISE</b> — Индивидуально",
-        "• Индивидуальные лимиты",
-        "• API-доступ",
-        "• Роли и команды",
-    ]
+    async with AsyncSessionFactory() as session:
+        service = SubscriptionService(session)
+        tiers = await service.get_all_tiers()
+        cards = [build_tier_card(t) for t in tiers]
 
-    await callback.message.edit_text("\n".join(text), reply_markup=subscription_pricing_menu())
+    text = format_pricing_overview(cards)
+    await callback.message.edit_text(text, reply_markup=subscription_pricing_menu_v2())
     await callback.answer()
+
+
+# ============================================================
+# TIER DETAIL CARDS
+# ============================================================
 
 
 @router.callback_query(F.data.startswith("subscription:tier:"))
 async def show_tier_details(callback: CallbackQuery) -> None:
-    """Show specific tier details."""
+    """Show specific tier details using centralized formatter."""
     if not callback.from_user or not callback.message or not callback.data:
         return
 
@@ -174,68 +166,32 @@ async def show_tier_details(callback: CallbackQuery) -> None:
 
         service = SubscriptionService(session)
         current_tier = await service.get_user_tier(user.id)
-        tier = await service._get_tier_by_code(tier_code)
+        tier = await service.get_tier_by_code(tier_code)
 
         if not tier:
             await callback.answer("Тариф не найден", show_alert=True)
             return
 
-        lines = [f"💎 <b>{tier.name}</b>", ""]
-
-        if tier.description:
-            lines.extend([tier.description, ""])
-
-        lines.append("<b>Стоимость:</b>")
-        if tier.code == "free":
-            lines.append("• Бесплатно")
-        elif tier.code == "enterprise":
-            lines.append("• По индивидуальному запросу")
-        else:
-            lines.append(f"• {tier.price_monthly}₽ в месяц")
-            if tier.price_yearly:
-                monthly_equivalent = tier.price_yearly / 12
-                savings = (tier.price_monthly - monthly_equivalent) * 12
-                lines.append(
-                    f"• {tier.price_yearly}₽ в год (экономия {savings:.0f}₽)"
-                )
-
-        lines.extend([
-            "",
-            "<b>Лимиты:</b>",
-            f"• Кабинетов МП: {tier.max_marketplace_accounts}",
-        ])
-
-        if tier.max_orders_per_month:
-            lines.append(f"• Заказов в месяц: {tier.max_orders_per_month}")
-        else:
-            lines.append("• Заказов в месяц: без ограничений")
-
-        if tier.max_products:
-            lines.append(f"• SKU в аналитике: {tier.max_products}")
-        else:
-            lines.append("• SKU в аналитике: без ограничений")
-
-        lines.extend([
-            "",
-            "<b>Функции:</b>",
-            f"{'✅' if tier.feature_web_cabinet else '❌'} Web-кабинет",
-            f"{'✅' if tier.feature_analytics else '❌'} Расширенная аналитика",
-            f"{'✅' if tier.feature_plan_fact else '❌'} План/факт анализ",
-            f"{'✅' if tier.feature_break_even else '❌'} Безубыточная цена",
-            f"{'✅' if tier.feature_stock_forecast else '❌'} Прогноз остатков",
-            f"{'✅' if tier.feature_alerts else '❌'} Умные алерты",
-            f"{'✅' if tier.feature_priority_support else '❌'} Приоритетная поддержка",
-            f"{'✅' if tier.feature_api_access else '❌'} API-доступ",
-        ])
-
-        if tier.code == current_tier.code:
-            lines.extend(["", "✅ <b>Это ваш текущий тариф</b>"])
+        card = build_tier_card(tier, is_current=(tier.code == current_tier.code))
+        settings = get_settings()
+        text = format_tier_card(
+            card,
+            support_username=settings.support_telegram_username,
+        )
 
         await callback.message.edit_text(
-            "\n".join(lines),
-            reply_markup=subscription_tier_detail_menu(tier.code, current_tier.code),
+            text,
+            reply_markup=subscription_tier_detail_menu_v2(
+                tier_code=tier.code,
+                current_tier_code=current_tier.code,
+            ),
         )
         await callback.answer()
+
+
+# ============================================================
+# PAYMENT FLOW
+# ============================================================
 
 
 @router.callback_query(F.data.startswith("subscription:pay:"))
@@ -256,7 +212,7 @@ async def handle_payment_initiation(callback: CallbackQuery) -> None:
             return
 
         service = SubscriptionService(session)
-        tier = await service._get_tier_by_code(tier_code)
+        tier = await service.get_tier_by_code(tier_code)
 
         if not tier:
             await callback.answer("Тариф не найден", show_alert=True)
@@ -268,19 +224,17 @@ async def handle_payment_initiation(callback: CallbackQuery) -> None:
             return
 
         period_text = "месяц" if period == "monthly" else "год"
-        text = [
-            "💳 <b>Подтверждение оплаты</b>",
-            "",
-            f"Тариф: <b>{tier.name}</b>",
-            f"Период: {period_text}",
-            f"Сумма: <b>{amount}₽</b>",
-            "",
-            "После оплаты подписка активируется автоматически.",
-        ]
+        text = (
+            "💳 <b>Подтверждение оплаты</b>\n\n"
+            f"Тариф: <b>{tier.name}</b>\n"
+            f"Период: {period_text}\n"
+            f"Сумма: <b>{amount} ₽</b>\n\n"
+            "После оплаты подписка активируется автоматически."
+        )
 
         await callback.message.edit_text(
-            "\n".join(text),
-            reply_markup=subscription_payment_confirm_menu(tier_code, period, f"{amount}₽"),
+            text,
+            reply_markup=subscription_payment_confirm_menu(tier_code, period, f"{amount} ₽"),
         )
         await callback.answer()
 
@@ -335,6 +289,11 @@ async def handle_payment_confirmation(callback: CallbackQuery) -> None:
             await callback.answer(f"Ошибка создания платежа: {e}", show_alert=True)
 
 
+# ============================================================
+# PAYMENT HISTORY
+# ============================================================
+
+
 @router.callback_query(F.data == "subscription:payments")
 async def show_payment_history(callback: CallbackQuery) -> None:
     """Show user's payment history."""
@@ -377,7 +336,7 @@ async def show_payment_history(callback: CallbackQuery) -> None:
             }.get(payment.status.value, "Неизвестно")
 
             lines.append(
-                f"{status_emoji} {payment.amount}₽ — {status_text}\n"
+                f"{status_emoji} {payment.amount} ₽ — {status_text}\n"
                 f"   {payment.created_at:%d.%m.%Y %H:%M}"
             )
 
@@ -388,83 +347,34 @@ async def show_payment_history(callback: CallbackQuery) -> None:
         await callback.answer()
 
 
-@router.callback_query(F.data == "subscription:compare")
-async def show_comparison(callback: CallbackQuery) -> None:
-    """Show tier comparison table."""
-    if not callback.message:
-        return
-
-    text = [
-        "📊 <b>Сравнение тарифов</b>",
-        "",
-        "<b>FREE</b>",
-        "• 1 кабинет, 100 заказов/мес",
-        "• Базовые уведомления",
-        "• Web-кабинет",
-        "",
-        "<b>BASIC — 490₽/мес</b>",
-        "• 2 кабинета, 1000 заказов/мес",
-        "• Расширенная аналитика",
-        "• Алерты (маржа, остатки, FBS)",
-        "• Базовый экспорт",
-        "",
-        "<b>PRO — 1490₽/мес</b>",
-        "• 5 кабинетов, без лимита заказов",
-        "• План/факт анализ",
-        "• Безубыточная цена",
-        "• Прогноз остатков",
-        "• Ручное сопоставление товаров",
-        "• Расширенный экспорт",
-        "• Приоритетная поддержка",
-        "",
-        "<b>ENTERPRISE</b>",
-        "• Индивидуальные лимиты",
-        "• API-доступ",
-        "• Роли и команды",
-        "• Кастомные интеграции",
-    ]
-
-    await callback.message.edit_text("\n".join(text), reply_markup=subscription_pricing_menu())
-    await callback.answer()
+# ============================================================
+# SUBSCRIPTION HELP
+# ============================================================
 
 
 @router.callback_query(F.data == "subscription:help")
 async def show_subscription_help(callback: CallbackQuery) -> None:
-    """Show subscription help."""
+    """Show subscription help using centralized formatter."""
     if not callback.message:
         return
 
-    text = [
-        "❓ <b>Помощь по подпискам</b>",
-        "",
-        "<b>Как работает подписка?</b>",
-        "После оплаты подписка активируется автоматически. Вы получаете доступ ко всем функциям выбранного тарифа.",
-        "",
-        "<b>Как оплатить?</b>",
-        "Выберите тариф → нажмите кнопку оплаты → оплатите через ЮКасса (карта, СБП, электронные кошельки).",
-        "",
-        "<b>Можно ли отменить?</b>",
-        "Да, вы можете отменить подписку в любой момент. Доступ сохранится до конца оплаченного периода.",
-        "",
-        "<b>Что будет после окончания?</b>",
-        "Если автопродление отключено, вы вернётесь на тариф FREE. Ваши данные сохранятся.",
-        "",
-        "<b>Есть пробный период?</b>",
-        "Да, для новых пользователей доступен пробный период PRO на 14 дней.",
-        "",
-        "<b>Вопросы?</b>",
-        "Напишите в поддержку: @mpcontrol_support",
-    ]
+    settings = get_settings()
+    text = format_subscription_help(support_username=settings.support_telegram_username)
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="💎 Выбрать тариф", callback_data="subscription:pricing")],
-            [InlineKeyboardButton(text="Назад", callback_data="subscription_menu")],
+            [InlineKeyboardButton(text="💎 Тарифы и цены", callback_data="subscription:pricing")],
+            [InlineKeyboardButton(text="◀️ Назад", callback_data="subscription_menu")],
         ]
     )
 
-    await callback.message.edit_text("\n".join(text), reply_markup=keyboard)
+    await callback.message.edit_text(text, reply_markup=keyboard)
     await callback.answer()
+
+
+# ============================================================
+# SUBSCRIPTION CANCELLATION
+# ============================================================
 
 
 @router.callback_query(F.data == "subscription:cancel_confirm")
@@ -473,19 +383,17 @@ async def confirm_subscription_cancel(callback: CallbackQuery) -> None:
     if not callback.message:
         return
 
-    text = [
-        "❌ <b>Отмена подписки</b>",
-        "",
-        "Вы уверены, что хотите отменить подписку?",
-        "",
-        "• Доступ к функциям сохранится до конца оплаченного периода",
-        "• После этого вы вернётесь на тариф FREE",
-        "• Ваши данные не будут удалены",
-        "• Вы сможете возобновить подписку в любой момент",
-    ]
+    text = (
+        "❌ <b>Отмена подписки</b>\n\n"
+        "Вы уверены, что хотите отменить подписку?\n\n"
+        "• Доступ к функциям сохранится до конца оплаченного периода\n"
+        "• После этого вы вернётесь на тариф FREE\n"
+        "• Ваши данные не будут удалены\n"
+        "• Вы сможете возобновить подписку в любой момент"
+    )
 
     await callback.message.edit_text(
-        "\n".join(text),
+        text,
         reply_markup=subscription_cancel_confirm_menu(),
     )
     await callback.answer()
@@ -514,26 +422,348 @@ async def cancel_subscription(callback: CallbackQuery) -> None:
         await service.cancel_subscription(active_subscription.id)
         await session.commit()
 
-        text = [
-            "✅ <b>Подписка отменена</b>",
-            "",
+        text = (
+            "✅ <b>Подписка отменена</b>\n\n"
             f"Доступ к функциям тарифа {active_subscription.tier.name} сохранится до "
-            f"{active_subscription.expires_at:%d.%m.%Y}.",
-            "",
-            "После этого вы вернётесь на тариф FREE.",
-            "Вы можете возобновить подписку в любой момент.",
-        ]
+            f"{active_subscription.expires_at:%d.%m.%Y}.\n\n"
+            "После этого вы вернётесь на тариф FREE.\n"
+            "Вы можете возобновить подписку в любой момент."
+        )
 
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="💎 Выбрать тариф", callback_data="subscription:pricing")],
+                [
+                    InlineKeyboardButton(
+                        text="💎 Выбрать тариф",
+                        callback_data="subscription:pricing",
+                    )
+                ],
                 [InlineKeyboardButton(text="Назад", callback_data="subscription_menu")],
             ]
         )
 
-        await callback.message.edit_text("\n".join(text), reply_markup=keyboard)
+        await callback.message.edit_text(text, reply_markup=keyboard)
         await callback.answer("Подписка отменена")
 
 
+# ============================================================
+# ADMIN TARIFF MANAGEMENT
+# ============================================================
 
 
+def _is_admin_callback(callback: CallbackQuery) -> bool:
+    """Check if callback author is an admin."""
+    if not callback.from_user:
+        return False
+    return callback.from_user.id in get_settings().admin_ids
+
+
+def _is_admin_message(message: Message) -> bool:
+    """Check if message author is an admin."""
+    if not message.from_user:
+        return False
+    return message.from_user.id in get_settings().admin_ids
+
+
+@router.callback_query(F.data == "admin_tariff_menu")
+async def admin_tariff_menu_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Show admin tariff management menu."""
+    if not callback.message:
+        return
+    if not _is_admin_callback(callback):
+        await callback.answer("Доступно только администраторам", show_alert=True)
+        return
+
+    await callback.message.edit_text(
+        "👑 <b>Управление тарифами</b>\n\nВыберите действие:",
+        reply_markup=admin_tariff_menu(),
+    )
+    await state.clear()
+    logger.info("admin_tariff_menu_opened", extra={"admin_telegram_id": callback.from_user.id})
+    await callback.answer()
+
+
+@router.message(Command("admin_tariffs"))
+async def admin_tariff_command_handler(message: Message) -> None:
+    """Open admin tariff management menu from a safe command."""
+    if not _is_admin_message(message):
+        await message.answer("Доступно только администраторам.")
+        return
+
+    await message.answer(
+        "👑 <b>Управление тарифами</b>\n\nВыберите действие:",
+        reply_markup=admin_tariff_menu(),
+    )
+    logger.info(
+        "admin_tariff_menu_opened",
+        extra={"admin_telegram_id": message.from_user.id if message.from_user else None},
+    )
+
+
+@router.callback_query(F.data == "admin_tariff:self")
+async def admin_tariff_self_handler(callback: CallbackQuery) -> None:
+    """Admin changes own tariff."""
+    if not callback.message:
+        return
+    if not _is_admin_callback(callback):
+        await callback.answer("Доступно только администраторам", show_alert=True)
+        return
+
+    async with AsyncSessionFactory() as session:
+        user_repo = UserRepository(session)
+        user = await user_repo.get_by_telegram_id(callback.from_user.id)
+        if not user:
+            await callback.answer("Пользователь не найден", show_alert=True)
+            return
+
+        service = SubscriptionService(session)
+        current_tier = await service.get_user_tier(user.id)
+        active_subscription = await service.get_active_subscription(user.id)
+
+        lines = [
+            "👤 <b>Изменение собственного тарифа</b>",
+            "",
+            f"Текущий тариф: <b>{current_tier.name}</b>",
+        ]
+
+        if active_subscription and active_subscription.expires_at:
+            lines.append(f"Действует до: {active_subscription.expires_at:%d.%m.%Y}")
+
+        lines.extend(["", "Выберите новый тариф:"])
+
+        await callback.message.edit_text(
+            "\n".join(lines),
+            reply_markup=admin_tariff_select_menu(),
+        )
+        await callback.answer()
+
+
+@router.callback_query(F.data == "admin_tariff:user")
+async def admin_tariff_user_prompt_handler(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
+    """Prompt admin for target user Telegram ID."""
+    if not callback.message:
+        return
+    if not _is_admin_callback(callback):
+        await callback.answer("Доступно только администраторам", show_alert=True)
+        return
+
+    await callback.message.edit_text(
+        "🔎 <b>Изменение тарифа пользователя</b>\n\n"
+        "Введите Telegram ID пользователя, которому нужно изменить тариф.\n\n"
+        "ID можно узнать через админское меню: 👥 Пользователи."
+    )
+    await state.set_state(AdminTariffStates.waiting_for_user_id)
+    await callback.answer()
+
+
+@router.message(AdminTariffStates.waiting_for_user_id, F.text.regexp(r"^\d+$"))
+async def admin_tariff_user_lookup_handler(message: Message, state: FSMContext) -> None:
+    """Look up user by Telegram ID after admin enters it."""
+    if not _is_admin_message(message):
+        return
+
+    telegram_id = int(message.text)
+
+    async with AsyncSessionFactory() as session:
+        user_repo = UserRepository(session)
+        user = await user_repo.get_by_telegram_id(telegram_id)
+
+        if not user:
+            await message.answer(
+                f"Пользователь с Telegram ID <b>{telegram_id}</b> не найден."
+            )
+            await state.clear()
+            return
+
+        service = SubscriptionService(session)
+        current_tier = await service.get_user_tier(user.id)
+        active_subscription = await service.get_active_subscription(user.id)
+
+        lines = [
+            "👤 <b>Пользователь найден</b>",
+            "",
+            f"Имя: <b>{user.first_name or '—'}</b>",
+        ]
+        if user.username:
+            lines.append(f"Username: @{user.username}")
+        lines.append(f"Telegram ID: {user.telegram_id}")
+        lines.append("")
+        lines.append(f"Текущий тариф: <b>{current_tier.name}</b>")
+
+        if active_subscription and active_subscription.expires_at:
+            lines.append(f"Действует до: {active_subscription.expires_at:%d.%m.%Y}")
+
+        lines.extend(["", "Выберите новый тариф:"])
+
+        logger.info(
+            "admin_tariff_user_selected",
+            extra={
+                "admin_telegram_id": message.from_user.id if message.from_user else None,
+                "target_user_id": user.id,
+                "target_telegram_id": user.telegram_id,
+                "old_tier": current_tier.code,
+                "expires_at": (
+                    active_subscription.expires_at.isoformat()
+                    if active_subscription and active_subscription.expires_at
+                    else None
+                ),
+            },
+        )
+
+        keyboard = admin_tariff_select_menu(target_telegram_id=user.telegram_id)
+        keyboard.inline_keyboard.insert(
+            0,
+            [
+                InlineKeyboardButton(
+                    text="◀️ Назад",
+                    callback_data="admin_tariff:user",
+                )
+            ],
+        )
+
+        await message.answer(
+            "\n".join(lines),
+            reply_markup=keyboard,
+        )
+        await state.clear()
+
+
+@router.message(AdminTariffStates.waiting_for_user_id)
+async def admin_tariff_user_lookup_invalid_handler(
+    message: Message,
+    state: FSMContext,
+) -> None:
+    """Handle invalid target user input in admin tariff flow."""
+    if not _is_admin_message(message):
+        await state.clear()
+        return
+    await message.answer("Введите Telegram ID пользователя цифрами.")
+
+
+@router.callback_query(F.data.startswith("admin_tariff:assign:"))
+async def admin_tariff_assign_handler(callback: CallbackQuery) -> None:
+    """Assign tariff to user (self or other)."""
+    if not callback.message or not callback.data:
+        return
+    if not _is_admin_callback(callback):
+        await callback.answer("Доступно только администраторам", show_alert=True)
+        return
+
+    parts = callback.data.split(":")
+    tier_code = parts[2]
+    days: int | None = None
+    target_telegram_id_from_callback: int | None = None
+
+    if len(parts) >= 4 and parts[3].isdigit() and parts[3] != "0":
+        days = int(parts[3])
+    if len(parts) >= 5 and parts[4].isdigit():
+        target_telegram_id_from_callback = int(parts[4])
+
+    async with AsyncSessionFactory() as session:
+        user_repo = UserRepository(session)
+        admin_user = await user_repo.get_by_telegram_id(callback.from_user.id)
+        if not admin_user:
+            await callback.answer("Администратор не найден", show_alert=True)
+            return
+
+        service = SubscriptionService(session)
+        tier = await service.get_tier_by_code(tier_code)
+        if not tier:
+            await callback.answer("Тариф не найден", show_alert=True)
+            return
+
+        target_user_id: int
+        target_user_name: str
+        target_telegram_id: int
+
+        if target_telegram_id_from_callback is not None:
+            target_telegram_id = target_telegram_id_from_callback
+            user = await user_repo.get_by_telegram_id(target_telegram_id)
+            if not user:
+                await callback.answer("Пользователь не найден", show_alert=True)
+                return
+            target_user_id = user.id
+            target_user_name = user.first_name or f"ID:{user.telegram_id}"
+            target_telegram_id = user.telegram_id
+        else:
+            target_user_id = admin_user.id
+            target_user_name = admin_user.first_name or "Администратор"
+            target_telegram_id = admin_user.telegram_id
+
+        try:
+            new_subscription = await service.assign_admin_subscription(
+                user_id=target_user_id,
+                tier_code=tier_code,
+                days=days,
+                admin_user_id=admin_user.id,
+            )
+            await session.commit()
+
+            expires_at_str = None
+            if new_subscription and new_subscription.expires_at:
+                expires_at_str = new_subscription.expires_at.strftime("%d.%m.%Y")
+
+            confirmation_text = format_admin_tariff_confirmation(
+                user_name=target_user_name,
+                new_tier_name=tier.name,
+                expires_at=expires_at_str,
+            )
+
+            await callback.message.edit_text(
+                confirmation_text,
+                reply_markup=admin_tariff_menu(),
+            )
+
+            logger.info(
+                "admin_tariff_changed",
+                extra={
+                    "admin_telegram_id": callback.from_user.id,
+                    "target_user_id": target_user_id,
+                    "target_telegram_id": target_telegram_id,
+                    "new_tier": tier_code,
+                    "days": days,
+                },
+            )
+
+            await _notify_user_tariff_change(
+                bot=callback.bot,
+                telegram_id=target_telegram_id,
+                tier_name=tier.name,
+                expires_at=expires_at_str,
+            )
+
+        except Exception as e:
+            logger.exception(
+                "admin_tariff_change_failed",
+                extra={
+                    "admin_telegram_id": callback.from_user.id,
+                    "target_user_id": target_user_id,
+                    "error": str(e),
+                },
+            )
+            await callback.answer(f"Ошибка: {e}", show_alert=True)
+
+        await callback.answer()
+
+
+async def _notify_user_tariff_change(
+    bot,
+    telegram_id: int,
+    tier_name: str,
+    expires_at: str | None,
+) -> None:
+    """Notify user about tariff change by admin."""
+    try:
+        text = format_user_tariff_notification(
+            new_tier_name=tier_name,
+            expires_at=expires_at,
+        )
+        await bot.send_message(telegram_id, text, parse_mode="HTML")
+    except Exception:
+        logger.exception(
+            "admin_tariff_user_notify_failed",
+            extra={"target_telegram_id": telegram_id},
+        )

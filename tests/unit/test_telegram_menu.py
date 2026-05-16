@@ -11,6 +11,7 @@ from app.bot.handlers.common import SUPPORTED_TIMEZONES, _is_public_web_url, _ti
 from app.bot.keyboards.main import (
     admin_deploy_menu,
     admin_menu,
+    admin_tariff_select_menu,
     control_menu,
     costs_menu,
     low_margin_threshold_menu,
@@ -44,6 +45,23 @@ def test_admin_menu_contains_deploy_section() -> None:
     texts = [button.text for row in admin_menu().inline_keyboard for button in row]
 
     assert "🚀 Обновление и деплой" in texts
+
+
+def test_admin_menu_contains_tariff_management() -> None:
+    texts = [button.text for row in admin_menu().inline_keyboard for button in row]
+
+    assert "💳 Управление тарифами" in texts
+
+
+def test_admin_tariff_select_menu_can_bind_target_user() -> None:
+    callbacks = _callbacks(admin_tariff_select_menu(target_telegram_id=123456789))
+
+    assert "admin_tariff:assign:free:0:123456789" in callbacks
+    assert "admin_tariff:assign:basic:30:123456789" in callbacks
+    assert "admin_tariff:assign:basic:365:123456789" in callbacks
+    assert "admin_tariff:assign:pro:30:123456789" in callbacks
+    assert "admin_tariff:assign:pro:365:123456789" in callbacks
+    assert "admin_tariff:assign:enterprise:0:123456789" in callbacks
 
 
 def test_admin_deploy_menu_contains_required_actions() -> None:
@@ -158,6 +176,8 @@ def test_known_callback_buttons_have_common_handler_contract() -> None:
         "cost_manual",
         "cost_template",
         "cost_upload",
+        "subscription_menu",
+        "admin_tariff_menu",
     }
     known_prefixes = (
         "summary:",
@@ -168,6 +188,8 @@ def test_known_callback_buttons_have_common_handler_contract() -> None:
         "admin_deploy:",
         "timezone:set:",
         "low_margin:set:",
+        "subscription:",
+        "admin_tariff:",
     )
 
     unknown = {

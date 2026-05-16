@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     yookassa_shop_id: str = ""
     yookassa_secret_key: SecretStr = Field(default=SecretStr(""))
 
+    # Support contact
+    support_telegram_username: str = "mpcontrol_support"
+
     order_poll_interval_seconds: int = 180
     daily_report_hour: int = 9
     backfill_default_days: int = 30

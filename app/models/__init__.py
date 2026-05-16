@@ -1,6 +1,6 @@
-"""version: 1.1.0
+"""version: 1.2.0
 description: SQLAlchemy model exports.
-updated: 2026-05-15
+updated: 2026-05-16
 """
 
 from app.models.base import Base
@@ -30,6 +30,7 @@ from app.models.domain import (
     User,
     UserWebSession,
 )
+from app.models.subscriptions import Payment, SubscriptionTier, UserSubscription
 
 __all__ = [
     "AlertEvent",
@@ -46,6 +47,7 @@ __all__ = [
     "OneTimeLoginToken",
     "Order",
     "OrderItem",
+    "Payment",
     "Product",
     "ProductCostHistory",
     "ProfitSnapshot",
@@ -54,7 +56,9 @@ __all__ = [
     "StockSnapshot",
     "Subscription",
     "SubscriptionPlan",
+    "SubscriptionTier",
     "SyncJob",
     "User",
+    "UserSubscription",
     "UserWebSession",
 ]

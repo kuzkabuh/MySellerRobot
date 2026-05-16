@@ -202,7 +202,7 @@ async def callback_handler(callback: CallbackQuery, state: FSMContext) -> None:
         return
 
     # Subscription menu handlers - delegate to subscription router
-    if data.startswith("subscription"):
+    if data.startswith("subscription") or data.startswith("admin_tariff"):
         # These are handled by subscription router, skip here
         return
 

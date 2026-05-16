@@ -5,7 +5,7 @@ updated: 2026-05-14
 
 import asyncio
 
-from aiogram import Bot, Dispatcher
+from aiogram import Bot, Dispatcher, Router
 from aiogram.fsm.storage.redis import RedisStorage
 
 from app.bot.handlers.accounts import router as accounts_router
@@ -34,11 +34,16 @@ def create_dispatcher(storage: RedisStorage | None = None) -> Dispatcher:
     """Create dispatcher and register all bot routers without starting polling."""
 
     dispatcher = Dispatcher(storage=storage)
-    dispatcher.include_router(accounts_router)
-    dispatcher.include_router(costs_router)
-    dispatcher.include_router(subscription_router)
-    dispatcher.include_router(common_router)
+    for router in (accounts_router, costs_router, subscription_router, common_router):
+        _include_router(dispatcher, router)
     return dispatcher
+
+
+def _include_router(dispatcher: Dispatcher, router: Router) -> None:
+    """Attach module-level routers while keeping dispatcher factory reusable in tests."""
+    if router.parent_router is not None:
+        router._parent_router = None
+    dispatcher.include_router(router)
 
 
 async def main() -> None:

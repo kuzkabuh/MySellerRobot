@@ -133,7 +133,7 @@ def calculate_planned_economics(
 
     # Выручка продавца (seller payout) = цена покупателя - расходы МП
     seller_payout = quantize_money(item.payout_amount_estimated or ZERO)
-    if seller_payout == ZERO:
+    if seller_payout == ZERO or seller_payout == buyer_price:
         # Если нет точного значения, рассчитываем
         seller_payout = quantize_money(
             buyer_price - expenses.commission - expenses.logistics - other
@@ -152,10 +152,10 @@ def calculate_planned_economics(
     # Чистая прибыль
     profit = quantize_money(seller_payout - cost - package - tax)
 
-    # Маржа от выручки продавца
+    # Маржа от цены продажи, чтобы карточки заказов совпадали с unit economics UI.
     margin = (
-        quantize_money(profit / seller_payout * Decimal("100"))
-        if seller_payout > ZERO
+        quantize_money(profit / buyer_price * Decimal("100"))
+        if buyer_price > ZERO
         else ZERO
     )
 

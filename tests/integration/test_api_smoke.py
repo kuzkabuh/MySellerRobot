@@ -29,7 +29,7 @@ def test_create_app() -> None:
     app = create_app()
 
     assert app.title == "Seller Profit Bot API"
-    assert app.version == "1.5.0"
+    assert app.version == "1.6.2"
 
 
 def test_web_routes_are_registered() -> None:
@@ -168,6 +168,7 @@ def test_bot_dispatcher_factory_registers_routers_without_polling() -> None:
     assert [router.name for router in dispatcher.sub_routers] == [
         "accounts",
         "costs",
+        "subscription",
         "common",
     ]
 

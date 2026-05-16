@@ -20,3 +20,7 @@ class ConnectOzonStates(StatesGroup):
 class CostStates(StatesGroup):
     waiting_for_manual_cost = State()
     waiting_for_excel_file = State()
+
+
+class AdminTariffStates(StatesGroup):
+    waiting_for_user_id = State()

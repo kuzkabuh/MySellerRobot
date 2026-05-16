@@ -61,10 +61,13 @@ class NotificationService:
             if marketplace == Marketplace.OZON:
                 button_text = "🛍 Открыть товар на Ozon"
             else:
-                button_text = "🛍 Открыть товар на Wildberries"
+                button_text = "🛍 Открыть товар на WB"
             product_button = InlineKeyboardButton(text=button_text, url=product_url)
         else:
-            product_button = InlineKeyboardButton(text="📦 О товаре", callback_data=product_callback)
+            product_button = InlineKeyboardButton(
+                text="📦 О товаре",
+                callback_data=product_callback,
+            )
 
         return InlineKeyboardMarkup(
             inline_keyboard=[
@@ -118,10 +121,13 @@ class NotificationService:
             if marketplace == Marketplace.OZON:
                 button_text = "🛍 Открыть товар на Ozon"
             else:
-                button_text = "🛍 Открыть товар на Wildberries"
+                button_text = "🛍 Открыть товар на WB"
             product_button = InlineKeyboardButton(text=button_text, url=product_url)
         else:
-            product_button = InlineKeyboardButton(text="📦 Товар", callback_data="products_costs_menu")
+            product_button = InlineKeyboardButton(
+                text="📦 Товар",
+                callback_data="products_costs_menu",
+            )
 
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[

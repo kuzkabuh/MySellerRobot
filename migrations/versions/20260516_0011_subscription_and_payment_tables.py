@@ -103,7 +103,11 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
         sa.PrimaryKeyConstraint("id"),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["subscription_id"], ["user_subscriptions.id"], ondelete="SET NULL"),
+        sa.ForeignKeyConstraint(
+            ["subscription_id"],
+            ["user_subscriptions.id"],
+            ondelete="SET NULL",
+        ),
         sa.UniqueConstraint("provider", "provider_payment_id"),
     )
     op.create_index("ix_payments_user_id", "payments", ["user_id"])
@@ -125,7 +129,7 @@ def upgrade() -> None:
         (
             'free', 'FREE', 'Бесплатный тариф для начинающих селлеров',
             0, 0,
-            1, 100, 100,
+            1, 100, NULL,
             true, false, false,
             false, false, false,
             false, false,
@@ -134,7 +138,7 @@ def upgrade() -> None:
         (
             'basic', 'BASIC', 'Базовый тариф для малого бизнеса',
             490, 4900,
-            2, 1000, 1000,
+            2, 1000, NULL,
             true, true, false,
             false, false, true,
             false, false,
@@ -143,7 +147,7 @@ def upgrade() -> None:
         (
             'pro', 'PRO', 'Профессиональный тариф для активных продавцов',
             1490, 14900,
-            5, NULL, 10000,
+            5, NULL, NULL,
             true, true, true,
             true, true, true,
             false, true,
@@ -156,7 +160,7 @@ def upgrade() -> None:
             true, true, true,
             true, true, true,
             true, true,
-            false, 3, NOW()
+            true, 3, NOW()
         )
     """
     )
