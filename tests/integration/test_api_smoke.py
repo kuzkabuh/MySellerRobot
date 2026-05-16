@@ -32,6 +32,18 @@ def test_create_app() -> None:
     assert app.version == "1.6.2"
 
 
+def test_web_shell_contains_material_design_tokens() -> None:
+    from app.web.rendering import page
+
+    html = page("Дашборд", "Артем", '<section class="kpi-grid"></section>')
+
+    assert "--primary" in html
+    assert "--surface" in html
+    assert "kpi-grid" in html
+    assert "dashboard-grid" in html
+    assert "table-wrap" in html
+
+
 def test_web_routes_are_registered() -> None:
     app = create_app()
     paths = {route.path for route in app.routes}

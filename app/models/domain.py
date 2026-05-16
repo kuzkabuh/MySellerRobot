@@ -5,7 +5,7 @@ updated: 2026-05-15
 
 from datetime import date, datetime, time
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     JSON,
@@ -43,6 +43,9 @@ from app.models.enums import (
 )
 
 JsonType = JSON().with_variant(JSONB, "postgresql")
+
+if TYPE_CHECKING:
+    from app.models.subscriptions import UserSubscription
 
 
 class User(TimestampMixin, Base):

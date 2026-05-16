@@ -3,13 +3,14 @@ description: Tests for Release 1.6.2 — Secure & Idempotent Payment Processing.
 updated: 2026-05-16
 """
 
-import pytest
 from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from app.models.enums import PaymentStatus
-from app.models.subscriptions import Payment, SubscriptionTier, UserSubscription
+from app.models.subscriptions import Payment
 from app.services.payment_service import PaymentService
 
 
@@ -287,7 +288,11 @@ async def test_user_id_mismatch_prevents_activation(payment_service, mock_sessio
         amount=Decimal("490"),
         currency="RUB",
         status=PaymentStatus.PENDING,
-        payment_metadata={"tier_code": "basic", "period": "monthly", "user_id": "999"},  # wrong user
+        payment_metadata={
+            "tier_code": "basic",
+            "period": "monthly",
+            "user_id": "999",
+        },
     )
 
     mock_result = MagicMock()

@@ -5,6 +5,7 @@ updated: 2026-05-15
 
 from datetime import datetime
 from decimal import Decimal
+from html import escape
 
 from app.models.enums import Marketplace, SaleModel
 from app.schemas.orders import NormalizedOrder, NormalizedOrderItem
@@ -21,6 +22,13 @@ def rub(value: Decimal | None) -> str:
 
 def format_user_datetime(value: datetime | None, timezone_name: str = "Europe/Moscow") -> str:
     return format_datetime_for_user(value, timezone_name)
+
+
+def safe_text(value: object | None, fallback: str = "н/д") -> str:
+    """Escape external values for Telegram HTML messages."""
+    if value is None or value == "":
+        return fallback
+    return escape(str(value), quote=False)
 
 
 class MessageFormatter:
@@ -52,11 +60,11 @@ class MessageFormatter:
         lines = [
             f"{title_icon} Новый заказ — {marketplace_title} / {sale_model.value}",
             "",
-            f"📦 Товар: {item.title or 'Без названия'}",
-            f"🏷 Артикул продавца: {item.seller_article or 'н/д'}",
-            f"🔢 Артикул маркетплейса: {item.marketplace_article or 'н/д'}",
+            f"📦 Товар: {safe_text(item.title, 'Без названия')}",
+            f"🏷 Артикул продавца: {safe_text(item.seller_article)}",
+            f"🔢 Артикул маркетплейса: {safe_text(item.marketplace_article)}",
             f"🚚 Модель продаж: {sale_model.value}",
-            f"🏭 Склад: {order.warehouse or 'н/д'}",
+            f"🏭 Склад: {safe_text(order.warehouse)}",
             f"🕒 {'Заказ получен' if is_action_required else 'Дата заказа'}: "
             f"{format_user_datetime(order.order_date, timezone_name)}",
         ]

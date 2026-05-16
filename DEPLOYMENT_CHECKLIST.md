@@ -1,4 +1,4 @@
-# Чеклист развертывания обновления 1.5.0
+# Чеклист развертывания обновления 1.6.2
 
 ## Критические исправления
 - ✅ Исправлена ошибка расчета налога (теперь от seller_payout, а не от gross_revenue)
@@ -6,6 +6,9 @@
 - ✅ Интеграция с ЮКасса для приема платежей
 - ✅ Добавлено админское управление тарифами через Telegram без создания ручных платежей
 - ✅ Исправлено дублирование кода в subscription.py
+- ✅ Включён централизованный HTML parse mode для Telegram-сообщений
+- ✅ Добавлено безопасное HTML-экранирование динамических значений в ключевых сообщениях
+- ✅ Web-кабинет приведён к Material-style design tokens и единой UI-оболочке
 - ✅ Добавлена зависимость yookassa в pyproject.toml
 
 ## Шаги развертывания
@@ -57,7 +60,8 @@ https://your-domain.com/webhooks/yookassa
 
 ```bash
 # Проверка импорта
-python -c "import app.bot.main; print('OK')"
+python -c "import app.bot.main; print('BOT OK')"
+python -c "import app.api.main; print('API OK')"
 
 # Проверка роутеров
 python -c "from app.bot.main import create_dispatcher; dp = create_dispatcher(); print('Routers:', [r.name for r in dp.sub_routers])"
@@ -74,6 +78,10 @@ python -m app.bot.main
 4. После тестовой оплаты проверьте активацию подписки
 5. Для админа из `ADMIN_TELEGRAM_IDS` откройте `🛠 Администрирование` →
    `💳 Управление тарифами` и проверьте ручное назначение тарифа тестовому пользователю.
+6. Проверьте, что в Telegram не видны сырые теги `<b>`/`<i>`/`<code>` и пользовательские значения
+   с символами `<`/`>` отображаются как текст.
+7. Откройте web-кабинет и проверьте страницы `/web/`, `/web/orders`, `/web/profit`,
+   `/web/settings` на desktop и узком экране.
 
 ## Откат в случае проблем
 

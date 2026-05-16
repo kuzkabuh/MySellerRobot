@@ -35,6 +35,20 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
   <style>
     :root {{
       color-scheme: light;
+      --primary: #4557f6;
+      --primary-hover: #3543d8;
+      --primary-soft: #eef0ff;
+      --secondary: #006d77;
+      --surface: #ffffff;
+      --surface-alt: #f9fafb;
+      --background: #f8fafc;
+      --text-primary: #0f172a;
+      --text-secondary: #475569;
+      --border: #e2e8f0;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --info: #0ea5e9;
       --bg: #f8fafc;
       --panel: #ffffff;
       --panel-soft: #f9fafb;
@@ -67,7 +81,9 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
     * {{ box-sizing: border-box; }}
     body {{
       margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+      font-family:
+        -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', 'Roboto',
+        'Helvetica Neue', Arial, sans-serif;
       background: var(--bg);
       color: var(--text);
       line-height: 1.6;
@@ -444,7 +460,9 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
       font-weight: 600;
     }}
     .mono {{
-      font-family: ui-monospace, 'SF Mono', 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace;
+      font-family:
+        ui-monospace, 'SF Mono', 'Cascadia Code', 'Source Code Pro',
+        Menlo, Consolas, monospace;
       font-size: 12px;
       white-space: pre-wrap;
       overflow-wrap: anywhere;

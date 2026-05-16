@@ -14,11 +14,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.api.webhooks import router as webhooks_router
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.core.logging import configure_logging
 from app.web.routes import router as web_router
-from app.api.webhooks import router as webhooks_router
 
 SESSION_DEPENDENCY = Depends(get_session)
 SETTINGS_DEPENDENCY = Depends(get_settings)

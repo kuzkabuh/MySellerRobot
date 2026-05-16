@@ -6,6 +6,7 @@ updated: 2026-05-15
 import logging
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from html import escape
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -69,6 +70,12 @@ from app.services.web_auth_service import WebAuthService
 router = Router(name="common")
 logger = logging.getLogger(__name__)
 SUPPORTED_TIMEZONES = {value for _, value in TIMEZONE_OPTIONS}
+
+
+def _html(value: object | None, fallback: str = "н/д") -> str:
+    if value is None or value == "":
+        return fallback
+    return escape(str(value), quote=False)
 
 
 class LowMarginStates(StatesGroup):
@@ -441,8 +448,9 @@ async def _plan_fact_text(user_id: int) -> str:
     ]
     for row in data.rows[:5]:
         lines.append(
-            f"— {row.seller_article}: {rub(row.deviation)} "
-            f"({row.reason}, план {rub(row.estimated_profit)}, факт {rub(row.actual_profit)})"
+            f"• {_html(row.seller_article)}: {rub(row.deviation)} "
+            f"({_html(row.reason)}, план {rub(row.estimated_profit)}, "
+            f"факт {rub(row.actual_profit)})"
         )
     return "\n".join(lines)
 
@@ -463,8 +471,8 @@ async def _break_even_text(user_id: int) -> str:
     ]
     for row in rows:
         lines.append(
-            f"— {row.seller_article}: безубыток {rub(row.break_even_price)}, "
-            f"цена для цели {rub(row.target_margin_price)}; {row.recommendation}"
+            f"• {_html(row.seller_article)}: безубыток {rub(row.break_even_price)}, "
+            f"цена для цели {rub(row.target_margin_price)}; {_html(row.recommendation)}"
         )
     lines.append("\nПодробный симулятор доступен в web-кабинете: /web/break-even")
     return "\n".join(lines)
@@ -494,7 +502,7 @@ async def _orders_text(user_id: int, mode: str = "orders:last10") -> str:
         sale_model = order.sale_model.value if order.sale_model else "н/д"
         lines.append(
             f"— {format_user_datetime(order.order_date, timezone_name)} {order.marketplace.value} "
-            f"{sale_model} #{order.order_external_id}: {action}"
+            f"{sale_model} #{_html(order.order_external_id)}: {action}"
         )
     return "\n".join(lines)
 
@@ -517,7 +525,7 @@ async def _stocks_text(user_id: int) -> str:
     for row in rows[:10]:
         days = f"{row.days_until_stockout} дн." if row.days_until_stockout is not None else "н/д"
         lines.append(
-            f"— {row.seller_article}: {row.quantity} шт., склад {row.warehouse}, "
+            f"• {_html(row.seller_article)}: {row.quantity} шт., склад {_html(row.warehouse)}, "
             f"хватит на {days}, потери 30д {rub(row.lost_revenue_30d)}"
         )
     return "\n".join(lines)
@@ -532,7 +540,7 @@ async def _stockout_text(user_id: int) -> str:
     lines = ["📦 Риски out-of-stock", ""]
     for row in risky[:7]:
         days = f"{row.days_until_stockout} дн." if row.days_until_stockout is not None else "н/д"
-        lines.append(f"— {row.seller_article}: {days}, {row.recommendation}")
+        lines.append(f"• {_html(row.seller_article)}: {days}, {_html(row.recommendation)}")
     return "\n".join(lines)
 
 
@@ -541,7 +549,7 @@ async def _data_quality_text(user_id: int) -> str:
         report = await DataQualityService(session).report(user_id=user_id)
     lines = ["🧪 Качество данных", "", f"Индекс: {report.score}/100", ""]
     for metric in report.metrics:
-        lines.append(f"— {metric.title}: {metric.value} ({metric.status})")
+        lines.append(f"• {_html(metric.title)}: {_html(metric.value)} ({_html(metric.status)})")
     lines.append("\nЧто сделать:")
     lines.extend(f"— {item}" for item in report.recommendations[:5])
     return "\n".join(lines)
@@ -579,7 +587,7 @@ async def _low_margin_text(user_id: int) -> tuple[str, Decimal]:
     ]
     for item in rows:
         lines.append(
-            f"— {item.seller_article or item.marketplace_article or 'товар'}: "
+            f"• {_html(item.seller_article or item.marketplace_article or 'товар')}: "
             f"маржа {item.margin_percent_estimated or 0}% "
             f"прибыль {rub(item.profit_estimated or Decimal('0'))}"
         )
@@ -622,9 +630,9 @@ async def _sync_errors_text(user_id: int) -> str:
     for account in accounts:
         advice = classify_integration_error(account.last_error_message)
         lines.append(
-            f"— {account.marketplace.value} / {account.name}: "
-            f"{account.last_error_message or 'ошибка без описания'}\n"
-            f"  Тип: {advice.title}. Что сделать: {advice.recommendation}"
+            f"• {account.marketplace.value} / {_html(account.name)}: "
+            f"{_html(account.last_error_message, 'ошибка без описания')}\n"
+            f"  Тип: {_html(advice.title)}. Что сделать: {_html(advice.recommendation)}"
         )
     return "\n".join(lines)
 
@@ -781,9 +789,9 @@ async def _format_order_details(
         lines.extend(
             [
                 "",
-                f"📁 Товар: {item.title or 'Без названия'}",
-                f"🏷 Артикул продавца: {item.seller_article or 'н/д'}",
-                f"🆔 Артикул маркетплейса: {item.marketplace_article or 'н/д'}",
+                f"📁 Товар: {_html(item.title, 'Без названия')}",
+                f"🏷 Артикул продавца: {_html(item.seller_article)}",
+                f"🆔 Артикул маркетплейса: {_html(item.marketplace_article)}",
                 f"🔢 Количество: {item.quantity}",
                 "",
                 f"💰 Цена продажи: {rub(economics.revenue)}",
@@ -817,7 +825,7 @@ async def _format_order_profit(session: AsyncSession, order: Order) -> str:
         )
         lines.extend(
             [
-                f"{item.title or item.seller_article or 'Товар'}",
+                f"{_html(item.title or item.seller_article or 'Товар')}",
                 f"Выручка: {rub(economics.revenue)}",
                 f"Расходы маркетплейса: {rub(marketplace_costs)}",
                 f"Себестоимость: {rub(economics.cost_price)}",
@@ -842,9 +850,9 @@ def _format_order_product(order: Order) -> str:
     for item in order.items:
         lines.extend(
             [
-                f"Название: {item.title or 'Без названия'}",
-                f"Артикул продавца: {item.seller_article or 'н/д'}",
-                f"Артикул маркетплейса: {item.marketplace_article or 'н/д'}",
+                f"Название: {_html(item.title, 'Без названия')}",
+                f"Артикул продавца: {_html(item.seller_article)}",
+                f"Артикул маркетплейса: {_html(item.marketplace_article)}",
                 f"Количество в заказе: {item.quantity}",
                 "",
             ]
@@ -1005,7 +1013,7 @@ async def _handle_admin_deploy_callback(
         return
     if data == "admin_deploy:log":
         await message.answer(
-            "📄 Последний лог обновления\n\n" f"<pre>{service.read_update_log_tail()}</pre>",
+            f"📄 Последний лог обновления\n\n<pre>{service.read_update_log_tail()}</pre>",
             reply_markup=admin_deploy_menu(),
         )
         return

@@ -5,9 +5,9 @@ updated: 2026-05-16
 
 import logging
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 
-from yookassa import Configuration, Payment
+from yookassa import Configuration, Payment  # type: ignore[import-untyped]
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ class YooKassaClient:
                     "description": description,
                 },
             )
-            return payment.__dict__
+            return cast(dict[str, Any], payment.__dict__)
         except Exception:
             logger.exception("yookassa_payment_creation_failed")
             raise
@@ -59,7 +59,7 @@ class YooKassaClient:
         """Get payment information by ID."""
         try:
             payment = Payment.find_one(payment_id)
-            return payment.__dict__
+            return cast(dict[str, Any], payment.__dict__)
         except Exception:
             logger.exception("yookassa_payment_fetch_failed", extra={"payment_id": payment_id})
             raise
@@ -69,7 +69,7 @@ class YooKassaClient:
         try:
             payment = Payment.cancel(payment_id)
             logger.info("yookassa_payment_cancelled", extra={"payment_id": payment_id})
-            return payment.__dict__
+            return cast(dict[str, Any], payment.__dict__)
         except Exception:
             logger.exception("yookassa_payment_cancel_failed", extra={"payment_id": payment_id})
             raise

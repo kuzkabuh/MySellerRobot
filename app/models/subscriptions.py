@@ -5,7 +5,7 @@ updated: 2026-05-16
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     JSON,
@@ -23,6 +23,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, int_pk
 from app.models.enums import PaymentStatus, SubscriptionStatus
+
+if TYPE_CHECKING:
+    from app.models.domain import User
 
 
 class SubscriptionTier(TimestampMixin, Base):
@@ -86,7 +89,7 @@ class UserSubscription(TimestampMixin, Base):
     auto_renew: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # Relationships
-    user: Mapped["User"] = relationship(back_populates="subscriptions")  # type: ignore
+    user: Mapped["User"] = relationship(back_populates="subscriptions")
     tier: Mapped["SubscriptionTier"] = relationship(back_populates="subscriptions")
     payments: Mapped[list["Payment"]] = relationship(back_populates="subscription")
 
@@ -120,5 +123,5 @@ class Payment(TimestampMixin, Base):
     payment_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     # Relationships
-    user: Mapped["User"] = relationship()  # type: ignore
+    user: Mapped["User"] = relationship()
     subscription: Mapped["UserSubscription | None"] = relationship(back_populates="payments")

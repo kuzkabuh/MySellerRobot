@@ -4,6 +4,7 @@ updated: 2026-05-14
 """
 
 from datetime import UTC, date, datetime, timedelta
+from html import escape
 from typing import Any
 
 from sqlalchemy import func, select
@@ -40,7 +41,7 @@ class AdminService:
             "Последние регистрации:",
         ]
         for telegram_id, username, created_at in recent.all():
-            lines.append(f"— {created_at:%d.%m %H:%M}: {username or telegram_id}")
+            lines.append(f"— {created_at:%d.%m %H:%M}: {_safe_text(username or telegram_id)}")
         return "\n".join(lines)
 
     async def accounts_text(self) -> str:
@@ -151,9 +152,9 @@ class AdminService:
             return "\n".join(lines)
         lines.extend(
             [
-                f"Кабинет: {account.name}",
+                f"Кабинет: {_safe_text(account.name)}",
                 f"Последняя успешная синхронизация: {self._dt(account.last_success_sync_at)}",
-                f"Последняя ошибка: {account.last_error_message or 'нет'}",
+                f"Последняя ошибка: {_safe_text(account.last_error_message, 'нет')}",
                 f"Заказов сегодня в БД: {today_orders}",
                 f"Заказов вчера в БД: {yesterday_orders}",
             ]
@@ -249,3 +250,9 @@ class AdminService:
     async def _scalar(self, statement: Any) -> int:
         result = await self.session.execute(statement)
         return int(result.scalar_one() or 0)
+
+
+def _safe_text(value: object | None, fallback: str = "н/д") -> str:
+    if value is None or value == "":
+        return fallback
+    return escape(str(value), quote=False)

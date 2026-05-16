@@ -13,12 +13,13 @@ from app.services.payment_service import PaymentService
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = logging.getLogger(__name__)
+SESSION_DEPENDENCY = Depends(get_session)
 
 
 @router.post("/yookassa")
 async def yookassa_webhook(
     request: Request,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = SESSION_DEPENDENCY,
 ) -> dict[str, str]:
     """Handle YooKassa payment notifications.
 
@@ -26,9 +27,9 @@ async def yookassa_webhook(
     """
     try:
         payload = await request.json()
-    except Exception as e:
-        logger.error("yookassa_webhook_invalid_json", extra={"error": str(e)})
-        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+    except Exception as exc:
+        logger.error("yookassa_webhook_invalid_json", extra={"error": str(exc)})
+        raise HTTPException(status_code=400, detail="Invalid JSON payload") from exc
 
     event_type = payload.get("event")
     payment_data = payload.get("object")
@@ -58,7 +59,7 @@ async def yookassa_webhook(
 
     except HTTPException:
         raise
-    except Exception as e:
-        logger.exception("yookassa_webhook_processing_failed", extra={"error": str(e)})
+    except Exception as exc:
+        logger.exception("yookassa_webhook_processing_failed", extra={"error": str(exc)})
         await session.rollback()
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail="Internal server error") from exc

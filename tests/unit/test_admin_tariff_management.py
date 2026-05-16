@@ -1,10 +1,10 @@
 """Tests for admin tariff management in subscription service."""
 
-import pytest
-import pytest_asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from app.models.enums import SubscriptionStatus
 from app.models.subscriptions import SubscriptionTier, UserSubscription
@@ -117,8 +117,18 @@ class TestAssignAdminSubscription:
         session.flush = AsyncMock()
         session.refresh = AsyncMock()
 
-        free_tier = _make_tier(code="free", name="FREE", price_monthly=Decimal("0"), price_yearly=Decimal("0"))
-        old_tier = _make_tier(code="basic", name="BASIC", price_monthly=Decimal("490"), price_yearly=Decimal("4900"))
+        free_tier = _make_tier(
+            code="free",
+            name="FREE",
+            price_monthly=Decimal("0"),
+            price_yearly=Decimal("0"),
+        )
+        old_tier = _make_tier(
+            code="basic",
+            name="BASIC",
+            price_monthly=Decimal("490"),
+            price_yearly=Decimal("4900"),
+        )
         active_sub = _make_user_subscription(user_id=1, tier_id=2)
         active_sub.tier = old_tier
 
@@ -254,7 +264,15 @@ class TestAssignAdminSubscription:
         session.add = MagicMock()
         session.flush = AsyncMock()
 
-        tier = _make_tier(code="basic", name="BASIC", price_monthly=Decimal("490"), price_yearly=Decimal("4900"), max_mp=2, max_orders=1000, max_products=1000)
+        tier = _make_tier(
+            code="basic",
+            name="BASIC",
+            price_monthly=Decimal("490"),
+            price_yearly=Decimal("4900"),
+            max_mp=2,
+            max_orders=1000,
+            max_products=1000,
+        )
         service = SubscriptionService(session)
 
         mock_result = MagicMock()

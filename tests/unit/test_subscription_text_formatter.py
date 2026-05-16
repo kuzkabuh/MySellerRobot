@@ -2,14 +2,9 @@
 
 from decimal import Decimal
 
-import pytest
-
 from app.models.subscriptions import SubscriptionTier
 from app.services.subscription_text_formatter import (
-    TIER_EMOJI,
     TIER_FEATURE_NAMES,
-    TierCardInfo,
-    TierFeatureInfo,
     build_tier_card,
     format_current_subscription,
     format_pricing_overview,
@@ -219,6 +214,14 @@ class TestFormatTierCard:
 
         assert "Это ваш текущий тариф" in text
 
+    def test_dynamic_tier_values_are_html_escaped(self) -> None:
+        tier = _make_tier(name="PRO <script>")
+        card = build_tier_card(tier)
+        text = format_tier_card(card)
+
+        assert "PRO &lt;script&gt;" in text
+        assert "PRO <script>" not in text
+
     def test_non_current_tier_no_marker(self) -> None:
         tier = _make_tier()
         card = build_tier_card(tier, is_current=False)
@@ -230,10 +233,64 @@ class TestFormatTierCard:
 class TestFormatPricingOverview:
     def test_overview_contains_all_tiers(self) -> None:
         tiers = [
-            build_tier_card(_make_tier(code="free", name="FREE", price_monthly=Decimal("0"), price_yearly=Decimal("0"), max_mp=1, max_orders=100, max_products=100, web_cabinet=True, analytics=False, plan_fact=False, break_even=False, stock_forecast=False, alerts=False, priority_support=False, api_access=False)),
-            build_tier_card(_make_tier(code="basic", name="BASIC", price_monthly=Decimal("490"), price_yearly=Decimal("4900"), max_mp=2, max_orders=1000, max_products=1000, web_cabinet=True, analytics=True, plan_fact=False, break_even=False, stock_forecast=False, alerts=True, priority_support=False, api_access=False)),
+            build_tier_card(
+                _make_tier(
+                    code="free",
+                    name="FREE",
+                    price_monthly=Decimal("0"),
+                    price_yearly=Decimal("0"),
+                    max_mp=1,
+                    max_orders=100,
+                    max_products=100,
+                    web_cabinet=True,
+                    analytics=False,
+                    plan_fact=False,
+                    break_even=False,
+                    stock_forecast=False,
+                    alerts=False,
+                    priority_support=False,
+                    api_access=False,
+                )
+            ),
+            build_tier_card(
+                _make_tier(
+                    code="basic",
+                    name="BASIC",
+                    price_monthly=Decimal("490"),
+                    price_yearly=Decimal("4900"),
+                    max_mp=2,
+                    max_orders=1000,
+                    max_products=1000,
+                    web_cabinet=True,
+                    analytics=True,
+                    plan_fact=False,
+                    break_even=False,
+                    stock_forecast=False,
+                    alerts=True,
+                    priority_support=False,
+                    api_access=False,
+                )
+            ),
             build_tier_card(_make_tier()),
-            build_tier_card(_make_tier(code="enterprise", name="ENTERPRISE", price_monthly=Decimal("0"), price_yearly=Decimal("0"), max_mp=999, max_orders=None, max_products=None, web_cabinet=True, analytics=True, plan_fact=True, break_even=True, stock_forecast=True, alerts=True, priority_support=True, api_access=True)),
+            build_tier_card(
+                _make_tier(
+                    code="enterprise",
+                    name="ENTERPRISE",
+                    price_monthly=Decimal("0"),
+                    price_yearly=Decimal("0"),
+                    max_mp=999,
+                    max_orders=None,
+                    max_products=None,
+                    web_cabinet=True,
+                    analytics=True,
+                    plan_fact=True,
+                    break_even=True,
+                    stock_forecast=True,
+                    alerts=True,
+                    priority_support=True,
+                    api_access=True,
+                )
+            ),
         ]
         text = format_pricing_overview(tiers)
 

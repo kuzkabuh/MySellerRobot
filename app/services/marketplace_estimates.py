@@ -153,11 +153,7 @@ def calculate_planned_economics(
     profit = quantize_money(seller_payout - cost - package - tax)
 
     # Маржа от цены продажи, чтобы карточки заказов совпадали с unit economics UI.
-    margin = (
-        quantize_money(profit / buyer_price * Decimal("100"))
-        if buyer_price > ZERO
-        else ZERO
-    )
+    margin = quantize_money(profit / buyer_price * Decimal("100")) if buyer_price > ZERO else ZERO
 
     return PlannedEconomics(
         revenue=buyer_price,

@@ -151,8 +151,10 @@ async def payment_success() -> HTMLResponse:
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <title>Оплата принята</title>
             <style>
-                body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-                       max-width: 600px; margin: 100px auto; padding: 20px; text-align: center; }
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                    max-width: 600px; margin: 100px auto; padding: 20px; text-align: center;
+                }
                 h1 { color: #2ea043; }
                 p { color: #57606a; line-height: 1.6; }
                 .icon { font-size: 64px; margin-bottom: 20px; }
@@ -749,7 +751,7 @@ def _orders_content(filters: OrderWebFilters, rows: list[OrderRow], timezone: st
             f'<td><a href="/web/orders/{row.order_id}">{escape(row.title)}</a>'
             f'<div class="muted">{escape(row.seller_article)}</div>{cost_badge}</td>'
             f"<td>{escape(row.order_external_id)}"
-            f"<div class=\"muted\">{escape(row.posting_number or '')}</div></td>"
+            f'<div class="muted">{escape(row.posting_number or "")}</div></td>'
             f'<td class="num">{row.quantity}</td>'
             f'<td class="num">{_rub(row.revenue)}</td>'
             f"{profit_cell}"
@@ -802,7 +804,7 @@ def _order_detail_content(detail: OrderDetail, timezone: str) -> str:
         item_rows.append(
             "<tr>"
             f"<td>{escape(item.title or 'Без названия')}"
-            f"<div class=\"muted\">{escape(item.seller_article or 'н/д')}</div></td>"
+            f'<div class="muted">{escape(item.seller_article or "н/д")}</div></td>'
             f'<td class="num">{item.quantity}</td>'
             f'<td class="num">{_rub(item.discounted_price * item.quantity)}</td>'
             f'<td class="num">{_rub_optional(item.commission_estimated)}</td>'
@@ -1163,8 +1165,7 @@ def _product_matching_content(candidates: list[ProductMatchingCandidate]) -> str
     )
     if not rows:
         rows = (
-            '<tr><td colspan="7" class="muted">'
-            "Товары для сопоставления пока не найдены.</td></tr>"
+            '<tr><td colspan="7" class="muted">Товары для сопоставления пока не найдены.</td></tr>'
         )
     return f"""
       {_section_subnav("products")}
@@ -1468,24 +1469,45 @@ def _filters(data: DashboardData) -> str:
     date_to = filters.local_date_to.isoformat()
     return f"""
       <form class="filters" method="get" action="/web/">
-        {_select("period", "Период", {
-            "today": "Сегодня",
-            "yesterday": "Вчера",
-            "7d": "7 дней",
-            "30d": "30 дней",
-            "custom": "Произвольный",
-        }, filters.period)}
-        {_select("marketplace", "Маркетплейс", {
-            "all": "Все",
-            Marketplace.WB.value: "Wildberries",
-            Marketplace.OZON.value: "Ozon",
-        }, selected_marketplace)}
-        {_select("sale_model", "Модель", {
-            "all": "Все",
-            "FBO": "FBO",
-            "FBS": "FBS",
-            "rFBS": "rFBS",
-        }, selected_sale_model)}
+        {
+        _select(
+            "period",
+            "Период",
+            {
+                "today": "Сегодня",
+                "yesterday": "Вчера",
+                "7d": "7 дней",
+                "30d": "30 дней",
+                "custom": "Произвольный",
+            },
+            filters.period,
+        )
+    }
+        {
+        _select(
+            "marketplace",
+            "Маркетплейс",
+            {
+                "all": "Все",
+                Marketplace.WB.value: "Wildberries",
+                Marketplace.OZON.value: "Ozon",
+            },
+            selected_marketplace,
+        )
+    }
+        {
+        _select(
+            "sale_model",
+            "Модель",
+            {
+                "all": "Все",
+                "FBO": "FBO",
+                "FBS": "FBS",
+                "rFBS": "rFBS",
+            },
+            selected_sale_model,
+        )
+    }
         <div>
           <label for="date_from">Дата с</label>
           <input id="date_from" name="date_from" type="date" value="{date_from}">
@@ -1515,24 +1537,45 @@ def _plan_fact_filters(data: PlanFactPageData) -> str:
     date_to_value = filters.local_date_to.isoformat()
     return f"""
       <form class="filters" method="get" action="/web/plan-fact">
-        {_select("period", "Период", {
-            "today": "Сегодня",
-            "yesterday": "Вчера",
-            "7d": "7 дней",
-            "30d": "30 дней",
-            "custom": "Произвольный",
-        }, filters.period)}
-        {_select("marketplace", "Маркетплейс", {
-            "all": "Все",
-            Marketplace.WB.value: "Wildberries",
-            Marketplace.OZON.value: "Ozon",
-        }, selected_marketplace)}
-        {_select("sale_model", "Модель", {
-            "all": "Все",
-            "FBO": "FBO",
-            "FBS": "FBS",
-            "rFBS": "rFBS",
-        }, selected_sale_model)}
+        {
+        _select(
+            "period",
+            "Период",
+            {
+                "today": "Сегодня",
+                "yesterday": "Вчера",
+                "7d": "7 дней",
+                "30d": "30 дней",
+                "custom": "Произвольный",
+            },
+            filters.period,
+        )
+    }
+        {
+        _select(
+            "marketplace",
+            "Маркетплейс",
+            {
+                "all": "Все",
+                Marketplace.WB.value: "Wildberries",
+                Marketplace.OZON.value: "Ozon",
+            },
+            selected_marketplace,
+        )
+    }
+        {
+        _select(
+            "sale_model",
+            "Модель",
+            {
+                "all": "Все",
+                "FBO": "FBO",
+                "FBS": "FBS",
+                "rFBS": "rFBS",
+            },
+            selected_sale_model,
+        )
+    }
         <div>
           <label for="sku">SKU / артикул</label>
           <input id="sku" name="sku" type="search" value="{escape(filters.sku)}">
@@ -1545,15 +1588,29 @@ def _plan_fact_filters(data: PlanFactPageData) -> str:
           <label for="date_to">Дата по</label>
           <input id="date_to" name="date_to" type="date" value="{date_to_value}">
         </div>
-        {_select("sort", "Сортировка", {
-            "deviation": "Отклонение",
-            "profit": "Плановая прибыль",
-            "orders": "Заказы",
-        }, filters.sort)}
-        {_select("direction", "Порядок", {
-            "asc": "Сначала худшие",
-            "desc": "Сначала лучшие",
-        }, filters.direction)}
+        {
+        _select(
+            "sort",
+            "Сортировка",
+            {
+                "deviation": "Отклонение",
+                "profit": "Плановая прибыль",
+                "orders": "Заказы",
+            },
+            filters.sort,
+        )
+    }
+        {
+        _select(
+            "direction",
+            "Порядок",
+            {
+                "asc": "Сначала худшие",
+                "desc": "Сначала лучшие",
+            },
+            filters.direction,
+        )
+    }
         <button class="button primary" type="submit">Применить</button>
       </form>
     """
@@ -1586,30 +1643,58 @@ def _shared_order_filters(
     date_to_value = filters.local_date_to.isoformat()
     return f"""
       <form class="filters" method="get" action="{escape(action)}">
-        {_select("period", "Период", {
-            "today": "Сегодня",
-            "yesterday": "Вчера",
-            "7d": "7 дней",
-            "30d": "30 дней",
-            "custom": "Произвольный",
-        }, filters.period)}
-        {_select("marketplace", "Маркетплейс", {
-            "all": "Все",
-            Marketplace.WB.value: "Wildberries",
-            Marketplace.OZON.value: "Ozon",
-        }, selected_marketplace)}
-        {_select("sale_model", "Модель", {
-            "all": "Все",
-            "FBO": "FBO",
-            "FBS": "FBS",
-            "rFBS": "rFBS",
-        }, selected_sale_model)}
-        {_select("economy", "Экономика", {
-            "all": "Все",
-            "profit": "Прибыльные",
-            "loss": "Убыточные",
-            "missing_cost": "Без себестоимости",
-        }, filters.economy)}
+        {
+        _select(
+            "period",
+            "Период",
+            {
+                "today": "Сегодня",
+                "yesterday": "Вчера",
+                "7d": "7 дней",
+                "30d": "30 дней",
+                "custom": "Произвольный",
+            },
+            filters.period,
+        )
+    }
+        {
+        _select(
+            "marketplace",
+            "Маркетплейс",
+            {
+                "all": "Все",
+                Marketplace.WB.value: "Wildberries",
+                Marketplace.OZON.value: "Ozon",
+            },
+            selected_marketplace,
+        )
+    }
+        {
+        _select(
+            "sale_model",
+            "Модель",
+            {
+                "all": "Все",
+                "FBO": "FBO",
+                "FBS": "FBS",
+                "rFBS": "rFBS",
+            },
+            selected_sale_model,
+        )
+    }
+        {
+        _select(
+            "economy",
+            "Экономика",
+            {
+                "all": "Все",
+                "profit": "Прибыльные",
+                "loss": "Убыточные",
+                "missing_cost": "Без себестоимости",
+            },
+            filters.economy,
+        )
+    }
         {status_filter}
         <div>
           <label for="sku">SKU / артикул</label>
@@ -1623,18 +1708,32 @@ def _shared_order_filters(
           <label for="date_to">Дата по</label>
           <input id="date_to" name="date_to" type="date" value="{date_to_value}">
         </div>
-        {_select("sort", "Сортировка", {
-            "date": "Дата",
-            "profit": "Прибыль",
-            "revenue": "Выручка",
-            "margin": "Маржа",
-            "orders": "Заказы",
-            "roi": "ROI",
-        }, filters.sort)}
-        {_select("direction", "Порядок", {
-            "desc": "По убыванию",
-            "asc": "По возрастанию",
-        }, filters.direction)}
+        {
+        _select(
+            "sort",
+            "Сортировка",
+            {
+                "date": "Дата",
+                "profit": "Прибыль",
+                "revenue": "Выручка",
+                "margin": "Маржа",
+                "orders": "Заказы",
+                "roi": "ROI",
+            },
+            filters.sort,
+        )
+    }
+        {
+        _select(
+            "direction",
+            "Порядок",
+            {
+                "desc": "По убыванию",
+                "asc": "По возрастанию",
+            },
+            filters.direction,
+        )
+    }
         <button class="button primary" type="submit">Применить</button>
       </form>
     """
@@ -1657,8 +1756,7 @@ def _kpi(metric: KpiMetric) -> str:
         css = "up" if metric.change_percent > 0 else "down" if metric.change_percent < 0 else ""
         sign = "+" if metric.change_percent > 0 else ""
         change = (
-            f'<span class="change {css}">'
-            f"{sign}{metric.change_percent}% к прошлому периоду</span>"
+            f'<span class="change {css}">{sign}{metric.change_percent}% к прошлому периоду</span>'
         )
     elif metric.label != "Фактическая прибыль":
         change = '<span class="change">нет базы для сравнения</span>'
@@ -1817,9 +1915,7 @@ def _sale_model_chart(points: list[DailyPoint]) -> str:
     colors = {"FBO": "#7b3fc5", "FBS": "#0f6f8f", "rFBS": "#147d4a"}
     for label, value in totals.items():
         width = 100 if max_value == 0 else value / max_value * 100
-        bar_style = (
-            f"height:12px;width:{width:.1f}%;" f"background:{colors[label]};border-radius:4px"
-        )
+        bar_style = f"height:12px;width:{width:.1f}%;background:{colors[label]};border-radius:4px"
         rows.append(
             f'<tr><td>{label}</td><td class="num">{value}</td><td>'
             f'<div style="{bar_style}"></div>'

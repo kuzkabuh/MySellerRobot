@@ -4,6 +4,7 @@ updated: 2026-05-14
 """
 
 import logging
+from html import escape
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -194,7 +195,7 @@ async def account_action_handler(callback: CallbackQuery) -> None:
     if action == "delete_confirm":
         await _edit_or_answer(
             callback,
-            f"Удалить кабинет «{account.name}»?\n\nAPI-ключи будут отключены в боте.",
+            f"Удалить кабинет «{_safe_text(account.name)}»?\n\nAPI-ключи будут отключены в боте.",
             confirm_delete_account(account.id),
         )
     elif action == "history":
@@ -254,12 +255,11 @@ async def _connect_account(
         )
     except AccountConnectionError as exc:
         logger.info("marketplace_account_connection_rejected")
-        await message.answer(str(exc), reply_markup=back_to_settings())
+        await message.answer(_safe_text(str(exc)), reply_markup=back_to_settings())
     except ValueError:
         logger.exception("token_cipher_configuration_error")
         await message.answer(
-            "Не настроен ключ шифрования ENCRYPTION_KEY. "
-            "Сгенерируйте Fernet-ключ и обновите .env.",
+            "Не настроен ключ шифрования ENCRYPTION_KEY. Сгенерируйте Fernet-ключ и обновите .env.",
             reply_markup=back_to_settings(),
         )
     except Exception:
@@ -290,7 +290,9 @@ def _format_accounts_list(accounts: list[MarketplaceAccount]) -> str:
     lines = ["Мои кабинеты", ""]
     for account in accounts:
         status = "активен" if account.is_active else "отключён"
-        lines.append(f"#{account.id} — {account.marketplace.value}: {account.name} ({status})")
+        lines.append(
+            f"#{account.id} — {account.marketplace.value}: {_safe_text(account.name)} ({status})"
+        )
     lines.append("")
     lines.append("Чтобы открыть карточку кабинета, используйте кнопки ниже.")
     return "\n".join(lines)
@@ -300,7 +302,7 @@ def _format_account_card(account: MarketplaceAccount) -> str:
     client_id = "сохранён" if account.encrypted_client_id else "не требуется"
     return (
         f"Маркетплейс: {account.marketplace.value}\n"
-        f"Название: {account.name}\n"
+        f"Название: {_safe_text(account.name)}\n"
         f"Статус: {account.status.value}\n"
         f"Client ID: {client_id}\n"
         "Ключ API: сохранён в зашифрованном виде"
@@ -325,6 +327,12 @@ async def _edit_or_answer(
 
 def _clean_text(value: str | None) -> str:
     return (value or "").strip()
+
+
+def _safe_text(value: object | None, fallback: str = "н/д") -> str:
+    if value is None or value == "":
+        return fallback
+    return escape(str(value), quote=False)
 
 
 async def _try_delete_sensitive_message(message: Message) -> None:

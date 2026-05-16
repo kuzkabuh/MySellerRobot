@@ -3,7 +3,6 @@ description: Unit tests for subscription feature access decisions using new tier
 updated: 2026-05-16
 """
 
-from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest

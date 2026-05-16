@@ -36,9 +36,7 @@ def upgrade() -> None:
         sa.Column("feature_stock_forecast", sa.Boolean(), nullable=False, server_default="false"),
         sa.Column("feature_alerts", sa.Boolean(), nullable=False, server_default="false"),
         sa.Column("feature_api_access", sa.Boolean(), nullable=False, server_default="false"),
-        sa.Column(
-            "feature_priority_support", sa.Boolean(), nullable=False, server_default="false"
-        ),
+        sa.Column("feature_priority_support", sa.Boolean(), nullable=False, server_default="false"),
         sa.Column("is_active", sa.Boolean(), nullable=False, server_default="true"),
         sa.Column("sort_order", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),

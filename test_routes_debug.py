@@ -1,7 +1,11 @@
 """Debug script to test web routes."""
+
 import asyncio
+
+from httpx import ASGITransport, AsyncClient
+
 from app.api.main import create_app
-from httpx import AsyncClient, ASGITransport
+
 
 async def test_routes():
     app = create_app()
@@ -23,6 +27,7 @@ async def test_routes():
             print(f"  {route:25} -> {response.status_code} {response.reason_phrase}")
             if response.status_code == 404:
                 print(f"    Body: {response.text[:200]}")
+
 
 if __name__ == "__main__":
     asyncio.run(test_routes())

@@ -5,6 +5,7 @@ updated: 2026-05-16
 
 from dataclasses import dataclass
 from decimal import Decimal
+from html import escape as html_escape
 
 from app.models.subscriptions import SubscriptionTier
 
@@ -45,8 +46,7 @@ TIER_EMOJI: dict[str, str] = {
 TIER_MARKETING_DESCRIPTIONS: dict[str, str] = {
     "free": "Бесплатный тариф для начинающих",
     "basic": (
-        "Базовый тариф для селлеров, которым нужен ежедневный контроль заказов, "
-        "прибыли и рисков."
+        "Базовый тариф для селлеров, которым нужен ежедневный контроль заказов, прибыли и рисков."
     ),
     "pro": (
         "Профессиональный тариф для активных селлеров, которым нужна глубокая аналитика, "
@@ -100,6 +100,11 @@ def _format_limit(value: int | None, unlimited_label: str = "без ограни
     if value is None:
         return unlimited_label
     return value
+
+
+def _html(value: object) -> str:
+    """Escape dynamic values before inserting them into Telegram HTML."""
+    return html_escape(str(value), quote=False)
 
 
 def _build_features_list(tier: SubscriptionTier) -> list[TierFeatureInfo]:
@@ -164,9 +169,9 @@ def format_tier_card(
 ) -> str:
     """Format a tier card into a Telegram-ready message text."""
     lines: list[str] = [
-        f"{card.emoji} <b>{card.name}</b>",
+        f"{card.emoji} <b>{_html(card.name)}</b>",
         "",
-        card.description,
+        _html(card.description),
         "",
         "<b>Стоимость:</b>",
     ]
@@ -182,34 +187,38 @@ def format_tier_card(
         if card.price_yearly:
             lines.append(f"• {yearly} / год")
 
-    lines.extend([
-        "",
-        "<b>Лимиты:</b>",
-        f"• Кабинетов МП: {card.max_marketplace_accounts}",
-        f"• Заказов в месяц: {card.max_orders_per_month}",
-        f"• SKU в аналитике: {card.max_products}",
-    ])
+    lines.extend(
+        [
+            "",
+            "<b>Лимиты:</b>",
+            f"• Кабинетов МП: {card.max_marketplace_accounts}",
+            f"• Заказов в месяц: {card.max_orders_per_month}",
+            f"• SKU в аналитике: {card.max_products}",
+        ]
+    )
 
     lines.extend(["", "<b>Функции:</b>"])
     for feature in card.features:
         icon = "✅" if feature.enabled else "❌"
-        lines.append(f"{icon} {feature.name}")
+        lines.append(f"{icon} {_html(feature.name)}")
 
     if card.additional_info:
         lines.extend(["", "<b>Дополнительно:</b>"])
         for info in card.additional_info:
-            lines.append(f"• {info}")
+            lines.append(f"• {_html(info)}")
 
     if card.is_current:
         lines.extend(["", "✅ <b>Это ваш текущий тариф</b>"])
     elif card.code == "free":
         lines.extend(["", "🆓 Бесплатный тариф доступен всем пользователям."])
     elif card.code == "enterprise":
-        support_link = f"@{support_username.lstrip('@')}"
-        lines.extend([
-            "",
-            f"📩 Для подключения тарифа ENTERPRISE напишите в поддержку: {support_link}",
-        ])
+        support_link = _html(f"@{support_username.lstrip('@')}")
+        lines.extend(
+            [
+                "",
+                f"📩 Для подключения тарифа ENTERPRISE напишите в поддержку: {support_link}",
+            ]
+        )
 
     return "\n".join(lines)
 
@@ -226,18 +235,18 @@ def format_pricing_overview(tiers: list[TierCardInfo]) -> str:
     for tier in tiers:
         description = TIER_OVERVIEW_DESCRIPTIONS.get(tier.code, tier.description)
         if tier.code == "free":
-            lines.append(f"{tier.emoji} <b>{tier.name}</b>")
-            lines.append(description)
+            lines.append(f"{tier.emoji} <b>{_html(tier.name)}</b>")
+            lines.append(_html(description))
         elif tier.code == "enterprise":
-            lines.append(f"{tier.emoji} <b>{tier.name}</b>")
+            lines.append(f"{tier.emoji} <b>{_html(tier.name)}</b>")
             lines.append("Индивидуальные условия.")
-            lines.append(description)
+            lines.append(_html(description))
         else:
             monthly = _format_price(tier.price_monthly)
             yearly = _format_price(tier.price_yearly)
-            lines.append(f"{tier.emoji} <b>{tier.name}</b>")
+            lines.append(f"{tier.emoji} <b>{_html(tier.name)}</b>")
             lines.append(f"{monthly} / месяц или {yearly} / год.")
-            lines.append(description)
+            lines.append(_html(description))
         lines.append("")
 
     lines.append("<b>Выберите тариф ниже, чтобы посмотреть подробности.</b>")
@@ -259,7 +268,7 @@ def format_current_subscription(
         "💳 <b>Ваша подписка</b>",
         "",
         "Текущий тариф:",
-        f"<b>{tier_name}</b>",
+        f"<b>{_html(tier_name)}</b>",
         "",
         "<b>Статус:</b>",
     ]
@@ -281,20 +290,22 @@ def format_current_subscription(
         lines.extend(["", "<b>Доступ сейчас:</b>"])
         for name, enabled in features:
             icon = "✅" if enabled else "❌"
-            lines.append(f"{icon} {name}")
+            lines.append(f"{icon} {_html(name)}")
 
     if is_free:
-        lines.extend([
-            "",
-            "Чтобы открыть больше возможностей, выберите подходящий тариф ниже.",
-        ])
+        lines.extend(
+            [
+                "",
+                "Чтобы открыть больше возможностей, выберите подходящий тариф ниже.",
+            ]
+        )
 
     return "\n".join(lines)
 
 
 def format_subscription_help(support_username: str = "mpcontrol_support") -> str:
     """Format the subscription help screen."""
-    support_link = f"@{support_username.lstrip('@')}"
+    support_link = _html(f"@{support_username.lstrip('@')}")
     return (
         "❓ <b>Помощь по подпискам</b>\n\n"
         "<b>Как работает подписка?</b>\n"
@@ -325,11 +336,11 @@ def format_admin_tariff_confirmation(
     lines = [
         "✅ <b>Тариф успешно изменён</b>",
         "",
-        f"Пользователь: <b>{user_name}</b>",
-        f"Новый тариф: <b>{new_tier_name}</b>",
+        f"Пользователь: <b>{_html(user_name)}</b>",
+        f"Новый тариф: <b>{_html(new_tier_name)}</b>",
     ]
     if expires_at:
-        lines.append(f"Срок действия: <b>{expires_at}</b>")
+        lines.append(f"Срок действия: <b>{_html(expires_at)}</b>")
     else:
         lines.append("Срок действия: <b>бессрочно</b>")
     return "\n".join(lines)
@@ -344,16 +355,18 @@ def format_user_tariff_notification(
         "🎉 <b>Ваш тариф изменён</b>",
         "",
         "Администратор сервиса назначил вам тариф:",
-        f"<b>{new_tier_name}</b>",
+        f"<b>{_html(new_tier_name)}</b>",
         "",
         "Действует до:",
     ]
     if expires_at:
-        lines.append(f"<b>{expires_at}</b>")
+        lines.append(f"<b>{_html(expires_at)}</b>")
     else:
         lines.append("<b>бессрочно</b>")
-    lines.extend([
-        "",
-        "Открыть информацию о подписке можно через /subscription.",
-    ])
+    lines.extend(
+        [
+            "",
+            "Открыть информацию о подписке можно через /subscription.",
+        ]
+    )
     return "\n".join(lines)

@@ -342,7 +342,7 @@ class OrderCardService:
                 format_datetime_for_user(order.order_date, timezone_name),
                 "",
                 f"🛒 Новый заказ — {order.marketplace.value}",
-                f"📦 {item.title or item.seller_article or 'Товар'}",
+                f"📦 {escape(item.title or item.seller_article or 'Товар')}",
                 f"💰 Цена покупателя: {rub(economics.revenue)}",
                 f"💵 К выплате: {rub(economics.seller_payout)}",
                 f"📊 Плановая прибыль: {rub(economics.profit)}",

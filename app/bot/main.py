@@ -1,11 +1,13 @@
-"""version: 1.0.0
-description: Aiogram bot entrypoint.
-updated: 2026-05-14
+"""version: 1.1.0
+description: Aiogram bot entrypoint with centralized HTML parse mode and router wiring.
+updated: 2026-05-16
 """
 
 import asyncio
 
 from aiogram import Bot, Dispatcher, Router
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
 from aiogram.fsm.storage.redis import RedisStorage
 
 from app.bot.handlers.accounts import router as accounts_router
@@ -20,7 +22,10 @@ def create_bot() -> Bot:
     """Create Telegram bot instance from settings."""
 
     settings = get_settings()
-    return Bot(token=settings.bot_token.get_secret_value())
+    return Bot(
+        token=settings.bot_token.get_secret_value(),
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+    )
 
 
 def create_storage() -> RedisStorage:

@@ -5,6 +5,7 @@ updated: 2026-05-14
 
 import logging
 import tempfile
+from html import escape
 from pathlib import Path
 
 from aiogram import F, Router
@@ -193,7 +194,7 @@ async def cost_manual_line_handler(message: Message, state: FSMContext) -> None:
         await state.clear()
         await message.answer("Себестоимость обновлена.", reply_markup=costs_menu())
     except CostManagementError as exc:
-        await message.answer(str(exc), reply_markup=costs_menu())
+        await message.answer(_safe_text(str(exc)), reply_markup=costs_menu())
 
 
 async def _get_user_id(callback: CallbackQuery) -> int | None:
@@ -227,7 +228,13 @@ def _format_import_result(updated: int, errors: list[str]) -> str:
     if errors:
         lines.append("")
         lines.append("Ошибки:")
-        lines.extend(f"— {error}" for error in errors[:20])
+        lines.extend(f"— {_safe_text(error)}" for error in errors[:20])
         if len(errors) > 20:
             lines.append(f"И ещё ошибок: {len(errors) - 20}")
     return "\n".join(lines)
+
+
+def _safe_text(value: object | None, fallback: str = "н/д") -> str:
+    if value is None or value == "":
+        return fallback
+    return escape(str(value), quote=False)

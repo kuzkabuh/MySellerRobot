@@ -1,5 +1,5 @@
 """version: 1.2.0
-description: Synchronize marketplace buyout and completed sale events with marketplace-aware notifications.
+description: Synchronize marketplace buyout and completed sale events.
 updated: 2026-05-16
 """
 

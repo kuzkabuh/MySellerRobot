@@ -3,11 +3,10 @@ description: Tests for Release 1.6.2 — Subscription and Payment Infrastructure
 updated: 2026-05-16
 """
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app.api.main import create_app
-from app.bot.main import create_dispatcher
+from app.bot.main import create_bot, create_dispatcher
 
 
 def test_api_imports_successfully() -> None:
@@ -22,6 +21,12 @@ def test_bot_imports_successfully() -> None:
     """Bot module should import without errors."""
     dispatcher = create_dispatcher()
     assert dispatcher is not None
+
+
+def test_bot_uses_html_parse_mode_by_default() -> None:
+    """Telegram HTML templates should render as markup, not raw tags."""
+    bot = create_bot()
+    assert str(bot.default.parse_mode) == "ParseMode.HTML"
 
 
 def test_subscription_router_registered() -> None:

@@ -13,8 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.integrations.yookassa import YooKassaClient
-from app.models.enums import PaymentStatus, SubscriptionStatus
-from app.models.subscriptions import Payment, SubscriptionTier, UserSubscription
+from app.models.enums import PaymentStatus
+from app.models.subscriptions import Payment, SubscriptionTier
 from app.services.subscription_service import SubscriptionService
 
 logger = logging.getLogger(__name__)
@@ -188,7 +188,8 @@ class PaymentService:
         if active_subscription:
             # Renew existing subscription
             subscription = await self.subscription_service.renew_subscription(
-                active_subscription.id, payment_id=payment.id
+                active_subscription.id,
+                payment_id=payment.provider_payment_id,
             )
         else:
             # Create new subscription
@@ -197,7 +198,7 @@ class PaymentService:
                 tier_code=tier_code,
                 is_trial=False,
                 payment_provider="yookassa",
-                payment_id=payment.id,
+                payment_id=payment.provider_payment_id,
             )
 
         payment.subscription_id = subscription.id

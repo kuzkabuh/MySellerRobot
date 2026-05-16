@@ -63,7 +63,10 @@ class FeatureAccessService:
         if count >= tier.max_marketplace_accounts:
             return FeatureAccessResult(
                 allowed=False,
-                reason=f"Превышен лимит кабинетов ({tier.max_marketplace_accounts}) тарифа {tier.name}.",
+                reason=(
+                    f"Превышен лимит кабинетов ({tier.max_marketplace_accounts}) "
+                    f"тарифа {tier.name}."
+                ),
                 required_plan="Pro",
             )
         return FeatureAccessResult(allowed=True)
