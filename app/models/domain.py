@@ -1,6 +1,6 @@
-"""version: 1.3.0
-description: Main database models for sellers, marketplaces, tariffs, orders, and alerts.
-updated: 2026-05-15
+"""version: 1.4.0
+description: Main database models for sellers, marketplaces, tariffs, orders, stocks, and alerts.
+updated: 2026-05-17
 """
 
 from datetime import date, datetime, time
@@ -143,6 +143,7 @@ class Product(TimestampMixin, Base):
             name="uq_products_account_marketplace_external",
         ),
         Index("ix_products_user_article", "user_id", "seller_article"),
+        Index("ix_products_wb_chrt", "marketplace_account_id", "chrt_id"),
     )
 
     id: Mapped[int_pk]
@@ -155,11 +156,17 @@ class Product(TimestampMixin, Base):
     external_product_id: Mapped[str] = mapped_column(String(128))
     seller_article: Mapped[str | None] = mapped_column(String(255), index=True)
     marketplace_article: Mapped[str | None] = mapped_column(String(255), index=True)
+    chrt_id: Mapped[str | None] = mapped_column(String(64))
     title: Mapped[str | None] = mapped_column(String(1024))
     brand: Mapped[str | None] = mapped_column(String(255))
     image_url: Mapped[str | None] = mapped_column(Text)
     category: Mapped[str | None] = mapped_column(String(255))
     marketplace_category_id: Mapped[str | None] = mapped_column(String(128))
+    length_cm: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    width_cm: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    height_cm: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    volume_liters: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
+    dimensions_source: Mapped[str | None] = mapped_column(String(64))
     marketplace_commission_rate: Mapped[Decimal | None] = mapped_column(Numeric(7, 4))
     marketplace_commission_source: Mapped[str | None] = mapped_column(String(128))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

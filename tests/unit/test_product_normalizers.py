@@ -1,6 +1,6 @@
-"""version: 1.1.0
-description: Unit tests for marketplace product normalization and enriched Ozon fields.
-updated: 2026-05-15
+"""version: 1.2.0
+description: Unit tests for marketplace product normalization, dimensions, and enriched fields.
+updated: 2026-05-17
 """
 
 from app.integrations.ozon import OzonClient
@@ -16,6 +16,8 @@ def test_wb_card_product_normalization() -> None:
             "title": "Полотенце Fresh",
             "brand": "Fresh",
             "subjectName": "Полотенца",
+            "dimensions": {"length": 20, "width": 10, "height": 5},
+            "sizes": [{"chrtID": 777001}],
             "photos": [{"big": "https://example.com/image.jpg"}],
         },
         user_id=1,
@@ -26,6 +28,13 @@ def test_wb_card_product_normalization() -> None:
     assert product.external_product_id == "123456789"
     assert product.seller_article == "SKU-001"
     assert product.image_url == "https://example.com/image.jpg"
+    assert product.chrt_id == "777001"
+    assert product.length_cm == 20
+    assert product.width_cm == 10
+    assert product.height_cm == 5
+    assert product.volume_liters is not None
+    assert str(product.volume_liters) == "1.000"
+    assert product.dimensions_source == "WB_CONTENT_API"
 
 
 def test_ozon_product_normalization() -> None:

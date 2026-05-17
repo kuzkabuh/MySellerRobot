@@ -351,7 +351,7 @@ namespaces = false
 
 ## Проверенные официальные API
 
-Проверено 14.05.2026 по официальным страницам WB API и Ozon Help/Seller API.
+Проверено 17.05.2026 по официальным страницам WB API и Ozon Help/Seller API.
 
 ### Wildberries
 
@@ -373,7 +373,12 @@ namespaces = false
 - `GET /api/v1/supplier/sales` — продажи/выкупы WB для событий завершённой продажи;
 - `GET /api/v3/supplies`, `PATCH /api/v3/supplies/{supplyId}/deliver` — контроль поставок FBS;
 - `POST /content/v2/get/cards/list` — карточки товаров;
+- `GET /api/v3/warehouses` — склады продавца для FBS-остатков;
+- `POST /api/v3/stocks/{warehouseId}` — FBS-остатки на складах продавца по `chrtIds`;
 - `POST /api/analytics/v1/stocks-report/wb-warehouses` — актуальный метод остатков WB-складов, заменяет старый `GET /api/v1/supplier/stocks`, который объявлен к отключению 23.06.2026;
+- `GET /api/v1/seller-info` — информация о продавце для диагностики подключения;
+- `GET /api/communications/v2/news` — новости WB API без повторной рассылки в пользовательские уведомления;
+- `POST /api/v2/search-report/product/search-texts` — фундамент для будущей SEO-аналитики карточек;
 - `POST /api/finance/v1/sales-reports/list`;
 - `POST /api/finance/v1/sales-reports/detailed`;
 - `POST /api/finance/v1/sales-reports/detailed/{reportId}`;
@@ -395,8 +400,11 @@ namespaces = false
 - `POST /v3/posting/fbs/get` — детализация FBS отправления;
 - `POST /v3/posting/fbs/unfulfilled/list` — неотгруженные отправления для FBS-контроля;
 - `POST /v3/product/list` — список товаров;
-- `POST /v4/product/info/stocks` — остатки товаров;
+- `POST /v4/product/info/stocks` — общие остатки товаров;
 - `POST /v1/product/info/stocks-by-warehouse/fbs` — остатки FBS/rFBS по складам;
+- `POST /v5/product/info/prices` — цены товаров;
+- `POST /v2/warehouse/list` — список складов;
+- `POST /v1/seller/info` — информация о продавце;
 - `POST /v1/returns/list` — возвраты;
 - `POST /v1/report` и `POST /v1/report/info` — отчётная архитектура для финансовых/складских отчётов.
 

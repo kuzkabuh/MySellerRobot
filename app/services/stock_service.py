@@ -1,8 +1,9 @@
-"""version: 1.1.0
-description: Stock synchronization, stockout forecast, and low-stock alert service.
-updated: 2026-05-15
+"""version: 1.2.0
+description: Stock synchronization, marketplace stock parsing, stockout forecast, and alerts.
+updated: 2026-05-17
 """
 
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
@@ -16,6 +17,8 @@ from app.models.domain import AlertEvent, MarketplaceAccount, Product, StockSnap
 from app.models.enums import AlertType, Marketplace
 from app.repositories.products import ProductRepository
 from app.services.stock_forecast_service import StockForecastService
+
+logger = logging.getLogger(__name__)
 
 
 class StockService:
@@ -36,7 +39,98 @@ class StockService:
 
     async def _sync_wb(self, account: MarketplaceAccount) -> int:
         client = WildberriesClient(self.cipher.decrypt(account.encrypted_api_key))
-        data = await client.get_wb_warehouses_stocks()
+        count = await self._sync_wb_seller_stocks(account, client)
+        count += await self._sync_wb_analytics_stocks(account, client)
+        return count
+
+    async def _sync_wb_seller_stocks(
+        self,
+        account: MarketplaceAccount,
+        client: WildberriesClient,
+    ) -> int:
+        products = await self._list_products_for_account(account)
+        chrt_products: dict[int, Product] = {}
+        for catalog_product in products:
+            chrt_id = _int_or_none(catalog_product.chrt_id)
+            if chrt_id is not None:
+                chrt_products[chrt_id] = catalog_product
+        if not chrt_products:
+            logger.info(
+                "wb_fbs_stock_sync_skipped_no_chrt_ids",
+                extra={"account_id": account.id, "user_id": account.user_id},
+            )
+            return 0
+        try:
+            warehouses = await client.get_seller_warehouses()
+        except Exception:
+            logger.exception(
+                "wb_fbs_stock_warehouses_load_failed",
+                extra={"account_id": account.id, "user_id": account.user_id},
+            )
+            return 0
+
+        logger.info(
+            "wb_fbs_stock_sync_started",
+            extra={
+                "account_id": account.id,
+                "warehouses": len(warehouses),
+                "chrt_ids": len(chrt_products),
+            },
+        )
+        count = 0
+        for warehouse in warehouses:
+            warehouse_id = (
+                warehouse.get("ID") or warehouse.get("id") or warehouse.get("warehouseId")
+            )
+            if not warehouse_id:
+                continue
+            warehouse_name = str(warehouse.get("name") or warehouse_id)
+            for chunk in _chunks(list(chrt_products), 1000):
+                try:
+                    rows = await client.get_seller_warehouse_stocks(
+                        warehouse_id=warehouse_id,
+                        chrt_ids=chunk,
+                    )
+                except Exception:
+                    logger.exception(
+                        "wb_fbs_stock_load_failed",
+                        extra={
+                            "account_id": account.id,
+                            "warehouse_id": warehouse_id,
+                            "chrt_ids": len(chunk),
+                        },
+                    )
+                    continue
+                for row in rows:
+                    chrt_id = _int_or_none(row.get("chrtId") or row.get("chrtID"))
+                    product = chrt_products.get(chrt_id) if chrt_id is not None else None
+                    quantity = self._quantity_from_stock_row(row)
+                    raw = {
+                        **row,
+                        "warehouseName": f"FBS: {warehouse_name}",
+                        "stock_source": "WB_SELLER_STOCKS",
+                    }
+                    await self._add_snapshot(account, product, quantity, raw)
+                    count += 1
+        logger.info(
+            "wb_fbs_stock_sync_completed",
+            extra={"account_id": account.id, "snapshots": count},
+        )
+        return count
+
+    async def _sync_wb_analytics_stocks(
+        self,
+        account: MarketplaceAccount,
+        client: WildberriesClient,
+    ) -> int:
+        try:
+            data = await client.get_wb_warehouses_stocks()
+        except Exception:
+            logger.exception(
+                "wb_fbo_stock_analytics_load_failed",
+                extra={"account_id": account.id, "user_id": account.user_id},
+            )
+            return 0
         rows = self._extract_rows(data)
         count = 0
         for row in rows:
@@ -47,8 +141,13 @@ class StockService:
                 marketplace_article=str(row.get("nmID") or row.get("nmId") or ""),
                 external_product_id=str(row.get("nmID") or row.get("nmId") or ""),
             )
-            quantity = int(row.get("quantity") or row.get("qty") or row.get("stock") or 0)
-            await self._add_snapshot(account, product, quantity, row)
+            quantity = self._quantity_from_stock_row(row)
+            await self._add_snapshot(
+                account,
+                product,
+                quantity,
+                {**row, "warehouseName": row.get("warehouseName") or "FBO: склады WB"},
+            )
             count += 1
         return count
 
@@ -67,15 +166,7 @@ class StockService:
                 marketplace_article=str(row.get("sku") or ""),
                 external_product_id=str(row.get("product_id") or row.get("sku") or ""),
             )
-            raw_stocks = row.get("stocks")
-            stocks = raw_stocks if isinstance(raw_stocks, dict) else {}
-            quantity = int(
-                row.get("present")
-                or row.get("free_to_sell_amount")
-                or stocks.get("present")
-                or stocks.get("fbs")
-                or 0
-            )
+            quantity = self._quantity_from_stock_row(row)
             await self._add_snapshot(account, product, quantity, row)
             count += 1
         return count
@@ -184,8 +275,70 @@ class StockService:
             return [item for item in result if isinstance(item, dict)]
         return []
 
+    async def _list_products_for_account(self, account: MarketplaceAccount) -> list[Product]:
+        result = await self.session.execute(
+            select(Product)
+            .where(Product.marketplace_account_id == account.id)
+            .where(Product.marketplace == account.marketplace)
+            .where(Product.is_active.is_(True))
+        )
+        return list(result.scalars().all())
+
+    @staticmethod
+    def _quantity_from_stock_row(row: dict[str, Any]) -> int:
+        for key in (
+            "amount",
+            "quantity",
+            "qty",
+            "stock",
+            "present",
+            "free_to_sell",
+            "free_to_sell_amount",
+            "available_stock_count",
+        ):
+            value = _int_or_none(row.get(key))
+            if value is not None:
+                return value
+        raw_stocks = row.get("stocks")
+        if isinstance(raw_stocks, dict):
+            for key in ("present", "fbs", "fbo", "free_to_sell", "available_stock_count"):
+                value = _int_or_none(raw_stocks.get(key))
+                if value is not None:
+                    return value
+        if isinstance(raw_stocks, list):
+            total = 0
+            found = False
+            for item in raw_stocks:
+                if not isinstance(item, dict):
+                    continue
+                value = _int_or_none(
+                    item.get("present")
+                    or item.get("free_to_sell")
+                    or item.get("available_stock_count")
+                    or item.get("amount")
+                )
+                if value is not None:
+                    total += value
+                    found = True
+            if found:
+                return total
+        return 0
+
     async def _alert_exists(self, idempotency_key: str) -> bool:
         result = await self.session.execute(
             select(AlertEvent.id).where(AlertEvent.idempotency_key == idempotency_key)
         )
         return result.scalar_one_or_none() is not None
+
+
+def _int_or_none(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _chunks(values: list[int], size: int) -> list[list[int]]:
+    return [values[index : index + size] for index in range(0, len(values), size)]

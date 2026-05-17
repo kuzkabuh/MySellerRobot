@@ -1,6 +1,6 @@
-"""version: 1.2.0
-description: Product synchronization, tariff, cost update, and master product schemas.
-updated: 2026-05-15
+"""version: 1.3.0
+description: Product synchronization, dimensions, tariff, cost update, and master product schemas.
+updated: 2026-05-17
 """
 
 from datetime import datetime
@@ -18,11 +18,17 @@ class ProductUpsert(BaseModel):
     external_product_id: str
     seller_article: str | None = None
     marketplace_article: str | None = None
+    chrt_id: str | None = None
     title: str | None = None
     brand: str | None = None
     image_url: str | None = None
     category: str | None = None
     marketplace_category_id: str | None = None
+    length_cm: Decimal | None = None
+    width_cm: Decimal | None = None
+    height_cm: Decimal | None = None
+    volume_liters: Decimal | None = None
+    dimensions_source: str | None = None
     marketplace_commission_rate: Decimal | None = None
     marketplace_commission_source: str | None = None
     is_active: bool = True

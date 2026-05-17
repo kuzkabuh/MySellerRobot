@@ -1,6 +1,6 @@
-"""version: 1.3.0
-description: Product, marketplace tariff, manual matching, and cost history persistence helpers.
-updated: 2026-05-15
+"""version: 1.4.0
+description: Product dimensions, tariffs, manual matching, and cost history persistence.
+updated: 2026-05-17
 """
 
 from datetime import datetime
@@ -42,6 +42,11 @@ class ProductRepository:
                     in {
                         "marketplace_commission_rate",
                         "marketplace_commission_source",
+                        "length_cm",
+                        "width_cm",
+                        "height_cm",
+                        "volume_liters",
+                        "dimensions_source",
                     }
                     and value is None
                 ):

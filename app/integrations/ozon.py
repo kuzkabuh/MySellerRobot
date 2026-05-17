@@ -1,6 +1,6 @@
-"""version: 1.3.0
-description: Ozon Seller API client and product/order normalization helpers.
-updated: 2026-05-15
+"""version: 1.4.0
+description: Ozon Seller API client, catalog, stock, price, and order normalization helpers.
+updated: 2026-05-17
 """
 
 from datetime import UTC, datetime
@@ -150,6 +150,17 @@ class OzonClient:
         await self.get_product_list(limit=1)
         return True
 
+    async def get_seller_info(self) -> dict[str, Any]:
+        return cast(
+            dict[str, Any],
+            await self.client.request(
+                "POST",
+                "/v1/seller/info",
+                headers=self.headers,
+                json={},
+            ),
+        )
+
     async def get_product_info_stocks(self, offer_ids: list[str] | None = None) -> dict[str, Any]:
         return cast(
             dict[str, Any],
@@ -158,6 +169,81 @@ class OzonClient:
                 "/v4/product/info/stocks",
                 headers=self.headers,
                 json={"filter": {"offer_id": offer_ids or [], "visibility": "ALL"}, "limit": 1000},
+            ),
+        )
+
+    async def get_product_info_warehouse_stocks(
+        self,
+        *,
+        sku: list[str] | None = None,
+        warehouse_ids: list[str] | None = None,
+        limit: int = 1000,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"limit": limit, "offset": offset}
+        if sku:
+            payload["sku"] = sku[:1000]
+        if warehouse_ids:
+            payload["warehouse_ids"] = warehouse_ids[:1000]
+        return cast(
+            dict[str, Any],
+            await self.client.request(
+                "POST",
+                "/v1/product/info/stocks-by-warehouse/fbs",
+                headers=self.headers,
+                json=payload,
+            ),
+        )
+
+    async def get_product_info_prices(
+        self,
+        *,
+        offer_ids: list[str] | None = None,
+        product_ids: list[str] | None = None,
+        limit: int = 1000,
+        cursor: str = "",
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "filter": {"offer_id": offer_ids or [], "product_id": product_ids or []},
+            "limit": limit,
+        }
+        if cursor:
+            payload["cursor"] = cursor
+        return cast(
+            dict[str, Any],
+            await self.client.request(
+                "POST",
+                "/v5/product/info/prices",
+                headers=self.headers,
+                json=payload,
+            ),
+        )
+
+    async def get_warehouses(self, *, limit: int = 100, offset: int = 0) -> dict[str, Any]:
+        return cast(
+            dict[str, Any],
+            await self.client.request(
+                "POST",
+                "/v2/warehouse/list",
+                headers=self.headers,
+                json={"limit": limit, "offset": offset},
+            ),
+        )
+
+    async def get_promos_products(
+        self,
+        action_id: int,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        return cast(
+            dict[str, Any],
+            await self.client.request(
+                "POST",
+                "/v1/actions/products",
+                headers=self.headers,
+                json={"action_id": action_id, "limit": limit, "offset": offset},
             ),
         )
 

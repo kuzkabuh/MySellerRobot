@@ -1,6 +1,6 @@
-"""version: 1.4.0
-description: Wildberries official API client, tariff methods, and normalization helpers.
-updated: 2026-05-15
+"""version: 1.5.0
+description: Wildberries official API client, seller stocks, tariffs, and normalizers.
+updated: 2026-05-17
 """
 
 import logging
@@ -15,6 +15,7 @@ from app.models.enums import Marketplace, SaleEventType, SaleModel, SourceEventT
 from app.schemas.orders import NormalizedOrder, NormalizedOrderItem
 from app.schemas.products import ProductUpsert
 from app.schemas.sales import NormalizedSaleEvent
+from app.services.product_dimensions import calculate_volume_liters, decimal_or_none
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,47 @@ class WildberriesClient:
     async def check_connection(self) -> bool:
         await self.common.request("GET", "/ping", headers=self.headers)
         return True
+
+    async def get_seller_info(self) -> dict[str, Any]:
+        return cast(
+            dict[str, Any],
+            await self.common.request("GET", "/api/v1/seller-info", headers=self.headers),
+        )
+
+    async def get_news(
+        self,
+        *,
+        from_date: str | None = None,
+        from_id: int | None = None,
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {}
+        if from_id is not None:
+            params["fromID"] = from_id
+        elif from_date:
+            params["from"] = from_date
+        else:
+            raise ValidationError("Нужно указать from_date или from_id", field="from")
+        data = await self.common.request(
+            "GET",
+            "/api/communications/v2/news",
+            headers=self.headers,
+            params=params,
+        )
+        return list(data) if isinstance(data, list) else list(data.get("news", []))
+
+    async def get_product_search_texts(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return cast(
+            dict[str, Any],
+            await self.analytics.request(
+                "POST",
+                "/api/v2/search-report/product/search-texts",
+                headers=self.headers,
+                json=payload,
+            ),
+        )
 
     async def get_new_fbs_orders(self) -> list[dict[str, Any]]:
         data = await self.marketplace.request("GET", "/api/v3/orders/new", headers=self.headers)
@@ -98,6 +140,31 @@ class WildberriesClient:
                 json={"limit": limit, "offset": offset},
             ),
         )
+
+    async def get_seller_warehouses(self) -> list[dict[str, Any]]:
+        """Return seller warehouses used by FBS inventory endpoints."""
+
+        data = await self.marketplace.request("GET", "/api/v3/warehouses", headers=self.headers)
+        return list(data) if isinstance(data, list) else list(data.get("warehouses", []))
+
+    async def get_seller_warehouse_stocks(
+        self,
+        *,
+        warehouse_id: int | str,
+        chrt_ids: list[int],
+    ) -> list[dict[str, Any]]:
+        """Return FBS inventory for seller warehouse by WB size IDs."""
+
+        if not chrt_ids:
+            return []
+        data = await self.marketplace.request(
+            "POST",
+            f"/api/v3/stocks/{warehouse_id}",
+            headers=self.headers,
+            json={"chrtIds": chrt_ids[:1000]},
+        )
+        stocks = data.get("stocks", []) if isinstance(data, dict) else []
+        return [item for item in stocks if isinstance(item, dict)]
 
     async def get_commission_tariffs(self, *, locale: str = "ru") -> list[dict[str, Any]]:
         """Return official WB category commission tariffs.
@@ -476,6 +543,13 @@ class WildberriesClient:
         account_id: int,
     ) -> ProductUpsert:
         nm_id = str(payload.get("nmID") or payload.get("nmId") or "")
+        dimensions = payload.get("dimensions")
+        dimensions = dimensions if isinstance(dimensions, dict) else {}
+        length = decimal_or_none(dimensions.get("length"))
+        width = decimal_or_none(dimensions.get("width"))
+        height = decimal_or_none(dimensions.get("height"))
+        volume = calculate_volume_liters(length, width, height)
+        chrt_id = _first_chrt_id(payload)
         photos = payload.get("photos") or []
         image_url = None
         if photos and isinstance(photos[0], dict):
@@ -487,6 +561,7 @@ class WildberriesClient:
             external_product_id=nm_id,
             seller_article=payload.get("vendorCode"),
             marketplace_article=nm_id,
+            chrt_id=chrt_id,
             title=payload.get("title"),
             brand=payload.get("brand"),
             image_url=image_url,
@@ -494,5 +569,22 @@ class WildberriesClient:
             marketplace_category_id=(
                 str(payload.get("subjectID") or payload.get("subjectId") or "") or None
             ),
+            length_cm=length,
+            width_cm=width,
+            height_cm=height,
+            volume_liters=volume,
+            dimensions_source="WB_CONTENT_API" if volume is not None else None,
             is_active=not bool(payload.get("isDeleted")),
         )
+
+
+def _first_chrt_id(payload: dict[str, Any]) -> str | None:
+    sizes = payload.get("sizes")
+    if not isinstance(sizes, list):
+        return None
+    for size in sizes:
+        if isinstance(size, dict) and size.get("chrtID"):
+            return str(size["chrtID"])
+        if isinstance(size, dict) and size.get("chrtId"):
+            return str(size["chrtId"])
+    return None
