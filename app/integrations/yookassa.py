@@ -27,6 +27,7 @@ class YooKassaClient:
         description: str,
         return_url: str,
         metadata: dict[str, Any] | None = None,
+        idempotence_key: str | None = None,
     ) -> dict[str, Any]:
         """Create a new payment.
 
@@ -40,7 +41,8 @@ class YooKassaClient:
                     "capture": True,
                     "description": description,
                     "metadata": metadata or {},
-                }
+                },
+                idempotence_key,
             )
             logger.info(
                 "yookassa_payment_created",

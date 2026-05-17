@@ -69,6 +69,11 @@ class FakeOrders:
     async def mark_notified(self, _: int) -> None:
         self.mark_notified_called = True
 
+    async def pending_unnotified_for_account(self, **_: Any) -> list[Order]:
+        if self.existing and self.existing.first_notified_at is None:
+            return [self.existing]
+        return []
+
 
 class FakeProfitService:
     async def calculate_estimated_profit(self, *_: Any) -> None:
@@ -258,6 +263,35 @@ async def test_card_build_error_does_not_mark_fbs_order_notified() -> None:
     assert fake_orders.created_order is not None
     assert fake_orders.created_order.first_notified_at is None
     assert fake_orders.mark_notified_called is False
+
+
+@pytest.mark.asyncio
+async def test_saved_unnotified_order_is_recovered_without_marketplace_duplicate() -> None:
+    existing = _order(
+        order_id=404,
+        user_id=7,
+        account_id=55,
+        external_id="wb-fbs-recover",
+        sale_model=SaleModel.FBS,
+        fulfillment_type="FBS",
+        first_notified_at=None,
+    )
+    service, _ = _service(existing=existing)
+    account = _account(Marketplace.WB)
+
+    async def fetch_orders(_: MarketplaceAccount) -> list[NormalizedOrder]:
+        return []
+
+    service._fetch_orders = fetch_orders  # type: ignore[method-assign]
+
+    result = await service.poll_account_with_stats(account)
+
+    assert result.fetched == 0
+    assert result.recovered_unnotified == 1
+    assert result.notification_count == 1
+    notification = result.notifications[0] if result.notifications else None
+    assert notification is not None
+    assert notification.order_id == 404
 
 
 def _service(existing: Order | None) -> tuple[OrderProcessingService, FakeOrders]:

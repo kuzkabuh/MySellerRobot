@@ -1741,6 +1741,8 @@ def _accounts_content(data: AccountsPageData) -> str:
         f"{_seller_name_hint(row.account)}</div></td>"
         f"<td>{_marketplace_label(row.account.marketplace)}</td>"
         f"<td>{_account_status_badge(row.account.status.value, row.account.is_active)}</td>"
+        f"<td>{_seller_profile_web(row.account, row.latest_balance)}</td>"
+        f"<td>{_wb_reports_web(row.latest_daily_report, row.latest_weekly_report, row.report_states or [])}</td>"
         f"<td>{_dt(row.account.last_success_sync_at)}</td>"
         f'<td>{_dt(row.account.last_error_at)}<div class="muted">{escape(row.account.last_error_message or row.latest_job_error or "")}</div></td>'
         f'<td class="num">{row.products_count}</td>'
@@ -1751,7 +1753,7 @@ def _accounts_content(data: AccountsPageData) -> str:
     )
     if not rows:
         rows = (
-            '<tr><td colspan="8"><div class="empty-state">'
+            '<tr><td colspan="10"><div class="empty-state">'
             "Кабинеты ещё не подключены. Подключение нового кабинета выполняется через Telegram-бота."
             "</div></td></tr>"
         )
@@ -1765,7 +1767,8 @@ def _accounts_content(data: AccountsPageData) -> str:
         <h2>Wildberries и Ozon</h2>
         <p class="muted">Подключение нового кабинета сейчас выполняется через Telegram-бота: откройте настройки и выберите подключение WB или Ozon.</p>
         <div class="table-wrap"><table class="table">
-          <thead><tr><th>Кабинет</th><th>МП</th><th>Статус</th><th>Успешная синхронизация</th>
+          <thead><tr><th>Кабинет</th><th>МП</th><th>Статус</th><th>Продавец и баланс</th>
+          <th>Отчёты WB</th><th>Успешная синхронизация</th>
           <th>Последняя ошибка</th><th class="num">Товаров</th><th class="num">Заказов 30д</th><th>Последняя задача</th></tr></thead>
           <tbody>{rows}</tbody>
         </table></div>
@@ -1778,6 +1781,49 @@ def _seller_name_hint(account: MarketplaceAccount) -> str:
         return ""
     label = account.seller_name or account.seller_external_id or ""
     return f" · продавец: {escape(label)}"
+
+
+def _seller_profile_web(account: MarketplaceAccount, balance: object | None) -> str:
+    payload = account.seller_info_payload or {}
+    parts = [
+        escape(account.seller_name or account.seller_legal_name or "н/д"),
+        f'<div class="muted">ИНН: {escape(str(payload.get("tin") or "н/д"))}</div>',
+    ]
+    if balance is None:
+        parts.append('<div class="muted">Баланс не загружен</div>')
+    elif getattr(balance, "status", "") == "OK":
+        parts.append(
+            f'<div class="muted">Баланс: {_rub(getattr(balance, "current", 0))}</div>'
+        )
+        parts.append(
+            f'<div class="muted">К выводу: {_rub(getattr(balance, "for_withdraw", 0))}</div>'
+        )
+    else:
+        parts.append('<div class="muted">Для баланса нужен Finance-доступ WB</div>')
+    return "".join(parts)
+
+
+def _wb_reports_web(daily: object | None, weekly: object | None, states: list[object]) -> str:
+    state_by_period = {getattr(state, "period_type", ""): state for state in states}
+    if daily is None and weekly is None and not states:
+        return '<span class="muted">Пока не проверялись</span>'
+    return (
+        f"<div>День: {_report_short(daily, state_by_period.get('daily'))}</div>"
+        f"<div>Неделя: {_report_short(weekly, state_by_period.get('weekly'))}</div>"
+    )
+
+
+def _report_short(report: object | None, state: object | None) -> str:
+    if report is not None:
+        period = f"{getattr(report, 'date_from', '')} — {getattr(report, 'date_to', '')}"
+        amount = getattr(report, "for_pay_sum", None)
+        return f"{escape(period)}<div class=\"muted\">к выплате: {_rub(amount or 0)}</div>"
+    if state is None:
+        return '<span class="muted">нет данных</span>'
+    status = getattr(state, "status", "")
+    if status in {"NO_ACCESS", "RATE_LIMITED"}:
+        return '<span class="muted">нет Finance-доступа или лимит</span>'
+    return '<span class="muted">не найден</span>'
 
 
 def _ozon_price_label(snapshot: object | None) -> str:

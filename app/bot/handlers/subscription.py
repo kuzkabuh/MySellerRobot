@@ -277,7 +277,7 @@ async def handle_payment_confirmation(callback: CallbackQuery) -> None:
             return
 
         settings = get_settings()
-        return_url = f"{settings.web_base_url}/web/payment/success"
+        return_url = settings.yookassa_return_url or f"{settings.web_base_url}/web/payment/success"
 
         try:
             payment_service = PaymentService(session)

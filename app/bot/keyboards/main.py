@@ -340,6 +340,22 @@ def account_actions(account_id: int, is_active: bool) -> InlineKeyboardMarkup:
         buttons.append(
             [
                 InlineKeyboardButton(
+                    text="👤 Продавец и баланс",
+                    callback_data=f"account:{account_id}:seller",
+                )
+            ]
+        )
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text="📄 Отчёты WB",
+                    callback_data=f"account:{account_id}:reports",
+                )
+            ]
+        )
+        buttons.append(
+            [
+                InlineKeyboardButton(
                     text="Удалить кабинет",
                     callback_data=f"account:{account_id}:delete_confirm",
                 )

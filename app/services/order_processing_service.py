@@ -55,6 +55,7 @@ class OrderPollResult:
     skipped_by_policy: int = 0
     skipped_without_user: int = 0
     retried_unnotified: int = 0
+    recovered_unnotified: int = 0
     notifications: list[NewOrderNotification] | None = None
 
     @property
@@ -213,6 +214,8 @@ class OrderProcessingService:
                         )
                         continue
 
+                await self._append_saved_unnotified(account, policy, result)
+
                 account.last_order_poll_at = datetime.now(tz=UTC)
                 await self.session.commit()
 
@@ -225,6 +228,7 @@ class OrderProcessingService:
                         "queued_digest": result.queued_digest,
                         "skipped_by_policy": result.skipped_by_policy,
                         "retried_unnotified": result.retried_unnotified,
+                        "recovered_unnotified": result.recovered_unnotified,
                         "notifications_prepared": result.notification_count,
                     },
                 )
@@ -379,6 +383,55 @@ class OrderProcessingService:
                 },
             )
         return True
+
+    async def _append_saved_unnotified(
+        self,
+        account: MarketplaceAccount,
+        policy: OrderNotificationPolicy,
+        result: OrderPollResult,
+    ) -> None:
+        prepared_ids = {notification.order_id for notification in result.notifications or []}
+        pending = await self.orders.pending_unnotified_for_account(
+            account_id=account.id,
+            sale_models={SaleModel.FBS, SaleModel.RFBS, SaleModel.DBS, SaleModel.DBW},
+            limit=100,
+        )
+        for order in pending:
+            if order.id in prepared_ids:
+                continue
+            if not policy.is_instant_enabled_for(order.sale_model):
+                result.skipped_by_policy += 1
+                continue
+            if not account.user or not account.user.notifications_enabled:
+                result.skipped_without_user += 1
+                continue
+            try:
+                await self._append_notification(account, order, result)
+                result.recovered_unnotified += 1
+                prepared_ids.add(order.id)
+                logger.info(
+                    "saved_unnotified_order_notification_requeued",
+                    extra={
+                        "account_id": account.id,
+                        "user_id": account.user_id,
+                        "marketplace": account.marketplace.value,
+                        "fulfillment_type": order.fulfillment_type,
+                        "sale_model": order.sale_model.value if order.sale_model else None,
+                        "order_id": order.id,
+                        "order_external_id": order.order_external_id,
+                    },
+                )
+            except Exception:
+                logger.exception(
+                    "saved_unnotified_order_card_failed",
+                    extra={
+                        "account_id": account.id,
+                        "user_id": account.user_id,
+                        "marketplace": account.marketplace.value,
+                        "order_id": order.id,
+                        "order_external_id": order.order_external_id,
+                    },
+                )
 
     async def _append_notification(
         self,

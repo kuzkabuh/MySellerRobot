@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     # YooKassa payment settings
     yookassa_shop_id: str = ""
     yookassa_secret_key: SecretStr = Field(default=SecretStr(""))
+    yookassa_return_url: str | None = None
+    yookassa_webhook_url: str | None = None
 
     # Support contact
     support_telegram_username: str = "mpcontrol_support"

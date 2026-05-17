@@ -24,12 +24,14 @@ from app.core.db import AsyncSessionFactory
 from app.models.domain import MarketplaceAccount, User
 from app.models.enums import Marketplace
 from app.repositories.users import UserRepository
+from app.services.account_profile_service import AccountProfileService
 from app.services.account_service import (
     AccountConnectionError,
     CreateAccountCommand,
     MarketplaceAccountService,
 )
 from app.services.history_backfill_service import HistoryBackfillService
+from app.services.wb_report_service import WbFinancialReportService
 
 router = Router(name="accounts")
 logger = logging.getLogger(__name__)
@@ -189,6 +191,33 @@ async def account_action_handler(callback: CallbackQuery) -> None:
                 account_actions(account.id, account.is_active),
             )
             return
+        if action == "seller" and account is not None:
+            profile = await AccountProfileService(session).refresh_wb_account(
+                account,
+                force_balance=False,
+            )
+            await session.commit()
+            await _edit_or_answer(
+                callback,
+                _format_seller_profile(profile.account, profile.balance),
+                account_actions(account.id, account.is_active),
+            )
+            await callback.answer()
+            return
+        if action == "reports" and account is not None:
+            report_service = WbFinancialReportService(session)
+            if account.marketplace == Marketplace.WB:
+                await report_service.check_recent(account)
+                await session.commit()
+            reports = await report_service.latest_reports(account.id, limit=6)
+            states = await report_service.latest_states(account.id)
+            await _edit_or_answer(
+                callback,
+                _format_wb_reports(account, reports, states),
+                account_actions(account.id, account.is_active),
+            )
+            await callback.answer()
+            return
     if account is None:
         await callback.answer("Кабинет не найден", show_alert=True)
         return
@@ -307,6 +336,76 @@ def _format_account_card(account: MarketplaceAccount) -> str:
         f"Client ID: {client_id}\n"
         "Ключ API: сохранён в зашифрованном виде"
     )
+
+
+def _format_seller_profile(account: MarketplaceAccount, balance: object | None) -> str:
+    payload = account.seller_info_payload or {}
+    lines = [
+        "👤 Кабинет продавца",
+        "",
+        f"Маркетплейс: {account.marketplace.value}",
+        f"Название: {_safe_text(account.seller_name or account.name)}",
+        f"Юр. имя: {_safe_text(account.seller_legal_name)}",
+        f"ИНН: {_safe_text(payload.get('tin'))}",
+        f"SID: {_safe_text(payload.get('sid') or account.seller_external_id)}",
+        f"Торговая марка: {_safe_text(payload.get('tradeMark'))}",
+    ]
+    if balance is None:
+        lines.extend(["", "💰 Баланс: пока не загружен"])
+    elif getattr(balance, "status", "") == "OK":
+        currency = getattr(balance, "currency", "RUB")
+        current = _safe_text(getattr(balance, "current", None))
+        for_withdraw = _safe_text(getattr(balance, "for_withdraw", None))
+        lines.extend(
+            [
+                "",
+                "💰 Баланс WB",
+                f"Текущий: {current} {currency}",
+                f"Доступно к выводу: {for_withdraw} {currency}",
+                f"Обновлено: {balance.fetched_at.strftime('%d.%m.%Y %H:%M')}",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "",
+                "💰 Баланс WB недоступен.",
+                "Для баланса нужен ключ WB с категорией Finance.",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def _format_wb_reports(
+    account: MarketplaceAccount,
+    reports: list[object],
+    states: list[object],
+) -> str:
+    if account.marketplace != Marketplace.WB:
+        return "Финансовые отчёты сейчас поддержаны только для Wildberries."
+    state_by_period = {state.period_type: state for state in states}
+    lines = ["📄 Отчёты Wildberries", ""]
+    for period, title in (("daily", "Ежедневные"), ("weekly", "Еженедельные")):
+        state = state_by_period.get(period)
+        if state is None:
+            lines.append(f"{title}: ещё не проверялись")
+        elif getattr(state, "status", "") == "FOUND":
+            lines.append(f"{title}: найдены, записей: {state.reports_found}")
+        elif getattr(state, "status", "") in {"NO_ACCESS", "RATE_LIMITED"}:
+            lines.append(f"{title}: нет доступа или превышен лимит Finance API")
+        else:
+            lines.append(f"{title}: пока не найдены")
+    lines.append("")
+    if not reports:
+        lines.append("Последних отчётов в базе пока нет.")
+    for report in reports[:6]:
+        amount = getattr(report, "for_pay_sum", None)
+        lines.append(
+            f"{getattr(report, 'period_type', '')}: "
+            f"{getattr(report, 'date_from', None)} — {getattr(report, 'date_to', None)}, "
+            f"к выплате: {_safe_text(amount)}"
+        )
+    return "\n".join(lines)
 
 
 async def _answer_callback_message(callback: CallbackQuery, text: str) -> None:

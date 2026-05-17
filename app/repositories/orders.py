@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.domain import FboDigestQueue, Order, OrderItem, ProfitSnapshot
-from app.models.enums import CalculationType, FboNotificationMode, Marketplace
+from app.models.enums import CalculationType, FboNotificationMode, Marketplace, SaleModel
 from app.schemas.orders import NormalizedOrder
 
 
@@ -218,6 +218,25 @@ class OrderRepository:
             select(Order).options(selectinload(Order.items)).where(Order.id == order_id)
         )
         return result.scalar_one_or_none()
+
+    async def pending_unnotified_for_account(
+        self,
+        *,
+        account_id: int,
+        sale_models: set[SaleModel],
+        limit: int = 100,
+    ) -> list[Order]:
+        """Return saved instant-order notifications that were not delivered yet."""
+        result = await self.session.execute(
+            select(Order)
+            .options(selectinload(Order.items))
+            .where(Order.marketplace_account_id == account_id)
+            .where(Order.first_notified_at.is_(None))
+            .where(Order.sale_model.in_(sale_models))
+            .order_by(Order.event_received_at.asc(), Order.id.asc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
 
     async def daily_marketplace_summary(
         self,

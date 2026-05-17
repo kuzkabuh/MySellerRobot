@@ -5,6 +5,7 @@ updated: 2026-05-16
 
 from app.models.base import Base
 from app.models.domain import (
+    AccountBalanceSnapshot,
     AlertEvent,
     AlertRule,
     ApiRequestLog,
@@ -29,6 +30,8 @@ from app.models.domain import (
     SyncJob,
     User,
     UserWebSession,
+    WbFinancialReport,
+    WbReportCheckState,
 )
 from app.models.subscriptions import Payment, SubscriptionTier, UserSubscription
 
@@ -36,6 +39,7 @@ __all__ = [
     "AlertEvent",
     "AlertRule",
     "ApiRequestLog",
+    "AccountBalanceSnapshot",
     "Base",
     "DailyReport",
     "FinancialReportRow",
@@ -61,4 +65,6 @@ __all__ = [
     "User",
     "UserSubscription",
     "UserWebSession",
+    "WbFinancialReport",
+    "WbReportCheckState",
 ]

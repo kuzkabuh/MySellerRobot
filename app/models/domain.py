@@ -553,6 +553,81 @@ class OzonPromoProduct(TimestampMixin, Base):
     raw_payload: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
 
 
+class AccountBalanceSnapshot(TimestampMixin, Base):
+    __tablename__ = "account_balance_snapshots"
+    __table_args__ = (
+        Index("ix_account_balance_latest", "marketplace_account_id", "fetched_at"),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    marketplace_account_id: Mapped[int] = mapped_column(
+        ForeignKey("marketplace_accounts.id", ondelete="CASCADE"), index=True
+    )
+    marketplace: Mapped[Marketplace] = mapped_column(Enum(Marketplace), index=True)
+    currency: Mapped[str] = mapped_column(String(16), default="RUB")
+    current: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    for_withdraw: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    status: Mapped[str] = mapped_column(String(64), default="OK")
+    error_message: Mapped[str | None] = mapped_column(Text)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    raw_payload: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
+
+
+class WbFinancialReport(TimestampMixin, Base):
+    __tablename__ = "wb_financial_reports"
+    __table_args__ = (
+        UniqueConstraint(
+            "marketplace_account_id",
+            "period_type",
+            "report_id",
+            name="uq_wb_reports_account_period_report",
+        ),
+        Index("ix_wb_reports_period", "marketplace_account_id", "period_type", "date_from"),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    marketplace_account_id: Mapped[int] = mapped_column(
+        ForeignKey("marketplace_accounts.id", ondelete="CASCADE"), index=True
+    )
+    report_id: Mapped[str] = mapped_column(String(128))
+    period_type: Mapped[str] = mapped_column(String(16), index=True)
+    date_from: Mapped[date | None] = mapped_column(Date)
+    date_to: Mapped[date | None] = mapped_column(Date)
+    create_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    currency: Mapped[str | None] = mapped_column(String(16))
+    report_type: Mapped[str | None] = mapped_column(String(128))
+    retail_amount_sum: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    for_pay_sum: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    delivery_service_sum: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    raw_payload: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
+
+
+class WbReportCheckState(TimestampMixin, Base):
+    __tablename__ = "wb_report_check_states"
+    __table_args__ = (
+        UniqueConstraint(
+            "marketplace_account_id",
+            "period_type",
+            name="uq_wb_report_check_account_period",
+        ),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    marketplace_account_id: Mapped[int] = mapped_column(
+        ForeignKey("marketplace_accounts.id", ondelete="CASCADE"), index=True
+    )
+    period_type: Mapped[str] = mapped_column(String(16), index=True)
+    status: Mapped[str] = mapped_column(String(64), default="UNKNOWN")
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error_message: Mapped[str | None] = mapped_column(Text)
+    reports_found: Mapped[int] = mapped_column(Integer, default=0)
+    payload: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
+
+
 class NotificationSetting(TimestampMixin, Base):
     __tablename__ = "notification_settings"
     __table_args__ = (UniqueConstraint("user_id", "marketplace_account_id", "notification_type"),)

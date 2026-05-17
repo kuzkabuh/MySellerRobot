@@ -10,12 +10,14 @@ from app.core.config import get_settings
 from app.workers.tasks import (
     check_fbs_deadlines,
     check_low_stocks,
+    check_wb_financial_reports,
     poll_new_orders,
     process_history_backfills,
     send_daily_reports,
     send_fbo_digests,
     sync_ozon_catalog_enrichment,
     sync_sale_events,
+    sync_wb_account_profiles,
     sync_wb_daily_sales_reports,
 )
 
@@ -40,6 +42,8 @@ class WorkerSettings:
         sync_sale_events,
         sync_wb_daily_sales_reports,
         sync_ozon_catalog_enrichment,
+        sync_wb_account_profiles,
+        check_wb_financial_reports,
     ]
     order_poll_minutes = {
         0,
@@ -76,6 +80,8 @@ class WorkerSettings:
         cron(check_low_stocks, hour={8, 14, 20}, minute=10),
         cron(sync_wb_daily_sales_reports, hour=2, minute=0),
         cron(sync_ozon_catalog_enrichment, hour=3, minute=20),
+        cron(sync_wb_account_profiles, hour={7, 19}, minute=40),
+        cron(check_wb_financial_reports, hour=4, minute=10),
     ]
     redis_settings = _redis_settings()
     max_jobs = 10

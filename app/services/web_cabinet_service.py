@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import (
+    AccountBalanceSnapshot,
     AlertEvent,
     MarketplaceAccount,
     Order,
@@ -22,6 +23,8 @@ from app.models.domain import (
     SalesEvent,
     StockSnapshot,
     SyncJob,
+    WbFinancialReport,
+    WbReportCheckState,
 )
 from app.models.enums import Marketplace, SubscriptionStatus
 from app.models.subscriptions import Payment, SubscriptionTier, UserSubscription
@@ -81,6 +84,10 @@ class AccountRow:
     orders_30d: int
     latest_job_status: str | None
     latest_job_error: str | None
+    latest_balance: AccountBalanceSnapshot | None = None
+    latest_daily_report: WbFinancialReport | None = None
+    latest_weekly_report: WbFinancialReport | None = None
+    report_states: list[WbReportCheckState] | None = None
 
 
 @dataclass(slots=True)
@@ -269,6 +276,19 @@ class WebCabinetService:
                 .limit(1)
             )
             job = job_result.scalar_one_or_none()
+            balance_result = await self.session.execute(
+                select(AccountBalanceSnapshot)
+                .where(AccountBalanceSnapshot.marketplace_account_id == account.id)
+                .order_by(AccountBalanceSnapshot.fetched_at.desc())
+                .limit(1)
+            )
+            daily_report = await self._latest_wb_report(account.id, "daily")
+            weekly_report = await self._latest_wb_report(account.id, "weekly")
+            states_result = await self.session.execute(
+                select(WbReportCheckState).where(
+                    WbReportCheckState.marketplace_account_id == account.id
+                )
+            )
             rows.append(
                 AccountRow(
                     account=account,
@@ -276,6 +296,10 @@ class WebCabinetService:
                     orders_30d=orders,
                     latest_job_status=job.status.value if job else None,
                     latest_job_error=job.error_message if job else None,
+                    latest_balance=balance_result.scalar_one_or_none(),
+                    latest_daily_report=daily_report,
+                    latest_weekly_report=weekly_report,
+                    report_states=list(states_result.scalars().all()),
                 )
             )
         return AccountsPageData(
@@ -314,6 +338,20 @@ class WebCabinetService:
             missing_count=missing,
             configured_count=len(rows) - missing,
         )
+
+    async def _latest_wb_report(
+        self,
+        account_id: int,
+        period_type: str,
+    ) -> WbFinancialReport | None:
+        result = await self.session.execute(
+            select(WbFinancialReport)
+            .where(WbFinancialReport.marketplace_account_id == account_id)
+            .where(WbFinancialReport.period_type == period_type)
+            .order_by(WbFinancialReport.date_to.desc(), WbFinancialReport.fetched_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
 
     async def product_cost_detail(
         self,

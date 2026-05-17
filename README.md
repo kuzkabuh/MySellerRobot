@@ -6,7 +6,7 @@
 
 Telegram-бот для селлеров Wildberries и Ozon. Главная идея продукта: бот сообщает не только о новом заказе, а сразу показывает плановую прибыль или убыток по нему.
 
-**Текущая версия:** 1.6.4
+**Текущая версия:** 1.7.0
 
 ## Release 1.6.4 — Ozon enrichment и ежедневный WB Sales report
 
@@ -1201,3 +1201,43 @@ curl http://localhost:8000/health
 - настроить мониторинг worker-процессов;
 - проверить лимиты WB/Ozon для каждого кабинета;
 - добавить отдельного Telegram admin-бота или CLI для операций поддержки.
+
+## Итерация 2. Этап 6: уведомления, ЮKassa, WB кабинет и отчёты
+
+Готово:
+
+- уведомления о новых FBS/rFBS-заказах теперь повторно подбираются из локальной БД, если заказ
+  уже сохранён, но Telegram-доставка ещё не подтверждена; `first_notified_at` ставится только
+  после успешного `send_message`/`send_photo`;
+- worker пишет диагностические счётчики: найдено заказов, создано, duplicate, восстановлено из
+  недоставленных, attempted/sent/failed;
+- ЮKassa создаёт платежи с metadata `user_id`, `tier_code`, `subscription_period` и
+  idempotence key; webhook `payment.succeeded`/`payment.canceled` остаётся идемпотентным и
+  сверяет статус платежа через API перед активацией подписки;
+- для WB добавлены `seller-info`, balance snapshot и отображение продавца/баланса в Telegram и
+  WEB-кабинете;
+- добавлена проверка daily/weekly WB Financial Reports через
+  `/api/finance/v1/sales-reports/list` с сохранением метаданных отчётов и состояния последней
+  проверки.
+
+Права WB API:
+
+- seller info: обычный WB API token;
+- balance и financial reports: token с категорией Finance. При отсутствии Finance-доступа
+  приложение не падает, а показывает понятное состояние ошибки.
+
+После выкладки на сервер:
+
+```bash
+alembic upgrade head
+docker compose up -d --build
+docker compose logs -f worker
+```
+
+В личном кабинете ЮKassa проверьте, что webhook указывает на:
+
+```text
+https://app.mpcontrol.online/webhooks/yookassa
+```
+
+и включены события `payment.succeeded` и `payment.canceled`.

@@ -18,6 +18,7 @@ from app.models.domain import MarketplaceAccount, User
 from app.models.enums import Marketplace, SaleModel
 from app.repositories.orders import OrderRepository
 from app.repositories.sync_jobs import SyncJobRepository
+from app.services.account_profile_service import AccountProfileService
 from app.services.daily_report_service import DailyReportService
 from app.services.fbo_digest_service import FboDigestService
 from app.services.fbs_control_service import FbsControlService
@@ -27,6 +28,7 @@ from app.services.order_processing_service import OrderProcessingService
 from app.services.ozon_catalog_enrichment_service import OzonCatalogEnrichmentService
 from app.services.sales_event_sync_service import SalesEventSyncService
 from app.services.stock_service import StockService
+from app.services.wb_report_service import WbFinancialReportService
 
 logger = logging.getLogger(__name__)
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
@@ -142,8 +144,14 @@ async def poll_new_orders(ctx: dict[str, Any]) -> None:
                         "marketplace": marketplace,
                         "fetched": poll_result.fetched,
                         "created": poll_result.created,
+                        "duplicates": poll_result.duplicated,
+                        "recovered_unnotified": poll_result.recovered_unnotified,
+                        "skipped_by_policy": poll_result.skipped_by_policy,
+                        "skipped_without_user": poll_result.skipped_without_user,
                         "notifications_prepared": poll_result.notification_count,
+                        "notifications_attempted": poll_result.notification_count,
                         "notifications_sent": sent,
+                        "notifications_failed": poll_result.notification_count - sent,
                     },
                 )
             except Exception as exc:
@@ -290,6 +298,51 @@ async def sync_wb_daily_sales_reports(ctx: dict[str, Any]) -> None:
                     account.last_error_at = datetime.now(tz=UTC)
                     account.last_error_message = "Ошибка ежедневной загрузки отчёта WB sales"
                     await session.commit()
+
+
+async def sync_wb_account_profiles(ctx: dict[str, Any]) -> None:
+    async with AsyncSessionFactory() as session:
+        result = await session.execute(
+            select(MarketplaceAccount)
+            .where(MarketplaceAccount.is_active.is_(True))
+            .where(MarketplaceAccount.marketplace == Marketplace.WB)
+        )
+        service = AccountProfileService(session)
+        for account in result.scalars().all():
+            try:
+                await service.refresh_wb_account(account)
+                await session.commit()
+            except Exception:
+                logger.exception("wb_account_profile_sync_failed", extra={"account_id": account.id})
+                await session.rollback()
+
+
+async def check_wb_financial_reports(ctx: dict[str, Any]) -> None:
+    async with AsyncSessionFactory() as session:
+        result = await session.execute(
+            select(MarketplaceAccount)
+            .where(MarketplaceAccount.is_active.is_(True))
+            .where(MarketplaceAccount.marketplace == Marketplace.WB)
+        )
+        service = WbFinancialReportService(session)
+        for account in result.scalars().all():
+            try:
+                results = await service.check_recent(account)
+                await session.commit()
+                logger.info(
+                    "wb_financial_reports_checked",
+                    extra={
+                        "account_id": account.id,
+                        "daily_status": results[0].status,
+                        "weekly_status": results[1].status,
+                    },
+                )
+            except Exception:
+                logger.exception(
+                    "wb_financial_reports_check_failed",
+                    extra={"account_id": account.id},
+                )
+                await session.rollback()
 
 
 async def sync_ozon_catalog_enrichment(ctx: dict[str, Any]) -> None:

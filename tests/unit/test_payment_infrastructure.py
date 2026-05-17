@@ -15,7 +15,7 @@ def test_api_imports_successfully() -> None:
     app = create_app()
     assert app is not None
     assert app.title == "Seller Profit Bot API"
-    assert app.version == "1.6.4"
+    assert app.version == "1.7.0"
 
 
 def test_bot_imports_successfully() -> None:

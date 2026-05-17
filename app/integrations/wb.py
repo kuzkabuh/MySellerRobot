@@ -49,6 +49,17 @@ class WildberriesClient:
             await self.common.request("GET", "/api/v1/seller-info", headers=self.headers),
         )
 
+    async def get_account_balance(self) -> dict[str, Any]:
+        return cast(
+            dict[str, Any],
+            await self.finance.request(
+                "GET",
+                "/api/v1/account/balance",
+                headers=self.headers,
+                retries=1,
+            ),
+        )
+
     async def get_news(
         self,
         *,
@@ -198,6 +209,44 @@ class WildberriesClient:
                 "/api/finance/v1/sales-reports/detailed",
                 headers=self.headers,
                 json=payload,
+            ),
+        )
+
+    async def get_sales_reports_list(
+        self,
+        *,
+        period: str,
+        date_from: date,
+        date_to: date,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        payload = {
+            "period": period,
+            "dateFrom": date_from.isoformat(),
+            "dateTo": date_to.isoformat(),
+            "limit": limit,
+            "offset": offset,
+        }
+        return cast(
+            dict[str, Any],
+            await self.finance.request(
+                "POST",
+                "/api/finance/v1/sales-reports/list",
+                headers=self.headers,
+                json=payload,
+                retries=1,
+            ),
+        )
+
+    async def get_sales_report_detail_by_id(self, report_id: str | int) -> dict[str, Any]:
+        return cast(
+            dict[str, Any],
+            await self.finance.request(
+                "POST",
+                f"/api/finance/v1/sales-reports/detailed/{report_id}",
+                headers=self.headers,
+                retries=1,
             ),
         )
 

@@ -7,6 +7,7 @@ import logging
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -56,8 +57,11 @@ class PaymentService:
         metadata = {
             "user_id": str(user_id),
             "tier_code": tier_code,
+            "subscription_period": period,
             "period": period,
+            "provider": "yookassa",
         }
+        idempotence_key = f"subscription:{user_id}:{tier_code}:{period}:{uuid4()}"
 
         # Create payment in YooKassa
         yookassa_payment = await self.yookassa.create_payment(
@@ -65,6 +69,7 @@ class PaymentService:
             description=description,
             return_url=return_url,
             metadata=metadata,
+            idempotence_key=idempotence_key,
         )
 
         # Save payment to database
@@ -75,7 +80,7 @@ class PaymentService:
             amount=amount,
             currency="RUB",
             status=PaymentStatus.PENDING,
-            payment_metadata=metadata,
+            payment_metadata={**metadata, "idempotence_key": idempotence_key},
         )
         self.session.add(payment)
         await self.session.flush()
@@ -154,7 +159,7 @@ class PaymentService:
         # Validate metadata
         metadata = payment.payment_metadata or {}
         tier_code = metadata.get("tier_code")
-        period = metadata.get("period", "monthly")
+        period = metadata.get("subscription_period") or metadata.get("period", "monthly")
         user_id = metadata.get("user_id")
 
         if not tier_code:
