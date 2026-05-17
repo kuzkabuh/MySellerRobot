@@ -31,18 +31,25 @@ docker compose logs --tail=300 api
 docker compose logs --tail=300 api | grep legacy_double_web_path
 ```
 
-Если `legacy_double_web_path` появляется после деплоя, убедиться, что пользователь не находится
-на старой открытой вкладке `/web/web/*`. Новая версия должна редиректить legacy GET:
+Если `legacy_double_web_path` появляется после деплоя, это может означать, что reverse proxy
+добавляет `/web` к upstream path. Это допустимо, если пользовательская навигация всё равно
+показывает canonical `/web/*` и страница отдаёт `200`, а не redirect loop.
 
 ```bash
 curl -i https://mpcontrol.online/web/web/profit
 curl -i https://mpcontrol.online/web/web/costs/97
 ```
 
-Ожидается `308` на canonical URL:
+Ожидается `200` для legacy GET без `Location`, чтобы не получить цикл:
 
 - `/web/profit`
 - `/web/costs/97`
+
+Проблемная цепочка, которой быть не должно:
+
+```text
+/web/accounts -> /web/web/accounts upstream -> 308 /web/accounts -> ...
+```
 
 ## Cost Save
 

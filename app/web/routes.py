@@ -834,11 +834,6 @@ async def double_web_compat(
         "legacy_double_web_path",
         extra={"path": _request_path(request), "section": normalized or "dashboard"},
     )
-    canonical_path = "/web/" if normalized == "" else f"/web/{normalized}"
-    query = str(request.url.query)
-    if query:
-        canonical_path = f"{canonical_path}?{query}"
-    return RedirectResponse(url=canonical_path, status_code=308)
     if normalized == "":
         return HTMLResponse(
             await dashboard(

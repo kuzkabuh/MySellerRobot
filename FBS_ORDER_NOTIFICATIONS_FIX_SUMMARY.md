@@ -66,12 +66,57 @@ media validation, сообщение не пробовало уйти текст
 
 ## Дополнительные production-ошибки
 
+### Исправлена ошибка ERR_TOO_MANY_REDIRECTS в WEB-кабинете
+
+Проблемный URL: `/web/accounts`. Такой же риск был у внутренних страниц:
+
+- `/web/profile`;
+- `/web/subscription`;
+- `/web/orders`;
+- `/web/products`;
+- `/web/profit`;
+- `/web/costs`;
+- `/web/settings`.
+
+Фактическая redirect-chain при production reverse proxy:
+
+```text
+GET https://app.mpcontrol.online/web/accounts
+→ upstream path /web/web/accounts
+→ 308 Location: /web/accounts
+→ GET https://app.mpcontrol.online/web/accounts
+→ upstream path /web/web/accounts
+→ 308 Location: /web/accounts
+→ ...
+```
+
+Root cause: compatibility-route `/web/web/{section}` после последнего фикса стал редиректить на
+canonical `/web/{section}`. Это корректно для прямой старой ссылки, но создаёт цикл, если reverse
+proxy уже добавляет `/web` к upstream path.
+
+Исправление:
+
+- legacy GET `/web/web/{section}` больше не делает redirect;
+- route снова обслуживает canonical WEB-страницу внутренне;
+- штатная HTML-навигация при этом остаётся canonical и не генерирует `/web/web/...`;
+- неавторизованный `/web/accounts` возвращает 401-страницу без redirect loop;
+- trailing slash `/web/accounts/` проверен на отсутствие цикла.
+
+Добавлены regression-тесты:
+
+- login cookie открывает `/web/accounts`, `/web/profile`, `/web/subscription`, `/web/orders`,
+  `/web/products`, `/web/profit`, `/web/costs`, `/web/settings`;
+- unauthorized `/web/accounts` не уходит в loop;
+- `/web/accounts` и `/web/accounts/` имеют не больше одного redirect;
+- legacy `/web/web/sales` обслуживается без redirect loop.
+
 ### Двойной WEB-префикс `/web/web/...`
 
 Штатный HTML WEB-кабинета проверен тестами на отсутствие `href="/web/web/..."`
-и `action="/web/web/..."`. Compatibility-route `/web/web/*` оставлен для старых ссылок,
-но теперь legacy GET редиректит на canonical `/web/*`, а legacy POST себестоимости временно
-поддержан для уже открытых вкладок.
+и `action="/web/web/..."`. Compatibility-route `/web/web/*` оставлен для старых ссылок
+и reverse proxy, который добавляет `/web` при upstream-проксировании. Legacy GET теперь не
+редиректит, чтобы не создавать цикл; legacy POST себестоимости временно поддержан для уже
+открытых вкладок.
 
 ### `created_at = NULL` при ручном назначении тарифа
 

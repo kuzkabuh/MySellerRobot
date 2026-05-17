@@ -67,6 +67,183 @@ class EmptyResult:
         return None
 
 
+def _web_user() -> SimpleNamespace:
+    return SimpleNamespace(
+        id=1,
+        telegram_id=123456789,
+        username="seller",
+        first_name="Артем",
+        timezone="Europe/Moscow",
+        language="ru",
+        status=UserStatus.ACTIVE,
+        notifications_enabled=True,
+        low_margin_threshold_percent=Decimal("10"),
+        created_at=datetime(2026, 5, 17, tzinfo=UTC),
+    )
+
+
+def _free_tier() -> SimpleNamespace:
+    return SimpleNamespace(
+        id=1,
+        code="free",
+        name="FREE",
+        description="Бесплатный тариф",
+        price_monthly=Decimal("0"),
+        price_yearly=Decimal("0"),
+        max_marketplace_accounts=1,
+        max_orders_per_month=100,
+        max_products=100,
+        feature_web_cabinet=True,
+        feature_analytics=False,
+        feature_plan_fact=False,
+        feature_break_even=False,
+        feature_stock_forecast=False,
+        feature_alerts=False,
+        feature_api_access=False,
+        feature_priority_support=False,
+    )
+
+
+def _redirect_chain(
+    client: TestClient,
+    path: str,
+    *,
+    limit: int = 8,
+) -> list[tuple[str, int, str | None]]:
+    chain: list[tuple[str, int, str | None]] = []
+    current = path
+    seen: set[str] = set()
+    for _ in range(limit):
+        response = client.get(current, follow_redirects=False)
+        location = response.headers.get("location")
+        chain.append((current, response.status_code, location))
+        if response.status_code not in {301, 302, 303, 307, 308} or not location:
+            break
+        if location in seen:
+            chain.append((location, 0, "LOOP"))
+            break
+        seen.add(location)
+        current = location
+    return chain
+
+
+def _patch_empty_web_pages(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_dashboard(self, **kwargs):  # type: ignore[no-untyped-def]
+        filters = build_dashboard_filters(
+            timezone=kwargs["timezone"],
+            period=kwargs["period"],
+            marketplace=kwargs["marketplace"],
+            sale_model=kwargs["sale_model"],
+            date_from=kwargs.get("date_from"),
+            date_to=kwargs.get("date_to"),
+        )
+        return DashboardData(
+            filters=filters,
+            metrics=[],
+            points=[],
+            marketplace_breakdown=[],
+            actual_profit=Decimal("0"),
+        )
+
+    async def fake_subscription_page(self, user_id):  # type: ignore[no-untyped-def]
+        return SimpleNamespace(
+            tier=_free_tier(),
+            active_subscription=None,
+            payments=[],
+            used_accounts=0,
+            used_orders_month=0,
+            used_products=0,
+        )
+
+    async def fake_accounts_page(self, user_id):  # type: ignore[no-untyped-def]
+        return SimpleNamespace(tier=_free_tier(), active_accounts=0, rows=[])
+
+    async def fake_get_all_tiers(self):  # type: ignore[no-untyped-def]
+        return [_free_tier()]
+
+    async def fake_list_orders(self, **kwargs):  # type: ignore[no-untyped-def]
+        filters = build_order_web_filters(
+            timezone=kwargs["timezone"],
+            period=kwargs["period"],
+            marketplace=kwargs["marketplace"],
+            sale_model=kwargs["sale_model"],
+            date_from=kwargs.get("date_from"),
+            date_to=kwargs.get("date_to"),
+            economy=kwargs.get("economy", "all"),
+            status=kwargs.get("status", "all"),
+            sku=kwargs.get("sku", ""),
+            sort=kwargs.get("sort", "date"),
+            direction=kwargs.get("direction", "desc"),
+        )
+        return filters, []
+
+    async def fake_profit_by_sku(self, **kwargs):  # type: ignore[no-untyped-def]
+        filters = build_order_web_filters(
+            timezone=kwargs["timezone"],
+            period=kwargs["period"],
+            marketplace=kwargs["marketplace"],
+            sale_model=kwargs["sale_model"],
+            date_from=kwargs.get("date_from"),
+            date_to=kwargs.get("date_to"),
+            economy=kwargs.get("economy", "all"),
+            status="all",
+            sku=kwargs.get("sku", ""),
+            sort=kwargs.get("sort", "profit"),
+            direction=kwargs.get("direction", "desc"),
+        )
+        return ProfitPageData(
+            filters=filters,
+            summary=ProfitSummary(
+                estimated_profit=Decimal("0"),
+                actual_profit=Decimal("0"),
+                deviation=Decimal("0"),
+                average_unit_profit=Decimal("0"),
+                average_margin=Decimal("0"),
+                roi_percent=None,
+            ),
+            rows=[],
+        )
+
+    async def fake_list_analytics(self, user_id):  # type: ignore[no-untyped-def]
+        return []
+
+    async def fake_costs_page(self, user_id):  # type: ignore[no-untyped-def]
+        return SimpleNamespace(rows=[], missing_count=0, configured_count=0)
+
+    monkeypatch.setattr(
+        "app.services.web_dashboard_service.WebDashboardService.dashboard",
+        fake_dashboard,
+    )
+    monkeypatch.setattr(
+        "app.services.web_cabinet_service.WebCabinetService.subscription_page",
+        fake_subscription_page,
+    )
+    monkeypatch.setattr(
+        "app.services.web_cabinet_service.WebCabinetService.accounts_page",
+        fake_accounts_page,
+    )
+    monkeypatch.setattr(
+        "app.services.subscription_service.SubscriptionService.get_all_tiers",
+        fake_get_all_tiers,
+    )
+    monkeypatch.setattr(
+        "app.services.web_orders_profit_service.WebOrdersProfitService.list_orders",
+        fake_list_orders,
+    )
+    monkeypatch.setattr(
+        "app.services.web_orders_profit_service.WebOrdersProfitService.profit_by_sku",
+        fake_profit_by_sku,
+    )
+    monkeypatch.setattr(
+        "app.services.master_product_service.MasterProductService.list_analytics",
+        fake_list_analytics,
+    )
+    monkeypatch.setattr(
+        "app.services.web_cabinet_service.WebCabinetService.costs_page",
+        fake_costs_page,
+    )
+
+
 def test_create_app() -> None:
     app = create_app()
 
@@ -209,6 +386,106 @@ def test_web_login_token_flow_renders_empty_free_dashboard(
     assert "Wildberries / Ozon" in dashboard_response.text
     assert "Internal Server Error" not in dashboard_response.text
     assert "Раздел подготовлен" not in dashboard_response.text
+
+
+def test_web_login_cookie_allows_internal_navigation_without_redirect_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = create_app()
+
+    async def fake_get_session():  # type: ignore[no-untyped-def]
+        yield FakeAsyncSession()
+
+    async def fake_consume(self, token, *, ip_address, user_agent):  # type: ignore[no-untyped-def]
+        assert token == "valid-token"
+        return SimpleNamespace(
+            token="web-session-token",
+            expires_at=datetime.now(tz=UTC) + timedelta(hours=1),
+        )
+
+    async def fake_active_session_user(self, session_hash):  # type: ignore[no-untyped-def]
+        assert session_hash
+        return _web_user()
+
+    _patch_empty_web_pages(monkeypatch)
+    app.dependency_overrides[get_session] = fake_get_session
+    monkeypatch.setattr(
+        "app.services.web_auth_service.WebAuthService.consume_login_token",
+        fake_consume,
+    )
+    monkeypatch.setattr(
+        "app.repositories.web_auth.WebAuthRepository.get_active_session_user",
+        fake_active_session_user,
+    )
+
+    internal_paths = [
+        "/web/accounts",
+        "/web/profile",
+        "/web/subscription",
+        "/web/orders",
+        "/web/products",
+        "/web/profit",
+        "/web/costs",
+        "/web/settings",
+    ]
+    with TestClient(app, raise_server_exceptions=True) as client:
+        login_response = client.get("/web/login?token=valid-token", follow_redirects=False)
+        assert login_response.status_code == 303
+        assert login_response.headers["location"] == "/web/"
+        assert WEB_SESSION_COOKIE in login_response.cookies
+
+        dashboard_response = client.get("/web/", follow_redirects=False)
+        assert dashboard_response.status_code == 200
+
+        for path in internal_paths:
+            chain = _redirect_chain(client, path)
+            assert chain == [(path, 200, None)]
+            response = client.get(path, follow_redirects=False)
+            assert "/web/web/" not in response.text
+
+    app.dependency_overrides.clear()
+
+
+def test_web_unauthorized_internal_route_does_not_loop() -> None:
+    app = create_app()
+
+    with TestClient(app, raise_server_exceptions=True) as client:
+        chain = _redirect_chain(client, "/web/accounts")
+
+    assert chain == [("/web/accounts", 401, None)]
+
+
+@pytest.mark.parametrize("path", ["/web/accounts", "/web/accounts/"])
+def test_web_trailing_slash_routes_do_not_loop(
+    path: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = create_app()
+
+    async def fake_get_session():  # type: ignore[no-untyped-def]
+        yield FakeAsyncSession()
+
+    async def fake_current_web_user():  # type: ignore[no-untyped-def]
+        return _web_user()
+
+    async def fake_accounts_page(self, user_id):  # type: ignore[no-untyped-def]
+        return SimpleNamespace(tier=_free_tier(), active_accounts=0, rows=[])
+
+    app.dependency_overrides[get_session] = fake_get_session
+    app.dependency_overrides[current_web_user] = fake_current_web_user
+    monkeypatch.setattr(
+        "app.services.web_cabinet_service.WebCabinetService.accounts_page",
+        fake_accounts_page,
+    )
+
+    with TestClient(app, raise_server_exceptions=True) as client:
+        chain = _redirect_chain(client, path)
+
+    app.dependency_overrides.clear()
+
+    locations = [location for _, _, location in chain if location is not None]
+    assert len(locations) == len(set(locations))
+    assert len(chain) <= 2
 
 
 def test_web_profit_and_analytics_pages_render_with_canonical_navigation(
@@ -535,7 +812,14 @@ async def test_legacy_double_web_dashboard_route_renders_not_404(
 
 
 @pytest.mark.asyncio
-async def test_legacy_double_web_sections_redirect_to_canonical_paths() -> None:
+async def test_legacy_double_web_sections_are_served_without_redirect_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_sales_page(*args, **kwargs):  # type: ignore[no-untyped-def]
+        return "<html>Продажи без redirect loop</html>"
+
+    monkeypatch.setattr("app.web.routes.sales_page", fake_sales_page)
+
     user = SimpleNamespace(
         id=1,
         timezone="Europe/Moscow",
@@ -555,8 +839,9 @@ async def test_legacy_double_web_sections_redirect_to_canonical_paths() -> None:
         session=object(),
     )
 
-    assert response.status_code == 308
-    assert response.headers["location"] == "/web/sales?period=30d"
+    assert response.status_code == 200
+    assert "Продажи без redirect loop" in response.body.decode()
+    assert "location" not in response.headers
 
 
 @pytest.mark.asyncio
@@ -572,15 +857,15 @@ async def test_unknown_double_web_section_returns_russian_404() -> None:
         url=SimpleNamespace(path="/web/web/missing-section", query=""),
         query_params={},
     )
-    response = await double_web_compat(
-        section="missing-section",
-        request=request,
-        user=user,
-        session=object(),
-    )
+    with pytest.raises(Exception) as exc_info:
+        await double_web_compat(
+            section="missing-section",
+            request=request,
+            user=user,
+            session=object(),
+        )
 
-    assert response.status_code == 308
-    assert response.headers["location"] == "/web/missing-section"
+    assert getattr(exc_info.value, "status_code", None) == 404
 
 
 def test_app_package_discovery_includes_utility_package() -> None:
