@@ -162,13 +162,28 @@ class OzonClient:
         )
 
     async def get_product_info_stocks(self, offer_ids: list[str] | None = None) -> dict[str, Any]:
+        return await self.get_product_info_stocks_page(offer_ids=offer_ids)
+
+    async def get_product_info_stocks_page(
+        self,
+        offer_ids: list[str] | None = None,
+        *,
+        cursor: str = "",
+        limit: int = 1000,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "filter": {"offer_id": offer_ids or [], "visibility": "ALL"},
+            "limit": limit,
+        }
+        if cursor:
+            payload["cursor"] = cursor
         return cast(
             dict[str, Any],
             await self.client.request(
                 "POST",
                 "/v4/product/info/stocks",
                 headers=self.headers,
-                json={"filter": {"offer_id": offer_ids or [], "visibility": "ALL"}, "limit": 1000},
+                json=payload,
             ),
         )
 
@@ -244,6 +259,17 @@ class OzonClient:
                 "/v1/actions/products",
                 headers=self.headers,
                 json={"action_id": action_id, "limit": limit, "offset": offset},
+            ),
+        )
+
+    async def get_actions(self, *, limit: int = 100, offset: int = 0) -> dict[str, Any]:
+        return cast(
+            dict[str, Any],
+            await self.client.request(
+                "POST",
+                "/v1/actions",
+                headers=self.headers,
+                json={"limit": limit, "offset": offset},
             ),
         )
 

@@ -1,11 +1,12 @@
-"""version: 1.4.0
-description: ARQ tasks for sync, retryable FBS order notifications, reports, and alerts.
+"""version: 1.5.0
+description: ARQ tasks for sync, Ozon enrichment, WB daily sales, reports, and alerts.
 updated: 2026-05-17
 """
 
 import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from aiogram import Bot
 from sqlalchemy import select
@@ -14,7 +15,7 @@ from sqlalchemy.orm import selectinload
 from app.core.config import get_settings
 from app.core.db import AsyncSessionFactory
 from app.models.domain import MarketplaceAccount, User
-from app.models.enums import SaleModel
+from app.models.enums import Marketplace, SaleModel
 from app.repositories.orders import OrderRepository
 from app.repositories.sync_jobs import SyncJobRepository
 from app.services.daily_report_service import DailyReportService
@@ -23,10 +24,12 @@ from app.services.fbs_control_service import FbsControlService
 from app.services.history_backfill_service import BackfillCounters, HistoryBackfillService
 from app.services.notification_service import NotificationService
 from app.services.order_processing_service import OrderProcessingService
+from app.services.ozon_catalog_enrichment_service import OzonCatalogEnrichmentService
 from app.services.sales_event_sync_service import SalesEventSyncService
 from app.services.stock_service import StockService
 
 logger = logging.getLogger(__name__)
+MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 
 
 async def poll_new_orders(ctx: dict[str, Any]) -> None:
@@ -262,6 +265,61 @@ async def sync_sale_events(ctx: dict[str, Any]) -> None:
                 )
                 await session.rollback()
     await bot.session.close()
+
+
+async def sync_wb_daily_sales_reports(ctx: dict[str, Any]) -> None:
+    moscow_today = datetime.now(tz=MOSCOW_TZ).date()
+    report_dates = [moscow_today - timedelta(days=days) for days in (1, 2, 3)]
+    async with AsyncSessionFactory() as session:
+        result = await session.execute(
+            select(MarketplaceAccount)
+            .where(MarketplaceAccount.is_active.is_(True))
+            .where(MarketplaceAccount.marketplace == Marketplace.WB)
+        )
+        accounts = list(result.scalars().all())
+        service = SalesEventSyncService(session)
+        for account in accounts:
+            for report_date in report_dates:
+                try:
+                    await service.sync_wb_sales_report_day(account, report_date)
+                except Exception:
+                    logger.exception(
+                        "daily_wb_sales_account_sync_failed",
+                        extra={"account_id": account.id, "report_date": report_date.isoformat()},
+                    )
+                    account.last_error_at = datetime.now(tz=UTC)
+                    account.last_error_message = "Ошибка ежедневной загрузки отчёта WB sales"
+                    await session.commit()
+
+
+async def sync_ozon_catalog_enrichment(ctx: dict[str, Any]) -> None:
+    async with AsyncSessionFactory() as session:
+        result = await session.execute(
+            select(MarketplaceAccount)
+            .where(MarketplaceAccount.is_active.is_(True))
+            .where(MarketplaceAccount.marketplace == Marketplace.OZON)
+        )
+        accounts = list(result.scalars().all())
+        service = OzonCatalogEnrichmentService(session)
+        for account in accounts:
+            try:
+                stats = await service.sync_account(account)
+                logger.info(
+                    "ozon_catalog_enrichment_finished",
+                    extra={
+                        "account_id": account.id,
+                        "warehouses": stats.warehouses_upserted,
+                        "prices": stats.prices_upserted,
+                        "promo_products": stats.promo_products_upserted,
+                        "failed": stats.failed,
+                    },
+                )
+            except Exception:
+                logger.exception(
+                    "ozon_catalog_enrichment_failed",
+                    extra={"account_id": account.id},
+                )
+                await session.rollback()
 
 
 async def check_low_stocks(ctx: dict[str, Any]) -> None:

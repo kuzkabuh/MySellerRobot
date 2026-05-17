@@ -96,6 +96,21 @@ async def test_wb_get_product_search_texts(httpx_mock: HTTPXMock) -> None:
 
 
 @pytest.mark.asyncio
+async def test_wb_get_supplier_sales_for_day_uses_flag_one(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(
+        method="GET",
+        url="https://statistics-api.wildberries.ru/api/v1/supplier/sales?dateFrom=2026-05-17&flag=1",
+        json=[{"saleID": "S1", "forPay": 100}],
+    )
+
+    sales = await WildberriesClient("token").get_supplier_sales_for_day(
+        datetime(2026, 5, 17, tzinfo=UTC).date()
+    )
+
+    assert sales[0]["saleID"] == "S1"
+
+
+@pytest.mark.asyncio
 async def test_wb_get_seller_warehouses(httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
         method="GET",
@@ -227,6 +242,24 @@ async def test_ozon_get_product_info_prices_uses_v5(httpx_mock: HTTPXMock) -> No
 
 
 @pytest.mark.asyncio
+async def test_ozon_get_product_info_stocks_page_uses_cursor(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api-seller.ozon.ru/v4/product/info/stocks",
+        match_json={
+            "filter": {"offer_id": [], "visibility": "ALL"},
+            "limit": 1000,
+            "cursor": "next",
+        },
+        json={"result": {"items": [{"offer_id": "SKU-1"}], "cursor": ""}},
+    )
+
+    data = await OzonClient("client", "key").get_product_info_stocks_page(cursor="next")
+
+    assert data["result"]["items"][0]["offer_id"] == "SKU-1"
+
+
+@pytest.mark.asyncio
 async def test_ozon_get_warehouses_uses_v2(httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
         method="POST",
@@ -237,3 +270,23 @@ async def test_ozon_get_warehouses_uses_v2(httpx_mock: HTTPXMock) -> None:
     data = await OzonClient("client", "key").get_warehouses()
 
     assert data["result"][0]["warehouse_id"] == 1
+
+
+@pytest.mark.asyncio
+async def test_ozon_get_actions_and_promo_products(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api-seller.ozon.ru/v1/actions",
+        json={"result": [{"id": 77, "title": "Акция"}]},
+    )
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api-seller.ozon.ru/v1/actions/products",
+        json={"result": {"products": [{"offer_id": "SKU-1"}]}},
+    )
+
+    actions = await OzonClient("client", "key").get_actions()
+    products = await OzonClient("client", "key").get_promos_products(77)
+
+    assert actions["result"][0]["id"] == 77
+    assert products["result"]["products"][0]["offer_id"] == "SKU-1"

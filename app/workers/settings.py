@@ -1,6 +1,6 @@
-"""version: 1.0.0
-description: ARQ worker configuration.
-updated: 2026-05-14
+"""version: 1.1.0
+description: ARQ worker configuration for polling, reports, stocks, and enrichment.
+updated: 2026-05-17
 """
 
 from arq import cron
@@ -14,7 +14,9 @@ from app.workers.tasks import (
     process_history_backfills,
     send_daily_reports,
     send_fbo_digests,
+    sync_ozon_catalog_enrichment,
     sync_sale_events,
+    sync_wb_daily_sales_reports,
 )
 
 settings = get_settings()
@@ -36,6 +38,8 @@ class WorkerSettings:
         check_fbs_deadlines,
         check_low_stocks,
         sync_sale_events,
+        sync_wb_daily_sales_reports,
+        sync_ozon_catalog_enrichment,
     ]
     order_poll_minutes = {
         0,
@@ -70,6 +74,8 @@ class WorkerSettings:
         cron(process_history_backfills, minute={2, 12, 22, 32, 42, 52}),
         cron(check_fbs_deadlines, minute={0, 15, 30, 45}),
         cron(check_low_stocks, hour={8, 14, 20}, minute=10),
+        cron(sync_wb_daily_sales_reports, hour=2, minute=0),
+        cron(sync_ozon_catalog_enrichment, hour=3, minute=20),
     ]
     redis_settings = _redis_settings()
     max_jobs = 10

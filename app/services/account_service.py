@@ -1,11 +1,12 @@
-"""version: 1.0.0
-description: Marketplace account connection, verification, and token storage service.
-updated: 2026-05-14
+"""version: 1.1.0
+description: Marketplace account connection, seller metadata, verification, and token storage.
+updated: 2026-05-17
 """
 
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,6 +38,39 @@ class CreateAccountCommand:
     client_id: str | None = None
 
 
+@dataclass(slots=True)
+class _SellerInfo:
+    external_id: str | None = None
+    name: str | None = None
+    legal_name: str | None = None
+    payload: dict[str, Any] | None = None
+
+    @classmethod
+    def from_payload(cls, marketplace: Marketplace, payload: dict[str, Any]) -> "_SellerInfo":
+        data = payload.get("result") if marketplace == Marketplace.OZON else payload
+        data = data if isinstance(data, dict) else payload
+        external_id = (
+            data.get("company_id")
+            or data.get("seller_id")
+            or data.get("supplierID")
+            or data.get("supplierId")
+            or data.get("id")
+        )
+        name = (
+            data.get("name")
+            or data.get("company_name")
+            or data.get("tradeMark")
+            or data.get("trademark")
+        )
+        legal_name = data.get("legal_name") or data.get("fullName") or data.get("legalName")
+        return cls(
+            external_id=str(external_id) if external_id else None,
+            name=str(name) if name else None,
+            legal_name=str(legal_name) if legal_name else None,
+            payload=payload,
+        )
+
+
 class MarketplaceAccountService:
     """Application service for safe marketplace account management."""
 
@@ -57,6 +91,7 @@ class MarketplaceAccountService:
 
     async def connect(self, command: CreateAccountCommand) -> MarketplaceAccount:
         await self._verify_credentials(command)
+        seller_info = await self._load_seller_info(command)
         try:
             account = await self.repo.create(
                 user_id=command.user_id,
@@ -67,6 +102,10 @@ class MarketplaceAccountService:
                     self.cipher.encrypt(command.client_id) if command.client_id else None
                 ),
                 status=AccountStatus.ACTIVE,
+                seller_external_id=seller_info.external_id,
+                seller_name=seller_info.name,
+                seller_legal_name=seller_info.legal_name,
+                seller_info_payload=seller_info.payload,
             )
             account.last_success_sync_at = datetime.now(tz=UTC)
             await self.session.commit()
@@ -94,6 +133,22 @@ class MarketplaceAccountService:
             raise AccountConnectionError(
                 "Не удалось проверить ключ маркетплейса. Попробуйте позже."
             ) from exc
+
+    async def _load_seller_info(self, command: CreateAccountCommand) -> _SellerInfo:
+        try:
+            if command.marketplace == Marketplace.WB:
+                payload = await WildberriesClient(command.api_key).get_seller_info()
+            else:
+                if not command.client_id:
+                    return _SellerInfo()
+                payload = await OzonClient(command.client_id, command.api_key).get_seller_info()
+        except Exception:
+            logger.exception(
+                "seller_info_load_failed",
+                extra={"marketplace": command.marketplace.value},
+            )
+            return _SellerInfo()
+        return _SellerInfo.from_payload(command.marketplace, payload)
 
     async def list_accounts(self, user_id: int) -> list[MarketplaceAccount]:
         return await self.repo.list_user_accounts(user_id)

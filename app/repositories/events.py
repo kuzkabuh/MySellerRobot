@@ -1,6 +1,6 @@
-"""version: 1.1.0
-description: Idempotent persistence helpers for sales, buyouts, and returns events.
-updated: 2026-05-14
+"""version: 1.2.0
+description: Idempotent upsert helpers for sales, buyouts, and returns events.
+updated: 2026-05-17
 """
 
 from datetime import UTC, datetime
@@ -159,6 +159,53 @@ class ReturnsEventRepository:
 
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
+
+    async def upsert(
+        self,
+        *,
+        user_id: int,
+        account_id: int,
+        marketplace: Marketplace,
+        external_event_id: str,
+        order_external_id: str | None,
+        event_date: datetime,
+        quantity: int,
+        amount: Decimal,
+        reason: str | None,
+        raw_payload: dict[str, Any],
+    ) -> tuple[ReturnsEvent, bool]:
+        existing = await self.session.execute(
+            select(ReturnsEvent).where(
+                ReturnsEvent.marketplace_account_id == account_id,
+                ReturnsEvent.marketplace == marketplace,
+                ReturnsEvent.external_event_id == external_event_id,
+            )
+        )
+        row = existing.scalar_one_or_none()
+        if row is None:
+            row = ReturnsEvent(
+                user_id=user_id,
+                marketplace_account_id=account_id,
+                marketplace=marketplace,
+                external_event_id=external_event_id,
+                order_external_id=order_external_id,
+                event_date=event_date,
+                quantity=quantity,
+                amount=amount,
+                reason=reason,
+                raw_payload=raw_payload,
+            )
+            self.session.add(row)
+            await self.session.flush()
+            return row, True
+        row.order_external_id = order_external_id or row.order_external_id
+        row.event_date = event_date
+        row.quantity = quantity
+        row.amount = amount
+        row.reason = reason or row.reason
+        row.raw_payload = raw_payload
+        await self.session.flush()
+        return row, False
 
     async def add_once(
         self,

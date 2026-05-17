@@ -155,21 +155,108 @@ class StockService:
         api_key = self.cipher.decrypt(account.encrypted_api_key)
         client_id = self.cipher.decrypt(account.encrypted_client_id or "")
         client = OzonClient(client_id, api_key)
-        data = await client.get_product_info_stocks()
-        rows = self._extract_rows(data)
-        count = 0
-        for row in rows:
-            product = await self.products.find_for_order_item(
-                account_id=account.id,
-                marketplace=Marketplace.OZON,
-                seller_article=str(row.get("offer_id") or ""),
-                marketplace_article=str(row.get("sku") or ""),
-                external_product_id=str(row.get("product_id") or row.get("sku") or ""),
-            )
-            quantity = self._quantity_from_stock_row(row)
-            await self._add_snapshot(account, product, quantity, row)
-            count += 1
+        count = await self._sync_ozon_total_stocks(account, client)
+        count += await self._sync_ozon_warehouse_stocks(account, client)
         return count
+
+    async def _sync_ozon_total_stocks(
+        self,
+        account: MarketplaceAccount,
+        client: OzonClient,
+    ) -> int:
+        count = 0
+        cursor = ""
+        while True:
+            data = await client.get_product_info_stocks_page(cursor=cursor, limit=1000)
+            rows = self._extract_rows(data)
+            for row in rows:
+                product = await self.products.find_for_order_item(
+                    account_id=account.id,
+                    marketplace=Marketplace.OZON,
+                    seller_article=str(row.get("offer_id") or ""),
+                    marketplace_article=str(row.get("sku") or ""),
+                    external_product_id=str(row.get("product_id") or row.get("sku") or ""),
+                )
+                quantity = self._quantity_from_stock_row(row)
+                await self._add_snapshot(
+                    account,
+                    product,
+                    quantity,
+                    {**row, "warehouseName": row.get("warehouseName") or "Ozon: общий остаток"},
+                )
+                count += 1
+            cursor = self._next_cursor(data)
+            if not cursor:
+                break
+        logger.info(
+            "ozon_total_stock_sync_completed",
+            extra={"account_id": account.id, "snapshots": count},
+        )
+        return count
+
+    async def _sync_ozon_warehouse_stocks(
+        self,
+        account: MarketplaceAccount,
+        client: OzonClient,
+    ) -> int:
+        count = 0
+        offset = 0
+        while True:
+            try:
+                data = await client.get_product_info_warehouse_stocks(limit=1000, offset=offset)
+            except Exception:
+                logger.exception(
+                    "ozon_warehouse_stock_load_failed",
+                    extra={"account_id": account.id, "offset": offset},
+                )
+                return count
+            rows = self._extract_rows(data)
+            if not rows:
+                break
+            for row in rows:
+                product = await self.products.find_for_order_item(
+                    account_id=account.id,
+                    marketplace=Marketplace.OZON,
+                    seller_article=str(row.get("offer_id") or ""),
+                    marketplace_article=str(row.get("sku") or ""),
+                    external_product_id=str(row.get("product_id") or row.get("sku") or ""),
+                )
+                quantity = self._quantity_from_stock_row(row)
+                warehouse = (
+                    row.get("warehouse_name")
+                    or row.get("warehouseName")
+                    or row.get("warehouse_id")
+                    or row.get("warehouseId")
+                    or "склад Ozon"
+                )
+                await self._add_snapshot(
+                    account,
+                    product,
+                    quantity,
+                    {
+                        **row,
+                        "warehouseName": f"Ozon FBS: {warehouse}",
+                        "stock_source": "OZON_WAREHOUSE_STOCKS",
+                    },
+                )
+                count += 1
+            if len(rows) < 1000:
+                break
+            offset += 1000
+        logger.info(
+            "ozon_warehouse_stock_sync_completed",
+            extra={"account_id": account.id, "snapshots": count},
+        )
+        return count
+
+    @staticmethod
+    def _next_cursor(data: dict[str, Any]) -> str:
+        result = data.get("result")
+        if isinstance(result, dict):
+            value = result.get("cursor") or result.get("last_id")
+            return str(value or "")
+        value = data.get("cursor") or data.get("last_id")
+        return str(value or "")
 
     async def create_low_stock_alerts(self, threshold: int = 5) -> int:
         result = await self.session.execute(

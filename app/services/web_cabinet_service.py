@@ -1,5 +1,5 @@
-"""version: 1.0.0
-description: Web cabinet account, subscription, costs, sales, returns, and control data service.
+"""version: 1.1.0
+description: Web cabinet account, subscription, costs, prices, sales, returns, and control data.
 updated: 2026-05-17
 """
 
@@ -15,6 +15,7 @@ from app.models.domain import (
     MarketplaceAccount,
     Order,
     OrderItem,
+    OzonPriceSnapshot,
     Product,
     ProductCostHistory,
     ReturnsEvent,
@@ -110,6 +111,7 @@ class ProductCostDetail:
     product: Product
     account_name: str
     history: list[ProductCostHistory]
+    latest_ozon_price: OzonPriceSnapshot | None = None
 
 
 @dataclass(slots=True)
@@ -334,10 +336,20 @@ class WebCabinetService:
             .where(ProductCostHistory.product_id == product.id)
             .order_by(ProductCostHistory.valid_from.desc())
         )
+        latest_price = None
+        if product.marketplace == Marketplace.OZON:
+            price_result = await self.session.execute(
+                select(OzonPriceSnapshot)
+                .where(OzonPriceSnapshot.product_id == product.id)
+                .order_by(OzonPriceSnapshot.synced_at.desc())
+                .limit(1)
+            )
+            latest_price = price_result.scalar_one_or_none()
         return ProductCostDetail(
             product=product,
             account_name=str(account_name),
             history=list(history.scalars().all()),
+            latest_ozon_price=latest_price,
         )
 
     async def subscription_page(self, user_id: int) -> SubscriptionPageData:

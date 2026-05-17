@@ -1,7 +1,9 @@
-"""version: 1.0.0
-description: Marketplace account persistence helpers.
-updated: 2026-05-14
+"""version: 1.1.0
+description: Marketplace account persistence helpers with seller metadata.
+updated: 2026-05-17
 """
+
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,6 +44,10 @@ class MarketplaceAccountRepository:
         encrypted_api_key: str,
         encrypted_client_id: str | None = None,
         status: AccountStatus = AccountStatus.ACTIVE,
+        seller_external_id: str | None = None,
+        seller_name: str | None = None,
+        seller_legal_name: str | None = None,
+        seller_info_payload: dict[str, Any] | None = None,
     ) -> MarketplaceAccount:
         account = MarketplaceAccount(
             user_id=user_id,
@@ -50,6 +56,10 @@ class MarketplaceAccountRepository:
             encrypted_api_key=encrypted_api_key,
             encrypted_client_id=encrypted_client_id,
             status=status,
+            seller_external_id=seller_external_id,
+            seller_name=seller_name,
+            seller_legal_name=seller_legal_name,
+            seller_info_payload=seller_info_payload,
             is_active=True,
             notification_settings={},
         )

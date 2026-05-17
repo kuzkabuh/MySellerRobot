@@ -1,11 +1,11 @@
-"""version: 1.2.0
-description: Synchronize marketplace buyout and completed sale events.
-updated: 2026-05-16
+"""version: 1.3.0
+description: Synchronize marketplace buyout, WB daily sales reports, and completed sale events.
+updated: 2026-05-17
 """
 
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import delete, select
@@ -16,7 +16,7 @@ from app.integrations.ozon import OzonClient
 from app.integrations.wb import WildberriesClient
 from app.models.domain import MarketplaceAccount, OrderItem, ProfitSnapshot, SalesEvent
 from app.models.enums import CalculationType, Marketplace, NotificationType, SaleModel
-from app.repositories.events import SalesEventRepository
+from app.repositories.events import ReturnsEventRepository, SalesEventRepository
 from app.repositories.orders import OrderRepository
 from app.repositories.products import ProductRepository
 from app.schemas.orders import NormalizedOrder
@@ -38,6 +38,9 @@ class SalesSyncResult:
     sales_fetched: int = 0
     sales_created: int = 0
     sales_updated: int = 0
+    returns_fetched: int = 0
+    returns_created: int = 0
+    returns_updated: int = 0
     failed: int = 0
 
 
@@ -62,6 +65,7 @@ class SalesEventSyncService:
         self.cipher = cipher or TokenCipher()
         self.orders = OrderRepository(session)
         self.sales = SalesEventRepository(session)
+        self.returns = ReturnsEventRepository(session)
         self.profits = OrderProfitService(session)
         self.products = ProductRepository(session)
         self.cards = OrderCardService(session)
@@ -143,6 +147,68 @@ class SalesEventSyncService:
             logger.exception("wb_supplier_sales_sync_failed", extra={"account_id": account.id})
             await self.session.rollback()
         await self.session.commit()
+        return result
+
+    async def sync_wb_sales_report_day(
+        self,
+        account: MarketplaceAccount,
+        report_date: date,
+    ) -> SalesSyncResult:
+        result = SalesSyncResult(account_id=account.id, marketplace=account.marketplace)
+        if account.marketplace != Marketplace.WB:
+            return result
+        client = WildberriesClient(self.cipher.decrypt(account.encrypted_api_key))
+        logger.info(
+            "daily_wb_sales_sync_started",
+            extra={
+                "account_id": account.id,
+                "user_id": account.user_id,
+                "report_date": report_date.isoformat(),
+            },
+        )
+        try:
+            rows = await client.get_supplier_sales_for_day(report_date)
+            result.sales_fetched = len(rows)
+            for payload in rows:
+                if client.is_supplier_sales_return(payload):
+                    result.returns_fetched += 1
+                    _, created = await self._upsert_return_event(
+                        account,
+                        client.normalize_supplier_return(payload),
+                    )
+                    result.returns_created += int(created)
+                    result.returns_updated += int(not created)
+                    continue
+                row, created = await self._upsert_sale_event(
+                    account,
+                    client.normalize_supplier_sale(payload),
+                )
+                result.sales_created += int(created)
+                result.sales_updated += int(not created)
+                logger.debug("wb_daily_sale_event_synced", extra={"event_id": row.id})
+            await self.session.commit()
+        except Exception:
+            result.failed += 1
+            logger.exception(
+                "daily_wb_sales_sync_failed",
+                extra={"account_id": account.id, "report_date": report_date.isoformat()},
+            )
+            await self.session.rollback()
+            raise
+        logger.info(
+            "daily_wb_sales_sync_completed",
+            extra={
+                "account_id": account.id,
+                "user_id": account.user_id,
+                "report_date": report_date.isoformat(),
+                "fetched": result.sales_fetched,
+                "created": result.sales_created,
+                "updated": result.sales_updated,
+                "returns_created": result.returns_created,
+                "returns_updated": result.returns_updated,
+                "failed": result.failed,
+            },
+        )
         return result
 
     async def _sync_ozon(
@@ -257,6 +323,29 @@ class SalesEventSyncService:
             estimated_profit=estimated_profit,
         )
 
+    async def _upsert_return_event(
+        self,
+        account: MarketplaceAccount,
+        event: dict[str, object],
+    ) -> tuple[object, bool]:
+        order_external_id = event.get("order_external_id")
+        event_date = event.get("event_date")
+        amount = event.get("amount")
+        reason = event.get("reason")
+        raw_payload = event.get("raw_payload")
+        return await self.returns.upsert(
+            user_id=account.user_id,
+            account_id=account.id,
+            marketplace=account.marketplace,
+            external_event_id=str(event["external_event_id"]),
+            order_external_id=order_external_id if isinstance(order_external_id, str) else None,
+            event_date=event_date if isinstance(event_date, datetime) else datetime.now(tz=UTC),
+            quantity=_int_value(event.get("quantity"), default=1),
+            amount=amount if isinstance(amount, Decimal) else Decimal(str(amount or 0)),
+            reason=reason if isinstance(reason, str) else None,
+            raw_payload=raw_payload if isinstance(raw_payload, dict) else {},
+        )
+
     @staticmethod
     def _extract_postings(data: dict[str, object]) -> list[object]:
         result = data.get("result")
@@ -297,3 +386,19 @@ class SalesEventSyncService:
             "ℹ Фактические расходы будут уточнены после финансовой отчётности маркетплейса.",
         ]
         return "\n".join(lines)
+
+
+def _int_value(value: object, *, default: int) -> int:
+    if value is None:
+        return default
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    try:
+        return int(str(value))
+    except ValueError:
+        return default

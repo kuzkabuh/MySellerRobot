@@ -1,6 +1,6 @@
-"""version: 1.4.0
-description: Enhanced product synchronization service with WB tariffs, Ozon details, and caching.
-updated: 2026-05-15
+"""version: 1.5.0
+description: Product synchronization service with WB tariffs, Ozon details, logging, and caching.
+updated: 2026-05-17
 """
 
 import logging
@@ -185,6 +185,15 @@ class ProductSyncService:
             if not isinstance(items, list) or not items:
                 break
             details = await self._load_ozon_product_details(client, items)
+            logger.info(
+                "ozon_product_page_loaded",
+                extra={
+                    "account_id": account.id,
+                    "items": len(items),
+                    "details_loaded": len(details),
+                    "last_id": last_id,
+                },
+            )
 
             for item in items:
                 if not isinstance(item, dict):
@@ -215,6 +224,7 @@ class ProductSyncService:
             if not last_id:
                 break
 
+        logger.info("ozon_product_sync_completed", extra={"account_id": account.id, "count": count})
         return count
 
     async def _load_ozon_product_details(

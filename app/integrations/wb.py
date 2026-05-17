@@ -1,10 +1,10 @@
-"""version: 1.5.0
-description: Wildberries official API client, seller stocks, tariffs, and normalizers.
+"""version: 1.6.0
+description: Wildberries official API client, seller stocks, daily sales, tariffs, and normalizers.
 updated: 2026-05-17
 """
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 
@@ -216,6 +216,17 @@ class WildberriesClient:
             "/api/v1/supplier/sales",
             headers=self.headers,
             params={"dateFrom": date_from.isoformat(), "flag": 0},
+        )
+        return list(data) if isinstance(data, list) else []
+
+    async def get_supplier_sales_for_day(self, report_date: date) -> list[dict[str, Any]]:
+        """Return preliminary WB sales/returns rows for one Moscow calendar day."""
+
+        data = await self.statistics.request(
+            "GET",
+            "/api/v1/supplier/sales",
+            headers=self.headers,
+            params={"dateFrom": report_date.isoformat(), "flag": 1},
         )
         return list(data) if isinstance(data, list) else []
 
@@ -460,6 +471,38 @@ class WildberriesClient:
             expected_payout=payout,
             raw_payload=payload,
         )
+
+    def normalize_supplier_return(self, payload: dict[str, Any]) -> dict[str, Any]:
+        event_date = self._parse_optional_date(
+            payload.get("date") or payload.get("lastChangeDate")
+        ) or datetime.now(tz=UTC)
+        nm_id = str(payload.get("nmId") or payload.get("nmID") or "")
+        sale_id = str(
+            payload.get("saleID")
+            or payload.get("srid")
+            or f"wb-return-{nm_id}-{event_date.isoformat()}"
+        )
+        amount = abs(Decimal(str(payload.get("forPay") or payload.get("finishedPrice") or 0)))
+        return {
+            "external_event_id": f"wb-return-{sale_id}",
+            "order_external_id": str(payload.get("srid") or "") or None,
+            "event_date": event_date,
+            "quantity": abs(int(payload.get("quantity") or 1)),
+            "amount": amount,
+            "reason": str(payload.get("returnReason") or "Возврат Wildberries"),
+            "raw_payload": payload,
+        }
+
+    @staticmethod
+    def is_supplier_sales_return(payload: dict[str, Any]) -> bool:
+        sale_id = str(payload.get("saleID") or "").upper()
+        doc_type = str(payload.get("docTypeName") or payload.get("docType") or "").lower()
+        if sale_id.startswith("R") or "возврат" in doc_type or "return" in doc_type:
+            return True
+        try:
+            return int(payload.get("quantity") or 1) < 0
+        except (TypeError, ValueError):
+            return False
 
     @staticmethod
     def _parse_optional_date(value: object) -> datetime | None:

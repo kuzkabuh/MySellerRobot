@@ -1,5 +1,5 @@
-"""version: 1.6.0
-description: Order ingestion with retryable marketplace-aware FBS Telegram notifications.
+"""version: 1.7.0
+description: Order ingestion with resilient poll windows and retryable FBS notifications.
 updated: 2026-05-17
 """
 
@@ -213,6 +213,7 @@ class OrderProcessingService:
                         )
                         continue
 
+                account.last_order_poll_at = datetime.now(tz=UTC)
                 await self.session.commit()
 
                 logger.info(
@@ -262,7 +263,8 @@ class OrderProcessingService:
         client_id = self.cipher.decrypt(account.encrypted_client_id or "")
         ozon_client = OzonClient(client_id=client_id, api_key=api_key)
         now = datetime.now(tz=UTC)
-        fbs_data = await ozon_client.get_fbs_postings(now - timedelta(minutes=30), now)
+        date_from = self._poll_window_start(account, now)
+        fbs_data = await ozon_client.get_fbs_postings(date_from, now)
         fbs_postings = self._extract_postings(fbs_data)
         logger.info(
             "fbs_order_polled",
@@ -298,7 +300,7 @@ class OrderProcessingService:
             )
         fbo_postings: list[object] = []
         try:
-            fbo_data = await ozon_client.get_fbo_postings(now - timedelta(minutes=30), now)
+            fbo_data = await ozon_client.get_fbo_postings(date_from, now)
             fbo_postings = self._extract_postings(fbo_data)
         except Exception:
             logger.exception(
@@ -473,6 +475,12 @@ class OrderProcessingService:
                     seen.add(key)
                 merged.append(item)
         return merged
+
+    @staticmethod
+    def _poll_window_start(account: MarketplaceAccount, now: datetime) -> datetime:
+        if account.last_order_poll_at is None:
+            return now - timedelta(minutes=30)
+        return max(account.last_order_poll_at - timedelta(minutes=10), now - timedelta(days=7))
 
 
 def _is_fbs_like(sale_model: SaleModel | None) -> bool:

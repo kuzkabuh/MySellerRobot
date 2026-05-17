@@ -1,11 +1,12 @@
-"""version: 1.0.0
-description: Unit tests for buyout and completed sale event formatting.
-updated: 2026-05-14
+"""version: 1.1.0
+description: Unit tests for buyout, WB daily sales report, and completed sale events.
+updated: 2026-05-17
 """
 
 from datetime import UTC, datetime
 from decimal import Decimal
 
+from app.integrations.wb import WildberriesClient
 from app.models.domain import SalesEvent
 from app.models.enums import Marketplace, SaleEventType
 from app.services.sales_event_sync_service import SalesEventSyncService
@@ -55,3 +56,25 @@ def test_ozon_completed_sale_notification_without_profit() -> None:
 
     assert "✅ Продажа завершена — Ozon" in text
     assert "Плановая прибыль: пока не рассчитана" in text
+
+
+def test_wb_supplier_sales_return_detection() -> None:
+    assert WildberriesClient.is_supplier_sales_return({"saleID": "R123"}) is True
+    assert WildberriesClient.is_supplier_sales_return({"docTypeName": "Возврат"}) is True
+    assert WildberriesClient.is_supplier_sales_return({"saleID": "S123"}) is False
+
+
+def test_wb_supplier_return_normalization() -> None:
+    row = WildberriesClient("token").normalize_supplier_return(
+        {
+            "saleID": "R123",
+            "srid": "srid-1",
+            "date": "2026-05-17T10:00:00Z",
+            "quantity": -1,
+            "forPay": "-450.25",
+        }
+    )
+
+    assert row["external_event_id"] == "wb-return-R123"
+    assert row["quantity"] == 1
+    assert row["amount"] == Decimal("450.25")
