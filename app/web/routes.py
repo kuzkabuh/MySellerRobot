@@ -6,7 +6,7 @@ updated: 2026-05-17
 
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from html import escape
 from urllib.parse import parse_qs
@@ -26,6 +26,16 @@ from app.repositories.web_auth import WebAuthRepository
 from app.schemas.products import CostUpdate
 from app.services.cost_management_service import CostManagementError
 from app.services.data_quality_service import DataQualityReport, DataQualityService
+from app.services.marketplace_presentation import (
+    marketplace_css_class,
+    marketplace_title,
+    order_status_tone,
+    sale_model_title,
+    source_event_label,
+)
+from app.services.marketplace_presentation import (
+    order_status_label as presentation_order_status_label,
+)
 from app.services.master_product_service import (
     MasterProductAnalyticsRow,
     MasterProductDetail,
@@ -33,7 +43,12 @@ from app.services.master_product_service import (
     ProductMatchingCandidate,
 )
 from app.services.plan_fact_service import PlanFactPageData, PlanFactService
-from app.services.stock_forecast_service import StockForecastRow, StockForecastService
+from app.services.stock_forecast_service import (
+    StockForecastRow,
+    StockForecastService,
+    stock_status_label,
+    stock_status_tone,
+)
 from app.services.subscription_service import SubscriptionService
 from app.services.unit_economics_service import BreakEvenRow, UnitEconomicsService
 from app.services.web_auth_service import WEB_SESSION_COOKIE, WebAuthService
@@ -390,6 +405,43 @@ async def plan_fact_page(
     )
 
 
+@router.post("/plan-fact/plans")
+async def save_plan_fact_plan(
+    request: Request,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    form = await _urlencoded_form(request)
+    target_id = _optional_int((form.get("target_id") or [""])[0])
+    period_start = date.fromisoformat((form.get("period_start") or [""])[0])
+    period_end = date.fromisoformat((form.get("period_end") or [""])[0])
+    marketplace = _plan_marketplace((form.get("marketplace") or ["all"])[0])
+    await PlanFactService(session).save_plan(
+        user_id=user.id,
+        target_id=target_id,
+        period_start=period_start,
+        period_end=period_end,
+        marketplace=marketplace,
+        revenue_plan=_optional_decimal((form.get("revenue_plan") or [""])[0]),
+        profit_plan=_optional_decimal((form.get("profit_plan") or [""])[0]),
+        orders_plan=_optional_int((form.get("orders_plan") or [""])[0]),
+        buyouts_plan=_optional_int((form.get("buyouts_plan") or [""])[0]),
+    )
+    await session.commit()
+    return RedirectResponse(url="/web/plan-fact", status_code=303)
+
+
+@router.post("/plan-fact/plans/{target_id}/delete")
+async def delete_plan_fact_plan(
+    target_id: int,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    await PlanFactService(session).delete_plan(user_id=user.id, target_id=target_id)
+    await session.commit()
+    return RedirectResponse(url="/web/plan-fact", status_code=303)
+
+
 @router.get("/break-even", response_class=HTMLResponse)
 async def break_even_page(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
@@ -543,9 +595,17 @@ async def product_matching_unlink(
 async def stocks_page(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
+    marketplace: str = Query(default="all"),
+    sale_model: str = Query(default="all"),
+    stock_status: str = Query(default="all"),
 ) -> str:
     rows = await StockForecastService(session).forecast(user_id=user.id)
-    content = _stocks_forecast_content(rows)
+    content = _stocks_forecast_content(
+        _filter_stock_rows(rows, marketplace, sale_model, stock_status),
+        marketplace=marketplace,
+        sale_model=sale_model,
+        stock_status=stock_status,
+    )
     return page(
         "Остатки",
         user.first_name or user.username or str(user.telegram_id),
@@ -593,22 +653,29 @@ async def data_quality_page(
 async def analytics_page(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
+    period: str = Query(default="30d"),
+    marketplace: str = Query(default="all"),
+    sale_model: str = Query(default="all"),
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
 ) -> str:
     dashboard_data = await WebDashboardService(session).dashboard(
         user_id=user.id,
         timezone=user.timezone,
-        period="30d",
-        marketplace="all",
-        sale_model="all",
+        period=period,
+        marketplace=marketplace,
+        sale_model=sale_model,
+        date_from=date_from,
+        date_to=date_to,
     )
     profit_data = await WebOrdersProfitService(session).profit_by_sku(
         user_id=user.id,
         timezone=user.timezone,
-        period="30d",
-        marketplace="all",
-        sale_model="all",
-        date_from=None,
-        date_to=None,
+        period=period,
+        marketplace=marketplace,
+        sale_model=sale_model,
+        date_from=date_from,
+        date_to=date_to,
     )
     return page(
         "Аналитика",
@@ -1013,11 +1080,6 @@ def _orders_content(filters: OrderWebFilters, rows: list[OrderRow], timezone: st
         profit = row.estimated_profit
         profit_badge = "bad" if profit is not None and profit < 0 else "good"
         cost_badge = '<span class="badge warn">без себестоимости</span>' if row.missing_cost else ""
-        action_badge = (
-            '<span class="badge action">требует действия</span>'
-            if row.requires_action
-            else '<span class="badge">инфо</span>'
-        )
         confidence_badge = _confidence_badge(row.economy_confidence)
         profit_cell = (
             f'<td class="num"><span class="badge {profit_badge}">'
@@ -1027,7 +1089,7 @@ def _orders_content(filters: OrderWebFilters, rows: list[OrderRow], timezone: st
             "<tr>"
             f"<td>{localized_order_date(row.order_date, timezone)}</td>"
             f"<td>{_marketplace_label(row.marketplace)}</td>"
-            f"<td>{escape(row.sale_model.value if row.sale_model else 'н/д')}</td>"
+            f"<td>{_sale_model_badge(row.sale_model)}</td>"
             f'<td><a href="/web/orders/{row.order_id}">{escape(row.title)}</a>'
             f'<div class="muted">{escape(row.seller_article)}</div>{cost_badge}</td>'
             f"<td>{escape(row.order_external_id)}"
@@ -1036,8 +1098,8 @@ def _orders_content(filters: OrderWebFilters, rows: list[OrderRow], timezone: st
             f'<td class="num">{_rub(row.revenue)}</td>'
             f"{profit_cell}"
             f'<td class="num">{_percent_optional(row.margin_percent)}</td>'
-            f"<td>{escape(row.status)}<div>{action_badge} {confidence_badge}</div></td>"
-            f"<td>{escape(row.source_event_type)}</td>"
+            f"<td>{_order_status_badge(row.status, row.requires_action)}<div>{confidence_badge}</div></td>"
+            f"<td>{escape(source_event_label(row.source_event_type))}</td>"
             "</tr>"
         )
     body = (
@@ -1103,7 +1165,7 @@ def _order_detail_content(detail: OrderDetail, timezone: str) -> str:
         if order.processing_deadline_at
         else "н/д"
     )
-    sale_model = escape(order.sale_model.value if order.sale_model else "н/д")
+    sale_model = _sale_model_badge(order.sale_model)
     order_date = localized_order_date(order.order_date, timezone)
     order_state = escape(order_state_label(order.normalized_status, order.requires_seller_action))
     return f"""
@@ -1114,7 +1176,7 @@ def _order_detail_content(detail: OrderDetail, timezone: str) -> str:
           <div class="kv">
             <span>Маркетплейс</span><strong>{_marketplace_label(order.marketplace)}</strong>
             <span>Модель</span><strong>{sale_model}</strong>
-            <span>Статус</span><strong>{escape(order.normalized_status or order.status)}</strong>
+            <span>Статус</span><strong>{_order_status_badge(order.normalized_status or order.status, order.requires_seller_action)}</strong>
             <span>Дата заказа</span><strong>{order_date}</strong>
             <span>Дедлайн</span><strong>{deadline}</strong>
             <span>Заказ</span><strong>{escape(order.order_external_id)}</strong>
@@ -1188,11 +1250,14 @@ def _plan_fact_content(data: PlanFactPageData) -> str:
         else '<tr><td colspan="9" class="muted">Данных для сравнения план/факт пока нет.</td></tr>'
     )
     deviation_tone = "bad" if summary.deviation < 0 else "good"
+    plan = data.plan
+    plan_panel = _plan_fact_plan_panel(data)
     return f"""
       {_section_subnav("plan_fact")}
       {_plan_fact_filters(data)}
+      {plan_panel}
       <section class="kpi-grid">
-        {_simple_kpi("Плановая прибыль", _rub(summary.estimated_profit))}
+        {_simple_kpi("Плановая прибыль", _rub(plan.profit_plan) if plan and plan.profit_plan is not None else _rub(summary.estimated_profit))}
         {_simple_kpi("Фактическая прибыль", _rub(summary.actual_profit))}
         {_simple_kpi("Отклонение", _rub(summary.deviation), deviation_tone)}
         {_simple_kpi("Без факта", str(summary.pending_actual), "warn")}
@@ -1217,6 +1282,76 @@ def _plan_fact_content(data: PlanFactPageData) -> str:
         </div>
       </section>
     """
+
+
+def _plan_fact_plan_panel(data: PlanFactPageData) -> str:
+    filters = data.filters
+    plan = data.plan
+    target_id = plan.id if plan else ""
+    marketplace_value = plan.marketplace.value if plan and plan.marketplace else "all"
+    period_start = plan.period_start.isoformat() if plan else filters.local_date_from.isoformat()
+    period_end = plan.period_end.isoformat() if plan else filters.local_date_to.isoformat()
+    revenue = "" if not plan or plan.revenue_plan is None else str(plan.revenue_plan)
+    profit = "" if not plan or plan.profit_plan is None else str(plan.profit_plan)
+    orders = "" if not plan or plan.orders_plan is None else str(plan.orders_plan)
+    buyouts = "" if not plan or plan.buyouts_plan is None else str(plan.buyouts_plan)
+    progress = ""
+    if plan:
+        progress_items = [
+            _plan_progress("Прибыль", data.summary.actual_profit, plan.profit_plan),
+            _plan_progress(
+                "Заказы", Decimal(data.summary.orders), _decimal_or_none(plan.orders_plan)
+            ),
+            _plan_progress(
+                "Выкупы", Decimal(data.summary.buyouts), _decimal_or_none(plan.buyouts_plan)
+            ),
+        ]
+        progress = '<div class="progress-grid">' + "".join(progress_items) + "</div>"
+    else:
+        progress = '<p class="muted">План ещё не установлен. Задайте цели, чтобы видеть выполнение и отклонение.</p>'
+    delete_form = (
+        f'<form method="post" action="/web/plan-fact/plans/{plan.id}/delete">'
+        '<button class="button" type="submit">Удалить план</button></form>'
+        if plan
+        else ""
+    )
+    return f"""
+      <section class="band" style="margin-bottom:14px">
+        <h2>Настройка плана</h2>
+        {progress}
+        <form class="filters" method="post" action="/web/plan-fact/plans">
+          <input type="hidden" name="target_id" value="{target_id}">
+          <div><label for="period_start">Начало</label><input id="period_start" name="period_start" type="date" value="{period_start}" required></div>
+          <div><label for="period_end">Конец</label><input id="period_end" name="period_end" type="date" value="{period_end}" required></div>
+          {_select("marketplace", "Маркетплейс", {"all": "Все", Marketplace.WB.value: "Wildberries", Marketplace.OZON.value: "Ozon"}, marketplace_value)}
+          <div><label for="revenue_plan">План выручки</label><input id="revenue_plan" name="revenue_plan" type="number" step="0.01" value="{escape(revenue)}"></div>
+          <div><label for="profit_plan">План прибыли</label><input id="profit_plan" name="profit_plan" type="number" step="0.01" value="{escape(profit)}"></div>
+          <div><label for="orders_plan">План заказов</label><input id="orders_plan" name="orders_plan" type="number" value="{escape(orders)}"></div>
+          <div><label for="buyouts_plan">План выкупов</label><input id="buyouts_plan" name="buyouts_plan" type="number" value="{escape(buyouts)}"></div>
+          <button class="button primary" type="submit">Сохранить план</button>
+          {delete_form}
+        </form>
+      </section>
+    """
+
+
+def _plan_progress(label: str, fact: Decimal, plan: Decimal | None) -> str:
+    if plan is None or plan <= 0:
+        return ""
+    percent = min(Decimal("100"), (fact / plan * Decimal("100")).quantize(Decimal("0.1")))
+    return (
+        '<div class="progress-card">'
+        f"<div><strong>{escape(label)}</strong><span>{_rub(fact) if label == 'Прибыль' else int(fact)} / {_rub(plan) if label == 'Прибыль' else int(plan)}</span></div>"
+        f'<div class="progress-track"><span style="width:{percent}%"></span></div>'
+        f'<span class="muted">{percent}% выполнения</span>'
+        "</div>"
+    )
+
+
+def _decimal_or_none(value: int | Decimal | None) -> Decimal | None:
+    if value is None:
+        return None
+    return Decimal(value)
 
 
 def _break_even_content(
@@ -1469,33 +1604,48 @@ def _product_matching_content(candidates: list[ProductMatchingCandidate]) -> str
     """
 
 
-def _stocks_forecast_content(rows: list[StockForecastRow]) -> str:
+def _stocks_forecast_content(
+    rows: list[StockForecastRow],
+    *,
+    marketplace: str = "all",
+    sale_model: str = "all",
+    stock_status: str = "all",
+) -> str:
     body_rows = []
     for row in rows:
         days_until_stockout = (
             str(row.days_until_stockout) if row.days_until_stockout is not None else "н/д"
         )
+        marketplace_cell = (
+            '<span class="marketplace-badge neutral">WB + Ozon</span>'
+            if row.is_common_fbs
+            else _marketplace_label(row.marketplace)
+        )
+        status = stock_status_label(row.status)
+        tone = stock_status_tone(row.status)
         body_rows.append(
             "<tr>"
             f'<td>{escape(row.title)}<div class="muted">{escape(row.seller_article)}</div></td>'
-            f"<td>{_marketplace_label(row.marketplace)}</td>"
+            f"<td>{marketplace_cell}</td>"
+            f"<td>{_sale_model_badge(row.sale_model)}</td>"
             f"<td>{escape(row.warehouse)}</td>"
             f'<td class="num">{row.quantity}</td>'
             f'<td class="num">{row.average_daily_sales}</td>'
             f'<td class="num">{days_until_stockout}</td>'
             f'<td class="num">{_rub(row.lost_revenue_30d)}</td>'
-            f"<td>{escape(row.status)}</td>"
+            f'<td><span class="badge {tone}">{escape(status)}</span></td>'
             f"<td>{escape(row.recommendation)}</td>"
             "</tr>"
         )
     body = "".join(body_rows)
     if not body:
         body = (
-            '<tr><td colspan="9" class="muted">'
+            '<tr><td colspan="10" class="muted">'
             "Остатков пока нет. Дождитесь фоновой синхронизации складов.</td></tr>"
         )
     return f"""
       {_section_subnav("stocks")}
+      {_stock_filters(marketplace, sale_model, stock_status)}
       <section class="band">
         <h2>Остатки, out-of-stock и потери выручки</h2>
         <p class="muted">
@@ -1506,7 +1656,7 @@ def _stocks_forecast_content(rows: list[StockForecastRow]) -> str:
           <table class="table">
             <thead>
               <tr>
-                <th>Товар</th><th>МП</th><th>Склад</th><th class="num">Остаток</th>
+                <th>Товар</th><th>МП</th><th>Модель</th><th>Склад</th><th class="num">Остаток</th>
                 <th class="num">Продаж/день</th><th class="num">Дней запаса</th>
                 <th class="num">Потери 30д</th><th>Статус</th><th>Рекомендация</th>
               </tr>
@@ -1515,6 +1665,40 @@ def _stocks_forecast_content(rows: list[StockForecastRow]) -> str:
           </table>
         </div>
       </section>
+    """
+
+
+def _filter_stock_rows(
+    rows: list[StockForecastRow],
+    marketplace: str,
+    sale_model: str,
+    stock_status: str,
+) -> list[StockForecastRow]:
+    filtered = rows
+    if marketplace in {Marketplace.WB.value, Marketplace.OZON.value}:
+        parsed = Marketplace(marketplace)
+        filtered = [
+            row
+            for row in filtered
+            if row.marketplace == parsed or (row.is_common_fbs and sale_model in {"all", "FBS"})
+        ]
+    if sale_model in {"FBO", "FBS"}:
+        filtered = [row for row in filtered if row.sale_model == sale_model]
+    if stock_status == "out":
+        filtered = [row for row in filtered if row.status == "out_of_stock"]
+    elif stock_status == "low":
+        filtered = [row for row in filtered if row.status in {"critical", "warning"}]
+    return filtered
+
+
+def _stock_filters(marketplace: str, sale_model: str, stock_status: str) -> str:
+    return f"""
+      <form class="filters" method="get" action="/web/stocks">
+        {_select("marketplace", "Маркетплейс", {"all": "Все", Marketplace.WB.value: "Wildberries", Marketplace.OZON.value: "Ozon"}, marketplace)}
+        {_select("sale_model", "Модель остатков", {"all": "Все", "FBO": "FBO", "FBS": "FBS"}, sale_model)}
+        {_select("stock_status", "Состояние", {"all": "Все", "out": "Нет в наличии", "low": "Низкий остаток"}, stock_status)}
+        <button class="button primary" type="submit">Показать</button>
+      </form>
     """
 
 
@@ -1792,9 +1976,7 @@ def _seller_profile_web(account: MarketplaceAccount, balance: object | None) -> 
     if balance is None:
         parts.append('<div class="muted">Баланс не загружен</div>')
     elif getattr(balance, "status", "") == "OK":
-        parts.append(
-            f'<div class="muted">Баланс: {_rub(getattr(balance, "current", 0))}</div>'
-        )
+        parts.append(f'<div class="muted">Баланс: {_rub(getattr(balance, "current", 0))}</div>')
         parts.append(
             f'<div class="muted">К выводу: {_rub(getattr(balance, "for_withdraw", 0))}</div>'
         )
@@ -1817,7 +1999,7 @@ def _report_short(report: object | None, state: object | None) -> str:
     if report is not None:
         period = f"{getattr(report, 'date_from', '')} — {getattr(report, 'date_to', '')}"
         amount = getattr(report, "for_pay_sum", None)
-        return f"{escape(period)}<div class=\"muted\">к выплате: {_rub(amount or 0)}</div>"
+        return f'{escape(period)}<div class="muted">к выплате: {_rub(amount or 0)}</div>'
     if state is None:
         return '<span class="muted">нет данных</span>'
     status = getattr(state, "status", "")
@@ -1961,7 +2143,8 @@ def _analytics_content(data: DashboardData, profit: ProfitPageData) -> str:
         or '<tr><td colspan="5" class="muted">Недостаточно данных для топа товаров.</td></tr>'
     )
     return f"""
-      {_page_header("Аналитика", "Обзор динамики бизнеса, прибыльности и проблемных зон за 30 дней.", "/web/profit", "Прибыль")}
+      {_page_header("Аналитика", "Обзор динамики бизнеса, прибыльности и проблемных зон за выбранный период.", "/web/profit", "Прибыль")}
+      {_analytics_filters(data.filters)}
       <section class="kpi-grid">
         {"".join(_kpi(metric) for metric in data.metrics[:6])}
       </section>
@@ -1982,6 +2165,21 @@ def _analytics_content(data: DashboardData, profit: ProfitPageData) -> str:
           </table></div>
         </section>
       </section>
+    """
+
+
+def _analytics_filters(filters: DashboardFilters) -> str:
+    selected_marketplace = filters.marketplace.value if filters.marketplace else "all"
+    selected_sale_model = filters.sale_model.value if filters.sale_model else "all"
+    return f"""
+      <form class="filters" method="get" action="/web/analytics">
+        {_period_select(filters.period)}
+        {_select("marketplace", "Маркетплейс", {"all": "Все", Marketplace.WB.value: "Wildberries", Marketplace.OZON.value: "Ozon"}, selected_marketplace)}
+        {_select("sale_model", "Модель", {"all": "Все", "FBO": "FBO", "FBS": "FBS", "rFBS": "rFBS"}, selected_sale_model)}
+        <div><label for="date_from">Дата с</label><input id="date_from" name="date_from" type="date" value="{filters.local_date_from.isoformat()}"></div>
+        <div><label for="date_to">Дата по</label><input id="date_to" name="date_to" type="date" value="{filters.local_date_to.isoformat()}"></div>
+        <button class="button primary" type="submit">Применить</button>
+      </form>
     """
 
 
@@ -2262,20 +2460,7 @@ def _filters(data: DashboardData) -> str:
     date_to = filters.local_date_to.isoformat()
     return f"""
       <form class="filters" method="get" action="/web/">
-        {
-        _select(
-            "period",
-            "Период",
-            {
-                "today": "Сегодня",
-                "yesterday": "Вчера",
-                "7d": "7 дней",
-                "30d": "30 дней",
-                "custom": "Произвольный",
-            },
-            filters.period,
-        )
-    }
+        {_period_select(filters.period)}
         {
         _select(
             "marketplace",
@@ -2330,20 +2515,7 @@ def _plan_fact_filters(data: PlanFactPageData) -> str:
     date_to_value = filters.local_date_to.isoformat()
     return f"""
       <form class="filters" method="get" action="/web/plan-fact">
-        {
-        _select(
-            "period",
-            "Период",
-            {
-                "today": "Сегодня",
-                "yesterday": "Вчера",
-                "7d": "7 дней",
-                "30d": "30 дней",
-                "custom": "Произвольный",
-            },
-            filters.period,
-        )
-    }
+        {_period_select(filters.period)}
         {
         _select(
             "marketplace",
@@ -2436,20 +2608,7 @@ def _shared_order_filters(
     date_to_value = filters.local_date_to.isoformat()
     return f"""
       <form class="filters" method="get" action="{escape(action)}">
-        {
-        _select(
-            "period",
-            "Период",
-            {
-                "today": "Сегодня",
-                "yesterday": "Вчера",
-                "7d": "7 дней",
-                "30d": "30 дней",
-                "custom": "Произвольный",
-            },
-            filters.period,
-        )
-    }
+        {_period_select(filters.period)}
         {
         _select(
             "marketplace",
@@ -2543,6 +2702,23 @@ def _select(name: str, label: str, options: dict[str, str], selected: str) -> st
     )
 
 
+def _period_select(selected: str) -> str:
+    return _select(
+        "period",
+        "Период",
+        {
+            "today": "Сегодня",
+            "yesterday": "Вчера",
+            "7d": "7 дней",
+            "30d": "30 дней",
+            "current_month": "Текущий месяц",
+            "previous_month": "Прошлый месяц",
+            "custom": "Произвольный",
+        },
+        selected,
+    )
+
+
 def _page_header(title: str, description: str, href: str, action: str) -> str:
     return (
         '<section class="page-header">'
@@ -2556,20 +2732,7 @@ def _sales_returns_filters(action: str, filters: DashboardFilters, sku: str) -> 
     selected_marketplace = filters.marketplace.value if filters.marketplace else "all"
     return f"""
       <form class="filters filter-panel" method="get" action="{escape(action)}">
-        {
-        _select(
-            "period",
-            "Период",
-            {
-                "today": "Сегодня",
-                "yesterday": "Вчера",
-                "7d": "7 дней",
-                "30d": "30 дней",
-                "custom": "Произвольный",
-            },
-            filters.period,
-        )
-    }
+        {_period_select(filters.period)}
         {
         _select(
             "marketplace",
@@ -2900,8 +3063,19 @@ def _percent_optional(value: Decimal | None) -> str:
     return f"{value.quantize(Decimal('0.1'))}%"
 
 
-def _marketplace_label(value: Marketplace) -> str:
-    return "Wildberries" if value == Marketplace.WB else "Ozon"
+def _marketplace_label(value: Marketplace | str | None) -> str:
+    css_class = marketplace_css_class(value)
+    return f'<span class="marketplace-badge {css_class}">{escape(marketplace_title(value))}</span>'
+
+
+def _sale_model_badge(value: object | None) -> str:
+    return f'<span class="badge">{escape(sale_model_title(value))}</span>'
+
+
+def _order_status_badge(status: str | None, requires_action: bool = False) -> str:
+    tone = order_status_tone(status, requires_action)
+    label = presentation_order_status_label(status, requires_action)
+    return f'<span class="badge {tone}">{escape(label)}</span>'
 
 
 def _confidence_badge(value: str | None) -> str:
@@ -2921,6 +3095,35 @@ def _parse_int_list(raw: str) -> list[int]:
         if chunk.isdigit():
             ids.append(int(chunk))
     return ids
+
+
+def _optional_int(raw: str | None) -> int | None:
+    text = (raw or "").strip()
+    if not text:
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        return None
+
+
+def _optional_decimal(raw: str | None) -> Decimal | None:
+    text = (raw or "").strip().replace(",", ".")
+    if not text:
+        return None
+    try:
+        return Decimal(text)
+    except Exception:
+        return None
+
+
+def _plan_marketplace(raw: str | None) -> Marketplace | None:
+    if not raw or raw == "all":
+        return None
+    try:
+        return Marketplace(raw)
+    except ValueError:
+        return None
 
 
 def _mask_token(token: str) -> str:

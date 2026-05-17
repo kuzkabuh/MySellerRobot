@@ -11,6 +11,18 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.models.enums import Marketplace, SaleModel
+from app.services.marketplace_presentation import (
+    marketplace_marker,
+)
+from app.services.marketplace_presentation import (
+    marketplace_title as presentation_marketplace_title,
+)
+from app.services.marketplace_presentation import (
+    order_status_label as presentation_order_status_label,
+)
+from app.services.marketplace_presentation import (
+    sale_model_title as presentation_sale_model_title,
+)
 from app.services.message_formatter import rub
 
 
@@ -55,18 +67,11 @@ def format_percent(value: Decimal | int | float | None) -> str:
 
 
 def marketplace_title(value: Marketplace | str | None) -> str:
-    raw = value.value if isinstance(value, Marketplace) else value
-    if raw == Marketplace.WB.value:
-        return "Wildberries"
-    if raw == Marketplace.OZON.value:
-        return "Ozon"
-    return html(raw, "Маркетплейс")
+    return presentation_marketplace_title(value)
 
 
 def sale_model_title(value: SaleModel | str | None) -> str:
-    if value is None:
-        return "н/д"
-    return value.value if isinstance(value, SaleModel) else str(value)
+    return presentation_sale_model_title(value)
 
 
 def compact_external_id(value: object | None, *, max_length: int = 22) -> str:
@@ -79,10 +84,10 @@ def compact_external_id(value: object | None, *, max_length: int = 22) -> str:
     return f"{text[:left]}…{text[-right:]}"
 
 
-def order_status_label(requires_action: bool) -> tuple[str, str]:
+def order_status_label(requires_action: bool, status: str | None = None) -> tuple[str, str]:
     if requires_action:
-        return "⚠️", "Требует обработки"
-    return "ℹ️", "Информационный"
+        return "⚠️", presentation_order_status_label(status, True)
+    return "ℹ️", presentation_order_status_label(status, False)
 
 
 def format_recent_orders(
@@ -103,8 +108,11 @@ def format_recent_orders(
 
     lines = [f"🛒 <b>{html(title)}</b>", "", html(mode_hint), ""]
     for index, order in enumerate(orders[:10], start=1):
-        icon, status = order_status_label(bool(getattr(order, "requires_seller_action", False)))
-        marketplace = marketplace_title(getattr(order, "marketplace", None))
+        icon, status = order_status_label(
+            bool(getattr(order, "requires_seller_action", False)),
+            getattr(order, "normalized_status", None) or getattr(order, "status", None),
+        )
+        marketplace = marketplace_marker(getattr(order, "marketplace", None))
         sale_model = sale_model_title(getattr(order, "sale_model", None))
         external_id = compact_external_id(getattr(order, "order_external_id", None))
         lines.extend(

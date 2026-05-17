@@ -15,9 +15,9 @@ from sqlalchemy.orm import selectinload
 
 from app.models.domain import Order, OrderItem, ProfitSnapshot, SalesEvent
 from app.models.enums import CalculationType, EconomyConfidence, Marketplace, SaleModel
+from app.services.marketplace_presentation import order_status_label
 from app.services.web_dashboard_service import (
     build_dashboard_filters,
-    is_cancelled_status,
 )
 
 ZERO = Decimal("0")
@@ -618,8 +618,4 @@ def localized_order_date(value: datetime, timezone: str) -> str:
 
 
 def order_state_label(status: str | None, requires_action: bool) -> str:
-    if requires_action:
-        return "требует действия"
-    if is_cancelled_status(status):
-        return "отменён"
-    return "информационный"
+    return order_status_label(status, requires_action)

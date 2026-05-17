@@ -4,13 +4,14 @@ updated: 2026-05-15
 """
 
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.domain import Order, OrderItem, ProfitSnapshot
+from app.models.domain import Order, OrderItem, PlanFactTarget, ProfitSnapshot
 from app.models.enums import CalculationType, Marketplace, SaleModel
 from app.services.web_orders_profit_service import OrderWebFilters, build_order_web_filters
 
@@ -40,6 +41,8 @@ class PlanFactSummary:
     deviation_percent: Decimal | None
     orders: int
     pending_actual: int
+    revenue: Decimal = ZERO
+    buyouts: int = 0
 
 
 @dataclass(slots=True)
@@ -47,6 +50,7 @@ class PlanFactPageData:
     filters: OrderWebFilters
     summary: PlanFactSummary
     rows: list[PlanFactRow]
+    plan: PlanFactTarget | None = None
 
 
 class PlanFactService:
@@ -104,7 +108,60 @@ class PlanFactService:
                 bucket.add(item, estimated_snapshot, actual_snapshot)
         rows = [_bucket_to_row(bucket) for bucket in buckets.values()]
         rows = _sort_rows(rows, filters.sort, filters.direction)[:limit]
-        return PlanFactPageData(filters=filters, summary=_summary(rows), rows=rows)
+        return PlanFactPageData(
+            filters=filters,
+            summary=_summary(rows),
+            rows=rows,
+            plan=await self._matching_plan(user_id, filters),
+        )
+
+    async def save_plan(
+        self,
+        *,
+        user_id: int,
+        period_start: date,
+        period_end: date,
+        marketplace: Marketplace | None,
+        revenue_plan: Decimal | None,
+        profit_plan: Decimal | None,
+        orders_plan: int | None,
+        buyouts_plan: int | None,
+        target_id: int | None = None,
+    ) -> PlanFactTarget:
+        if period_end < period_start:
+            period_start, period_end = period_end, period_start
+        target: PlanFactTarget | None = None
+        if target_id:
+            result = await self.session.execute(
+                select(PlanFactTarget)
+                .where(PlanFactTarget.id == target_id)
+                .where(PlanFactTarget.user_id == user_id)
+            )
+            target = result.scalar_one_or_none()
+        if target is None:
+            target = PlanFactTarget(user_id=user_id)
+            self.session.add(target)
+        target.period_start = period_start
+        target.period_end = period_end
+        target.marketplace = marketplace
+        target.revenue_plan = revenue_plan
+        target.profit_plan = profit_plan
+        target.orders_plan = orders_plan
+        target.buyouts_plan = buyouts_plan
+        target.is_active = True
+        await self.session.flush()
+        return target
+
+    async def delete_plan(self, *, user_id: int, target_id: int) -> None:
+        result = await self.session.execute(
+            select(PlanFactTarget)
+            .where(PlanFactTarget.id == target_id)
+            .where(PlanFactTarget.user_id == user_id)
+        )
+        target = result.scalar_one_or_none()
+        if target is not None:
+            target.is_active = False
+            await self.session.flush()
 
     async def _orders(self, user_id: int, filters: OrderWebFilters) -> list[Order]:
         query = (
@@ -121,6 +178,27 @@ class PlanFactService:
             query = query.where(Order.sale_model == filters.sale_model)
         result = await self.session.execute(query)
         return list(result.scalars().unique().all())
+
+    async def _matching_plan(
+        self,
+        user_id: int,
+        filters: OrderWebFilters,
+    ) -> PlanFactTarget | None:
+        query = (
+            select(PlanFactTarget)
+            .where(PlanFactTarget.user_id == user_id)
+            .where(PlanFactTarget.is_active.is_(True))
+            .where(PlanFactTarget.period_start <= filters.local_date_to)
+            .where(PlanFactTarget.period_end >= filters.local_date_from)
+            .order_by(PlanFactTarget.period_start.desc(), PlanFactTarget.updated_at.desc())
+            .limit(1)
+        )
+        if filters.marketplace is None:
+            query = query.where(PlanFactTarget.marketplace.is_(None))
+        else:
+            query = query.where(PlanFactTarget.marketplace == filters.marketplace)
+        result = await self.session.execute(query)
+        return result.scalar_one_or_none()
 
 
 @dataclass(slots=True)
@@ -225,13 +303,17 @@ def _summary(rows: list[PlanFactRow]) -> PlanFactSummary:
     estimated = sum((row.estimated_profit for row in rows), ZERO)
     actual = sum((row.actual_profit for row in rows), ZERO)
     deviation = actual - estimated
+    orders = sum(row.orders for row in rows)
+    pending_actual = sum(row.pending_actual for row in rows)
     return PlanFactSummary(
         estimated_profit=estimated,
         actual_profit=actual,
         deviation=deviation,
         deviation_percent=_percent(deviation, estimated),
-        orders=sum(row.orders for row in rows),
-        pending_actual=sum(row.pending_actual for row in rows),
+        orders=orders,
+        pending_actual=pending_actual,
+        revenue=estimated,
+        buyouts=max(0, orders - pending_actual),
     )
 
 

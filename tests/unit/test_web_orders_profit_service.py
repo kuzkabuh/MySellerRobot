@@ -72,9 +72,9 @@ def test_roi_percent_uses_cost_base() -> None:
 
 
 def test_order_state_label_prefers_action_required_and_cancelled() -> None:
-    assert order_state_label("new", True) == "требует действия"
-    assert order_state_label("cancelled", False) == "отменён"
-    assert order_state_label("awaiting_packaging", False) == "информационный"
+    assert order_state_label("new", True) == "Новый заказ"
+    assert order_state_label("cancelled", False) == "Отменён"
+    assert order_state_label("awaiting_packaging", False) == "Ожидает упаковки"
 
 
 def test_profit_order_query_reuses_postgresql_safe_group_by_expressions() -> None:

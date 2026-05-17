@@ -39,8 +39,8 @@ def test_recent_orders_formatter_uses_card_layout_not_technical_log() -> None:
     text = format_recent_orders(orders, timezone_name="Europe/Moscow")
 
     assert "🛒 <b>Последние заказы</b>" in text
-    assert "⚠️ <b>Ozon · FBS</b>" in text
-    assert "ℹ️ <b>Wildberries · FBO</b>" in text
+    assert "⚠️ <b>🔵 Ozon · FBS</b>" in text
+    assert "ℹ️ <b>🟣 WB · FBO</b>" in text
     assert "• Дата: 16.05.2026, 21:19" in text
     assert "• Заказ: <code>16039101-0748-4</code>" in text
     assert "ec.r3a1b55" not in text or "…" in text

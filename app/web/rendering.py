@@ -501,6 +501,28 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
     .badge.action {{ background: var(--accent-soft); color: var(--accent); }}
     .badge.wb {{ background: #f3e8ff; color: var(--wb); }}
     .badge.ozon {{ background: #dbeafe; color: var(--ozon); }}
+    .marketplace-badge {{
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 26px;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+      border: 1px solid transparent;
+    }}
+    .marketplace-badge.wb::before {{ content: "WB"; }}
+    .marketplace-badge.ozon::before {{ content: "O"; }}
+    .marketplace-badge.wb {{ background:#f3e8ff;color:#6d28d9;border-color:#ddd6fe; }}
+    .marketplace-badge.ozon {{ background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe; }}
+    .marketplace-badge.neutral {{ background:#f1f5f9;color:#334155;border-color:#e2e8f0; }}
+    .progress-grid {{ display:grid;grid-template-columns:repeat(3,minmax(160px,1fr));gap:12px;margin-bottom:14px; }}
+    .progress-card {{ border:1px solid var(--line);border-radius:var(--radius-sm);padding:12px;background:var(--panel-soft); }}
+    .progress-card div:first-child {{ display:flex;justify-content:space-between;gap:10px;align-items:center; }}
+    .progress-track {{ height:8px;border-radius:999px;background:#e2e8f0;overflow:hidden;margin:10px 0 6px; }}
+    .progress-track span {{ display:block;height:100%;background:var(--primary);border-radius:999px; }}
     .status-chip, .pill {{
       display: inline-flex;
       align-items: center;

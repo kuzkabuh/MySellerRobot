@@ -481,7 +481,15 @@ def build_dashboard_filters(
 ) -> DashboardFilters:
     tz = _timezone(timezone)
     today = datetime.now(tz=tz).date()
-    allowed_periods = {"today", "yesterday", "7d", "30d", "custom"}
+    allowed_periods = {
+        "today",
+        "yesterday",
+        "7d",
+        "30d",
+        "current_month",
+        "previous_month",
+        "custom",
+    }
     normalized_period = period if period in allowed_periods else "today"
     if normalized_period == "custom" and date_from and date_to:
         start_date = date.fromisoformat(date_from)
@@ -495,6 +503,13 @@ def build_dashboard_filters(
     elif normalized_period == "30d":
         start_date = today - timedelta(days=29)
         end_date = today
+    elif normalized_period == "current_month":
+        start_date = today.replace(day=1)
+        end_date = today
+    elif normalized_period == "previous_month":
+        current_month_start = today.replace(day=1)
+        end_date = current_month_start - timedelta(days=1)
+        start_date = end_date.replace(day=1)
     else:
         start_date = today
         end_date = today

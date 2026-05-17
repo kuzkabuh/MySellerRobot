@@ -431,9 +431,14 @@ class WebCabinetService:
             .order_by(AlertEvent.created_at.desc())
             .limit(10)
         )
+        accounts = [
+            account
+            for account in error_accounts.scalars().all()
+            if not _is_resolved_greenlet_error(account.last_error_message)
+        ]
         return ControlPageData(
             report=report,
-            error_accounts=list(error_accounts.scalars().all()),
+            error_accounts=accounts,
             open_alerts=list(alerts.scalars().all()),
             preliminary_orders=await self._count(
                 OrderItem.id,
@@ -512,3 +517,7 @@ def _decimal(value: object) -> Decimal:
     if value is None:
         return ZERO
     return Decimal(str(value))
+
+
+def _is_resolved_greenlet_error(message: str | None) -> bool:
+    return bool(message and "greenlet_spawn has not been called" in message)

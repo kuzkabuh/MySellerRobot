@@ -102,8 +102,9 @@ class WbFinancialReportService:
         if period_type:
             query = query.where(WbFinancialReport.period_type == period_type)
         result = await self.session.execute(
-            query.order_by(WbFinancialReport.date_to.desc(), WbFinancialReport.fetched_at.desc())
-            .limit(limit)
+            query.order_by(
+                WbFinancialReport.date_to.desc(), WbFinancialReport.fetched_at.desc()
+            ).limit(limit)
         )
         return list(result.scalars().all())
 

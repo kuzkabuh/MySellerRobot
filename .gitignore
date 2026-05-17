@@ -45,3 +45,13 @@ htmlcov/
 # Local files
 *.bak
 *.tmp
+
+# ============================================================
+# Codex / AI temporary markdown reports
+# ============================================================
+*_REPORT.md
+*_SUMMARY.md
+*_AUDIT.md
+REFACTORING_*.md
+CRITICAL_FIXES_*.md
+CODEX_*.md

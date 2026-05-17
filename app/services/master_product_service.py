@@ -147,13 +147,41 @@ class MasterProductService:
             .order_by(MasterProduct.canonical_sku)
         )
         masters = list(result.scalars().unique().all())
+        master_product_ids: dict[int, list[int]] = {}
+        for master in masters:
+            master_product_ids[master.id] = [
+                link.product.id for link in master.links if link.product is not None
+            ]
+        all_product_ids = [
+            product_id for product_ids in master_product_ids.values() for product_id in product_ids
+        ]
+        order_metrics = await self._order_metrics_by_product(all_product_ids)
+        sales_counts = await self._sales_count_by_product(all_product_ids)
+        stock_quantities = await self._latest_stock_quantity_by_product(all_product_ids)
         rows: list[MasterProductAnalyticsRow] = []
         for master in masters:
             products = [link.product for link in master.links if link.product is not None]
             product_ids = [product.id for product in products]
-            orders, revenue, estimated_profit = await self._order_metrics(product_ids)
-            sales = await self._sales_count(product_ids)
-            stock_quantity = await self._latest_stock_quantity(product_ids)
+            orders = sum(
+                order_metrics.get(product_id, (0, Decimal("0"), Decimal("0")))[0]
+                for product_id in product_ids
+            )
+            revenue = sum(
+                (
+                    order_metrics.get(product_id, (0, Decimal("0"), Decimal("0")))[1]
+                    for product_id in product_ids
+                ),
+                Decimal("0"),
+            )
+            estimated_profit = sum(
+                (
+                    order_metrics.get(product_id, (0, Decimal("0"), Decimal("0")))[2]
+                    for product_id in product_ids
+                ),
+                Decimal("0"),
+            )
+            sales = sum(sales_counts.get(product_id, 0) for product_id in product_ids)
+            stock_quantity = sum(stock_quantities.get(product_id, 0) for product_id in product_ids)
             marketplace_products = tuple(
                 MarketplaceProductInfo(
                     product_id=product.id,
@@ -333,6 +361,32 @@ class MasterProductService:
         orders, revenue, estimated_profit = result.one()
         return int(orders or 0), Decimal(str(revenue or 0)), Decimal(str(estimated_profit or 0))
 
+    async def _order_metrics_by_product(
+        self,
+        product_ids: list[int],
+    ) -> dict[int, tuple[int, Decimal, Decimal]]:
+        if not product_ids:
+            return {}
+        result = await self.session.execute(
+            select(
+                OrderItem.product_id,
+                func.count(OrderItem.id),
+                func.coalesce(func.sum(OrderItem.discounted_price * OrderItem.quantity), 0),
+                func.coalesce(func.sum(OrderItem.profit_estimated), 0),
+            )
+            .where(OrderItem.product_id.in_(product_ids))
+            .group_by(OrderItem.product_id)
+        )
+        return {
+            int(product_id): (
+                int(orders or 0),
+                Decimal(str(revenue or 0)),
+                Decimal(str(estimated_profit or 0)),
+            )
+            for product_id, orders, revenue, estimated_profit in result.all()
+            if product_id is not None
+        }
+
     async def _sales_count(self, product_ids: list[int]) -> int:
         if not product_ids:
             return 0
@@ -342,6 +396,20 @@ class MasterProductService:
             )
         )
         return int(result.scalar_one() or 0)
+
+    async def _sales_count_by_product(self, product_ids: list[int]) -> dict[int, int]:
+        if not product_ids:
+            return {}
+        result = await self.session.execute(
+            select(SalesEvent.product_id, func.coalesce(func.sum(SalesEvent.quantity), 0))
+            .where(SalesEvent.product_id.in_(product_ids))
+            .group_by(SalesEvent.product_id)
+        )
+        return {
+            int(product_id): int(quantity or 0)
+            for product_id, quantity in result.all()
+            if product_id is not None
+        }
 
     async def _latest_stock_quantity(self, product_ids: list[int]) -> int:
         if not product_ids:
@@ -356,6 +424,20 @@ class MasterProductService:
             if snapshot.product_id is not None and snapshot.product_id not in latest_by_product:
                 latest_by_product[snapshot.product_id] = snapshot
         return sum(snapshot.quantity for snapshot in latest_by_product.values())
+
+    async def _latest_stock_quantity_by_product(self, product_ids: list[int]) -> dict[int, int]:
+        if not product_ids:
+            return {}
+        result = await self.session.execute(
+            select(StockSnapshot)
+            .where(StockSnapshot.product_id.in_(product_ids))
+            .order_by(StockSnapshot.product_id, desc(StockSnapshot.snapshot_at))
+        )
+        latest_by_product: dict[int, StockSnapshot] = {}
+        for snapshot in result.scalars().all():
+            if snapshot.product_id is not None and snapshot.product_id not in latest_by_product:
+                latest_by_product[snapshot.product_id] = snapshot
+        return {product_id: snapshot.quantity for product_id, snapshot in latest_by_product.items()}
 
     async def _actual_profit(self, product_ids: list[int]) -> Decimal:
         if not product_ids:

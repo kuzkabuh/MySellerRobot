@@ -555,9 +555,7 @@ class OzonPromoProduct(TimestampMixin, Base):
 
 class AccountBalanceSnapshot(TimestampMixin, Base):
     __tablename__ = "account_balance_snapshots"
-    __table_args__ = (
-        Index("ix_account_balance_latest", "marketplace_account_id", "fetched_at"),
-    )
+    __table_args__ = (Index("ix_account_balance_latest", "marketplace_account_id", "fetched_at"),)
 
     id: Mapped[int_pk]
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
@@ -626,6 +624,26 @@ class WbReportCheckState(TimestampMixin, Base):
     last_error_message: Mapped[str | None] = mapped_column(Text)
     reports_found: Mapped[int] = mapped_column(Integer, default=0)
     payload: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
+
+
+class PlanFactTarget(TimestampMixin, Base):
+    __tablename__ = "plan_fact_targets"
+    __table_args__ = (
+        Index("ix_plan_fact_targets_user_period", "user_id", "period_start", "period_end"),
+        Index("ix_plan_fact_targets_user_marketplace", "user_id", "marketplace"),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    marketplace: Mapped[Marketplace | None] = mapped_column(Enum(Marketplace), nullable=True)
+    period_start: Mapped[date] = mapped_column(Date, index=True)
+    period_end: Mapped[date] = mapped_column(Date, index=True)
+    revenue_plan: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    profit_plan: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    orders_plan: Mapped[int | None] = mapped_column(Integer)
+    buyouts_plan: Mapped[int | None] = mapped_column(Integer)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    comment: Mapped[str | None] = mapped_column(Text)
 
 
 class NotificationSetting(TimestampMixin, Base):

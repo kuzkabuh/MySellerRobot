@@ -31,6 +31,7 @@ from app.services.account_service import (
     MarketplaceAccountService,
 )
 from app.services.history_backfill_service import HistoryBackfillService
+from app.services.marketplace_presentation import marketplace_marker
 from app.services.wb_report_service import WbFinancialReportService
 
 router = Router(name="accounts")
@@ -192,7 +193,7 @@ async def account_action_handler(callback: CallbackQuery) -> None:
             )
             return
         if action == "seller" and account is not None:
-            profile = await AccountProfileService(session).refresh_wb_account(
+            profile = await AccountProfileService(session).refresh_account(
                 account,
                 force_balance=False,
             )
@@ -319,9 +320,9 @@ def _format_accounts_list(accounts: list[MarketplaceAccount]) -> str:
     lines = ["Мои кабинеты", ""]
     for account in accounts:
         status = "активен" if account.is_active else "отключён"
-        lines.append(
-            f"#{account.id} — {account.marketplace.value}: {_safe_text(account.name)} ({status})"
-        )
+        marker = marketplace_marker(account.marketplace)
+        name = _safe_text(account.name)
+        lines.append(f"#{account.id} — {marker}: {name} ({status})")
     lines.append("")
     lines.append("Чтобы открыть карточку кабинета, используйте кнопки ниже.")
     return "\n".join(lines)
@@ -330,7 +331,7 @@ def _format_accounts_list(accounts: list[MarketplaceAccount]) -> str:
 def _format_account_card(account: MarketplaceAccount) -> str:
     client_id = "сохранён" if account.encrypted_client_id else "не требуется"
     return (
-        f"Маркетплейс: {account.marketplace.value}\n"
+        f"Маркетплейс: {marketplace_marker(account.marketplace)}\n"
         f"Название: {_safe_text(account.name)}\n"
         f"Статус: {account.status.value}\n"
         f"Client ID: {client_id}\n"
@@ -343,7 +344,7 @@ def _format_seller_profile(account: MarketplaceAccount, balance: object | None) 
     lines = [
         "👤 Кабинет продавца",
         "",
-        f"Маркетплейс: {account.marketplace.value}",
+        f"Маркетплейс: {marketplace_marker(account.marketplace)}",
         f"Название: {_safe_text(account.seller_name or account.name)}",
         f"Юр. имя: {_safe_text(account.seller_legal_name)}",
         f"ИНН: {_safe_text(payload.get('tin'))}",
@@ -359,7 +360,7 @@ def _format_seller_profile(account: MarketplaceAccount, balance: object | None) 
         lines.extend(
             [
                 "",
-                "💰 Баланс WB",
+                "💰 Баланс",
                 f"Текущий: {current} {currency}",
                 f"Доступно к выводу: {for_withdraw} {currency}",
                 f"Обновлено: {balance.fetched_at.strftime('%d.%m.%Y %H:%M')}",
@@ -369,8 +370,9 @@ def _format_seller_profile(account: MarketplaceAccount, balance: object | None) 
         lines.extend(
             [
                 "",
-                "💰 Баланс WB недоступен.",
-                "Для баланса нужен ключ WB с категорией Finance.",
+                "💰 Баланс недоступен.",
+                "Для WB нужен ключ с категорией Finance. "
+                "Для Ozon показываются доступные данные профиля.",
             ]
         )
     return "\n".join(lines)

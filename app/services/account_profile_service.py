@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AuthenticationError, MarketplaceApiError, RateLimitError
 from app.core.security import TokenCipher
+from app.integrations.ozon import OzonClient
 from app.integrations.wb import WildberriesClient
 from app.models.domain import AccountBalanceSnapshot, MarketplaceAccount
 from app.models.enums import Marketplace
@@ -51,13 +52,24 @@ class AccountProfileService:
 
         balance = await self.latest_balance(account.id)
         balance_is_stale = (
-            balance is None
-            or balance.fetched_at < datetime.now(tz=UTC) - self.balance_ttl
+            balance is None or balance.fetched_at < datetime.now(tz=UTC) - self.balance_ttl
         )
         if force_balance or balance_is_stale:
             balance = await self._refresh_wb_balance(account, client)
         await self.session.flush()
         return SellerCabinetSnapshot(account=account, balance=balance)
+
+    async def refresh_account(
+        self,
+        account: MarketplaceAccount,
+        *,
+        force_balance: bool = False,
+    ) -> SellerCabinetSnapshot:
+        if account.marketplace == Marketplace.WB:
+            return await self.refresh_wb_account(account, force_balance=force_balance)
+        if account.marketplace == Marketplace.OZON:
+            return await self._refresh_ozon_account(account)
+        return SellerCabinetSnapshot(account=account)
 
     async def latest_balance(self, account_id: int) -> AccountBalanceSnapshot | None:
         result = await self.session.execute(
@@ -111,6 +123,36 @@ class AccountProfileService:
         self.session.add(snapshot)
         await self.session.flush()
         return snapshot
+
+    async def _refresh_ozon_account(self, account: MarketplaceAccount) -> SellerCabinetSnapshot:
+        if not account.encrypted_client_id:
+            return SellerCabinetSnapshot(account=account, balance_error="Client ID не сохранён")
+        client = OzonClient(
+            self.cipher.decrypt(account.encrypted_client_id),
+            self.cipher.decrypt(account.encrypted_api_key),
+        )
+        try:
+            payload = await client.get_seller_info()
+            data = payload.get("result") if isinstance(payload.get("result"), dict) else payload
+            account.seller_external_id = (
+                str(data.get("company_id") or "") or account.seller_external_id
+            )
+            account.seller_name = str(data.get("name") or "") or account.seller_name
+            account.seller_legal_name = (
+                str(data.get("legal_name") or "") or account.seller_legal_name
+            )
+            account.seller_info_payload = payload
+        except Exception:
+            logger.exception("ozon_seller_info_refresh_failed", extra={"account_id": account.id})
+        await self.session.flush()
+        return SellerCabinetSnapshot(
+            account=account,
+            balance=await self.latest_balance(account.id),
+            balance_error=(
+                "Ozon Seller API не возвращает единый баланс кабинета "
+                "в текущей интеграции."
+            ),
+        )
 
 
 def _apply_wb_seller_info(account: MarketplaceAccount, payload: dict[str, Any]) -> None:

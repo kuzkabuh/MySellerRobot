@@ -30,6 +30,9 @@ class StockForecastRow:
     lost_revenue_30d: Decimal
     status: str
     recommendation: str
+    sale_model: str
+    marketplace_label: str | None = None
+    is_common_fbs: bool = False
 
 
 class StockForecastService:
@@ -76,10 +79,12 @@ class StockForecastService:
                     lost_revenue_30d=lost_revenue,
                     status=status,
                     recommendation=recommendation,
+                    sale_model=_stock_sale_model(snapshot),
                 )
             )
+        merged_rows = _merge_common_fbs(rows)
         return sorted(
-            rows,
+            merged_rows,
             key=lambda row: (row.days_until_stockout is None, row.days_until_stockout or 999999),
         )
 
@@ -176,6 +181,80 @@ def classify_stock_risk(quantity: int, days_until_stockout: Decimal | None) -> t
     if days_until_stockout <= 30:
         return "warning", "Запас закончится в течение 30 дней. Запланируйте пополнение."
     return "ok", "Запас выглядит достаточным на ближайший месяц."
+
+
+def stock_status_label(status: str) -> str:
+    return {
+        "out_of_stock": "Нет в наличии",
+        "critical": "Критически низкий",
+        "warning": "Низкий остаток",
+        "unknown": "Недостаточно данных",
+        "ok": "Норма",
+    }.get(status, status)
+
+
+def stock_status_tone(status: str) -> str:
+    return {
+        "out_of_stock": "bad",
+        "critical": "bad",
+        "warning": "warn",
+        "unknown": "neutral",
+        "ok": "good",
+    }.get(status, "neutral")
+
+
+def _stock_sale_model(snapshot: StockSnapshot) -> str:
+    raw = snapshot.raw_payload or {}
+    source = str(raw.get("stock_source") or "").upper()
+    warehouse = (snapshot.warehouse or "").upper()
+    if "FBS" in source or "FBS" in warehouse or "SELLER" in source:
+        return "FBS"
+    if "FBO" in source or "FBO" in warehouse:
+        return "FBO"
+    if snapshot.marketplace == Marketplace.OZON and "WAREHOUSE" in source:
+        return "FBS"
+    return "FBO"
+
+
+def _merge_common_fbs(rows: list[StockForecastRow]) -> list[StockForecastRow]:
+    fbs_groups: dict[str, list[StockForecastRow]] = {}
+    others: list[StockForecastRow] = []
+    for row in rows:
+        if row.sale_model == "FBS" and row.seller_article != "н/д":
+            fbs_groups.setdefault(row.seller_article.lower(), []).append(row)
+        else:
+            others.append(row)
+
+    merged: list[StockForecastRow] = []
+    for group in fbs_groups.values():
+        marketplaces = {row.marketplace for row in group}
+        if len(group) < 2 or len(marketplaces) < 2:
+            merged.extend(group)
+            continue
+        first = group[0]
+        quantity = max(row.quantity for row in group)
+        average_daily_sales = sum((row.average_daily_sales for row in group), ZERO)
+        days = calculate_days_until_stockout(quantity, average_daily_sales)
+        status, recommendation = classify_stock_risk(quantity, days)
+        merged.append(
+            StockForecastRow(
+                product_id=first.product_id,
+                title=first.title,
+                seller_article=first.seller_article,
+                marketplace=first.marketplace,
+                warehouse="Общий склад продавца",
+                quantity=quantity,
+                average_daily_sales=average_daily_sales.quantize(Decimal("0.01")),
+                days_until_stockout=days,
+                lost_revenue_30d=sum((row.lost_revenue_30d for row in group), ZERO),
+                status=status,
+                recommendation=f"Общий FBS-остаток для WB и Ozon. {recommendation}",
+                sale_model="FBS",
+                marketplace_label="WB + Ozon",
+                is_common_fbs=True,
+            )
+        )
+    return others + merged
 
 
 def _money(value: Decimal | int | float | None) -> Decimal:
