@@ -1,0 +1,265 @@
+"""version: 1.0.0
+description: Regression tests for retryable FBS order notifications.
+updated: 2026-05-17
+"""
+
+from datetime import UTC, datetime
+from decimal import Decimal
+from typing import Any
+
+import pytest
+
+from app.models.domain import MarketplaceAccount, Order, OrderItem, User
+from app.models.enums import Marketplace, SaleModel
+from app.schemas.orders import NormalizedOrder, NormalizedOrderItem
+from app.services.order_card_service import VisualNotification
+from app.services.order_notification_policy import OrderNotificationPolicy
+from app.services.order_processing_service import OrderProcessingService
+
+
+class FakeSession:
+    def __init__(self) -> None:
+        self.commits = 0
+        self.rollbacks = 0
+
+    async def commit(self) -> None:
+        self.commits += 1
+
+    async def rollback(self) -> None:
+        self.rollbacks += 1
+
+
+class FakeOrders:
+    def __init__(self, existing: Order | None = None) -> None:
+        self.existing = existing
+        self.created_order: Order | None = None
+        self.mark_notified_called = False
+
+    async def get_by_external(self, **_: Any) -> Order | None:
+        return self.existing
+
+    async def create(
+        self,
+        user_id: int,
+        account_id: int,
+        normalized: NormalizedOrder,
+    ) -> Order:
+        order = _order(
+            order_id=101,
+            user_id=user_id,
+            account_id=account_id,
+            external_id=normalized.order_external_id,
+            sale_model=normalized.sale_model,
+            fulfillment_type=normalized.fulfillment_type,
+            first_notified_at=None,
+        )
+        self.created_order = order
+        return order
+
+    async def get_with_items(self, order_id: int) -> Order | None:
+        if self.created_order and self.created_order.id == order_id:
+            return self.created_order
+        if self.existing and self.existing.id == order_id:
+            return self.existing
+        return None
+
+    async def order_totals(self, _: int) -> tuple[Decimal, Decimal]:
+        return Decimal("0"), Decimal("0")
+
+    async def mark_notified(self, _: int) -> None:
+        self.mark_notified_called = True
+
+
+class FakeProfitService:
+    async def calculate_estimated_profit(self, *_: Any) -> None:
+        return None
+
+
+class FakeCardService:
+    async def new_order_card(self, **_: Any) -> VisualNotification:
+        return VisualNotification(
+            text="🛒 <b>Новый FBS-заказ</b>",
+            product_url="https://example.test/product",
+        )
+
+
+class FakeNotificationPolicyService:
+    async def resolve(self, _: MarketplaceAccount) -> OrderNotificationPolicy:
+        return OrderNotificationPolicy(fbs_enabled=True)
+
+
+@pytest.mark.asyncio
+async def test_new_wb_fbs_order_prepares_notification_without_marking_notified() -> None:
+    service, fake_orders = _service(existing=None)
+    account = _account(Marketplace.WB)
+
+    async def fetch_orders(_: MarketplaceAccount) -> list[NormalizedOrder]:
+        return [_normalized_order(Marketplace.WB, "wb-fbs-1")]
+
+    service._fetch_orders = fetch_orders  # type: ignore[method-assign]
+
+    result = await service.poll_account_with_stats(account)
+
+    assert result.created == 1
+    assert result.notification_count == 1
+    notification = result.notifications[0] if result.notifications else None
+    assert notification is not None
+    assert notification.marketplace == Marketplace.WB
+    assert notification.sale_model == SaleModel.FBS.value
+    assert notification.fulfillment_type == "FBS"
+    assert notification.user_id == account.user_id
+    assert fake_orders.mark_notified_called is False
+
+
+@pytest.mark.asyncio
+async def test_existing_unnotified_ozon_fbs_order_is_retried() -> None:
+    existing = _order(
+        order_id=202,
+        user_id=7,
+        account_id=55,
+        external_id="ozon-fbs-1",
+        sale_model=SaleModel.FBS,
+        fulfillment_type="FBS",
+        first_notified_at=None,
+    )
+    service, _ = _service(existing=existing)
+    account = _account(Marketplace.OZON)
+
+    async def fetch_orders(_: MarketplaceAccount) -> list[NormalizedOrder]:
+        return [_normalized_order(Marketplace.OZON, "ozon-fbs-1")]
+
+    service._fetch_orders = fetch_orders  # type: ignore[method-assign]
+
+    result = await service.poll_account_with_stats(account)
+
+    assert result.created == 0
+    assert result.duplicated == 1
+    assert result.retried_unnotified == 1
+    assert result.notification_count == 1
+    notification = result.notifications[0] if result.notifications else None
+    assert notification is not None
+    assert notification.marketplace == Marketplace.OZON
+    assert notification.sale_model == SaleModel.FBS.value
+
+
+@pytest.mark.asyncio
+async def test_existing_notified_fbs_order_does_not_duplicate_notification() -> None:
+    existing = _order(
+        order_id=303,
+        user_id=7,
+        account_id=55,
+        external_id="wb-fbs-2",
+        sale_model=SaleModel.FBS,
+        fulfillment_type="FBS",
+        first_notified_at=datetime(2026, 5, 17, 10, 0, tzinfo=UTC),
+    )
+    service, _ = _service(existing=existing)
+    account = _account(Marketplace.WB)
+
+    async def fetch_orders(_: MarketplaceAccount) -> list[NormalizedOrder]:
+        return [_normalized_order(Marketplace.WB, "wb-fbs-2")]
+
+    service._fetch_orders = fetch_orders  # type: ignore[method-assign]
+
+    result = await service.poll_account_with_stats(account)
+
+    assert result.created == 0
+    assert result.duplicated == 1
+    assert result.retried_unnotified == 0
+    assert result.notification_count == 0
+
+
+def _service(existing: Order | None) -> tuple[OrderProcessingService, FakeOrders]:
+    session = FakeSession()
+    service = OrderProcessingService(session)  # type: ignore[arg-type]
+    fake_orders = FakeOrders(existing=existing)
+    service.orders = fake_orders  # type: ignore[assignment]
+    service.profits = FakeProfitService()  # type: ignore[assignment]
+    service.cards = FakeCardService()  # type: ignore[assignment]
+    service.notification_policy = FakeNotificationPolicyService()  # type: ignore[assignment]
+    return service, fake_orders
+
+
+def _account(marketplace: Marketplace) -> MarketplaceAccount:
+    user = User(
+        id=7,
+        telegram_id=700700,
+        username="seller",
+        first_name="Иван",
+        timezone="Europe/Moscow",
+        notifications_enabled=True,
+    )
+    account = MarketplaceAccount(
+        id=55,
+        user_id=7,
+        marketplace=marketplace,
+        name="Основной кабинет",
+        encrypted_api_key="encrypted",
+        encrypted_client_id="encrypted-client",
+        is_active=True,
+    )
+    account.user = user
+    return account
+
+
+def _order(
+    *,
+    order_id: int,
+    user_id: int,
+    account_id: int,
+    external_id: str,
+    sale_model: SaleModel | None,
+    fulfillment_type: str | None,
+    first_notified_at: datetime | None,
+) -> Order:
+    order = Order(
+        id=order_id,
+        user_id=user_id,
+        marketplace_account_id=account_id,
+        marketplace=Marketplace.OZON if external_id.startswith("ozon") else Marketplace.WB,
+        order_external_id=external_id,
+        order_date=datetime(2026, 5, 17, 9, 0, tzinfo=UTC),
+        event_received_at=datetime(2026, 5, 17, 9, 1, tzinfo=UTC),
+        sale_model=sale_model,
+        fulfillment_type=fulfillment_type,
+        status="awaiting_packaging",
+        requires_seller_action=True,
+        first_notified_at=first_notified_at,
+    )
+    item = OrderItem(
+        id=order_id + 1000,
+        order_id=order_id,
+        seller_article="SKU-1",
+        marketplace_article="123456",
+        title="Тестовый товар",
+        quantity=1,
+        buyer_price=Decimal("1000"),
+        seller_price=Decimal("1000"),
+        discounted_price=Decimal("1000"),
+    )
+    order.items = [item]
+    return order
+
+
+def _normalized_order(marketplace: Marketplace, external_id: str) -> NormalizedOrder:
+    return NormalizedOrder(
+        marketplace=marketplace,
+        order_external_id=external_id,
+        posting_number=external_id,
+        order_date=datetime(2026, 5, 17, 9, 0, tzinfo=UTC),
+        sale_model=SaleModel.FBS,
+        fulfillment_type="FBS",
+        status="awaiting_packaging",
+        requires_seller_action=True,
+        items=[
+            NormalizedOrderItem(
+                seller_article="SKU-1",
+                marketplace_article="123456",
+                title="Тестовый товар",
+                quantity=1,
+                buyer_price=Decimal("1000"),
+                seller_price=Decimal("1000"),
+                discounted_price=Decimal("1000"),
+            )
+        ],
+    )

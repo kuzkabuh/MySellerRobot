@@ -56,7 +56,29 @@ def create_app() -> FastAPI:
                 "headers": headers,
             },
         )
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception:
+            logger.exception(
+                "request_failed",
+                extra={
+                    "method": request.method,
+                    "path": request.url.path,
+                    "query": str(request.url.query),
+                },
+            )
+            if request.url.path.startswith("/web"):
+                return HTMLResponse(
+                    "<h1>Ошибка web-кабинета</h1>"
+                    "<p>Мы уже записали технические детали в лог. "
+                    "Попробуйте открыть кабинет ещё раз или получите новую ссылку в боте.</p>",
+                    status_code=500,
+                )
+            return HTMLResponse(
+                "<h1>Внутренняя ошибка сервера</h1>"
+                "<p>Технические детали записаны в лог приложения.</p>",
+                status_code=500,
+            )
         logger.info(
             "response",
             extra={"path": request.url.path, "status": response.status_code},

@@ -36,6 +36,21 @@ Telegram-бот для селлеров Wildberries и Ozon. Главная ид
 - empty states объясняют, что произошло и что делать дальше;
 - новые formatter’ы находятся в `app/bot/formatters`.
 
+## Critical stability fixes 2026-05-17
+
+Проведён аудит критичных production-сценариев:
+
+- FBS-уведомления теперь помечают заказ как отправленный только после успешной доставки
+  Telegram-сообщения;
+- если FBS/rFBS/DBS/DBW заказ уже сохранён, но `first_notified_at` пустой, следующий polling
+  повторно подготовит уведомление вместо молчаливого пропуска duplicate-заказа;
+- worker пишет структурированные события `new_order_notification_sent` и
+  `new_order_notification_send_failed` с marketplace, fulfillment type, order id и user id;
+- WEB middleware логирует traceback события `request_failed` и возвращает аккуратную HTML-ошибку
+  для `/web*`, чтобы production 500 диагностировался по логам, а не оставался “слепым”;
+- добавлен `PRODUCTION_DEBUG_CHECKLIST.md` с командами проверки Docker, Alembic, WEB-login flow и
+  FBS-цепочки уведомлений.
+
 ## Refactoring / UI polish 1.6.2
 
 В версии `1.6.2` проведён системный refactoring pass без повышения версии и без изменения

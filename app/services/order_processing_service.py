@@ -1,6 +1,6 @@
-"""version: 1.4.0
-description: Enhanced order ingestion with marketplace-aware notifications.
-updated: 2026-05-16
+"""version: 1.5.0
+description: Order ingestion with retryable marketplace-aware Telegram notifications.
+updated: 2026-05-17
 """
 
 import logging
@@ -19,7 +19,10 @@ from app.models.enums import FboNotificationMode, Marketplace
 from app.repositories.orders import FboDigestQueueRepository, OrderRepository
 from app.schemas.orders import NormalizedOrder
 from app.services.order_card_service import OrderCardService
-from app.services.order_notification_policy import OrderNotificationPolicyService
+from app.services.order_notification_policy import (
+    OrderNotificationPolicy,
+    OrderNotificationPolicyService,
+)
 from app.services.order_profit_service import OrderProfitService
 
 logger = logging.getLogger(__name__)
@@ -28,9 +31,14 @@ logger = logging.getLogger(__name__)
 @dataclass(slots=True)
 class NewOrderNotification:
     telegram_id: int
+    user_id: int
+    account_id: int
     order_id: int
     text: str
     marketplace: Marketplace
+    sale_model: str | None = None
+    fulfillment_type: str | None = None
+    event_type: str = "new_order"
     image_url: str | None = None
     product_url: str | None = None
     parse_mode: str | None = "HTML"
@@ -46,6 +54,7 @@ class OrderPollResult:
     queued_digest: int = 0
     skipped_by_policy: int = 0
     skipped_without_user: int = 0
+    retried_unnotified: int = 0
     notifications: list[NewOrderNotification] | None = None
 
     @property
@@ -95,12 +104,38 @@ class OrderProcessingService:
 
                 for normalized in normalized_orders:
                     try:
-                        if await self.orders.exists(account.id, normalized):
+                        existing_order = await self.orders.get_by_external(
+                            account_id=account.id,
+                            marketplace=normalized.marketplace,
+                            order_external_id=normalized.order_external_id,
+                        )
+                        if existing_order is not None:
                             result.duplicated += 1
+                            if await self._prepare_retry_notification(
+                                account=account,
+                                order=existing_order,
+                                normalized=normalized,
+                                policy=policy,
+                                result=result,
+                            ):
+                                result.retried_unnotified += 1
                             continue
 
                         order = await self.orders.create(account.user_id, account.id, normalized)
                         result.created += 1
+                        logger.info(
+                            "order_persisted",
+                            extra={
+                                "account_id": account.id,
+                                "user_id": account.user_id,
+                                "marketplace": account.marketplace.value,
+                                "fulfillment_type": normalized.fulfillment_type,
+                                "sale_model": normalized.sale_model.value
+                                if normalized.sale_model
+                                else None,
+                                "order_external_id": normalized.order_external_id,
+                            },
+                        )
 
                         await self.profits.calculate_estimated_profit(account, order, normalized)
 
@@ -122,32 +157,7 @@ class OrderProcessingService:
                             result.skipped_by_policy += 1
                             continue
 
-                        order_with_items = await self.orders.get_with_items(order.id)
-                        item = (
-                            order_with_items.items[0]
-                            if order_with_items and order_with_items.items
-                            else None
-                        )
-
-                        if item and order_with_items:
-                            card = await self.cards.new_order_card(
-                                order=order_with_items,
-                                item=item,
-                                timezone_name=account.user.timezone,
-                            )
-                            await self.orders.mark_notified(order.id)
-                            result.notifications = result.notifications or []
-                            result.notifications.append(
-                                NewOrderNotification(
-                                    telegram_id=account.user.telegram_id,
-                                    order_id=order.id,
-                                    text=card.text,
-                                    marketplace=account.marketplace,
-                                    image_url=card.image_url,
-                                    product_url=card.product_url,
-                                    parse_mode=card.parse_mode,
-                                )
-                            )
+                        await self._append_notification(account, order, result)
 
                     except Exception as exc:
                         log_exception(
@@ -163,12 +173,13 @@ class OrderProcessingService:
                 logger.info(
                     "order_poll_finished",
                     extra={
-                        "fetched": result.fetched,
-                        "created": result.created,
-                        "duplicates": result.duplicated,
+                        "orders_fetched": result.fetched,
+                        "orders_created": result.created,
+                        "orders_duplicated": result.duplicated,
                         "queued_digest": result.queued_digest,
                         "skipped_by_policy": result.skipped_by_policy,
-                        "notifications": result.notification_count,
+                        "retried_unnotified": result.retried_unnotified,
+                        "notifications_prepared": result.notification_count,
                     },
                 )
 
@@ -229,6 +240,98 @@ class OrderProcessingService:
             revenue=revenue,
             estimated_profit=estimated_profit,
             mode=mode,
+        )
+
+    async def _prepare_retry_notification(
+        self,
+        *,
+        account: MarketplaceAccount,
+        order: Order,
+        normalized: NormalizedOrder,
+        policy: OrderNotificationPolicy,
+        result: OrderPollResult,
+    ) -> bool:
+        if order.first_notified_at is not None:
+            return False
+        if policy.should_queue_fbo_digest(normalized.sale_model):
+            return False
+        if not policy.is_instant_enabled_for(normalized.sale_model):
+            result.skipped_by_policy += 1
+            return False
+        if not account.user or not account.user.notifications_enabled:
+            result.skipped_without_user += 1
+            return False
+        await self._append_notification(account, order, result)
+        logger.info(
+            "unnotified_order_notification_retried",
+            extra={
+                "account_id": account.id,
+                "user_id": account.user_id,
+                "marketplace": account.marketplace.value,
+                "fulfillment_type": normalized.fulfillment_type,
+                "sale_model": normalized.sale_model.value if normalized.sale_model else None,
+                "order_id": order.id,
+                "order_external_id": normalized.order_external_id,
+            },
+        )
+        return True
+
+    async def _append_notification(
+        self,
+        account: MarketplaceAccount,
+        order: Order,
+        result: OrderPollResult,
+    ) -> None:
+        if not account.user:
+            result.skipped_without_user += 1
+            return
+        order_with_items = await self.orders.get_with_items(order.id)
+        item = order_with_items.items[0] if order_with_items and order_with_items.items else None
+        if item is None or order_with_items is None:
+            result.skipped_without_user += 1
+            logger.warning(
+                "order_notification_skipped_without_items",
+                extra={
+                    "account_id": account.id,
+                    "user_id": account.user_id,
+                    "marketplace": account.marketplace.value,
+                    "order_id": order.id,
+                },
+            )
+            return
+        card = await self.cards.new_order_card(
+            order=order_with_items,
+            item=item,
+            timezone_name=account.user.timezone,
+        )
+        result.notifications = result.notifications or []
+        result.notifications.append(
+            NewOrderNotification(
+                telegram_id=account.user.telegram_id,
+                user_id=account.user_id,
+                account_id=account.id,
+                order_id=order.id,
+                text=card.text,
+                marketplace=account.marketplace,
+                sale_model=order.sale_model.value if order.sale_model else None,
+                fulfillment_type=order.fulfillment_type,
+                image_url=card.image_url,
+                product_url=card.product_url,
+                parse_mode=card.parse_mode,
+            )
+        )
+        logger.info(
+            "order_notification_prepared",
+            extra={
+                "account_id": account.id,
+                "user_id": account.user_id,
+                "telegram_id": account.user.telegram_id,
+                "marketplace": account.marketplace.value,
+                "sale_model": order.sale_model.value if order.sale_model else None,
+                "fulfillment_type": order.fulfillment_type,
+                "order_id": order.id,
+                "order_external_id": order.order_external_id,
+            },
         )
 
     @staticmethod

@@ -207,6 +207,21 @@ def test_web_login_token_flow_renders_empty_free_dashboard(
     assert "Раздел подготовлен" not in dashboard_response.text
 
 
+def test_web_unhandled_exception_returns_controlled_html_error() -> None:
+    app = create_app()
+
+    @app.get("/web-login-crash")
+    async def web_test_crash() -> None:
+        raise RuntimeError("boom")
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/web-login-crash")
+
+    assert response.status_code == 500
+    assert "Ошибка web-кабинета" in response.text
+    assert "Internal Server Error" not in response.text
+
+
 @pytest.mark.asyncio
 async def test_web_login_without_token_returns_russian_error() -> None:
     response = await login(request=SimpleNamespace(), session=FakeAsyncSession(), token=None)

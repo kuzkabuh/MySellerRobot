@@ -1,6 +1,6 @@
-"""version: 1.2.0
-description: ARQ background task functions with stockout forecast alert creation.
-updated: 2026-05-15
+"""version: 1.3.0
+description: ARQ tasks for sync, retryable order notifications, reports, and alerts.
+updated: 2026-05-17
 """
 
 import logging
@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 from app.core.config import get_settings
 from app.core.db import AsyncSessionFactory
 from app.models.domain import MarketplaceAccount, User
+from app.repositories.orders import OrderRepository
 from app.repositories.sync_jobs import SyncJobRepository
 from app.services.daily_report_service import DailyReportService
 from app.services.fbo_digest_service import FboDigestService
@@ -58,16 +59,37 @@ async def poll_new_orders(ctx: dict[str, Any]) -> None:
                             marketplace=notification.marketplace,
                             parse_mode=notification.parse_mode,
                         )
+                        await OrderRepository(session).mark_notified(notification.order_id)
                         sent += 1
+                        logger.info(
+                            "new_order_notification_sent",
+                            extra={
+                                "account_id": notification.account_id,
+                                "user_id": notification.user_id,
+                                "order_id": notification.order_id,
+                                "telegram_id": notification.telegram_id,
+                                "marketplace": notification.marketplace.value,
+                                "fulfillment_type": notification.fulfillment_type,
+                                "sale_model": notification.sale_model,
+                                "event_type": notification.event_type,
+                            },
+                        )
                     except Exception:
                         logger.exception(
                             "new_order_notification_send_failed",
                             extra={
-                                "account_id": account_id,
+                                "account_id": notification.account_id,
+                                "user_id": notification.user_id,
                                 "order_id": notification.order_id,
                                 "telegram_id": notification.telegram_id,
+                                "marketplace": notification.marketplace.value,
+                                "fulfillment_type": notification.fulfillment_type,
+                                "sale_model": notification.sale_model,
+                                "event_type": notification.event_type,
                             },
                         )
+                if sent:
+                    await session.commit()
                 logger.info(
                     "order_poll_notifications_sent",
                     extra={

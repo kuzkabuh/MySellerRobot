@@ -10,6 +10,10 @@
 - ✅ Добавлено безопасное HTML-экранирование динамических значений в ключевых сообщениях
 - ✅ Web-кабинет приведён к Material-style design tokens и единой UI-оболочке
 - ✅ Добавлен жизненный цикл подписки: monthly/yearly, trial, expiration и upgrade BASIC → PRO
+- ✅ FBS-уведомления стали retryable: заказ отмечается уведомлённым только после успешной
+  отправки Telegram-сообщения
+- ✅ WEB 500 теперь логируется событием `request_failed` с traceback и возвращает контролируемую
+  HTML-страницу вместо слепого Internal Server Error
 - ✅ Добавлена зависимость yookassa в pyproject.toml
 
 ## Шаги развертывания
@@ -103,6 +107,13 @@ python -m app.bot.main
     - повторная оплата текущего тарифа продлевает срок от действующего `expires_at`;
     - BASIC → PRO переводит старую подписку в `REPLACED`;
     - истёкшие trial/paid подписки не считаются активными.
+13. Проверьте FBS-уведомления в worker-логах. Для нового FBS-заказа ожидается цепочка
+    `order_persisted` → `order_notification_prepared` → `new_order_notification_sent`.
+    Если отправка падает, следующий polling должен показать
+    `unnotified_order_notification_retried`.
+14. Если WEB на production всё ещё отдаёт 500, используйте `PRODUCTION_DEBUG_CHECKLIST.md`:
+    проверьте `alembic current`, наличие миграции `20260517_0013_subscription_lifecycle` и
+    событие `request_failed` в логах `api`.
 
 ## Откат в случае проблем
 
@@ -141,3 +152,6 @@ docker compose logs api --tail=100 -f
   от падения, но каталог тарифов в БД нужно досеять миграциями/seed-скриптом
 - Ошибки при обработке webhook от ЮКасса
 - Ошибки расчета прибыли
+- `new_order_notification_send_failed` в worker-логах: заказ не будет помечен отправленным и
+  должен повториться при следующем polling
+- `request_failed` в api-логах: это точка входа для диагностики production WEB 500
