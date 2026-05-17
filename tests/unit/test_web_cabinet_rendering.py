@@ -58,7 +58,37 @@ def test_costs_content_escapes_product_names_and_has_edit_action() -> None:
     assert "&lt;script&gt;" in html
     assert "Основной &lt;WB&gt;" in html
     assert 'href="/web/costs/10"' in html
+    assert 'href="/web/web/' not in html
     assert "Раздел подготовлен" not in html
+
+
+def test_cost_edit_form_uses_canonical_web_action() -> None:
+    product = SimpleNamespace(
+        id=97,
+        title="Товар",
+        seller_article="SKU-97",
+        marketplace_article="123",
+        external_product_id="123",
+        marketplace=Marketplace.OZON,
+    )
+    history = [
+        SimpleNamespace(
+            valid_from=datetime(2026, 5, 17, tzinfo=UTC),
+            valid_to=None,
+            cost_price=Decimal("100.00"),
+            package_cost=Decimal("10.00"),
+            additional_cost=Decimal("5.00"),
+            tax_rate=Decimal("0.0600"),
+            comment="Тест",
+        )
+    ]
+    detail = SimpleNamespace(product=product, account_name="Основной", history=history)
+
+    html = routes._cost_edit_content(detail)
+
+    assert 'action="/web/costs/97"' in html
+    assert 'action="/web/web/costs/97"' not in html
+    assert "/web/web/" not in html
 
 
 def test_subscription_content_shows_limits_features_and_payments_empty_state() -> None:

@@ -705,6 +705,23 @@ async def save_product_cost(
     return RedirectResponse(url=f"/web/costs/{product_id}?saved=1", status_code=303)
 
 
+@router.post("/web/costs/{product_id}", include_in_schema=False)
+async def save_product_cost_legacy_double_web(
+    product_id: int,
+    request: Request,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    """Accept cost saves from old /web/web/costs/{id} tabs and redirect canonically."""
+
+    return await save_product_cost(
+        product_id=product_id,
+        request=request,
+        user=user,
+        session=session,
+    )
+
+
 @router.get("/profile", response_class=HTMLResponse)
 async def profile_page(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
@@ -817,6 +834,11 @@ async def double_web_compat(
         "legacy_double_web_path",
         extra={"path": _request_path(request), "section": normalized or "dashboard"},
     )
+    canonical_path = "/web/" if normalized == "" else f"/web/{normalized}"
+    query = str(request.url.query)
+    if query:
+        canonical_path = f"{canonical_path}?{query}"
+    return RedirectResponse(url=canonical_path, status_code=308)
     if normalized == "":
         return HTMLResponse(
             await dashboard(

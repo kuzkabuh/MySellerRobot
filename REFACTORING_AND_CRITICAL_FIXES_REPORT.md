@@ -1,73 +1,62 @@
-# version: 1.1.0
-# description: Critical production fixes report for WEB profit analytics, navigation, and schema drift.
+# version: 1.2.0
+# description: Critical production fixes report for WEB canonical URLs, costs, profit analytics, and schema drift.
 # updated: 2026-05-17
 
 # Refactoring and Critical Fixes Report
 
-## WEB Profit / Analytics 500
+## WEB Profit / Analytics GroupingError
 
-Production traceback:
+Production падал на `/web/profit` и `/web/analytics` с:
 
 ```text
 asyncpg.exceptions.GroupingError:
 column "order_items.title" must appear in the GROUP BY clause
-or be used in an aggregate function
 ```
 
-Падали страницы:
+Причина была в `WebOrdersProfitService._profit_order_rows()`: выражения для названия товара и
+артикула создавались отдельно в `SELECT` и отдельно в `GROUP BY`. SQLAlchemy генерировал разные
+bind-параметры, а PostgreSQL не считал выражения эквивалентными.
 
-- `/web/profit`
-- `/web/analytics`
-- legacy compatibility paths `/web/web/profit` и `/web/web/analytics`
+Исправление:
 
-## Root Cause
+- добавлен builder `WebOrdersProfitService._profit_order_query()`;
+- `title_expr` и `article_expr` создаются один раз;
+- эти же expression objects используются в `SELECT` и `GROUP BY`;
+- fallback-строки переведены на `literal_column`;
+- `_sales_by_sku()` также использует единый `article_expr`.
 
-В `app/services/web_orders_profit_service.py` метод `_profit_order_rows()` строил выражения
-названия товара и артикула отдельно в `SELECT` и отдельно в `GROUP BY`:
+## WEB Canonical URL Fix
 
-- `coalesce(order_items.title, order_items.seller_article, :fallback_title)`
-- `coalesce(order_items.seller_article, :fallback_article)`
+Production продолжал логировать `legacy_double_web_path` для `/web/web/*`, а сохранение
+себестоимости падало:
 
-SQLAlchemy создавал разные bind-параметры для одинаковых fallback-строк в `SELECT` и `GROUP BY`.
-PostgreSQL не считал такие выражения эквивалентными и выбрасывал `GroupingError`.
+```text
+GET /web/web/costs/97 -> 200
+POST /web/web/costs/97 -> 405
+```
 
-## Fix
+Canonical HTML-форма редактирования себестоимости формируется как:
 
-В `WebOrdersProfitService` добавлен отдельный builder query:
+```html
+<form method="post" action="/web/costs/{id}">
+```
 
-- `_profit_order_query(user_id, filters)`
+Но старая открытая вкладка, старый URL или reverse proxy rewrite могли удерживать пользователя на
+legacy path `/web/web/costs/{id}`. Для него существовал только GET compatibility handler, поэтому
+POST возвращал 405.
 
-В нём используются одни и те же SQLAlchemy expression objects:
+Исправление:
 
-- `title_expr`
-- `article_expr`
+- legacy GET `/web/web/{section}` теперь делает `308` redirect на canonical `/web/{section}`;
+- query string сохраняется;
+- добавлен temporary compatibility POST `/web/web/costs/{product_id}`;
+- legacy POST вызывает canonical `save_product_cost()` и возвращает redirect
+  `/web/costs/{id}?saved=1`;
+- штатная навигация и формы покрыты тестами на отсутствие `href="/web/web/..."`
+  и `action="/web/web/..."`.
 
-Эти выражения переиспользуются:
-
-- в `SELECT`;
-- в `GROUP BY`;
-- в regression-тесте компилируются PostgreSQL dialect.
-
-Fallback-строки переведены на SQL literals через `literal_column`, чтобы в SQL не появлялись
-разные bind-параметры для одного и того же выражения.
-
-Дополнительно аналогично исправлен `article_expr` в `_sales_by_sku()`.
-
-## Double `/web/web/*`
-
-Повторный аудит показал, что штатная web-навигация в `app/web/rendering.py` уже использует
-канонические абсолютные ссылки `/web/*`.
-
-Проверено тестом:
-
-- HTML главной web-оболочки не содержит `/web/web`;
-- `/web/profit` и `/web/analytics` возвращают 200 в smoke-тесте;
-- compatibility-route `/web/web/*` сохранён только для старых ссылок и reverse proxy.
-
-Если production продолжает логировать `legacy_double_web_path`, источник находится вне нового
-HTML renderer: старая открытая вкладка, старый Telegram URL, reverse proxy rewrite или старое
-значение `WEB_BASE_URL`. Новая генерация Telegram login link нормализует base URL до
-`/web/login?token=...`.
+Compatibility-route оставлен, но теперь он выталкивает браузер на canonical URL вместо рендера
+страниц внутри `/web/web/*`.
 
 ## Ранее закрытые critical fixes
 
@@ -83,8 +72,10 @@ HTML renderer: старая открытая вкладка, старый Telegr
 - PostgreSQL-compatible SQL для `profit_by_sku`;
 - `/web/profit` возвращает 200;
 - `/web/analytics` возвращает 200;
-- web navigation не содержит `/web/web/`;
-- login redirect остаётся `/web/`.
+- `/web/settings`, `/web/costs`, `/web/costs/{id}` не содержат `/web/web/`;
+- форма себестоимости использует `action="/web/costs/{id}"`;
+- canonical `POST /web/costs/{id}` сохраняет данные;
+- legacy `POST /web/web/costs/{id}` сохраняет данные и редиректит на canonical URL.
 
 ## Server Commands
 

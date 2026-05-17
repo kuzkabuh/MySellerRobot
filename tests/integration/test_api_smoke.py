@@ -9,14 +9,13 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.api.main import create_app
 from app.bot.main import create_dispatcher
 from app.core.config import Settings
 from app.core.db import get_session
-from app.models.enums import UserStatus
+from app.models.enums import Marketplace, UserStatus
 from app.services.web_auth_service import WEB_SESSION_COOKIE
 from app.services.web_dashboard_service import DashboardData, build_dashboard_filters
 from app.services.web_orders_profit_service import (
@@ -329,6 +328,149 @@ def test_web_profit_and_analytics_pages_render_with_canonical_navigation(
     assert "/web/web/" not in analytics_response.text
 
 
+def test_web_settings_and_cost_pages_render_canonical_links(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = create_app()
+    user = SimpleNamespace(
+        id=1,
+        telegram_id=123456789,
+        username="seller",
+        first_name="Артем",
+        timezone="Europe/Moscow",
+        language="ru",
+        status=UserStatus.ACTIVE,
+        notifications_enabled=True,
+        low_margin_threshold_percent=Decimal("10"),
+        created_at=datetime(2026, 5, 17, tzinfo=UTC),
+    )
+    product = SimpleNamespace(
+        id=97,
+        title="Тестовый товар",
+        seller_article="SKU-97",
+        marketplace_article="123",
+        external_product_id="123",
+        marketplace=Marketplace.WB,
+    )
+    cost = SimpleNamespace(
+        cost_price=Decimal("100"),
+        package_cost=Decimal("10"),
+        additional_cost=Decimal("5"),
+        tax_rate=Decimal("0.0600"),
+        valid_from=datetime(2026, 5, 17, tzinfo=UTC),
+        valid_to=None,
+        comment="Тест",
+    )
+
+    async def fake_get_session():  # type: ignore[no-untyped-def]
+        yield FakeAsyncSession()
+
+    async def fake_current_web_user():  # type: ignore[no-untyped-def]
+        return user
+
+    async def fake_costs_page(self, user_id):  # type: ignore[no-untyped-def]
+        row = SimpleNamespace(
+            product=product,
+            account_name="Основной",
+            cost=cost,
+            stock_quantity=3,
+            orders_count=2,
+        )
+        return SimpleNamespace(rows=[row], missing_count=0, configured_count=1)
+
+    async def fake_product_cost_detail(self, *, user_id, product_id):  # type: ignore[no-untyped-def]
+        return SimpleNamespace(product=product, account_name="Основной", history=[cost])
+
+    app.dependency_overrides[get_session] = fake_get_session
+    app.dependency_overrides[current_web_user] = fake_current_web_user
+    monkeypatch.setattr(
+        "app.services.web_cabinet_service.WebCabinetService.costs_page",
+        fake_costs_page,
+    )
+    monkeypatch.setattr(
+        "app.services.web_cabinet_service.WebCabinetService.product_cost_detail",
+        fake_product_cost_detail,
+    )
+
+    with TestClient(app, raise_server_exceptions=True) as client:
+        settings_response = client.get("/web/settings")
+        costs_response = client.get("/web/costs")
+        cost_edit_response = client.get("/web/costs/97")
+
+    app.dependency_overrides.clear()
+
+    for response in (settings_response, costs_response, cost_edit_response):
+        assert response.status_code == 200
+        assert 'href="/web/web/' not in response.text
+        assert 'action="/web/web/' not in response.text
+        assert "/web/web/" not in response.text
+    assert 'action="/web/costs/97"' in cost_edit_response.text
+
+
+def test_web_cost_save_accepts_canonical_and_legacy_double_post(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = create_app()
+    user = SimpleNamespace(
+        id=1,
+        telegram_id=123456789,
+        username="seller",
+        first_name="Артем",
+        timezone="Europe/Moscow",
+        language="ru",
+        status=UserStatus.ACTIVE,
+        notifications_enabled=True,
+        low_margin_threshold_percent=Decimal("10"),
+        created_at=datetime(2026, 5, 17, tzinfo=UTC),
+    )
+    product = SimpleNamespace(id=97)
+    saved: list[object] = []
+
+    async def fake_get_session():  # type: ignore[no-untyped-def]
+        yield FakeAsyncSession()
+
+    async def fake_current_web_user():  # type: ignore[no-untyped-def]
+        return user
+
+    async def fake_product_cost_detail(self, *, user_id, product_id):  # type: ignore[no-untyped-def]
+        return SimpleNamespace(product=product, account_name="Основной", history=[])
+
+    async def fake_add_cost(self, data):  # type: ignore[no-untyped-def]
+        saved.append(data)
+        return SimpleNamespace(id=len(saved), **data.model_dump())
+
+    app.dependency_overrides[get_session] = fake_get_session
+    app.dependency_overrides[current_web_user] = fake_current_web_user
+    monkeypatch.setattr(
+        "app.services.web_cabinet_service.WebCabinetService.product_cost_detail",
+        fake_product_cost_detail,
+    )
+    monkeypatch.setattr("app.repositories.products.ProductCostRepository.add_cost", fake_add_cost)
+    form = {
+        "cost_price": "123.45",
+        "package_cost": "10",
+        "additional_cost": "5",
+        "tax_rate": "6",
+        "valid_from": "2026-05-17",
+        "comment": "WEB test",
+    }
+
+    with TestClient(app, raise_server_exceptions=True) as client:
+        canonical = client.post("/web/costs/97", data=form, follow_redirects=False)
+        legacy = client.post("/web/web/costs/97", data=form, follow_redirects=False)
+
+    app.dependency_overrides.clear()
+
+    assert canonical.status_code == 303
+    assert canonical.headers["location"] == "/web/costs/97?saved=1"
+    assert legacy.status_code == 303
+    assert legacy.headers["location"] == "/web/costs/97?saved=1"
+    assert len(saved) == 2
+    assert saved[0].product_id == 97
+    assert saved[0].cost_price == Decimal("123.45")
+    assert saved[0].tax_rate == Decimal("0.0600")
+
+
 def test_web_unhandled_exception_returns_controlled_html_error() -> None:
     app = create_app()
 
@@ -393,14 +535,7 @@ async def test_legacy_double_web_dashboard_route_renders_not_404(
 
 
 @pytest.mark.asyncio
-async def test_legacy_double_web_sections_are_served_for_old_proxy_paths(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def fake_sales_page(*args, **kwargs):  # type: ignore[no-untyped-def]
-        return "<html>Продажи без заглушки</html>"
-
-    monkeypatch.setattr("app.web.routes.sales_page", fake_sales_page)
-
+async def test_legacy_double_web_sections_redirect_to_canonical_paths() -> None:
     user = SimpleNamespace(
         id=1,
         timezone="Europe/Moscow",
@@ -408,7 +543,10 @@ async def test_legacy_double_web_sections_are_served_for_old_proxy_paths(
         username="seller",
         telegram_id=123456,
     )
-    request = SimpleNamespace(url=SimpleNamespace(path="/web/web/sales"), query_params={})
+    request = SimpleNamespace(
+        url=SimpleNamespace(path="/web/web/sales", query="period=30d"),
+        query_params={},
+    )
 
     response = await double_web_compat(
         section="sales",
@@ -417,10 +555,8 @@ async def test_legacy_double_web_sections_are_served_for_old_proxy_paths(
         session=object(),
     )
 
-    assert response.status_code == 200
-    body = response.body.decode()
-    assert "Продажи" in body
-    assert "Раздел подготовлен" not in body
+    assert response.status_code == 308
+    assert response.headers["location"] == "/web/sales?period=30d"
 
 
 @pytest.mark.asyncio
@@ -433,20 +569,18 @@ async def test_unknown_double_web_section_returns_russian_404() -> None:
         telegram_id=123456,
     )
     request = SimpleNamespace(
-        url=SimpleNamespace(path="/web/web/missing-section"),
+        url=SimpleNamespace(path="/web/web/missing-section", query=""),
         query_params={},
     )
+    response = await double_web_compat(
+        section="missing-section",
+        request=request,
+        user=user,
+        session=object(),
+    )
 
-    with pytest.raises(HTTPException) as exc_info:
-        await double_web_compat(
-            section="missing-section",
-            request=request,
-            user=user,
-            session=object(),
-        )
-
-    assert exc_info.value.status_code == 404
-    assert exc_info.value.detail == "Раздел не найден"
+    assert response.status_code == 308
+    assert response.headers["location"] == "/web/missing-section"
 
 
 def test_app_package_discovery_includes_utility_package() -> None:
