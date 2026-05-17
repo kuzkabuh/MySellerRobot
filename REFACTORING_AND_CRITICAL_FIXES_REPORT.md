@@ -1,92 +1,92 @@
-# version: 1.0.0
-# description: Critical fixes and refactoring report for FBS notifications and WEB stability.
+# version: 1.1.0
+# description: Critical production fixes report for WEB profit analytics, navigation, and schema drift.
 # updated: 2026-05-17
 
 # Refactoring and Critical Fixes Report
 
-## Исходные проблемы
+## WEB Profit / Analytics 500
 
-Проверялись две критичные регрессии:
+Production traceback:
 
-- Telegram-бот не присылал уведомления о новых FBS-заказах;
-- WEB-кабинет на production возвращал `Internal Server Error` при переходе из Telegram.
+```text
+asyncpg.exceptions.GroupingError:
+column "order_items.title" must appear in the GROUP BY clause
+or be used in an aggregate function
+```
 
-Локальный regression flow `/web/login?token=...` → session cookie → `/web/` воспроизводимо
-проходит, поэтому WEB-проблема дополнительно рассмотрена как production-разница: миграции,
-старый контейнер, schema drift, env/reverse proxy/cookie.
+Падали страницы:
 
-## Root Cause FBS-уведомлений
+- `/web/profit`
+- `/web/analytics`
+- legacy compatibility paths `/web/web/profit` и `/web/web/analytics`
 
-В `OrderProcessingService.poll_account_with_stats()` заказ помечался как уведомлённый до
-фактической отправки сообщения в Telegram worker’ом.
+## Root Cause
 
-Из-за этого возникал опасный сценарий:
+В `app/services/web_orders_profit_service.py` метод `_profit_order_rows()` строил выражения
+названия товара и артикула отдельно в `SELECT` и отдельно в `GROUP BY`:
 
-1. заказ был сохранён;
-2. карточка или отправка уведомления падала;
-3. `first_notified_at` уже мог быть выставлен или повторная попытка не формировалась;
-4. следующий polling видел заказ как duplicate и не создавал уведомление повторно.
+- `coalesce(order_items.title, order_items.seller_article, :fallback_title)`
+- `coalesce(order_items.seller_article, :fallback_article)`
 
-Для FBS это особенно заметно, потому что пользователь ожидает моментальное сообщение, а не FBO
-digest.
+SQLAlchemy создавал разные bind-параметры для одинаковых fallback-строк в `SELECT` и `GROUP BY`.
+PostgreSQL не считал такие выражения эквивалентными и выбрасывал `GroupingError`.
 
-## Что исправлено для FBS
+## Fix
 
-- `OrderProcessingService` больше не вызывает `mark_notified()` до отправки;
-- worker помечает заказ уведомлённым только после успешного `NotificationService.send_new_order()`;
-- для уже сохранённых FBS/rFBS/DBS/DBW заказов с пустым `first_notified_at` добавлена повторная
-  подготовка уведомления при следующем polling;
-- повторно уведомлённые заказы с заполненным `first_notified_at` не дублируются;
-- в `NewOrderNotification` добавлен контекст для структурированных логов:
-  `user_id`, `account_id`, `sale_model`, `fulfillment_type`, `event_type`;
-- worker логирует `new_order_notification_sent` и `new_order_notification_send_failed` с
-  marketplace, fulfillment type, order id, user id и event type.
+В `WebOrdersProfitService` добавлен отдельный builder query:
 
-## WEB Internal Server Error
+- `_profit_order_query(user_id, filters)`
 
-Локально сценарий авторизации через Telegram-ссылку остаётся зелёным:
+В нём используются одни и те же SQLAlchemy expression objects:
 
-- `/web/login?token=valid-token` возвращает redirect;
-- выставляется session cookie;
-- `/web/` возвращает 200 даже для FREE-пользователя без кабинетов, заказов и подписки.
+- `title_expr`
+- `article_expr`
 
-На production наиболее вероятная причина 500 после локально зелёного flow — несовпадение схемы
-БД и кода. Особое место риска: миграция `20260517_0013_subscription_lifecycle`, которая добавляет
-`user_subscriptions.period`. Если она не применена, чтение подписок может падать SQL-ошибкой
-в dashboard/subscription flow.
+Эти выражения переиспользуются:
 
-Чтобы production больше не был “слепым”, в `app/api/main.py` добавлено централизованное
-логирование необработанных ошибок в middleware:
+- в `SELECT`;
+- в `GROUP BY`;
+- в regression-тесте компилируются PostgreSQL dialect.
 
-- `request_failed` пишет traceback и path/query в логи;
-- `/web*` возвращает контролируемую HTML-страницу ошибки;
-- чувствительные заголовки по-прежнему маскируются.
+Fallback-строки переведены на SQL literals через `literal_column`, чтобы в SQL не появлялись
+разные bind-параметры для одного и того же выражения.
 
-Это не заменяет исправление первопричины: traceback теперь нужно смотреть в логах `api`.
+Дополнительно аналогично исправлен `article_expr` в `_sales_by_sku()`.
 
-## Тесты
+## Double `/web/web/*`
 
-Добавлены regression-тесты:
+Повторный аудит показал, что штатная web-навигация в `app/web/rendering.py` уже использует
+канонические абсолютные ссылки `/web/*`.
 
-- новый WB FBS-заказ готовит уведомление и не помечается отправленным заранее;
-- существующий Ozon FBS-заказ с пустым `first_notified_at` попадает в retry-уведомление;
-- уже уведомлённый FBS-заказ не создаёт дубль;
-- WEB login flow продолжает рендерить dashboard без 500;
-- необработанное исключение на WEB-like path возвращает контролируемую HTML-ошибку.
+Проверено тестом:
 
-## Изменённые файлы
+- HTML главной web-оболочки не содержит `/web/web`;
+- `/web/profit` и `/web/analytics` возвращают 200 в smoke-тесте;
+- compatibility-route `/web/web/*` сохранён только для старых ссылок и reverse proxy.
 
-- `app/services/order_processing_service.py`
-- `app/workers/tasks.py`
-- `app/api/main.py`
-- `tests/unit/test_fbs_order_notification_retries.py`
-- `tests/integration/test_api_smoke.py`
-- `PRODUCTION_DEBUG_CHECKLIST.md`
-- `REFACTORING_AND_CRITICAL_FIXES_REPORT.md`
-- `README.md`
-- `DEPLOYMENT_CHECKLIST.md`
+Если production продолжает логировать `legacy_double_web_path`, источник находится вне нового
+HTML renderer: старая открытая вкладка, старый Telegram URL, reverse proxy rewrite или старое
+значение `WEB_BASE_URL`. Новая генерация Telegram login link нормализует base URL до
+`/web/login?token=...`.
 
-## Что выполнить на сервере
+## Ранее закрытые critical fixes
+
+- `/start` и `/menu` обрабатываются глобальным `navigation` router и очищают активный FSM state;
+- `payments.payment_metadata` досоздаётся production-safe миграцией
+  `20260517_0014_ensure_payment_metadata_column`;
+- FBS-уведомления помечают заказ отправленным только после успешной Telegram-доставки.
+
+## Tests
+
+Добавлены/обновлены проверки:
+
+- PostgreSQL-compatible SQL для `profit_by_sku`;
+- `/web/profit` возвращает 200;
+- `/web/analytics` возвращает 200;
+- web navigation не содержит `/web/web/`;
+- login redirect остаётся `/web/`.
+
+## Server Commands
 
 ```bash
 git pull
@@ -95,69 +95,5 @@ docker compose up -d api bot worker
 docker compose exec api alembic upgrade head
 docker compose exec api python -c "import app.api.main; print('API OK')"
 docker compose exec bot python -c "import app.bot.main; print('BOT OK')"
-docker compose logs --tail=200 api
-docker compose logs --tail=200 worker
+docker compose logs --tail=300 api
 ```
-
-После деплоя открыть WEB из Telegram и проверить worker-логи при новом FBS-заказе:
-
-```bash
-docker compose logs -f worker | grep -E "order_notification_prepared|unnotified_order_notification_retried|new_order_notification_sent|new_order_notification_send_failed"
-```
-
-## Риски и дальнейшие рекомендации
-
-- Если production 500 останется, первым делом снять traceback из `request_failed` в логах `api`;
-- проверить `alembic current` против `alembic heads`;
-- убедиться, что контейнеры действительно пересобраны и запущены из актуального commit;
-- при наличии старых FBS-заказов без `first_notified_at` новый polling должен попытаться отправить
-  уведомления повторно, поэтому возможна одноразовая “догоняющая” отправка по ранее потерянным
-  заказам.
-
-## Дополнительный критический фикс 2026-05-17
-
-### `/start` внутри активного FSM
-
-Причина: router с общими командами был подключён после state-specific router’ов `accounts`,
-`costs` и `subscription`. Поэтому в состоянии ручного ввода себестоимости сообщение `/start`
-попадало в валидатор строки себестоимости и пользователь видел текст:
-`Нужен формат: Артикул; Себестоимость; Упаковка; Доп. расходы; Налог %; Дата`.
-
-Исправление:
-
-- добавлен глобальный router `app.bot.handlers.navigation`;
-- router подключается первым в `create_dispatcher()`;
-- команды `/start` и `/menu` очищают `FSMContext`, сбрасывают данные незавершённого сценария и
-  показывают главное меню;
-- добавлены regression-тесты, что `/start` и `/menu` не попадают в валидаторы FSM.
-
-### `payments.payment_metadata` на production
-
-Traceback production показал точную причину WEB 500:
-`asyncpg.exceptions.UndefinedColumnError: column payments.payment_metadata does not exist`.
-
-ORM-модель `Payment` ожидает поле `payment_metadata: JSON | None`. Базовая миграция
-`20260516_0011` уже содержит эту колонку, но production-БД могла применить ранний вариант этой
-миграции без поля. Alembic не переисполняет применённые revision, поэтому добавлена корректирующая
-idempotent-миграция:
-
-- `migrations/versions/20260517_0014_ensure_payment_metadata_column.py`;
-- PostgreSQL: `ALTER TABLE payments ADD COLUMN IF NOT EXISTS payment_metadata JSON`;
-- downgrade намеренно non-destructive, потому что колонка принадлежит базовой платежной схеме.
-
-После деплоя обязательно выполнить:
-
-```bash
-docker compose exec api alembic upgrade head
-```
-
-### `/web/web/`
-
-Причина возможного дубля: `WEB_BASE_URL` мог быть задан как `https://domain/web` или
-`https://domain/web/web`, а сервис генерации ссылки добавлял `/web/login` поверх base URL.
-
-Исправление:
-
-- `WebAuthService._canonical_web_base_url()` теперь удаляет повторяющиеся завершающие `/web`;
-- новая ссылка всегда формируется как `/web/login?token=...`;
-- compatibility routes `/web/web/login` и `/web/web/` сохранены для старых ссылок и reverse proxy.

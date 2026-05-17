@@ -1,6 +1,6 @@
-"""version: 1.1.0
-description: Web cabinet order list, order detail, SKU profit, and economy confidence service.
-updated: 2026-05-15
+"""version: 1.2.0
+description: Web cabinet order list, order detail, and PostgreSQL-safe SKU profit queries.
+updated: 2026-05-17
 """
 
 from dataclasses import dataclass
@@ -9,7 +9,7 @@ from decimal import Decimal
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, func, literal_column, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -361,10 +361,22 @@ class WebOrdersProfitService:
         user_id: int,
         filters: OrderWebFilters,
     ) -> list[Any]:
+        query = self._profit_order_query(user_id, filters)
+        result = await self.session.execute(query)
+        return list(result.all())
+
+    @staticmethod
+    def _profit_order_query(user_id: int, filters: OrderWebFilters) -> Select[Any]:
+        title_expr = func.coalesce(
+            OrderItem.title,
+            OrderItem.seller_article,
+            literal_column("'Без названия'"),
+        )
+        article_expr = func.coalesce(OrderItem.seller_article, literal_column("''"))
         query = (
             select(
-                func.coalesce(OrderItem.title, OrderItem.seller_article, "Без названия"),
-                func.coalesce(OrderItem.seller_article, ""),
+                title_expr,
+                article_expr,
                 Order.marketplace,
                 Order.sale_model,
                 func.count(func.distinct(Order.id)),
@@ -407,31 +419,30 @@ class WebOrdersProfitService:
             .where(Order.order_date >= filters.date_from)
             .where(Order.order_date <= filters.date_to)
             .group_by(
-                func.coalesce(OrderItem.title, OrderItem.seller_article, "Без названия"),
-                func.coalesce(OrderItem.seller_article, ""),
+                title_expr,
+                article_expr,
                 Order.marketplace,
                 Order.sale_model,
             )
         )
-        query = _apply_order_page_filters(query, filters, include_economy=False)
-        result = await self.session.execute(query)
-        return list(result.all())
+        return _apply_order_page_filters(query, filters, include_economy=False)
 
     async def _sales_by_sku(
         self,
         user_id: int,
         filters: OrderWebFilters,
     ) -> dict[tuple[Marketplace, str], int]:
+        article_expr = func.coalesce(SalesEvent.seller_article, literal_column("''"))
         query = (
             select(
                 SalesEvent.marketplace,
-                func.coalesce(SalesEvent.seller_article, ""),
+                article_expr,
                 func.coalesce(func.sum(SalesEvent.quantity), 0),
             )
             .where(SalesEvent.user_id == user_id)
             .where(SalesEvent.event_date >= filters.date_from)
             .where(SalesEvent.event_date <= filters.date_to)
-            .group_by(SalesEvent.marketplace, func.coalesce(SalesEvent.seller_article, ""))
+            .group_by(SalesEvent.marketplace, article_expr)
         )
         if filters.marketplace is not None:
             query = query.where(SalesEvent.marketplace == filters.marketplace)

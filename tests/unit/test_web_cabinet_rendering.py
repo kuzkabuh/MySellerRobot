@@ -20,6 +20,8 @@ def test_navigation_contains_grouped_web_cabinet_sections() -> None:
     assert "Кабинеты МП" in html
     assert 'href="/web/subscription"' in html
     assert 'href="/web/profile"' in html
+    assert 'href="/web/web/' not in html
+    assert "/web/web" not in html
 
 
 def test_costs_content_escapes_product_names_and_has_edit_action() -> None:

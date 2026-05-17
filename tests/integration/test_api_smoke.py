@@ -19,7 +19,12 @@ from app.core.db import get_session
 from app.models.enums import UserStatus
 from app.services.web_auth_service import WEB_SESSION_COOKIE
 from app.services.web_dashboard_service import DashboardData, build_dashboard_filters
-from app.web.routes import dashboard_compat, double_web_compat, login
+from app.services.web_orders_profit_service import (
+    ProfitPageData,
+    ProfitSummary,
+    build_order_web_filters,
+)
+from app.web.routes import current_web_user, dashboard_compat, double_web_compat, login
 from app.workers.settings import WorkerSettings
 
 
@@ -205,6 +210,123 @@ def test_web_login_token_flow_renders_empty_free_dashboard(
     assert "Wildberries / Ozon" in dashboard_response.text
     assert "Internal Server Error" not in dashboard_response.text
     assert "Раздел подготовлен" not in dashboard_response.text
+
+
+def test_web_profit_and_analytics_pages_render_with_canonical_navigation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = create_app()
+    user = SimpleNamespace(
+        id=1,
+        telegram_id=123456789,
+        username="seller",
+        first_name="Артем",
+        timezone="Europe/Moscow",
+        language="ru",
+        status=UserStatus.ACTIVE,
+        notifications_enabled=True,
+        low_margin_threshold_percent=10,
+        created_at=datetime(2026, 5, 17, tzinfo=UTC),
+    )
+
+    async def fake_get_session():  # type: ignore[no-untyped-def]
+        yield FakeAsyncSession()
+
+    async def fake_current_web_user():  # type: ignore[no-untyped-def]
+        return user
+
+    async def fake_profit_by_sku(
+        self,
+        *,
+        user_id,
+        timezone,
+        period,
+        marketplace,
+        sale_model,
+        date_from,
+        date_to,
+        economy="all",
+        sku="",
+        sort="profit",
+        direction="desc",
+        limit=100,
+    ):  # type: ignore[no-untyped-def]
+        order_filters = build_order_web_filters(
+            timezone=timezone,
+            period=period,
+            marketplace=marketplace,
+            sale_model=sale_model,
+            date_from=date_from,
+            date_to=date_to,
+            economy=economy,
+            status="all",
+            sku=sku,
+            sort=sort,
+            direction=direction,
+        )
+        return ProfitPageData(
+            filters=order_filters,
+            summary=ProfitSummary(
+                estimated_profit=Decimal("0"),
+                actual_profit=Decimal("0"),
+                deviation=Decimal("0"),
+                average_unit_profit=Decimal("0"),
+                average_margin=Decimal("0"),
+                roi_percent=None,
+            ),
+            rows=[],
+        )
+
+    async def fake_dashboard(
+        self,
+        *,
+        user_id,
+        timezone,
+        period,
+        marketplace,
+        sale_model,
+        date_from=None,
+        date_to=None,
+    ):  # type: ignore[no-untyped-def]
+        filters = build_dashboard_filters(
+            timezone=timezone,
+            period=period,
+            marketplace=marketplace,
+            sale_model=sale_model,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        return DashboardData(
+            filters=filters,
+            metrics=[],
+            points=[],
+            marketplace_breakdown=[],
+            actual_profit=Decimal("0"),
+        )
+
+    app.dependency_overrides[get_session] = fake_get_session
+    app.dependency_overrides[current_web_user] = fake_current_web_user
+    monkeypatch.setattr(
+        "app.services.web_orders_profit_service.WebOrdersProfitService.profit_by_sku",
+        fake_profit_by_sku,
+    )
+    monkeypatch.setattr(
+        "app.services.web_dashboard_service.WebDashboardService.dashboard",
+        fake_dashboard,
+    )
+
+    with TestClient(app, raise_server_exceptions=True) as client:
+        profit_response = client.get("/web/profit")
+        analytics_response = client.get("/web/analytics")
+
+    app.dependency_overrides.clear()
+
+    assert profit_response.status_code == 200
+    assert analytics_response.status_code == 200
+    assert "Прибыль по SKU" in profit_response.text
+    assert "Аналитика" in analytics_response.text
+    assert "/web/web/" not in profit_response.text
+    assert "/web/web/" not in analytics_response.text
 
 
 def test_web_unhandled_exception_returns_controlled_html_error() -> None:

@@ -5,8 +5,11 @@ updated: 2026-05-15
 
 from decimal import Decimal
 
+from sqlalchemy.dialects import postgresql
+
 from app.models.enums import Marketplace, SaleModel
 from app.services.web_orders_profit_service import (
+    WebOrdersProfitService,
     build_order_web_filters,
     order_state_label,
     roi_percent,
@@ -72,3 +75,27 @@ def test_order_state_label_prefers_action_required_and_cancelled() -> None:
     assert order_state_label("new", True) == "требует действия"
     assert order_state_label("cancelled", False) == "отменён"
     assert order_state_label("awaiting_packaging", False) == "информационный"
+
+
+def test_profit_order_query_reuses_postgresql_safe_group_by_expressions() -> None:
+    filters = build_order_web_filters(
+        timezone="Europe/Moscow",
+        period="7d",
+        marketplace="all",
+        sale_model="all",
+        date_from=None,
+        date_to=None,
+        economy="all",
+        status="all",
+        sku="",
+        sort="profit",
+        direction="desc",
+    )
+
+    query = WebOrdersProfitService._profit_order_query(user_id=1, filters=filters)
+    sql = str(query.compile(dialect=postgresql.dialect()))
+
+    assert "coalesce(order_items.title, order_items.seller_article, 'Без названия')" in sql
+    assert "coalesce(order_items.seller_article, '')" in sql
+    assert "param_" not in sql
+    assert "GROUP BY coalesce(order_items.title, order_items.seller_article, 'Без названия')" in sql
