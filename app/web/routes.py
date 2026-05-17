@@ -1718,7 +1718,7 @@ def _cost_edit_content(detail: ProductCostDetail) -> str:
             <span>Кабинет</span><strong>{escape(detail.account_name)}</strong>
             <span>Артикул продавца</span><strong>{escape(detail.product.seller_article or "н/д")}</strong>
             <span>Артикул МП</span><strong>{escape(detail.product.marketplace_article or detail.product.external_product_id)}</strong>
-            <span>Актуальная цена Ozon</span><strong>{_ozon_price_label(detail.latest_ozon_price)}</strong>
+            <span>Актуальная цена Ozon</span><strong>{_ozon_price_label(getattr(detail, "latest_ozon_price", None))}</strong>
           </div>
         </section>
       </section>
@@ -1738,7 +1738,7 @@ def _accounts_content(data: AccountsPageData) -> str:
     rows = "".join(
         "<tr>"
         f'<td>{escape(row.account.name)}<div class="muted">#{row.account.id}'
-        f'{_seller_name_hint(row.account)}</div></td>'
+        f"{_seller_name_hint(row.account)}</div></td>"
         f"<td>{_marketplace_label(row.account.marketplace)}</td>"
         f"<td>{_account_status_badge(row.account.status.value, row.account.is_active)}</td>"
         f"<td>{_dt(row.account.last_success_sync_at)}</td>"
