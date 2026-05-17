@@ -1,5 +1,5 @@
-"""version: 1.5.0
-description: Order ingestion with retryable marketplace-aware Telegram notifications.
+"""version: 1.6.0
+description: Order ingestion with retryable marketplace-aware FBS Telegram notifications.
 updated: 2026-05-17
 """
 
@@ -15,7 +15,7 @@ from app.core.security import TokenCipher
 from app.integrations.ozon import OzonClient
 from app.integrations.wb import WildberriesClient
 from app.models.domain import MarketplaceAccount, Order
-from app.models.enums import FboNotificationMode, Marketplace
+from app.models.enums import FboNotificationMode, Marketplace, SaleModel
 from app.repositories.orders import FboDigestQueueRepository, OrderRepository
 from app.schemas.orders import NormalizedOrder
 from app.services.order_card_service import OrderCardService
@@ -119,6 +119,22 @@ class OrderProcessingService:
                                 result=result,
                             ):
                                 result.retried_unnotified += 1
+                            elif _is_fbs_like(normalized.sale_model):
+                                logger.info(
+                                    "fbs_order_duplicate_skipped",
+                                    extra={
+                                        "account_id": account.id,
+                                        "user_id": account.user_id,
+                                        "marketplace": account.marketplace.value,
+                                        "fulfillment_type": normalized.fulfillment_type,
+                                        "sale_model": normalized.sale_model.value
+                                        if normalized.sale_model
+                                        else None,
+                                        "order_id": existing_order.id,
+                                        "order_external_id": normalized.order_external_id,
+                                        "notified": existing_order.first_notified_at is not None,
+                                    },
+                                )
                             continue
 
                         order = await self.orders.create(account.user_id, account.id, normalized)
@@ -136,6 +152,35 @@ class OrderProcessingService:
                                 "order_external_id": normalized.order_external_id,
                             },
                         )
+                        if _is_fbs_like(normalized.sale_model):
+                            logger.info(
+                                "fbs_order_detected_as_new",
+                                extra={
+                                    "account_id": account.id,
+                                    "user_id": account.user_id,
+                                    "marketplace": account.marketplace.value,
+                                    "fulfillment_type": normalized.fulfillment_type,
+                                    "sale_model": normalized.sale_model.value
+                                    if normalized.sale_model
+                                    else None,
+                                    "order_id": order.id,
+                                    "order_external_id": normalized.order_external_id,
+                                },
+                            )
+                            logger.info(
+                                "fbs_order_persisted",
+                                extra={
+                                    "account_id": account.id,
+                                    "user_id": account.user_id,
+                                    "marketplace": account.marketplace.value,
+                                    "fulfillment_type": normalized.fulfillment_type,
+                                    "sale_model": normalized.sale_model.value
+                                    if normalized.sale_model
+                                    else None,
+                                    "order_id": order.id,
+                                    "order_external_id": normalized.order_external_id,
+                                },
+                            )
 
                         await self.profits.calculate_estimated_profit(account, order, normalized)
 
@@ -197,8 +242,20 @@ class OrderProcessingService:
         if account.marketplace == Marketplace.WB:
             api_key = self.cipher.decrypt(account.encrypted_api_key)
             wb_client = WildberriesClient(api_key)
+            raw_orders = await wb_client.get_new_fbs_orders()
+            logger.info(
+                "fbs_order_polled",
+                extra={
+                    "account_id": account.id,
+                    "user_id": account.user_id,
+                    "marketplace": account.marketplace.value,
+                    "source": "wb_orders_new",
+                    "count": len(raw_orders),
+                },
+            )
             return [
-                wb_client.normalize_fbs_order(item) for item in await wb_client.get_new_fbs_orders()
+                _log_normalized_order(wb_client.normalize_fbs_order(item), account)
+                for item in raw_orders
             ]
 
         api_key = self.cipher.decrypt(account.encrypted_api_key)
@@ -207,6 +264,38 @@ class OrderProcessingService:
         now = datetime.now(tz=UTC)
         fbs_data = await ozon_client.get_fbs_postings(now - timedelta(minutes=30), now)
         fbs_postings = self._extract_postings(fbs_data)
+        logger.info(
+            "fbs_order_polled",
+            extra={
+                "account_id": account.id,
+                "user_id": account.user_id,
+                "marketplace": account.marketplace.value,
+                "source": "ozon_fbs_list",
+                "count": len(fbs_postings),
+            },
+        )
+        try:
+            unfulfilled_data = await ozon_client.get_fbs_unfulfilled(
+                now - timedelta(days=1),
+                now + timedelta(days=14),
+            )
+            unfulfilled_postings = self._extract_postings(unfulfilled_data)
+            logger.info(
+                "fbs_order_polled",
+                extra={
+                    "account_id": account.id,
+                    "user_id": account.user_id,
+                    "marketplace": account.marketplace.value,
+                    "source": "ozon_fbs_unfulfilled",
+                    "count": len(unfulfilled_postings),
+                },
+            )
+            fbs_postings = self._merge_postings(fbs_postings, unfulfilled_postings)
+        except Exception:
+            logger.exception(
+                "ozon_fbs_unfulfilled_poll_failed",
+                extra={"account_id": account.id, "user_id": account.user_id},
+            )
         fbo_postings: list[object] = []
         try:
             fbo_data = await ozon_client.get_fbo_postings(now - timedelta(minutes=30), now)
@@ -217,7 +306,7 @@ class OrderProcessingService:
                 extra={"account_id": account.id},
             )
         return [
-            ozon_client.normalize_fbs_posting(item)
+            _log_normalized_order(ozon_client.normalize_fbs_posting(item), account)
             for item in fbs_postings
             if isinstance(item, dict)
         ] + [
@@ -274,6 +363,19 @@ class OrderProcessingService:
                 "order_external_id": normalized.order_external_id,
             },
         )
+        if _is_fbs_like(normalized.sale_model):
+            logger.info(
+                "fbs_order_duplicate_with_unsent_notification_requeued",
+                extra={
+                    "account_id": account.id,
+                    "user_id": account.user_id,
+                    "marketplace": account.marketplace.value,
+                    "fulfillment_type": normalized.fulfillment_type,
+                    "sale_model": normalized.sale_model.value if normalized.sale_model else None,
+                    "order_id": order.id,
+                    "order_external_id": normalized.order_external_id,
+                },
+            )
         return True
 
     async def _append_notification(
@@ -333,6 +435,20 @@ class OrderProcessingService:
                 "order_external_id": order.order_external_id,
             },
         )
+        if _is_fbs_like(order.sale_model):
+            logger.info(
+                "fbs_order_notification_prepared",
+                extra={
+                    "account_id": account.id,
+                    "user_id": account.user_id,
+                    "telegram_id": account.user.telegram_id,
+                    "marketplace": account.marketplace.value,
+                    "sale_model": order.sale_model.value if order.sale_model else None,
+                    "fulfillment_type": order.fulfillment_type,
+                    "order_id": order.id,
+                    "order_external_id": order.order_external_id,
+                },
+            )
 
     @staticmethod
     def _extract_postings(data: dict[str, object]) -> list[object]:
@@ -341,3 +457,44 @@ class OrderProcessingService:
             postings = result.get("postings")
             return postings if isinstance(postings, list) else []
         return result if isinstance(result, list) else []
+
+    @staticmethod
+    def _merge_postings(*groups: list[object]) -> list[object]:
+        merged: list[object] = []
+        seen: set[str] = set()
+        for group in groups:
+            for item in group:
+                key = None
+                if isinstance(item, dict):
+                    key = str(item.get("posting_number") or item.get("id") or "")
+                if key and key in seen:
+                    continue
+                if key:
+                    seen.add(key)
+                merged.append(item)
+        return merged
+
+
+def _is_fbs_like(sale_model: SaleModel | None) -> bool:
+    return sale_model in {SaleModel.FBS, SaleModel.RFBS, SaleModel.DBS, SaleModel.DBW}
+
+
+def _log_normalized_order(order: NormalizedOrder, account: MarketplaceAccount) -> NormalizedOrder:
+    if _is_fbs_like(order.sale_model):
+        logger.info(
+            "fbs_order_normalized",
+            extra={
+                "account_id": account.id,
+                "user_id": account.user_id,
+                "marketplace": account.marketplace.value,
+                "fulfillment_type": order.fulfillment_type,
+                "sale_model": order.sale_model.value if order.sale_model else None,
+                "order_external_id": order.order_external_id,
+                "requires_seller_action": order.requires_seller_action,
+                "normalized_status": order.normalized_status,
+                "source_event_type": order.source_event_type.value
+                if order.source_event_type
+                else None,
+            },
+        )
+    return order

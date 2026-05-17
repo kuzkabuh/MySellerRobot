@@ -1,7 +1,9 @@
-"""version: 1.3.0
-description: Telegram notification delivery service with marketplace-aware buttons.
-updated: 2026-05-16
+"""version: 1.4.0
+description: Telegram notification delivery with marketplace buttons and media fallback.
+updated: 2026-05-17
 """
+
+import logging
 
 from aiogram import Bot
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -9,6 +11,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from app.models.enums import Marketplace
 
 TELEGRAM_CAPTION_LIMIT = 1024
+logger = logging.getLogger(__name__)
 
 
 class NotificationService:
@@ -30,16 +33,26 @@ class NotificationService:
     ) -> None:
         keyboard = self._build_new_order_keyboard(order_id, product_url, marketplace)
         if image_url:
-            if len(text) <= TELEGRAM_CAPTION_LIMIT:
-                await self.bot.send_photo(
-                    telegram_id,
-                    photo=image_url,
-                    caption=text,
-                    parse_mode=parse_mode,
-                    reply_markup=keyboard,
+            try:
+                if len(text) <= TELEGRAM_CAPTION_LIMIT:
+                    await self.bot.send_photo(
+                        telegram_id,
+                        photo=image_url,
+                        caption=text,
+                        parse_mode=parse_mode,
+                        reply_markup=keyboard,
+                    )
+                    return
+                await self.bot.send_photo(telegram_id, photo=image_url)
+            except Exception:
+                logger.exception(
+                    "new_order_photo_send_failed_fallback_to_text",
+                    extra={
+                        "telegram_id": telegram_id,
+                        "order_id": order_id,
+                        "marketplace": marketplace.value if marketplace else None,
+                    },
                 )
-                return
-            await self.bot.send_photo(telegram_id, photo=image_url)
         await self.bot.send_message(
             telegram_id,
             text,

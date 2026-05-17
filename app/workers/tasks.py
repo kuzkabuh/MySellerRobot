@@ -1,5 +1,5 @@
-"""version: 1.3.0
-description: ARQ tasks for sync, retryable order notifications, reports, and alerts.
+"""version: 1.4.0
+description: ARQ tasks for sync, retryable FBS order notifications, reports, and alerts.
 updated: 2026-05-17
 """
 
@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 from app.core.config import get_settings
 from app.core.db import AsyncSessionFactory
 from app.models.domain import MarketplaceAccount, User
+from app.models.enums import SaleModel
 from app.repositories.orders import OrderRepository
 from app.repositories.sync_jobs import SyncJobRepository
 from app.services.daily_report_service import DailyReportService
@@ -74,6 +75,20 @@ async def poll_new_orders(ctx: dict[str, Any]) -> None:
                                 "event_type": notification.event_type,
                             },
                         )
+                        if _is_fbs_like_notification(notification.sale_model):
+                            logger.info(
+                                "fbs_order_notification_sent",
+                                extra={
+                                    "account_id": notification.account_id,
+                                    "user_id": notification.user_id,
+                                    "order_id": notification.order_id,
+                                    "telegram_id": notification.telegram_id,
+                                    "marketplace": notification.marketplace.value,
+                                    "fulfillment_type": notification.fulfillment_type,
+                                    "sale_model": notification.sale_model,
+                                    "event_type": notification.event_type,
+                                },
+                            )
                     except Exception:
                         logger.exception(
                             "new_order_notification_send_failed",
@@ -88,6 +103,33 @@ async def poll_new_orders(ctx: dict[str, Any]) -> None:
                                 "event_type": notification.event_type,
                             },
                         )
+                        if _is_fbs_like_notification(notification.sale_model):
+                            logger.warning(
+                                "fbs_order_notification_retry_scheduled",
+                                extra={
+                                    "account_id": notification.account_id,
+                                    "user_id": notification.user_id,
+                                    "order_id": notification.order_id,
+                                    "telegram_id": notification.telegram_id,
+                                    "marketplace": notification.marketplace.value,
+                                    "fulfillment_type": notification.fulfillment_type,
+                                    "sale_model": notification.sale_model,
+                                    "event_type": notification.event_type,
+                                },
+                            )
+                            logger.exception(
+                                "fbs_order_notification_failed",
+                                extra={
+                                    "account_id": notification.account_id,
+                                    "user_id": notification.user_id,
+                                    "order_id": notification.order_id,
+                                    "telegram_id": notification.telegram_id,
+                                    "marketplace": notification.marketplace.value,
+                                    "fulfillment_type": notification.fulfillment_type,
+                                    "sale_model": notification.sale_model,
+                                    "event_type": notification.event_type,
+                                },
+                            )
                 if sent:
                     await session.commit()
                 logger.info(
@@ -113,6 +155,15 @@ async def poll_new_orders(ctx: dict[str, Any]) -> None:
                 except Exception:
                     await session.rollback()
     await bot.session.close()
+
+
+def _is_fbs_like_notification(sale_model: str | None) -> bool:
+    return sale_model in {
+        SaleModel.FBS.value,
+        SaleModel.RFBS.value,
+        SaleModel.DBS.value,
+        SaleModel.DBW.value,
+    }
 
 
 async def send_daily_reports(ctx: dict[str, Any]) -> None:

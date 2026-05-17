@@ -1,5 +1,5 @@
-"""version: 1.0.0
-description: Regression tests for retryable FBS order notifications.
+"""version: 1.1.0
+description: Regression tests for retryable WB and Ozon FBS order notifications.
 updated: 2026-05-17
 """
 
@@ -83,6 +83,11 @@ class FakeCardService:
         )
 
 
+class FailingCardService:
+    async def new_order_card(self, **_: Any) -> VisualNotification:
+        raise RuntimeError("broken card")
+
+
 class FakeNotificationPolicyService:
     async def resolve(self, _: MarketplaceAccount) -> OrderNotificationPolicy:
         return OrderNotificationPolicy(fbs_enabled=True)
@@ -143,6 +148,28 @@ async def test_existing_unnotified_ozon_fbs_order_is_retried() -> None:
 
 
 @pytest.mark.asyncio
+async def test_new_ozon_fbs_order_prepares_notification_without_marking_notified() -> None:
+    service, fake_orders = _service(existing=None)
+    account = _account(Marketplace.OZON)
+
+    async def fetch_orders(_: MarketplaceAccount) -> list[NormalizedOrder]:
+        return [_normalized_order(Marketplace.OZON, "ozon-fbs-new")]
+
+    service._fetch_orders = fetch_orders  # type: ignore[method-assign]
+
+    result = await service.poll_account_with_stats(account)
+
+    assert result.created == 1
+    assert result.notification_count == 1
+    notification = result.notifications[0] if result.notifications else None
+    assert notification is not None
+    assert notification.marketplace == Marketplace.OZON
+    assert notification.sale_model == SaleModel.FBS.value
+    assert notification.fulfillment_type == "FBS"
+    assert fake_orders.mark_notified_called is False
+
+
+@pytest.mark.asyncio
 async def test_existing_notified_fbs_order_does_not_duplicate_notification() -> None:
     existing = _order(
         order_id=303,
@@ -169,6 +196,70 @@ async def test_existing_notified_fbs_order_does_not_duplicate_notification() -> 
     assert result.notification_count == 0
 
 
+@pytest.mark.asyncio
+async def test_ozon_unfulfilled_fbs_posting_is_polled_and_deduplicated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, _ = _service(existing=None)
+    service.cipher = _FakeCipher()  # type: ignore[assignment]
+    account = _account(Marketplace.OZON)
+
+    class FakeOzonClient:
+        def __init__(self, client_id: str, api_key: str) -> None:
+            self.client_id = client_id
+            self.api_key = api_key
+
+        async def get_fbs_postings(self, *_: Any) -> dict[str, Any]:
+            return {"result": {"postings": [{"posting_number": "ozon-fbs-1"}]}}
+
+        async def get_fbs_unfulfilled(self, *_: Any) -> dict[str, Any]:
+            return {
+                "result": {
+                    "postings": [
+                        {"posting_number": "ozon-fbs-1"},
+                        {"posting_number": "ozon-fbs-2"},
+                    ]
+                }
+            }
+
+        async def get_fbo_postings(self, *_: Any) -> dict[str, Any]:
+            return {"result": []}
+
+        def normalize_fbs_posting(self, payload: dict[str, Any]) -> NormalizedOrder:
+            return _normalized_order(Marketplace.OZON, str(payload["posting_number"]))
+
+        def normalize_fbo_posting(self, payload: dict[str, Any]) -> NormalizedOrder:
+            return _normalized_order(Marketplace.OZON, str(payload["posting_number"]))
+
+    monkeypatch.setattr("app.services.order_processing_service.OzonClient", FakeOzonClient)
+
+    normalized = await service._fetch_orders(account)
+
+    assert [order.order_external_id for order in normalized] == ["ozon-fbs-1", "ozon-fbs-2"]
+    assert all(order.sale_model == SaleModel.FBS for order in normalized)
+    assert all(order.requires_seller_action for order in normalized)
+
+
+@pytest.mark.asyncio
+async def test_card_build_error_does_not_mark_fbs_order_notified() -> None:
+    service, fake_orders = _service(existing=None)
+    service.cards = FailingCardService()  # type: ignore[assignment]
+    account = _account(Marketplace.WB)
+
+    async def fetch_orders(_: MarketplaceAccount) -> list[NormalizedOrder]:
+        return [_normalized_order(Marketplace.WB, "wb-fbs-card-error")]
+
+    service._fetch_orders = fetch_orders  # type: ignore[method-assign]
+
+    result = await service.poll_account_with_stats(account)
+
+    assert result.created == 1
+    assert result.notification_count == 0
+    assert fake_orders.created_order is not None
+    assert fake_orders.created_order.first_notified_at is None
+    assert fake_orders.mark_notified_called is False
+
+
 def _service(existing: Order | None) -> tuple[OrderProcessingService, FakeOrders]:
     session = FakeSession()
     service = OrderProcessingService(session)  # type: ignore[arg-type]
@@ -178,6 +269,11 @@ def _service(existing: Order | None) -> tuple[OrderProcessingService, FakeOrders
     service.cards = FakeCardService()  # type: ignore[assignment]
     service.notification_policy = FakeNotificationPolicyService()  # type: ignore[assignment]
     return service, fake_orders
+
+
+class _FakeCipher:
+    def decrypt(self, value: str) -> str:
+        return f"plain-{value}"
 
 
 def _account(marketplace: Marketplace) -> MarketplaceAccount:

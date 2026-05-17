@@ -1,4 +1,7 @@
-"""Tests for admin tariff management in subscription service."""
+"""version: 1.1.0
+description: Tests for admin tariff management in subscription service.
+updated: 2026-05-17
+"""
 
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -107,6 +110,8 @@ class TestAssignAdminSubscription:
         assert subscription.payment_provider == "admin_manual"
         assert subscription.expires_at is not None
         assert subscription.is_trial is False
+        assert subscription.created_at is not None
+        assert subscription.updated_at is not None
 
     @pytest.mark.asyncio
     async def test_assign_free_cancels_active(self) -> None:
@@ -209,6 +214,8 @@ class TestAssignAdminSubscription:
 
         assert subscription is not None
         assert subscription.expires_at is None
+        assert subscription.created_at is not None
+        assert subscription.updated_at is not None
 
     @pytest.mark.asyncio
     async def test_assign_raises_for_unknown_tier(self) -> None:
@@ -294,6 +301,44 @@ class TestAssignAdminSubscription:
 
         assert subscription is not None
         assert subscription.expires_at is not None
+        assert subscription.created_at is not None
+        assert subscription.updated_at is not None
         # Should be approximately 365 days from now
+        delta = subscription.expires_at - datetime.now(tz=UTC)
+        assert 360 <= delta.days <= 370
+
+    @pytest.mark.asyncio
+    async def test_admin_assign_pro_365_days_has_timestamps(self) -> None:
+        """Test assigning PRO tariff for 365 days fills timestamps."""
+        session = AsyncMock()
+        session.get = AsyncMock()
+        session.execute = AsyncMock()
+        session.add = MagicMock()
+        session.flush = AsyncMock()
+
+        tier = _make_tier(code="pro", name="PRO")
+        service = SubscriptionService(session)
+
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none = MagicMock(return_value=tier)
+        mock_result2 = MagicMock()
+        mock_result2.scalar_one_or_none = MagicMock(return_value=None)
+        session.execute.side_effect = [mock_result, mock_result2]
+
+        mock_user = MagicMock()
+        mock_user.id = 1
+        session.get.return_value = mock_user
+
+        subscription = await service.assign_admin_subscription(
+            user_id=1,
+            tier_code="pro",
+            days=365,
+            admin_user_id=999,
+        )
+
+        assert subscription is not None
+        assert subscription.created_at is not None
+        assert subscription.updated_at is not None
+        assert subscription.expires_at is not None
         delta = subscription.expires_at - datetime.now(tz=UTC)
         assert 360 <= delta.days <= 370

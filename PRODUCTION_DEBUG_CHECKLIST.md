@@ -1,5 +1,5 @@
-# version: 1.2.0
-# description: Production diagnostics checklist for WEB canonical URLs, migrations, and notifications.
+# version: 1.3.0
+# description: Production diagnostics checklist for WEB URLs, migrations, FBS orders, and notifications.
 # updated: 2026-05-17
 
 # Production Debug Checklist
@@ -19,6 +19,7 @@ docker compose logs --tail=300 api
 
 - `20260517_0013_subscription_lifecycle`
 - `20260517_0014_ensure_payment_metadata_column`
+- `20260517_0015_subscription_timestamp_defaults`
 
 ## WEB Canonical URLs
 
@@ -72,5 +73,17 @@ POST /web/web/costs/{product_id}
 ## FBS Notifications
 
 ```bash
-docker compose logs -f worker | grep -E "order_notification_prepared|unnotified_order_notification_retried|new_order_notification_sent|new_order_notification_send_failed"
+docker compose logs -f worker | grep -E "fbs_order_|order_notification_prepared|unnotified_order_notification_retried|new_order_notification_sent|new_order_notification_send_failed"
 ```
+
+Новый FBS-заказ должен пройти цепочку:
+
+1. `fbs_order_polled`
+2. `fbs_order_normalized`
+3. `fbs_order_detected_as_new`
+4. `fbs_order_persisted`
+5. `fbs_order_notification_prepared`
+6. `fbs_order_notification_sent`
+
+Если Telegram-отправка упала, `first_notified_at` не заполняется, а следующий polling должен
+показать `fbs_order_duplicate_with_unsent_notification_requeued`.

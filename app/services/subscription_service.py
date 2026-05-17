@@ -1,5 +1,5 @@
-"""version: 1.1.0
-description: Subscription lifecycle service with periods, trial, upgrade, and expiration.
+"""version: 1.2.0
+description: Subscription lifecycle service with trial, upgrade, admin assignment, and expiration.
 updated: 2026-05-17
 """
 
@@ -125,6 +125,8 @@ class SubscriptionService:
             payment_provider=payment_provider,
             payment_id=payment_id,
             auto_renew=True,
+            created_at=now,
+            updated_at=now,
         )
         self.session.add(subscription)
         await self.session.flush()
@@ -379,6 +381,8 @@ class SubscriptionService:
             payment_provider="admin_manual",
             payment_id=None,
             auto_renew=False,
+            created_at=now,
+            updated_at=now,
         )
         self.session.add(subscription)
         await self.session.flush()
