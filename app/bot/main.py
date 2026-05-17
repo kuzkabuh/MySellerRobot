@@ -13,6 +13,7 @@ from aiogram.fsm.storage.redis import RedisStorage
 from app.bot.handlers.accounts import router as accounts_router
 from app.bot.handlers.common import router as common_router
 from app.bot.handlers.costs import router as costs_router
+from app.bot.handlers.navigation import router as navigation_router
 from app.bot.handlers.subscription import router as subscription_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
@@ -39,7 +40,13 @@ def create_dispatcher(storage: RedisStorage | None = None) -> Dispatcher:
     """Create dispatcher and register all bot routers without starting polling."""
 
     dispatcher = Dispatcher(storage=storage)
-    for router in (accounts_router, costs_router, subscription_router, common_router):
+    for router in (
+        navigation_router,
+        accounts_router,
+        costs_router,
+        subscription_router,
+        common_router,
+    ):
         _include_router(dispatcher, router)
     return dispatcher
 

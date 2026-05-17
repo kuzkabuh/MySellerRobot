@@ -113,3 +113,51 @@ docker compose logs -f worker | grep -E "order_notification_prepared|unnotified_
 - при наличии старых FBS-заказов без `first_notified_at` новый polling должен попытаться отправить
   уведомления повторно, поэтому возможна одноразовая “догоняющая” отправка по ранее потерянным
   заказам.
+
+## Дополнительный критический фикс 2026-05-17
+
+### `/start` внутри активного FSM
+
+Причина: router с общими командами был подключён после state-specific router’ов `accounts`,
+`costs` и `subscription`. Поэтому в состоянии ручного ввода себестоимости сообщение `/start`
+попадало в валидатор строки себестоимости и пользователь видел текст:
+`Нужен формат: Артикул; Себестоимость; Упаковка; Доп. расходы; Налог %; Дата`.
+
+Исправление:
+
+- добавлен глобальный router `app.bot.handlers.navigation`;
+- router подключается первым в `create_dispatcher()`;
+- команды `/start` и `/menu` очищают `FSMContext`, сбрасывают данные незавершённого сценария и
+  показывают главное меню;
+- добавлены regression-тесты, что `/start` и `/menu` не попадают в валидаторы FSM.
+
+### `payments.payment_metadata` на production
+
+Traceback production показал точную причину WEB 500:
+`asyncpg.exceptions.UndefinedColumnError: column payments.payment_metadata does not exist`.
+
+ORM-модель `Payment` ожидает поле `payment_metadata: JSON | None`. Базовая миграция
+`20260516_0011` уже содержит эту колонку, но production-БД могла применить ранний вариант этой
+миграции без поля. Alembic не переисполняет применённые revision, поэтому добавлена корректирующая
+idempotent-миграция:
+
+- `migrations/versions/20260517_0014_ensure_payment_metadata_column.py`;
+- PostgreSQL: `ALTER TABLE payments ADD COLUMN IF NOT EXISTS payment_metadata JSON`;
+- downgrade намеренно non-destructive, потому что колонка принадлежит базовой платежной схеме.
+
+После деплоя обязательно выполнить:
+
+```bash
+docker compose exec api alembic upgrade head
+```
+
+### `/web/web/`
+
+Причина возможного дубля: `WEB_BASE_URL` мог быть задан как `https://domain/web` или
+`https://domain/web/web`, а сервис генерации ссылки добавлял `/web/login` поверх base URL.
+
+Исправление:
+
+- `WebAuthService._canonical_web_base_url()` теперь удаляет повторяющиеся завершающие `/web`;
+- новая ссылка всегда формируется как `/web/login?token=...`;
+- compatibility routes `/web/web/login` и `/web/web/` сохранены для старых ссылок и reverse proxy.

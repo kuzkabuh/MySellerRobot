@@ -49,6 +49,10 @@ docker compose exec api alembic current
 `20260517_0013_subscription_lifecycle`. Если её нет, WEB может падать на production из-за
 отсутствующей колонки `user_subscriptions.period` при чтении подписки.
 
+Также должна быть применена корректирующая миграция
+`20260517_0014_ensure_payment_metadata_column`. Она досоздаёт `payments.payment_metadata`, если
+production-БД применяла ранний вариант платежной миграции без этой колонки.
+
 ## 4. Проверка WEB
 
 ```bash
@@ -78,6 +82,9 @@ docker compose exec api env | grep -E "WEB_BASE_URL|APP_BASE_URL|SESSION|COOKIE|
 Проверьте:
 
 - `WEB_BASE_URL` указывает на реальный публичный домен;
+- `WEB_BASE_URL` не должен содержать двойной web-prefix. Допустимо `https://mpcontrol.online`
+  или `https://mpcontrol.online/web`, но новая версия всё равно нормализует ссылку до
+  `/web/login?token=...`;
 - reverse proxy прокидывает `Set-Cookie` и redirect без переписывания path;
 - production-контейнеры перезапущены после обновления образа;
 - `.env` не содержит старых доменов или несовместимых cookie-настроек.
@@ -133,6 +140,8 @@ docker compose exec api pytest tests/unit/test_fbs_order_notification_retries.py
 - commit hash: `git rev-parse HEAD`;
 - вывод `alembic current` и `alembic heads`;
 - последние 300 строк `api` и `worker` логов;
+- если ошибка содержит `payments.payment_metadata`, вывод
+  `docker compose exec api alembic current` после `alembic upgrade head`;
 - URL без токена или с замаскированным токеном;
 - время попытки входа в WEB;
 - `order_id` / `order_external_id` FBS-заказа, по которому не пришло уведомление.

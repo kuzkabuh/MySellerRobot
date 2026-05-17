@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.api.main import create_app
 from app.bot.main import create_bot, create_dispatcher
+from app.models.subscriptions import Payment
 
 
 def test_api_imports_successfully() -> None:
@@ -69,3 +70,14 @@ def test_middleware_registered() -> None:
     # Middleware is registered if app has user_middleware
     assert hasattr(app, "user_middleware")
     assert len(app.user_middleware) > 0
+
+
+def test_payment_model_and_corrective_migration_include_payment_metadata() -> None:
+    """Production schema drift should be repaired by an idempotent migration."""
+
+    assert "payment_metadata" in Payment.__table__.columns
+    migration = "migrations/versions/20260517_0014_ensure_payment_metadata_column.py"
+    with open(migration, encoding="utf-8") as file:
+        text = file.read()
+    assert "ADD COLUMN IF NOT EXISTS payment_metadata JSON" in text
+    assert "non-destructive" in text

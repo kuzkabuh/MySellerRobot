@@ -35,6 +35,7 @@ alembic upgrade head
 - `20260516_0011` — создание таблиц подписок и платежей
 - `20260516_0012` — выравнивание каталога тарифов и включение ENTERPRISE
 - `20260517_0013` — поле `period` в `user_subscriptions` и статус `REPLACED` для upgrade
+- `20260517_0014` — production-safe проверка колонки `payments.payment_metadata`
 
 ### 3. Настройка переменных окружения
 
@@ -114,6 +115,8 @@ python -m app.bot.main
 14. Если WEB на production всё ещё отдаёт 500, используйте `PRODUCTION_DEBUG_CHECKLIST.md`:
     проверьте `alembic current`, наличие миграции `20260517_0013_subscription_lifecycle` и
     событие `request_failed` в логах `api`.
+15. Проверьте Telegram FSM: начните ручной ввод себестоимости, затем отправьте `/start` и `/menu`.
+    Обе команды должны сбросить сценарий и открыть главное меню без сообщения о неверном формате.
 
 ## Откат в случае проблем
 

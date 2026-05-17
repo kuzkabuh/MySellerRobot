@@ -336,6 +336,7 @@ def test_bot_dispatcher_factory_registers_routers_without_polling() -> None:
     dispatcher = create_dispatcher()
 
     assert [router.name for router in dispatcher.sub_routers] == [
+        "navigation",
         "accounts",
         "costs",
         "subscription",

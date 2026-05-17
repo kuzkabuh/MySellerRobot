@@ -48,6 +48,11 @@ Telegram-бот для селлеров Wildberries и Ozon. Главная ид
   `new_order_notification_send_failed` с marketplace, fulfillment type, order id и user id;
 - WEB middleware логирует traceback события `request_failed` и возвращает аккуратную HTML-ошибку
   для `/web*`, чтобы production 500 диагностировался по логам, а не оставался “слепым”;
+- команды `/start` и `/menu` теперь обрабатываются глобально из любого FSM-состояния, очищают
+  незавершённый сценарий и открывают главное меню;
+- добавлена idempotent-миграция `20260517_0014_ensure_payment_metadata_column`, которая чинит
+  production schema drift для `payments.payment_metadata`;
+- генерация WEB-ссылок нормализует `WEB_BASE_URL` и не создаёт `/web/web/login`;
 - добавлен `PRODUCTION_DEBUG_CHECKLIST.md` с командами проверки Docker, Alembic, WEB-login flow и
   FBS-цепочки уведомлений.
 

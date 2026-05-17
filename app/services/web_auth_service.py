@@ -96,6 +96,6 @@ class WebAuthService:
         if parsed.path in {"", "/"}:
             return value
         path = parsed.path.rstrip("/")
-        if path == "/web":
-            return urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
-        return value
+        while path.endswith("/web"):
+            path = path.removesuffix("/web")
+        return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))

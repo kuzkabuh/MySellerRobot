@@ -96,6 +96,18 @@ async def test_create_login_link_strips_web_suffix_from_base_url() -> None:
 
 
 @pytest.mark.asyncio
+async def test_create_login_link_strips_duplicated_web_suffix_from_base_url() -> None:
+    repo = FakeWebAuthRepository()
+    service = _service(repo)
+    service.settings.web_base_url = "https://app.mpcontrol.online/web/web"
+
+    link = await service.create_login_link(user_id=5)
+
+    assert link.url.startswith("https://app.mpcontrol.online/web/login?token=")
+    assert "/web/web" not in link.url
+
+
+@pytest.mark.asyncio
 async def test_consume_login_token_creates_web_session() -> None:
     repo = FakeWebAuthRepository()
     service = _service(repo)
