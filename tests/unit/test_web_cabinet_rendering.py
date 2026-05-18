@@ -12,6 +12,15 @@ from app.web import routes
 from app.web.rendering import page
 
 
+def test_web_routes_facade_keeps_router_and_helper_imports() -> None:
+    paths = {route.path for route in routes.router.routes}
+
+    assert "/web/login" in paths
+    assert "/web/orders" in paths
+    assert "/web/web/{section:path}" in paths
+    assert routes._rub(Decimal("1250")) == "1 250 ₽"
+
+
 def test_navigation_contains_grouped_web_cabinet_sections() -> None:
     html = page("Главная", "Артем", "<main></main>", active_path="/web/accounts")
 
