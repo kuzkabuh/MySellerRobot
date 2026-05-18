@@ -262,6 +262,16 @@ class SalesEventSyncService:
                 },
             )
             for payload in sales:
+                if client.is_supplier_sales_return(payload):
+                    event, created = await self._upsert_return_event(
+                        account,
+                        client.normalize_supplier_return(payload),
+                    )
+                    result.returns_fetched += 1
+                    result.returns_created += int(created)
+                    result.returns_updated += int(not created)
+                    logger.debug("wb_return_event_synced", extra={"event_id": event.id})
+                    continue
                 row, created = await self._upsert_sale_event(
                     account,
                     client.normalize_supplier_sale(payload),

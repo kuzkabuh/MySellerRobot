@@ -339,6 +339,25 @@ async def test_return_send_failure_keeps_event_pending_for_retry() -> None:
 
 
 @pytest.mark.asyncio
+async def test_wb_return_send_success_marks_after_telegram() -> None:
+    session = FakeSession()
+    service = FakeLifecycleDeliveryService()
+    notifier = FakeLifecycleNotifier()
+
+    sent, failed = await tasks._deliver_order_lifecycle_notifications(
+        session,
+        service,  # type: ignore[arg-type]
+        notifier,  # type: ignore[arg-type]
+        [_lifecycle_notification(NotificationType.RETURN_CREATED, Marketplace.WB)],
+    )
+
+    assert (sent, failed) == (1, 0)
+    assert notifier.calls == 1
+    assert service.marked == [(NotificationType.RETURN_CREATED.value, 601)]
+    assert session.commits == 1
+
+
+@pytest.mark.asyncio
 async def test_alert_send_success_marks_sent_after_telegram() -> None:
     session = FakeSession()
     alert = _alert_event()

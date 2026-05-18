@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from app.integrations.wb import WildberriesClient
 from app.models.domain import MarketplaceAccount, Order, OrderItem, User
 from app.models.enums import Marketplace, SaleModel
 from app.schemas.orders import NormalizedOrder, NormalizedOrderItem
@@ -246,6 +247,35 @@ async def test_ozon_unfulfilled_fbs_posting_is_polled_and_deduplicated(
 
 
 @pytest.mark.asyncio
+async def test_wb_period_fbs_orders_are_polled_for_recovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, _ = _service(existing=None)
+    service.cipher = _FakeCipher()  # type: ignore[assignment]
+    account = _account(Marketplace.WB)
+    account.last_order_poll_at = datetime(2026, 5, 18, 10, 0, tzinfo=UTC)
+
+    class FakeWbClient(WildberriesClient):
+        def __init__(self, api_key: str) -> None:
+            self.api_key = api_key
+
+        async def get_new_fbs_orders(self) -> list[dict[str, Any]]:
+            return [_wb_payload(1)]
+
+        async def get_fbs_orders(self, **_: Any) -> list[dict[str, Any]]:
+            return [_wb_payload(1), _wb_payload(2, status="confirm")]
+
+    monkeypatch.setattr("app.services.order_processing_service.WildberriesClient", FakeWbClient)
+
+    normalized = await service._fetch_orders(account)
+
+    assert [order.order_external_id for order in normalized] == ["1", "2"]
+    assert normalized[0].normalized_status == "new"
+    assert normalized[0].requires_seller_action is True
+    assert normalized[1].normalized_status == "confirm"
+
+
+@pytest.mark.asyncio
 async def test_card_build_error_does_not_mark_fbs_order_notified() -> None:
     service, fake_orders = _service(existing=None)
     service.cards = FailingCardService()  # type: ignore[assignment]
@@ -401,3 +431,18 @@ def _normalized_order(marketplace: Marketplace, external_id: str) -> NormalizedO
             )
         ],
     )
+
+
+def _wb_payload(order_id: int, status: str | None = None) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "id": order_id,
+        "createdAt": "2026-05-18T09:00:00Z",
+        "nmId": 123456,
+        "article": "WB-SKU",
+        "subject": "Тестовый товар WB",
+        "convertedFinalPrice": 100000,
+        "rid": f"rid-{order_id}",
+    }
+    if status:
+        payload["status"] = status
+    return payload

@@ -247,6 +247,7 @@ class OrderProcessingService:
         if account.marketplace == Marketplace.WB:
             api_key = self.cipher.decrypt(account.encrypted_api_key)
             wb_client = WildberriesClient(api_key)
+            now = datetime.now(tz=UTC)
             raw_orders = await wb_client.get_new_fbs_orders()
             logger.info(
                 "fbs_order_polled",
@@ -258,10 +259,38 @@ class OrderProcessingService:
                     "count": len(raw_orders),
                 },
             )
-            return [
+            normalized_orders = [
                 _log_normalized_order(wb_client.normalize_fbs_order(item), account)
                 for item in raw_orders
             ]
+            seen_order_ids = {order.order_external_id for order in normalized_orders}
+            try:
+                recovered_orders = await wb_client.get_fbs_orders(
+                    date_from=self._poll_window_start(account, now),
+                    date_to=now,
+                )
+                logger.info(
+                    "fbs_order_polled",
+                    extra={
+                        "account_id": account.id,
+                        "user_id": account.user_id,
+                        "marketplace": account.marketplace.value,
+                        "source": "wb_orders_period",
+                        "count": len(recovered_orders),
+                    },
+                )
+                for item in recovered_orders:
+                    normalized = wb_client.normalize_historical_fbs_order(item)
+                    if normalized.order_external_id in seen_order_ids:
+                        continue
+                    seen_order_ids.add(normalized.order_external_id)
+                    normalized_orders.append(_log_normalized_order(normalized, account))
+            except Exception:
+                logger.exception(
+                    "wb_fbs_period_poll_failed",
+                    extra={"account_id": account.id, "user_id": account.user_id},
+                )
+            return normalized_orders
 
         api_key = self.cipher.decrypt(account.encrypted_api_key)
         client_id = self.cipher.decrypt(account.encrypted_client_id or "")
