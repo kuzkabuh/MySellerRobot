@@ -538,19 +538,35 @@ def build_dashboard_filters(
 
 
 def parse_marketplace(value: str | None) -> Marketplace | None:
-    if not value or value == "all":
+    if not value:
+        return None
+    if value == "all":
         return None
     try:
-        return Marketplace(value)
+        str_value = str(value).strip()
+    except Exception:
+        return None
+    if not str_value or str_value == "all":
+        return None
+    try:
+        return Marketplace(str_value)
     except ValueError:
         return None
 
 
 def parse_sale_model(value: str | None) -> SaleModel | None:
-    if not value or value == "all":
+    if not value:
+        return None
+    if value == "all":
+        return None
+    try:
+        str_value = str(value).strip()
+    except Exception:
+        return None
+    if not str_value or str_value == "all":
         return None
     for sale_model in SaleModel:
-        if value.upper() == sale_model.name or value == sale_model.value:
+        if str_value.upper() == sale_model.name or str_value == sale_model.value:
             return sale_model
     return None
 

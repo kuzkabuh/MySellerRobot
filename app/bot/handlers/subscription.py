@@ -55,6 +55,21 @@ def _html(value: object | None, fallback: str = "—") -> str:
     return html_escape(str(value), quote=False)
 
 
+async def _safe_edit_text(message: Message, text: str, **kwargs) -> None:
+    """Safely edit message text, falling back to answer if edit fails."""
+    try:
+        await message.edit_text(text, **kwargs)
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "there is no text" in error_msg or "message to edit" in error_msg:
+            try:
+                await message.answer(text, **kwargs)
+            except Exception:
+                logger.exception("safe_edit_text_fallback_failed")
+        else:
+            raise
+
+
 # ============================================================
 # PUBLIC SUBSCRIPTION COMMANDS
 # ============================================================
@@ -72,7 +87,7 @@ async def subscription_menu_handler(callback: CallbackQuery) -> None:
     message = _callback_message(callback)
     if not message:
         return
-    await message.edit_text("💎 Подписка и тарифы", reply_markup=subscription_menu())
+    await _safe_edit_text(message, "💎 Подписка и тарифы", reply_markup=subscription_menu())
     await callback.answer()
 
 
@@ -132,7 +147,8 @@ async def show_current_subscription(callback: CallbackQuery) -> None:
             is_free=is_free,
         )
 
-        await message.edit_text(
+        await _safe_edit_text(
+            message,
             text,
             reply_markup=subscription_current_menu_v2(has_active=is_active),
         )
@@ -157,7 +173,7 @@ async def show_pricing(callback: CallbackQuery) -> None:
         cards = [build_tier_card(t) for t in tiers]
 
     text = format_pricing_overview(cards)
-    await message.edit_text(text, reply_markup=subscription_pricing_menu_v2())
+    await _safe_edit_text(message, text, reply_markup=subscription_pricing_menu_v2())
     await callback.answer()
 
 
@@ -197,7 +213,8 @@ async def show_tier_details(callback: CallbackQuery) -> None:
             support_username=settings.support_telegram_username,
         )
 
-        await message.edit_text(
+        await _safe_edit_text(
+            message,
             text,
             reply_markup=subscription_tier_detail_menu_v2(
                 tier_code=tier.code,
@@ -251,7 +268,8 @@ async def handle_payment_initiation(callback: CallbackQuery) -> None:
             "После оплаты подписка активируется автоматически."
         )
 
-        await message.edit_text(
+        await _safe_edit_text(
+            message,
             text,
             reply_markup=subscription_payment_confirm_menu(tier_code, period, f"{amount} ₽"),
         )
@@ -296,7 +314,8 @@ async def handle_payment_confirmation(callback: CallbackQuery) -> None:
                 ]
             )
 
-            await message.edit_text(
+            await _safe_edit_text(
+                message,
                 "✅ Счет создан!\n\n"
                 "Нажмите кнопку ниже для перехода на страницу оплаты.\n\n"
                 "После успешной оплаты подписка активируется автоматически.",
@@ -335,7 +354,8 @@ async def show_payment_history(callback: CallbackQuery) -> None:
         payments = await payment_service.get_user_payments(user.id, limit=10)
 
         if not payments:
-            await message.edit_text(
+            await _safe_edit_text(
+                message,
                 "📜 <b>История платежей</b>\n\nПлатежей пока нет.",
                 reply_markup=subscription_payments_menu(),
             )
@@ -364,7 +384,8 @@ async def show_payment_history(callback: CallbackQuery) -> None:
                 f"   {payment.created_at:%d.%m.%Y %H:%M}"
             )
 
-        await message.edit_text(
+        await _safe_edit_text(
+            message,
             "\n".join(lines),
             reply_markup=subscription_payments_menu(),
         )
@@ -418,7 +439,8 @@ async def confirm_subscription_cancel(callback: CallbackQuery) -> None:
         "• Вы сможете возобновить подписку в любой момент"
     )
 
-    await message.edit_text(
+    await _safe_edit_text(
+        message,
         text,
         reply_markup=subscription_cancel_confirm_menu(),
     )
@@ -469,7 +491,7 @@ async def cancel_subscription(callback: CallbackQuery) -> None:
             ]
         )
 
-        await message.edit_text(text, reply_markup=keyboard)
+        await _safe_edit_text(message, text, reply_markup=keyboard)
         await callback.answer("Подписка отменена")
 
 
@@ -502,7 +524,8 @@ async def admin_tariff_menu_handler(callback: CallbackQuery, state: FSMContext) 
         await callback.answer("Доступно только администраторам", show_alert=True)
         return
 
-    await message.edit_text(
+    await _safe_edit_text(
+        message,
         "👑 <b>Управление тарифами</b>\n\nВыберите действие:",
         reply_markup=admin_tariff_menu(),
     )
@@ -560,7 +583,8 @@ async def admin_tariff_self_handler(callback: CallbackQuery) -> None:
 
         lines.extend(["", "Выберите новый тариф:"])
 
-        await message.edit_text(
+        await _safe_edit_text(
+            message,
             "\n".join(lines),
             reply_markup=admin_tariff_select_menu(),
         )
@@ -580,7 +604,8 @@ async def admin_tariff_user_prompt_handler(
         await callback.answer("Доступно только администраторам", show_alert=True)
         return
 
-    await message.edit_text(
+    await _safe_edit_text(
+        message,
         "🔎 <b>Изменение тарифа пользователя</b>\n\n"
         "Введите Telegram ID пользователя, которому нужно изменить тариф.\n\n"
         "ID можно узнать через админское меню: 👥 Пользователи."
@@ -741,7 +766,8 @@ async def admin_tariff_assign_handler(callback: CallbackQuery) -> None:
                 expires_at=expires_at_str,
             )
 
-            await message.edit_text(
+            await _safe_edit_text(
+                message,
                 confirmation_text,
                 reply_markup=admin_tariff_menu(),
             )

@@ -375,8 +375,8 @@ class WebOrdersProfitService:
         article_expr = func.coalesce(OrderItem.seller_article, literal_column("''"))
         query = (
             select(
-                title_expr,
-                article_expr,
+                title_expr.label("title"),
+                article_expr.label("seller_article"),
                 Order.marketplace,
                 Order.sale_model,
                 func.count(func.distinct(Order.id)),
@@ -436,7 +436,7 @@ class WebOrdersProfitService:
         query = (
             select(
                 SalesEvent.marketplace,
-                article_expr,
+                article_expr.label("seller_article"),
                 func.coalesce(func.sum(SalesEvent.quantity), 0),
             )
             .where(SalesEvent.user_id == user_id)

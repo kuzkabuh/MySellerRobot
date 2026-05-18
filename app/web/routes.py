@@ -2009,10 +2009,10 @@ def _seller_profile_web(account: MarketplaceAccount, balance: object | None) -> 
     if balance is None:
         parts.append('<div class="muted">Баланс не загружен</div>')
     elif getattr(balance, "status", "") == "OK":
-        parts.append(f'<div class="muted">Баланс: {_rub(getattr(balance, "current", 0))}</div>')
-        parts.append(
-            f'<div class="muted">К выводу: {_rub(getattr(balance, "for_withdraw", 0))}</div>'
-        )
+        current = getattr(balance, "current", None)
+        for_withdraw = getattr(balance, "for_withdraw", None)
+        parts.append(f'<div class="muted">Баланс: {_rub(current)}</div>')
+        parts.append(f'<div class="muted">К выводу: {_rub(for_withdraw)}</div>')
     else:
         parts.append('<div class="muted">Для баланса нужен Finance-доступ WB</div>')
     return "".join(parts)
@@ -2032,7 +2032,7 @@ def _report_short(report: object | None, state: object | None) -> str:
     if report is not None:
         period = f"{getattr(report, 'date_from', '')} — {getattr(report, 'date_to', '')}"
         amount = getattr(report, "for_pay_sum", None)
-        return f'{escape(period)}<div class="muted">к выплате: {_rub(amount or 0)}</div>'
+        return f'{escape(period)}<div class="muted">к выплате: {_rub(amount)}</div>'
     if state is None:
         return '<span class="muted">нет данных</span>'
     status = getattr(state, "status", "")
@@ -3080,8 +3080,14 @@ def _empty_chart() -> str:
     return '<div class="chart-empty">Данных за выбранный период пока нет</div>'
 
 
-def _rub(value: Decimal) -> str:
-    return f"{value:,.0f} ₽".replace(",", " ")
+def _rub(value: object | None) -> str:
+    if value is None:
+        return "н/д"
+    try:
+        decimal_value = Decimal(str(value))
+        return f"{decimal_value:,.0f} ₽".replace(",", " ")
+    except Exception:
+        return "н/д"
 
 
 def _rub_optional(value: Decimal | None) -> str:

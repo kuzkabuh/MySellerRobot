@@ -32,6 +32,19 @@ class PaymentService:
             secret_key=settings.yookassa_secret_key.get_secret_value(),
         )
         self.subscription_service = SubscriptionService(session)
+        self._credentials_valid = bool(
+            settings.yookassa_shop_id and settings.yookassa_secret_key.get_secret_value()
+        )
+
+    def _check_credentials(self) -> None:
+        if not self._credentials_valid:
+            logger.error(
+                "yookassa_invalid_credentials",
+                extra={"detail": "shop_id or secret_key is empty"},
+            )
+            raise RuntimeError(
+                "Платёжная система не настроена. Обратитесь к администратору."
+            )
 
     async def create_subscription_payment(
         self,
@@ -62,6 +75,8 @@ class PaymentService:
             "provider": "yookassa",
         }
         idempotence_key = f"subscription:{user_id}:{tier_code}:{period}:{uuid4()}"
+
+        self._check_credentials()
 
         # Create payment in YooKassa
         yookassa_payment = await self.yookassa.create_payment(

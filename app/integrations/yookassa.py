@@ -53,8 +53,15 @@ class YooKassaClient:
                 },
             )
             return cast(dict[str, Any], payment.__dict__)
-        except Exception:
-            logger.exception("yookassa_payment_creation_failed")
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "invalid_credentials" in error_msg or "authentication" in error_msg:
+                logger.error(
+                    "yookassa_invalid_credentials",
+                    extra={"detail": str(e)},
+                )
+            else:
+                logger.exception("yookassa_payment_creation_failed")
             raise
 
     async def get_payment(self, payment_id: str) -> dict[str, Any]:

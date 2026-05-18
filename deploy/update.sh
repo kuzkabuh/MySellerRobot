@@ -383,9 +383,18 @@ run_migrations() {
   cd "$PROJECT_DIR"
   log_info "Starting PostgreSQL and Redis before migrations."
   docker compose -f "$COMPOSE_FILE" up -d postgres redis
-  log_info "Applying Alembic migrations."
-  docker compose -f "$COMPOSE_FILE" run --rm api alembic upgrade head
-  MIGRATIONS_APPLIED=true
+  log_info "Waiting for PostgreSQL to be ready..."
+  sleep 3
+  log_info "=== STARTING ALEMBIC MIGRATIONS ==="
+  if docker compose -f "$COMPOSE_FILE" run --rm api alembic upgrade head; then
+    log_info "=== ALEMBIC MIGRATIONS COMPLETED SUCCESSFULLY ==="
+    MIGRATIONS_APPLIED=true
+  else
+    log_error "=== ALEMBIC MIGRATIONS FAILED ==="
+    log_error "Deployment aborted. Fix migrations before retrying."
+    log_error "Run manually: docker compose -f $COMPOSE_FILE run --rm api alembic upgrade head"
+    exit 1
+  fi
 }
 
 restart_services() {

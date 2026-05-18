@@ -93,6 +93,20 @@ def _html(value: object | None, fallback: str = "н/д") -> str:
     return escape(str(value), quote=False)
 
 
+async def _safe_edit_text(message: Message, text: str, **kwargs) -> None:
+    try:
+        await message.edit_text(text, **kwargs)
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "there is no text" in error_msg or "message to edit" in error_msg:
+            try:
+                await message.answer(text, **kwargs)
+            except Exception:
+                logger.exception("safe_edit_text_fallback_failed")
+        else:
+            raise
+
+
 class LowMarginStates(StatesGroup):
     waiting_value = State()
 
@@ -224,9 +238,10 @@ async def callback_handler(callback: CallbackQuery, state: FSMContext) -> None:
         return
 
     if data == "settings":
-        await message.edit_text("⚙ Настройки", reply_markup=settings_menu())
+        await _safe_edit_text(message, "⚙ Настройки", reply_markup=settings_menu())
     elif data == "back_main":
-        await message.edit_text(
+        await _safe_edit_text(
+            message,
             "Главное меню",
             reply_markup=main_menu(is_admin=_is_admin_telegram(callback.from_user.id)),
         )
@@ -235,25 +250,25 @@ async def callback_handler(callback: CallbackQuery, state: FSMContext) -> None:
         if user_id:
             await message.answer(await _profile_text(user_id), reply_markup=profile_menu())
     elif data == "sync_menu":
-        await message.edit_text("🔄 Синхронизация", reply_markup=sync_menu())
+        await _safe_edit_text(message, "🔄 Синхронизация", reply_markup=sync_menu())
     elif data.startswith("sync:"):
         user_id = await _get_or_create_user_id(callback)
         if user_id:
             await message.answer(await _request_sync_text(user_id, data.removeprefix("sync:")))
     elif data == "summary_menu":
-        await message.edit_text("📊 Сводка", reply_markup=summary_menu())
+        await _safe_edit_text(message, "📊 Сводка", reply_markup=summary_menu())
     elif data.startswith("summary:") or data == "summary":
         user_id = await _get_or_create_user_id(callback)
         if user_id:
             await message.answer(await _summary_text(user_id))
     elif data == "orders_menu":
-        await message.edit_text("🛒 Заказы", reply_markup=orders_menu())
+        await _safe_edit_text(message, "🛒 Заказы", reply_markup=orders_menu())
     elif data.startswith("orders:") or data == "orders":
         user_id = await _get_or_create_user_id(callback)
         if user_id:
             await message.answer(await _orders_text(user_id, data))
     elif data == "profit_menu":
-        await message.edit_text("💰 Прибыль", reply_markup=profit_menu())
+        await _safe_edit_text(message, "💰 Прибыль", reply_markup=profit_menu())
     elif data.startswith("profit:") or data == "profit":
         user_id = await _get_or_create_user_id(callback)
         if user_id:
@@ -264,13 +279,13 @@ async def callback_handler(callback: CallbackQuery, state: FSMContext) -> None:
             else:
                 await message.answer(await _profit_text(user_id))
     elif data == "products_costs_menu":
-        await message.edit_text("📦 Товары и себестоимость", reply_markup=costs_menu())
+        await _safe_edit_text(message, "📦 Товары и себестоимость", reply_markup=costs_menu())
     elif data == "stocks":
         user_id = await _get_or_create_user_id(callback)
         if user_id:
             await message.answer(await _stocks_text(user_id))
     elif data == "control_menu":
-        await message.edit_text("⚠ Контроль и уведомления", reply_markup=control_menu())
+        await _safe_edit_text(message, "⚠ Контроль и уведомления", reply_markup=control_menu())
     elif data.startswith("control:") or data == "control":
         user_id = await _get_or_create_user_id(callback)
         if user_id:
@@ -291,14 +306,16 @@ async def callback_handler(callback: CallbackQuery, state: FSMContext) -> None:
     elif data in {"notifications", "settings:notifications"}:
         user = await _get_or_create_user(callback)
         if user:
-            await message.edit_text(
+            await _safe_edit_text(
+                message,
                 _notifications_text(user),
                 reply_markup=notification_settings_menu(user.notifications_enabled),
             )
     elif data == "notifications:toggle":
         user = await _toggle_notifications(callback)
         if user:
-            await message.edit_text(
+            await _safe_edit_text(
+                message,
                 _notifications_text(user),
                 reply_markup=notification_settings_menu(user.notifications_enabled),
             )
@@ -306,7 +323,8 @@ async def callback_handler(callback: CallbackQuery, state: FSMContext) -> None:
         user = await _get_or_create_user(callback)
         if user:
             enabled = await _sale_notifications_enabled(user.id)
-            await message.edit_text(
+            await _safe_edit_text(
+                message,
                 _sale_notifications_text(enabled),
                 reply_markup=sale_notification_settings_menu(enabled),
             )
@@ -314,7 +332,8 @@ async def callback_handler(callback: CallbackQuery, state: FSMContext) -> None:
         user = await _get_or_create_user(callback)
         if user:
             enabled = await _toggle_sale_notifications(user.id)
-            await message.edit_text(
+            await _safe_edit_text(
+                message,
                 _sale_notifications_text(enabled),
                 reply_markup=sale_notification_settings_menu(enabled),
             )
@@ -326,7 +345,8 @@ async def callback_handler(callback: CallbackQuery, state: FSMContext) -> None:
         user_id = await _get_or_create_user_id(callback)
         if user_id:
             threshold = data.removeprefix("low_margin:set:")
-            await message.edit_text(
+            await _safe_edit_text(
+                message,
                 await _save_low_margin_threshold(user_id, threshold),
                 reply_markup=low_margin_threshold_menu(Decimal(threshold)),
             )
@@ -345,13 +365,15 @@ async def callback_handler(callback: CallbackQuery, state: FSMContext) -> None:
     elif data == "timezone":
         user = await _get_or_create_user(callback)
         if user:
-            await message.edit_text(
+            await _safe_edit_text(
+                message,
                 _timezone_text(user.timezone), reply_markup=timezone_menu(user.timezone)
             )
     elif data.startswith("timezone:set:"):
         user = await _set_user_timezone(callback, data.removeprefix("timezone:set:"))
         if user:
-            await message.edit_text(
+            await _safe_edit_text(
+                message,
                 "✅ Часовой пояс сохранён.\n\n" + _timezone_text(user.timezone),
                 reply_markup=timezone_menu(user.timezone),
             )
@@ -1014,10 +1036,10 @@ async def _handle_admin_callback(callback: CallbackQuery, message: Message, data
         await message.answer("Админское меню доступно только администраторам.")
         return
     if data == "admin_menu":
-        await message.edit_text("🛠 Администрирование", reply_markup=admin_menu())
+        await _safe_edit_text(message, "🛠 Администрирование", reply_markup=admin_menu())
         return
     if data == "admin:deploy":
-        await message.edit_text("🚀 Обновление и деплой", reply_markup=admin_deploy_menu())
+        await _safe_edit_text(message, "🚀 Обновление и деплой", reply_markup=admin_deploy_menu())
         return
     if data.startswith("admin_deploy:"):
         await _handle_admin_deploy_callback(callback, message, data)
