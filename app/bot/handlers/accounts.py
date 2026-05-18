@@ -4,6 +4,7 @@ updated: 2026-05-14
 """
 
 import logging
+from collections.abc import Sequence
 from html import escape
 
 from aiogram import F, Router
@@ -21,7 +22,13 @@ from app.bot.keyboards.main import (
 )
 from app.bot.states import ConnectOzonStates, ConnectWildberriesStates
 from app.core.db import AsyncSessionFactory
-from app.models.domain import MarketplaceAccount, User
+from app.models.domain import (
+    AccountBalanceSnapshot,
+    MarketplaceAccount,
+    User,
+    WbFinancialReport,
+    WbReportCheckState,
+)
 from app.models.enums import Marketplace
 from app.repositories.users import UserRepository
 from app.services.account_profile_service import AccountProfileService
@@ -42,6 +49,23 @@ logger = logging.getLogger(__name__)
 async def cancel_handler(message: Message, state: FSMContext) -> None:
     await state.clear()
     await message.answer("Действие отменено.", reply_markup=back_to_settings())
+
+
+@router.message(Command("accounts"))
+async def accounts_command_handler(message: Message) -> None:
+    if message.from_user is None:
+        await message.answer("Не удалось определить Telegram-пользователя.")
+        return
+    async with AsyncSessionFactory() as session:
+        repo = UserRepository(session)
+        user = await repo.get_or_create(
+            telegram_id=message.from_user.id,
+            username=message.from_user.username,
+            first_name=message.from_user.first_name,
+        )
+        await session.commit()
+        accounts = await MarketplaceAccountService(session).list_accounts(user.id)
+    await message.answer(_format_accounts_list(accounts), reply_markup=accounts_list_menu(accounts))
 
 
 @router.callback_query(F.data == "connect_wb")
@@ -339,7 +363,10 @@ def _format_account_card(account: MarketplaceAccount) -> str:
     )
 
 
-def _format_seller_profile(account: MarketplaceAccount, balance: object | None) -> str:
+def _format_seller_profile(
+    account: MarketplaceAccount,
+    balance: AccountBalanceSnapshot | None,
+) -> str:
     payload = account.seller_info_payload or {}
     lines = [
         "👤 Кабинет продавца",
@@ -380,8 +407,8 @@ def _format_seller_profile(account: MarketplaceAccount, balance: object | None) 
 
 def _format_wb_reports(
     account: MarketplaceAccount,
-    reports: list[object],
-    states: list[object],
+    reports: Sequence[WbFinancialReport],
+    states: Sequence[WbReportCheckState],
 ) -> str:
     if account.marketplace != Marketplace.WB:
         return "Финансовые отчёты сейчас поддержаны только для Wildberries."

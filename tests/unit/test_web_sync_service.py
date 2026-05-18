@@ -58,3 +58,25 @@ async def test_web_sync_skips_recent_duplicate(monkeypatch) -> None:  # type: ig
 
     assert result.queued is False
     assert queue.jobs == []
+
+
+async def test_web_sync_enqueues_product_and_profile_tasks(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    queue = _QueueStub()
+
+    async def create_pool(_settings):  # type: ignore[no-untyped-def]
+        return queue
+
+    monkeypatch.setattr(web_sync_service, "create_pool", create_pool)
+
+    products = await WebSyncService(redis=_RedisStub(allowed=True)).request_sync(
+        "products",
+        user_id=42,
+    )
+    profile = await WebSyncService(redis=_RedisStub(allowed=True)).request_sync(
+        "wb-profile",
+        user_id=42,
+    )
+
+    assert products.queued is True
+    assert profile.queued is True
+    assert queue.jobs == ["sync_products", "sync_wb_account_profiles"]

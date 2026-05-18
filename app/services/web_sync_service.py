@@ -15,6 +15,7 @@ class WebSyncType(StrEnum):
     SALES = "sales"
     STOCKS = "stocks"
     PRODUCTS = "products"
+    WB_PROFILE = "wb-profile"
     WB_REPORTS = "wb-reports"
     OZON_ENRICHMENT = "ozon-enrichment"
 
@@ -29,6 +30,11 @@ SYNC_TASKS: dict[WebSyncType, tuple[str, str]] = {
     WebSyncType.ORDERS: ("poll_new_orders", "Синхронизация заказов поставлена в очередь."),
     WebSyncType.SALES: ("sync_sale_events", "Синхронизация продаж поставлена в очередь."),
     WebSyncType.STOCKS: ("check_low_stocks", "Синхронизация остатков поставлена в очередь."),
+    WebSyncType.PRODUCTS: ("sync_products", "Синхронизация товаров поставлена в очередь."),
+    WebSyncType.WB_PROFILE: (
+        "sync_wb_account_profiles",
+        "Обновление продавца и баланса WB поставлено в очередь.",
+    ),
     WebSyncType.WB_REPORTS: (
         "check_wb_financial_reports",
         "Проверка финансовых отчётов WB поставлена в очередь.",
@@ -48,24 +54,21 @@ class WebSyncService:
 
     async def request_sync(self, sync_type: str, user_id: int) -> WebSyncRequestResult:
         parsed = _parse_sync_type(sync_type)
-        if parsed == WebSyncType.PRODUCTS:
-            return WebSyncRequestResult(
-                queued=False,
-                message=(
-                    "Синхронизация товаров выполняется фоновым расписанием "
-                    "после подключения кабинета."
-                ),
-            )
         if parsed is None or parsed not in SYNC_TASKS:
             return WebSyncRequestResult(queued=False, message="Неизвестный тип синхронизации.")
 
         redis = self.redis or _redis()
-        was_set = await redis.set(f"web-sync:{user_id}:{parsed.value}", "1", ex=120, nx=True)
-        if not was_set:
-            return WebSyncRequestResult(
-                queued=False,
-                message="Такая синхронизация уже недавно запускалась. Подождите пару минут.",
-            )
+        owns_redis = self.redis is None
+        try:
+            was_set = await redis.set(f"web-sync:{user_id}:{parsed.value}", "1", ex=120, nx=True)
+            if not was_set:
+                return WebSyncRequestResult(
+                    queued=False,
+                    message="Такая синхронизация уже недавно запускалась. Подождите пару минут.",
+                )
+        finally:
+            if owns_redis:
+                await redis.aclose()
 
         task_name, message = SYNC_TASKS[parsed]
         queue = await create_pool(_redis_settings())

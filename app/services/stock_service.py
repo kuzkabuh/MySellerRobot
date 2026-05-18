@@ -5,6 +5,7 @@ updated: 2026-05-17
 
 import logging
 from datetime import UTC, datetime
+from html import escape
 from typing import Any
 
 from sqlalchemy import select
@@ -327,7 +328,7 @@ class StockService:
                         idempotency_key=key,
                         title="Риск out-of-stock",
                         message=(
-                            f"📦 {row.title}: запас закончится примерно через "
+                            f"📦 {escape(row.title)}: запас закончится примерно через "
                             f"{row.days_until_stockout} дн. Возможная упущенная выручка "
                             f"за 30 дней: {row.lost_revenue_30d:.0f} ₽."
                         ),

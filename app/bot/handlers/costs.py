@@ -15,7 +15,6 @@ from aiogram.types import CallbackQuery, FSInputFile, Message
 from app.bot.keyboards.main import back_to_settings, costs_menu
 from app.bot.states import CostStates
 from app.core.db import AsyncSessionFactory
-from app.repositories.accounts import MarketplaceAccountRepository
 from app.repositories.products import ProductRepository
 from app.repositories.users import UserRepository
 from app.services.cost_management_service import (
@@ -24,7 +23,7 @@ from app.services.cost_management_service import (
     parse_manual_cost_line,
 )
 from app.services.excel_cost_import import CostTemplateProductRow, ExcelCostImportService
-from app.services.product_sync_service import ProductSyncService
+from app.services.web_sync_service import WebSyncService
 
 router = Router(name="costs")
 logger = logging.getLogger(__name__)
@@ -47,22 +46,17 @@ async def products_sync_handler(callback: CallbackQuery) -> None:
         return
     message = callback.message
     if isinstance(message, Message):
-        await message.answer("Запускаю синхронизацию товаров по активным кабинетам...")
-    total = 0
+        await message.answer("Ставлю синхронизацию товаров в очередь...")
     try:
-        async with AsyncSessionFactory() as session:
-            accounts = await MarketplaceAccountRepository(session).list_user_accounts(user_id)
-            service = ProductSyncService(session)
-            for account in accounts:
-                if account.is_active:
-                    total += await service.sync_account_products(account)
+        result = await WebSyncService().request_sync("products", user_id=user_id)
         if isinstance(message, Message):
-            await message.answer(f"Синхронизация завершена. Обновлено товаров: {total}.")
+            await message.answer(result.message, reply_markup=costs_menu())
     except Exception:
-        logger.exception("product_sync_failed")
+        logger.exception("product_sync_queue_failed", extra={"user_id": user_id})
         if isinstance(message, Message):
             await message.answer(
-                "Не удалось синхронизировать товары. Проверьте ключи и права доступа.",
+                "Не удалось поставить синхронизацию товаров в очередь. "
+                "Проверьте Redis/worker и повторите позже.",
                 reply_markup=costs_menu(),
             )
     await callback.answer()

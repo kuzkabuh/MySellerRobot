@@ -26,6 +26,7 @@ from app.bot.formatters.common import (
     format_stock_rows,
     format_stockout_rows,
     format_sync_errors,
+    format_user_dt,
 )
 from app.bot.keyboards.main import (
     TIMEZONE_OPTIONS,
@@ -38,10 +39,12 @@ from app.bot.keyboards.main import (
     main_menu,
     notification_settings_menu,
     orders_menu,
+    profile_menu,
     profit_menu,
     sale_notification_settings_menu,
     settings_menu,
     summary_menu,
+    sync_menu,
     timezone_menu,
     web_cabinet_link,
 )
@@ -56,6 +59,7 @@ from app.models.domain import (
     User,
 )
 from app.models.enums import CalculationType, SaleModel
+from app.repositories.accounts import MarketplaceAccountRepository
 from app.repositories.orders import OrderRepository
 from app.repositories.users import UserRepository
 from app.services.admin_service import AdminService
@@ -73,8 +77,10 @@ from app.services.marketplace_estimates import (
 from app.services.message_formatter import format_user_datetime, rub
 from app.services.plan_fact_service import PlanFactService
 from app.services.stock_forecast_service import StockForecastService
+from app.services.subscription_service import SubscriptionService
 from app.services.unit_economics_service import UnitEconomicsService
 from app.services.web_auth_service import WebAuthService
+from app.services.web_sync_service import WebSyncService
 
 router = Router(name="common")
 logger = logging.getLogger(__name__)
@@ -103,37 +109,17 @@ WELCOME_TEXT = (
 )
 
 
-@router.message(Command("start"))
-async def start_handler(message: Message) -> None:
-    if message.from_user is None:
-        await message.answer("Не удалось определить Telegram-пользователя.")
-        return
-    async with AsyncSessionFactory() as session:
-        repo = UserRepository(session)
-        await repo.get_or_create(
-            telegram_id=message.from_user.id,
-            username=message.from_user.username,
-            first_name=message.from_user.first_name,
-        )
-        await session.commit()
-    await message.answer(
-        WELCOME_TEXT,
-        reply_markup=main_menu(is_admin=_is_admin_telegram(message.from_user.id)),
-    )
-
-
 @router.message(Command("help"))
 async def help_handler(message: Message) -> None:
     await message.answer(
-        "Команды: /summary, /orders, /profit, /stocks, /alerts, /settings.\n"
-        "Основной интерфейс доступен через кнопки меню.",
+        _help_text(),
         reply_markup=main_menu(
             is_admin=_is_admin_telegram(message.from_user.id if message.from_user else None)
         ),
     )
 
 
-@router.message(Command("summary"))
+@router.message(Command("summary", "analytics"))
 async def summary_handler(message: Message) -> None:
     user_id = await _ensure_user(message)
     if user_id is None:
@@ -163,6 +149,21 @@ async def stocks_handler(message: Message) -> None:
     if user_id is None:
         return
     await message.answer(await _stocks_text(user_id))
+
+
+@router.message(Command("profile"))
+async def profile_handler(message: Message) -> None:
+    user_id = await _ensure_user(message)
+    if user_id is None:
+        return
+    await message.answer(await _profile_text(user_id), reply_markup=profile_menu())
+
+
+@router.message(Command("sync"))
+async def sync_command_handler(message: Message) -> None:
+    if await _ensure_user(message) is None:
+        return
+    await message.answer("🔄 Синхронизация", reply_markup=sync_menu())
 
 
 @router.message(Command("alerts"))
@@ -229,6 +230,16 @@ async def callback_handler(callback: CallbackQuery, state: FSMContext) -> None:
             "Главное меню",
             reply_markup=main_menu(is_admin=_is_admin_telegram(callback.from_user.id)),
         )
+    elif data == "profile":
+        user_id = await _get_or_create_user_id(callback)
+        if user_id:
+            await message.answer(await _profile_text(user_id), reply_markup=profile_menu())
+    elif data == "sync_menu":
+        await message.edit_text("🔄 Синхронизация", reply_markup=sync_menu())
+    elif data.startswith("sync:"):
+        user_id = await _get_or_create_user_id(callback)
+        if user_id:
+            await message.answer(await _request_sync_text(user_id, data.removeprefix("sync:")))
     elif data == "summary_menu":
         await message.edit_text("📊 Сводка", reply_markup=summary_menu())
     elif data.startswith("summary:") or data == "summary":
@@ -356,7 +367,10 @@ async def callback_handler(callback: CallbackQuery, state: FSMContext) -> None:
         except Exception:
             logger.debug("failed_to_hide_notification", extra={"callback_data": data})
     elif data == "help":
-        await help_handler(message)
+        await message.answer(
+            _help_text(),
+            reply_markup=main_menu(is_admin=_is_admin_telegram(callback.from_user.id)),
+        )
     else:
         logger.warning(
             "unknown_callback",
@@ -381,6 +395,24 @@ async def _ensure_user(message: Message) -> int | None:
         return user.id
 
 
+def _help_text() -> str:
+    return (
+        "❓ <b>Помощь</b>\n\n"
+        "Основные команды:\n"
+        "• /menu — главное меню\n"
+        "• /profile — профиль, тариф и кабинеты\n"
+        "• /accounts — подключённые Wildberries и Ozon\n"
+        "• /orders — последние заказы\n"
+        "• /profit — прибыль и маржинальность\n"
+        "• /stocks — остатки и риски out-of-stock\n"
+        "• /analytics — краткая сводка\n"
+        "• /alerts — контроль, ошибки и уведомления\n"
+        "• /sync — запуск синхронизаций\n"
+        "• /subscription — подписка и оплата\n\n"
+        "Большие таблицы и подробная аналитика открываются в WEB-кабинете."
+    )
+
+
 async def _get_or_create_user_id(callback: CallbackQuery) -> int | None:
     user = await _get_or_create_user(callback)
     return user.id if user else None
@@ -396,6 +428,73 @@ async def _get_or_create_user(callback: CallbackQuery) -> User | None:
         )
         await session.commit()
         return user
+
+
+async def _profile_text(user_id: int) -> str:
+    async with AsyncSessionFactory() as session:
+        user = await session.get(User, user_id)
+        accounts = await MarketplaceAccountRepository(session).list_user_accounts(user_id)
+        subscription_service = SubscriptionService(session)
+        tier = await subscription_service.get_user_tier(user_id)
+        active_subscription = await subscription_service.get_active_subscription(user_id)
+
+        active_accounts = [account for account in accounts if account.is_active]
+        wb_count = sum(1 for account in active_accounts if account.marketplace.value == "WB")
+        ozon_count = sum(1 for account in active_accounts if account.marketplace.value == "OZON")
+        notifications = "включены" if user and user.notifications_enabled else "отключены"
+        expires_at = (
+            active_subscription.expires_at.strftime("%d.%m.%Y")
+            if active_subscription and active_subscription.expires_at
+            else "без активного платного периода"
+        )
+
+    lines = [
+        "👤 <b>Профиль</b>",
+        "",
+        f"Telegram ID: <code>{user.telegram_id if user else user_id}</code>",
+        f"Тариф: <b>{_html(tier.name)}</b>",
+        f"Срок действия: {expires_at}",
+        f"Уведомления: {notifications}",
+        "",
+        "🏪 <b>Кабинеты</b>",
+        f"Активных: {len(active_accounts)}",
+        f"Wildberries: {wb_count}",
+        f"Ozon: {ozon_count}",
+    ]
+    if active_accounts:
+        lines.append("")
+        lines.append("Последние подключённые:")
+        for account in active_accounts[:5]:
+            status = "активен" if account.is_active else "отключён"
+            last_sync = format_user_dt(account.last_success_sync_at, user.timezone if user else "")
+            lines.append(
+                f"• {account.marketplace.value}: {_html(account.name)} — {status}, "
+                f"синхронизация: {last_sync}"
+            )
+    else:
+        lines.extend(
+            [
+                "",
+                "Подключённых кабинетов пока нет. Начните с Wildberries или Ozon в настройках.",
+            ]
+        )
+    return "\n".join(lines)
+
+
+async def _request_sync_text(user_id: int, sync_type: str) -> str:
+    try:
+        result = await WebSyncService().request_sync(sync_type, user_id=user_id)
+    except Exception:
+        logger.exception(
+            "telegram_sync_request_failed",
+            extra={"user_id": user_id, "sync_type": sync_type},
+        )
+        return (
+            "🔄 Синхронизация\n\n"
+            "Не удалось поставить задачу в очередь. Проверьте Redis/worker и повторите позже."
+        )
+    marker = "✅" if result.queued else "ℹ️"
+    return f"🔄 <b>Синхронизация</b>\n\n{marker} {result.message}"
 
 
 async def _summary_text(user_id: int) -> str:

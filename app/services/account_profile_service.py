@@ -88,7 +88,8 @@ class AccountProfileService:
         now = datetime.now(tz=UTC)
         try:
             payload = await client.get_account_balance()
-            data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+            raw_data = payload.get("data")
+            data: dict[str, Any] = raw_data if isinstance(raw_data, dict) else payload
             snapshot = AccountBalanceSnapshot(
                 user_id=account.user_id,
                 marketplace_account_id=account.id,
@@ -133,7 +134,8 @@ class AccountProfileService:
         )
         try:
             payload = await client.get_seller_info()
-            data = payload.get("result") if isinstance(payload.get("result"), dict) else payload
+            raw_data = payload.get("result")
+            data: dict[str, Any] = raw_data if isinstance(raw_data, dict) else payload
             account.seller_external_id = (
                 str(data.get("company_id") or "") or account.seller_external_id
             )

@@ -15,7 +15,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
 from app.core.db import AsyncSessionFactory
-from app.models.domain import MarketplaceAccount, User
+from app.models.domain import AlertEvent, MarketplaceAccount, User
 from app.models.enums import Marketplace, SaleModel
 from app.repositories.orders import OrderRepository
 from app.repositories.sync_jobs import SyncJobRepository
@@ -27,6 +27,7 @@ from app.services.history_backfill_service import BackfillCounters, HistoryBackf
 from app.services.notification_service import NotificationService
 from app.services.order_processing_service import NewOrderNotification, OrderProcessingService
 from app.services.ozon_catalog_enrichment_service import OzonCatalogEnrichmentService
+from app.services.product_sync_service import ProductSyncService
 from app.services.sales_event_sync_service import SaleNotification, SalesEventSyncService
 from app.services.stock_service import StockService
 from app.services.wb_report_service import WbFinancialReportService
@@ -140,6 +141,61 @@ async def send_fbo_digests(ctx: dict[str, Any]) -> None:
                 )
                 await session.rollback()
     await bot.session.close()
+
+
+async def send_alert_notifications(ctx: dict[str, Any]) -> None:
+    """Deliver pending alert events to Telegram after they are safely persisted."""
+
+    settings = get_settings()
+    bot = Bot(settings.bot_token.get_secret_value())
+    async with AsyncSessionFactory() as session:
+        result = await session.execute(
+            select(AlertEvent, User.telegram_id)
+            .join(User, User.id == AlertEvent.user_id)
+            .where(AlertEvent.sent_at.is_(None))
+            .where(AlertEvent.resolved_at.is_(None))
+            .where(User.notifications_enabled.is_(True))
+            .order_by(AlertEvent.created_at.asc())
+            .limit(100)
+        )
+        rows = [(event, int(telegram_id)) for event, telegram_id in result.all()]
+        await _deliver_alert_notifications(session, bot, rows)
+    await bot.session.close()
+
+
+async def _deliver_alert_notifications(
+    session: AsyncSession,
+    bot: Bot,
+    rows: list[tuple[AlertEvent, int]],
+) -> tuple[int, int]:
+    sent = 0
+    failed = 0
+    for event, telegram_id in rows:
+        try:
+            logger.info(
+                "alert_notification_send_attempt",
+                extra=_alert_notification_log_extra(event),
+            )
+            await bot.send_message(int(telegram_id), event.message, parse_mode="HTML")
+            event.sent_at = datetime.now(tz=UTC)
+            await session.commit()
+            sent += 1
+            logger.info(
+                "alert_notification_send_success",
+                extra=_alert_notification_log_extra(event),
+            )
+        except Exception as exc:
+            failed += 1
+            await session.rollback()
+            logger.exception(
+                "alert_notification_send_failure",
+                extra={
+                    **_alert_notification_log_extra(event),
+                    "exception_class": type(exc).__name__,
+                    "error": str(exc)[:300],
+                },
+            )
+    return sent, failed
 
 
 async def sync_sale_events(ctx: dict[str, Any]) -> None:
@@ -305,6 +361,15 @@ def _sale_notification_log_extra(notification: SaleNotification) -> dict[str, ob
     }
 
 
+def _alert_notification_log_extra(event: AlertEvent) -> dict[str, object]:
+    return {
+        "event_type": event.alert_type.value,
+        "event_id": event.id,
+        "user_id": event.user_id,
+        "idempotency_key": event.idempotency_key,
+    }
+
+
 async def sync_wb_daily_sales_reports(ctx: dict[str, Any]) -> None:
     moscow_today = datetime.now(tz=MOSCOW_TZ).date()
     report_dates = [moscow_today - timedelta(days=days) for days in (1, 2, 3)]
@@ -403,6 +468,45 @@ async def sync_ozon_catalog_enrichment(ctx: dict[str, Any]) -> None:
                     extra={"account_id": account.id},
                 )
                 await session.rollback()
+
+
+async def sync_products(ctx: dict[str, Any]) -> None:
+    async with AsyncSessionFactory() as session:
+        result = await session.execute(
+            select(MarketplaceAccount).where(MarketplaceAccount.is_active.is_(True))
+        )
+        accounts = list(result.scalars().all())
+        service = ProductSyncService(session)
+        total = 0
+        failed = 0
+        for account in accounts:
+            try:
+                synced = await service.sync_account_products(account)
+                total += synced
+                logger.info(
+                    "manual_product_sync_finished",
+                    extra={
+                        "account_id": account.id,
+                        "user_id": account.user_id,
+                        "marketplace": account.marketplace.value,
+                        "products_synced": synced,
+                    },
+                )
+            except Exception:
+                failed += 1
+                logger.exception(
+                    "manual_product_sync_failed",
+                    extra={
+                        "account_id": account.id,
+                        "user_id": account.user_id,
+                        "marketplace": account.marketplace.value,
+                    },
+                )
+                await session.rollback()
+        logger.info(
+            "manual_product_sync_completed",
+            extra={"accounts": len(accounts), "products_synced": total, "failed": failed},
+        )
 
 
 async def check_low_stocks(ctx: dict[str, Any]) -> None:

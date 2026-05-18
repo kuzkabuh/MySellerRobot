@@ -9,6 +9,7 @@ from aiogram import Bot, Dispatcher, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.redis import RedisStorage
+from aiogram.types import BotCommand
 
 from app.bot.handlers.accounts import router as accounts_router
 from app.bot.handlers.common import router as common_router
@@ -17,6 +18,23 @@ from app.bot.handlers.navigation import router as navigation_router
 from app.bot.handlers.subscription import router as subscription_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
+
+BOT_COMMANDS: tuple[BotCommand, ...] = (
+    BotCommand(command="start", description="Открыть главное меню"),
+    BotCommand(command="menu", description="Вернуться в главное меню"),
+    BotCommand(command="profile", description="Профиль, тариф и подключённые кабинеты"),
+    BotCommand(command="orders", description="Последние заказы"),
+    BotCommand(command="profit", description="Прибыль и маржинальность"),
+    BotCommand(command="stocks", description="Остатки и риски out-of-stock"),
+    BotCommand(command="analytics", description="Краткая сводка и аналитика"),
+    BotCommand(command="alerts", description="Контроль, ошибки и уведомления"),
+    BotCommand(command="accounts", description="Подключённые кабинеты WB и Ozon"),
+    BotCommand(command="sync", description="Запустить синхронизацию"),
+    BotCommand(command="subscription", description="Подписка и тарифы"),
+    BotCommand(command="settings", description="Настройки бота"),
+    BotCommand(command="low_margin", description="Настроить порог низкой маржи"),
+    BotCommand(command="help", description="Помощь по боту"),
+)
 
 
 def create_bot() -> Bot:
@@ -62,6 +80,7 @@ async def main() -> None:
     settings = get_settings()
     configure_logging(settings)
     bot = create_bot()
+    await bot.set_my_commands(list(BOT_COMMANDS))
     dispatcher = create_dispatcher(create_storage())
     await dispatcher.start_polling(bot)
 

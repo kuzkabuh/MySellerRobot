@@ -5,8 +5,8 @@ from decimal import Decimal
 
 import pytest
 
-from app.models.domain import MarketplaceAccount, Order, OrderItem, SalesEvent, User
-from app.models.enums import Marketplace, SaleEventType, SaleModel
+from app.models.domain import AlertEvent, MarketplaceAccount, Order, OrderItem, SalesEvent, User
+from app.models.enums import AlertType, Marketplace, SaleEventType, SaleModel
 from app.services.order_card_service import OrderCardService, VisualNotification
 from app.services.sales_event_sync_service import SaleNotification, SalesEventSyncService
 from app.workers import tasks
@@ -70,6 +70,17 @@ class FakeSaleNotifier:
 
     async def send_sale_completed(self, *_args, **_kwargs) -> None:  # type: ignore[no-untyped-def]
         self.calls += 1
+        if self.fail:
+            raise RuntimeError("telegram down")
+
+
+class FakeAlertBot:
+    def __init__(self, fail: bool = False) -> None:
+        self.fail = fail
+        self.calls: list[tuple[int, str, str | None]] = []
+
+    async def send_message(self, telegram_id: int, text: str, **kwargs):  # type: ignore[no-untyped-def]
+        self.calls.append((telegram_id, text, kwargs.get("parse_mode")))
         if self.fail:
             raise RuntimeError("telegram down")
 
@@ -266,6 +277,42 @@ async def test_failed_sale_retry_can_send_later() -> None:
 
 
 @pytest.mark.asyncio
+async def test_alert_send_success_marks_sent_after_telegram() -> None:
+    session = FakeSession()
+    alert = _alert_event()
+    bot = FakeAlertBot()
+
+    sent, failed = await tasks._deliver_alert_notifications(  # type: ignore[arg-type]
+        session,
+        bot,
+        [(alert, 777000)],
+    )
+
+    assert (sent, failed) == (1, 0)
+    assert bot.calls == [(777000, "⚠️ <b>FBS риск</b>", "HTML")]
+    assert alert.sent_at is not None
+    assert session.commits == 1
+    assert session.rollbacks == 0
+
+
+@pytest.mark.asyncio
+async def test_alert_send_failure_keeps_event_pending() -> None:
+    session = FakeSession()
+    alert = _alert_event()
+
+    sent, failed = await tasks._deliver_alert_notifications(  # type: ignore[arg-type]
+        session,
+        FakeAlertBot(fail=True),  # type: ignore[arg-type]
+        [(alert, 777000)],
+    )
+
+    assert (sent, failed) == (0, 1)
+    assert alert.sent_at is None
+    assert session.commits == 0
+    assert session.rollbacks == 1
+
+
+@pytest.mark.asyncio
 async def test_successful_sale_is_not_in_pending_query_again() -> None:
     session = FakeSession(rows=[])
     service = SalesEventSyncService(session)  # type: ignore[arg-type]
@@ -312,8 +359,11 @@ def test_worker_settings_register_order_and_sale_notification_jobs() -> None:
 
     assert "poll_new_orders" in functions
     assert "sync_sale_events" in functions
+    assert "send_alert_notifications" in functions
+    assert "sync_products" in functions
     assert "poll_new_orders" in cron_functions
     assert "sync_sale_events" in cron_functions
+    assert "send_alert_notifications" in cron_functions
 
 
 def _user(notifications_enabled: bool) -> User:
@@ -382,4 +432,17 @@ def _sale_notification(marketplace: Marketplace) -> SaleNotification:
         marketplace=marketplace,
         event_type=SaleEventType.BUYOUT.value,
         external_event_id="sale-501",
+    )
+
+
+def _alert_event() -> AlertEvent:
+    return AlertEvent(
+        id=901,
+        user_id=7,
+        rule_id=None,
+        alert_type=AlertType.FBS_DEADLINE_RISK,
+        idempotency_key="fbs:901",
+        title="FBS риск",
+        message="⚠️ <b>FBS риск</b>",
+        payload={},
     )

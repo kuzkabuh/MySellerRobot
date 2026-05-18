@@ -18,13 +18,16 @@ from app.bot.keyboards.main import (
     main_menu,
     notification_settings_menu,
     orders_menu,
+    profile_menu,
     profit_menu,
     sale_notification_settings_menu,
     settings_menu,
     summary_menu,
+    sync_menu,
     timezone_menu,
     web_cabinet_link,
 )
+from app.bot.main import BOT_COMMANDS
 from app.services.notification_service import NotificationService
 
 
@@ -96,6 +99,8 @@ def test_menus_do_not_contain_duplicate_callback_actions() -> None:
         profit_menu(),
         control_menu(),
         costs_menu(),
+        sync_menu(),
+        profile_menu(),
         admin_menu(),
         admin_deploy_menu(),
         settings_menu(),
@@ -154,6 +159,8 @@ def test_known_callback_buttons_have_common_handler_contract() -> None:
         "orders_menu",
         "profit_menu",
         "products_costs_menu",
+        "profile",
+        "sync_menu",
         "stocks",
         "control_menu",
         "notifications",
@@ -190,6 +197,7 @@ def test_known_callback_buttons_have_common_handler_contract() -> None:
         "low_margin:set:",
         "subscription:",
         "admin_tariff:",
+        "sync:",
     )
 
     unknown = {
@@ -233,6 +241,31 @@ def test_low_margin_threshold_menu_contains_quick_values_and_manual_input() -> N
     assert "Ввести вручную" in texts
     assert "low_margin:set:15" in callbacks
     assert "low_margin:manual" in callbacks
+
+
+def test_bot_commands_cover_real_public_screens() -> None:
+    commands = {command.command: command.description for command in BOT_COMMANDS}
+
+    assert commands["start"] == "Открыть главное меню"
+    assert "profile" in commands
+    assert "accounts" in commands
+    assert "sync" in commands
+    assert "subscription" in commands
+
+
+def test_sync_menu_contains_supported_manual_tasks() -> None:
+    callbacks = set(_callbacks(sync_menu()))
+
+    assert callbacks == {
+        "sync:orders",
+        "sync:sales",
+        "sync:stocks",
+        "sync:products",
+        "sync:wb-profile",
+        "sync:wb-reports",
+        "sync:ozon-enrichment",
+        "back_main",
+    }
 
 
 def _callbacks(keyboard: InlineKeyboardMarkup) -> list[str]:
