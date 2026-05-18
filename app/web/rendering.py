@@ -513,8 +513,19 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
       white-space: nowrap;
       border: 1px solid transparent;
     }}
-    .marketplace-badge.wb::before {{ content: "WB"; }}
-    .marketplace-badge.ozon::before {{ content: "O"; }}
+    .mp-logo {{
+      display: inline-grid;
+      place-items: center;
+      width: 20px;
+      height: 20px;
+      border-radius: 5px;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 900;
+      line-height: 1;
+    }}
+    .marketplace-badge.wb .mp-logo {{ background: #7c3aed; }}
+    .marketplace-badge.ozon .mp-logo {{ background: #2563eb; }}
     .marketplace-badge.wb {{ background:#f3e8ff;color:#6d28d9;border-color:#ddd6fe; }}
     .marketplace-badge.ozon {{ background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe; }}
     .marketplace-badge.neutral {{ background:#f1f5f9;color:#334155;border-color:#e2e8f0; }}

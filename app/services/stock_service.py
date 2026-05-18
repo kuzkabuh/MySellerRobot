@@ -123,32 +123,48 @@ class StockService:
         account: MarketplaceAccount,
         client: WildberriesClient,
     ) -> int:
-        try:
-            data = await client.get_wb_warehouses_stocks()
-        except Exception:
-            logger.exception(
-                "wb_fbo_stock_analytics_load_failed",
-                extra={"account_id": account.id, "user_id": account.user_id},
-            )
-            return 0
-        rows = self._extract_rows(data)
+        limit = 1000
+        offset = 0
         count = 0
-        for row in rows:
-            product = await self.products.find_for_order_item(
-                account_id=account.id,
-                marketplace=Marketplace.WB,
-                seller_article=str(row.get("vendorCode") or row.get("supplierArticle") or ""),
-                marketplace_article=str(row.get("nmID") or row.get("nmId") or ""),
-                external_product_id=str(row.get("nmID") or row.get("nmId") or ""),
-            )
-            quantity = self._quantity_from_stock_row(row)
-            await self._add_snapshot(
-                account,
-                product,
-                quantity,
-                {**row, "warehouseName": row.get("warehouseName") or "FBO: склады WB"},
-            )
-            count += 1
+        while True:
+            try:
+                data = await client.get_wb_warehouses_stocks(limit=limit, offset=offset)
+            except Exception:
+                logger.exception(
+                    "wb_fbo_stock_analytics_load_failed",
+                    extra={"account_id": account.id, "user_id": account.user_id, "offset": offset},
+                )
+                return count
+            rows = self._extract_rows(data)
+            if not rows:
+                break
+            for row in rows:
+                product = await self.products.find_for_order_item(
+                    account_id=account.id,
+                    marketplace=Marketplace.WB,
+                    seller_article=str(row.get("vendorCode") or row.get("supplierArticle") or ""),
+                    marketplace_article=str(row.get("nmID") or row.get("nmId") or ""),
+                    external_product_id=str(row.get("nmID") or row.get("nmId") or ""),
+                )
+                quantity = self._quantity_from_stock_row(row)
+                await self._add_snapshot(
+                    account,
+                    product,
+                    quantity,
+                    {
+                        **row,
+                        "warehouseName": row.get("warehouseName") or "FBO: склады WB",
+                        "stock_source": "WB_ANALYTICS_STOCKS",
+                    },
+                )
+                count += 1
+            if len(rows) < limit:
+                break
+            offset += limit
+        logger.info(
+            "wb_fbo_stock_analytics_sync_completed",
+            extra={"account_id": account.id, "snapshots": count},
+        )
         return count
 
     async def _sync_ozon(self, account: MarketplaceAccount) -> int:

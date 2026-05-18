@@ -51,7 +51,17 @@ def classify_integration_error(message: str | None) -> IntegrationErrorAdvice:
             title="временная ошибка API",
             recommendation="внешний API нестабилен, повторная синхронизация будет выполнена позже.",
         )
-    if any(marker in text for marker in ("traceback", "valueerror", "keyerror", "typeerror")):
+    if any(
+        marker in text
+        for marker in (
+            "traceback",
+            "valueerror",
+            "keyerror",
+            "typeerror",
+            "missinggreenlet",
+            "greenlet_spawn has not been called",
+        )
+    ):
         return IntegrationErrorAdvice(
             kind=IntegrationErrorKind.INTERNAL,
             title="ошибка обработки",

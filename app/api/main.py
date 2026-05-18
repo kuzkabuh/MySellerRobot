@@ -145,37 +145,47 @@ def _landing_page() -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MP Control — аналитика Wildberries и Ozon</title>
   <style>
-    body{margin:0;font-family:Inter,Segoe UI,Arial,sans-serif;color:#0f172a;background:#f8fafc}
-    .wrap{max-width:1120px;margin:0 auto;padding:28px 18px}
-    .hero{min-height:78vh;display:grid;grid-template-columns:1.1fr .9fr;gap:40px;align-items:center}
-    .logo{width:96px;height:96px;object-fit:contain;margin-bottom:22px}
-    h1{font-size:52px;line-height:1.02;margin:0 0 18px;letter-spacing:0}
-    p{font-size:18px;line-height:1.65;color:#475569}
-    .cta{display:inline-flex;align-items:center;gap:10px;background:#4557f6;color:#fff;text-decoration:none;padding:14px 18px;border-radius:8px;font-weight:700}
-    .panel{background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:24px;box-shadow:0 10px 30px rgb(15 23 42 / .08)}
-    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:20px}
+    body{margin:0;font-family:Inter,Segoe UI,Arial,sans-serif;color:#111827;background:#f6f7f9}
+    .wrap{max-width:1180px;margin:0 auto;padding:26px 18px}
+    .hero{min-height:76vh;display:flex;flex-direction:column;justify-content:center;padding:42px 0 28px}
+    .logo{width:86px;height:86px;object-fit:contain;margin-bottom:22px}
+    h1{font-size:58px;line-height:1.02;margin:0 0 18px;letter-spacing:0}
+    p{font-size:18px;line-height:1.65;color:#4b5563;max-width:760px}
+    .cta{display:inline-flex;align-items:center;gap:10px;background:#111827;color:#fff;text-decoration:none;padding:14px 18px;border-radius:8px;font-weight:700;margin-top:8px}
+    .preview{margin-top:40px;border:1px solid #d7dde5;border-radius:8px;background:#fff;overflow:hidden;box-shadow:0 18px 45px rgb(17 24 39 / .12)}
+    .bar{height:38px;background:#223047;color:#cbd5e1;display:flex;align-items:center;gap:8px;padding:0 14px;font-size:13px}
+    .dot{width:9px;height:9px;border-radius:50%;background:#ef4444}.dot:nth-child(2){background:#f59e0b}.dot:nth-child(3){background:#10b981}
+    .dash{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;padding:18px;background:#f8fafc}
+    .metric,.row{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:14px}
+    .metric span,.row span{display:block;color:#6b7280;font-size:13px}.metric strong{font-size:24px}
+    .rows{grid-column:1/-1;display:grid;grid-template-columns:1.2fr .8fr .8fr .8fr;gap:10px}
+    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:24px}
     .item{background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:18px}
     h2{margin:0 0 10px;font-size:24px} h3{margin:0 0 8px;font-size:17px}
-    ol{padding-left:22px;color:#475569;line-height:1.8}
-    @media(max-width:820px){.hero{grid-template-columns:1fr;min-height:auto;padding-top:32px}h1{font-size:38px}.grid{grid-template-columns:1fr}}
+    @media(max-width:820px){.hero{min-height:auto;padding-top:28px}h1{font-size:40px}.dash,.grid,.rows{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
   <main class="wrap">
     <section class="hero">
-      <div>
-        <img class="logo" src="/logo.png" alt="MP Control">
-        <h1>MP Control</h1>
-        <p>Сервис для селлеров Wildberries и Ozon: заказы, Telegram-уведомления, продажи и выкупы, остатки, ошибки синхронизации, экономика, план и факт в одном кабинете.</p>
-        <a class="cta" href="https://t.me/mpcontrolrobot">Открыть Telegram-бота</a>
-      </div>
-      <div class="panel">
-        <h2>Как начать</h2>
-        <ol>
-          <li>Откройте Telegram-бота @mpcontrolrobot.</li>
-          <li>Подключите кабинеты Wildberries и Ozon.</li>
-          <li>Получайте аналитику, уведомления и контроль ошибок в WEB-кабинете.</li>
-        </ol>
+      <img class="logo" src="/logo.png" alt="MP Control">
+      <h1>MP Control</h1>
+      <p>Операционный кабинет для селлеров Wildberries и Ozon: заказы, Telegram-уведомления, продажи, выкупы, остатки, план/факт и контроль ошибок синхронизации.</p>
+      <a class="cta" href="https://t.me/mpcontrolrobot">Открыть Telegram-бота</a>
+      <div class="preview" aria-label="WEB-кабинет MP Control">
+        <div class="bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>WEB-кабинет селлера</span></div>
+        <div class="dash">
+          <div class="metric"><span>Выручка</span><strong>248 900 ₽</strong></div>
+          <div class="metric"><span>Заказы</span><strong>137</strong></div>
+          <div class="metric"><span>Прибыль</span><strong>62 400 ₽</strong></div>
+          <div class="metric"><span>Остатки</span><strong>18 SKU</strong></div>
+          <div class="rows">
+            <div class="row"><span>WB · FBS</span><strong>Новый заказ</strong></div>
+            <div class="row"><span>Ozon</span><strong>Выкуп</strong></div>
+            <div class="row"><span>План/факт</span><strong>+7%</strong></div>
+            <div class="row"><span>Контроль</span><strong>2 риска</strong></div>
+          </div>
+        </div>
       </div>
     </section>
     <section class="grid">

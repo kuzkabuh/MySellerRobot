@@ -28,3 +28,10 @@ def test_unknown_error_has_safe_fallback() -> None:
 
     assert advice.kind == IntegrationErrorKind.UNKNOWN
     assert "позже" in advice.recommendation
+
+
+def test_greenlet_error_is_internal_processing_problem() -> None:
+    advice = classify_integration_error("greenlet_spawn has not been called")
+
+    assert advice.kind == IntegrationErrorKind.INTERNAL
+    assert "администратору" in advice.recommendation

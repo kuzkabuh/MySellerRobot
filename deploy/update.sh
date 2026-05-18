@@ -20,6 +20,7 @@ TRIGGER_FILE="${DEPLOY_UPDATE_TRIGGER_FILE:-${DEPLOY_RUNTIME_DIR}/telegram_updat
 LOCK_DIR="${LOCK_DIR:-${DEPLOY_RUNTIME_DIR}/update.lock}"
 HEALTHCHECK_RETRIES="${HEALTHCHECK_RETRIES:-20}"
 HEALTHCHECK_INTERVAL_SECONDS="${HEALTHCHECK_INTERVAL_SECONDS:-3}"
+PUBLIC_HEALTH_URL="${PUBLIC_HEALTH_URL:-${API_BASE_URL:-https://api.mpcontrol.online}/health}"
 NON_INTERACTIVE=0
 CHECK_ONLY=0
 STARTED_AT="$(date -Is)"
@@ -46,6 +47,9 @@ REQUIRED_ENV=(
   DATABASE_URL
   REDIS_URL
   WEB_BASE_URL
+)
+
+OPTIONAL_ENV=(
   WEB_APP_BASE_URL
   API_BASE_URL
   PUBLIC_SITE_URL
@@ -236,6 +240,15 @@ validate_env() {
     log_error "Missing env variables: ${missing[*]}"
     exit 1
   fi
+  local optional_missing=()
+  for key in "${OPTIONAL_ENV[@]}"; do
+    local value
+    value="$(env_value "$key" || true)"
+    [[ -z "$value" ]] && optional_missing+=("$key")
+  done
+  if [[ "${#optional_missing[@]}" -gt 0 ]]; then
+    log_warn "Optional env variables are absent: ${optional_missing[*]}"
+  fi
 }
 
 show_current_version() {
@@ -255,6 +268,17 @@ fetch_updates() {
   else
     log_info "Remote update is available: ${REMOTE_COMMIT}"
   fi
+}
+
+finish_without_source_changes() {
+  NEW_COMMIT="$OLD_COMMIT"
+  NEW_VERSION="$OLD_VERSION"
+  log_info "Source is already up to date; skipping backup, build, migrations, and restart."
+  write_deploy_metadata
+  rm -f "$TRIGGER_FILE"
+  write_status "success" "No source changes detected. Update skipped safely."
+  notify_admins
+  print_summary
 }
 
 check_only() {
@@ -373,7 +397,7 @@ restart_services() {
 healthcheck() {
   wait_for_health "local API" "http://127.0.0.1:8000/health"
   if [[ "$SKIP_PUBLIC_HEALTH" != "1" ]]; then
-    wait_for_health "public API" "https://api.mpcontrol.online/health"
+    wait_for_health "public API" "$PUBLIC_HEALTH_URL"
   fi
   HEALTHCHECK_PASSED=true
 }
@@ -413,6 +437,10 @@ main_update() {
   check_env_diff
   check_local_changes
   validate_env
+  if [[ "$OLD_COMMIT" == "$REMOTE_COMMIT" ]]; then
+    finish_without_source_changes
+    return
+  fi
   backup_database
   pull_updates
   build_images

@@ -79,6 +79,7 @@ from app.services.web_orders_profit_service import (
     localized_order_date,
     order_state_label,
 )
+from app.services.web_sync_service import WebSyncService
 from app.web.rendering import page
 
 router = APIRouter(prefix="/web", tags=["web"])
@@ -848,6 +849,18 @@ async def accounts_page_web(
         _user_display_name(user),
         _accounts_content(data),
         active_path="/web/accounts",
+    )
+
+
+@router.post("/sync/{sync_type}")
+async def request_web_sync(
+    sync_type: str,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+) -> RedirectResponse:
+    result = await WebSyncService().request_sync(sync_type, user.id)
+    return RedirectResponse(
+        url=f"/web/accounts?sync={'queued' if result.queued else 'skipped'}",
+        status_code=303,
     )
 
 
@@ -1943,6 +1956,7 @@ def _accounts_content(data: AccountsPageData) -> str:
         )
     return f"""
       {_page_header("Кабинеты маркетплейсов", "Проверяйте подключённые кабинеты, статусы синхронизации и ошибки доступа.", "/web/profile", "Профиль")}
+      {_sync_actions()}
       <section class="kpi-grid">
         {_simple_kpi("Подключено кабинетов", f"{data.active_accounts} из {data.tier.max_marketplace_accounts}")}
         {_simple_kpi("Тариф", escape(data.tier.name))}
@@ -1958,6 +1972,25 @@ def _accounts_content(data: AccountsPageData) -> str:
         </table></div>
       </section>
     """
+
+
+def _sync_actions() -> str:
+    actions = [
+        ("orders", "Заказы"),
+        ("sales", "Продажи"),
+        ("stocks", "Остатки"),
+        ("wb-reports", "Отчёты WB"),
+        ("ozon-enrichment", "Ozon каталог"),
+    ]
+    buttons = "".join(
+        f'<form method="post" action="/web/sync/{key}">'
+        f'<button class="button" type="submit">{label}</button></form>'
+        for key, label in actions
+    )
+    return (
+        '<section class="band"><h2>Запустить синхронизацию</h2>'
+        f'<div class="page-actions">{buttons}</div></section>'
+    )
 
 
 def _seller_name_hint(account: MarketplaceAccount) -> str:
@@ -3065,7 +3098,12 @@ def _percent_optional(value: Decimal | None) -> str:
 
 def _marketplace_label(value: Marketplace | str | None) -> str:
     css_class = marketplace_css_class(value)
-    return f'<span class="marketplace-badge {css_class}">{escape(marketplace_title(value))}</span>'
+    logo = {"wb": "WB", "ozon": "OZ"}.get(css_class)
+    logo_html = f'<span class="mp-logo">{logo}</span>' if logo else ""
+    return (
+        f'<span class="marketplace-badge {css_class}">'
+        f'{logo_html}{escape(marketplace_title(value))}</span>'
+    )
 
 
 def _sale_model_badge(value: object | None) -> str:
