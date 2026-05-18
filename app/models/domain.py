@@ -291,6 +291,7 @@ class Order(TimestampMixin, Base):
     requires_seller_action: Mapped[bool] = mapped_column(Boolean, default=False)
     first_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancellation_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     raw_payload: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
 
     items: Mapped[list["OrderItem"]] = relationship(back_populates="order")
@@ -442,6 +443,7 @@ class ReturnsEvent(TimestampMixin, Base):
     quantity: Mapped[int] = mapped_column(Integer, default=1)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
     reason: Mapped[str | None] = mapped_column(String(512))
+    notification_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     raw_payload: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
 
 

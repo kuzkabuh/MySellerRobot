@@ -6,9 +6,13 @@ from decimal import Decimal
 import pytest
 
 from app.models.domain import AlertEvent, MarketplaceAccount, Order, OrderItem, SalesEvent, User
-from app.models.enums import AlertType, Marketplace, SaleEventType, SaleModel
+from app.models.enums import AlertType, Marketplace, NotificationType, SaleEventType, SaleModel
 from app.services.order_card_service import OrderCardService, VisualNotification
-from app.services.sales_event_sync_service import SaleNotification, SalesEventSyncService
+from app.services.sales_event_sync_service import (
+    OrderLifecycleNotification,
+    SaleNotification,
+    SalesEventSyncService,
+)
 from app.workers import tasks
 from app.workers.settings import WorkerSettings
 
@@ -74,6 +78,17 @@ class FakeSaleNotifier:
             raise RuntimeError("telegram down")
 
 
+class FakeLifecycleNotifier:
+    def __init__(self, fail: bool = False) -> None:
+        self.fail = fail
+        self.calls = 0
+
+    async def send_order_lifecycle_event(self, *_args, **_kwargs) -> None:  # type: ignore[no-untyped-def]
+        self.calls += 1
+        if self.fail:
+            raise RuntimeError("telegram down")
+
+
 class FakeAlertBot:
     def __init__(self, fail: bool = False) -> None:
         self.fail = fail
@@ -99,6 +114,14 @@ class FakeSalesDeliveryService:
 
     async def mark_notified(self, event_id: int) -> None:
         self.marked.append(event_id)
+
+
+class FakeLifecycleDeliveryService:
+    def __init__(self) -> None:
+        self.marked: list[tuple[str, int]] = []
+
+    async def mark_lifecycle_notified(self, *, event_type: str, event_id: int) -> None:
+        self.marked.append((event_type, event_id))
 
 
 @pytest.mark.asyncio
@@ -277,6 +300,45 @@ async def test_failed_sale_retry_can_send_later() -> None:
 
 
 @pytest.mark.asyncio
+async def test_order_cancellation_send_success_marks_after_telegram() -> None:
+    session = FakeSession()
+    service = FakeLifecycleDeliveryService()
+    notifier = FakeLifecycleNotifier()
+
+    sent, failed = await tasks._deliver_order_lifecycle_notifications(
+        session,
+        service,  # type: ignore[arg-type]
+        notifier,  # type: ignore[arg-type]
+        [_lifecycle_notification(NotificationType.ORDER_CANCELLED, Marketplace.WB)],
+    )
+
+    assert (sent, failed) == (1, 0)
+    assert notifier.calls == 1
+    assert service.marked == [(NotificationType.ORDER_CANCELLED.value, 601)]
+    assert session.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_return_send_failure_keeps_event_pending_for_retry() -> None:
+    session = FakeSession()
+    service = FakeLifecycleDeliveryService()
+    notifier = FakeLifecycleNotifier(fail=True)
+
+    sent, failed = await tasks._deliver_order_lifecycle_notifications(
+        session,
+        service,  # type: ignore[arg-type]
+        notifier,  # type: ignore[arg-type]
+        [_lifecycle_notification(NotificationType.RETURN_CREATED, Marketplace.OZON)],
+    )
+
+    assert (sent, failed) == (0, 1)
+    assert notifier.calls == 1
+    assert service.marked == []
+    assert session.commits == 0
+    assert session.rollbacks == 1
+
+
+@pytest.mark.asyncio
 async def test_alert_send_success_marks_sent_after_telegram() -> None:
     session = FakeSession()
     alert = _alert_event()
@@ -432,6 +494,23 @@ def _sale_notification(marketplace: Marketplace) -> SaleNotification:
         marketplace=marketplace,
         event_type=SaleEventType.BUYOUT.value,
         external_event_id="sale-501",
+    )
+
+
+def _lifecycle_notification(
+    notification_type: NotificationType,
+    marketplace: Marketplace,
+) -> OrderLifecycleNotification:
+    return OrderLifecycleNotification(
+        event_id=601,
+        user_id=7,
+        account_id=55,
+        telegram_id=777000,
+        text="Событие заказа",
+        marketplace=marketplace,
+        event_type=notification_type.value,
+        external_event_id="event-601",
+        order_id=101 if notification_type == NotificationType.ORDER_CANCELLED else None,
     )
 
 

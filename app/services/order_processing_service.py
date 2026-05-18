@@ -532,7 +532,7 @@ class OrderProcessingService:
     @staticmethod
     def _poll_window_start(account: MarketplaceAccount, now: datetime) -> datetime:
         if account.last_order_poll_at is None:
-            return now - timedelta(minutes=30)
+            return now - timedelta(hours=24)
         return max(account.last_order_poll_at - timedelta(minutes=10), now - timedelta(days=7))
 
 

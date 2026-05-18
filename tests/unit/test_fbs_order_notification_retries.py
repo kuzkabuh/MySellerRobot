@@ -3,7 +3,7 @@ description: Regression tests for retryable WB and Ozon FBS order notifications.
 updated: 2026-05-17
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -292,6 +292,14 @@ async def test_saved_unnotified_order_is_recovered_without_marketplace_duplicate
     notification = result.notifications[0] if result.notifications else None
     assert notification is not None
     assert notification.order_id == 404
+
+
+def test_initial_ozon_poll_uses_wide_window_for_first_sync() -> None:
+    now = datetime(2026, 5, 18, 12, 0, tzinfo=UTC)
+    account = _account(Marketplace.OZON)
+    account.last_order_poll_at = None
+
+    assert OrderProcessingService._poll_window_start(account, now) == now - timedelta(hours=24)
 
 
 def _service(existing: Order | None) -> tuple[OrderProcessingService, FakeOrders]:

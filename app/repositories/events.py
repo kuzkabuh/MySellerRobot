@@ -246,3 +246,19 @@ class ReturnsEventRepository:
         )
         await self.session.flush()
         return True
+
+    async def pending_notifications(self, limit: int = 100) -> list[ReturnsEvent]:
+        result = await self.session.execute(
+            select(ReturnsEvent)
+            .where(ReturnsEvent.notification_sent_at.is_(None))
+            .order_by(ReturnsEvent.event_date.asc(), ReturnsEvent.id.asc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def mark_notified(self, row_id: int, notified_at: datetime | None = None) -> None:
+        await self.session.execute(
+            update(ReturnsEvent)
+            .where(ReturnsEvent.id == row_id)
+            .values(notification_sent_at=notified_at or datetime.now(tz=UTC))
+        )

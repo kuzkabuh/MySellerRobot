@@ -14,7 +14,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import TokenCipher
 from app.integrations.ozon import OzonClient
 from app.integrations.wb import WildberriesClient
-from app.models.domain import MarketplaceAccount, OrderItem, ProfitSnapshot, SalesEvent, User
+from app.models.domain import (
+    MarketplaceAccount,
+    Order,
+    OrderItem,
+    ProfitSnapshot,
+    ReturnsEvent,
+    SalesEvent,
+    User,
+)
 from app.models.enums import CalculationType, Marketplace, NotificationType, SaleModel
 from app.repositories.events import ReturnsEventRepository, SalesEventRepository
 from app.repositories.orders import OrderRepository
@@ -54,6 +62,22 @@ class SaleNotification:
     marketplace: Marketplace
     event_type: str
     external_event_id: str
+    image_url: str | None = None
+    product_url: str | None = None
+    parse_mode: str | None = "HTML"
+
+
+@dataclass(slots=True)
+class OrderLifecycleNotification:
+    event_id: int
+    user_id: int
+    account_id: int
+    telegram_id: int
+    text: str
+    marketplace: Marketplace
+    event_type: str
+    external_event_id: str
+    order_id: int | None = None
     image_url: str | None = None
     product_url: str | None = None
     parse_mode: str | None = "HTML"
@@ -174,6 +198,28 @@ class SalesEventSyncService:
 
     async def mark_notified(self, event_id: int) -> None:
         await self.sales.mark_notified(event_id)
+
+    async def pending_order_lifecycle_notifications(
+        self,
+        limit: int = 100,
+    ) -> list[OrderLifecycleNotification]:
+        notifications: list[OrderLifecycleNotification] = []
+        notifications.extend(await self._pending_cancel_notifications(limit=limit))
+        remaining = max(limit - len(notifications), 0)
+        if remaining:
+            notifications.extend(await self._pending_return_notifications(limit=remaining))
+        return notifications
+
+    async def mark_lifecycle_notified(
+        self,
+        *,
+        event_type: str,
+        event_id: int,
+    ) -> None:
+        if event_type == NotificationType.RETURN_CREATED.value:
+            await self.returns.mark_notified(event_id)
+            return
+        await self.orders.mark_cancellation_notified(event_id)
 
     async def _sync_wb(
         self,
@@ -353,8 +399,148 @@ class SalesEventSyncService:
                     "ozon_completed_sales_sync_failed", extra={"account_id": account.id}
                 )
                 await self.session.rollback()
+        try:
+            returns_data = await client.get_returns(date_from=date_from, date_to=date_to)
+            for row in self._extract_returns(returns_data):
+                event, created = await self._upsert_ozon_return_event(account, row)
+                result.returns_fetched += 1
+                result.returns_created += int(created)
+                result.returns_updated += int(not created)
+                logger.debug("ozon_return_event_synced", extra={"event_id": event.id})
+        except Exception:
+            result.failed += 1
+            logger.exception("ozon_returns_sync_failed", extra={"account_id": account.id})
+            await self.session.rollback()
         await self.session.commit()
         return result
+
+    async def _pending_cancel_notifications(
+        self,
+        *,
+        limit: int,
+    ) -> list[OrderLifecycleNotification]:
+        orders = await self.orders.pending_cancelled_unnotified(limit=limit)
+        notifications: list[OrderLifecycleNotification] = []
+        account_ids = {order.marketplace_account_id for order in orders}
+        accounts = await self._accounts_by_id(account_ids)
+        users = await self._users_by_id({order.user_id for order in orders})
+        for order in orders:
+            account = accounts.get(order.marketplace_account_id)
+            user = users.get(order.user_id)
+            if account is None or user is None:
+                logger.warning(
+                    "cancel_notification_skipped_without_user",
+                    extra=_lifecycle_log_extra(order, NotificationType.ORDER_CANCELLED.value),
+                )
+                continue
+            if not user.notifications_enabled:
+                continue
+            if not self._lifecycle_notifications_enabled(
+                account,
+                NotificationType.ORDER_CANCELLED,
+            ):
+                continue
+            item = order.items[0] if order.items else None
+            try:
+                card = await self.cards.cancellation_card(
+                    order=order,
+                    item=item,
+                    timezone_name=user.timezone,
+                )
+            except Exception as exc:
+                logger.exception(
+                    "cancel_notification_card_failed",
+                    extra={
+                        **_lifecycle_log_extra(order, NotificationType.ORDER_CANCELLED.value),
+                        "exception_class": type(exc).__name__,
+                        "error": str(exc)[:300],
+                    },
+                )
+                continue
+            notifications.append(
+                OrderLifecycleNotification(
+                    event_id=order.id,
+                    user_id=user.id,
+                    account_id=order.marketplace_account_id,
+                    telegram_id=user.telegram_id,
+                    text=card.text,
+                    marketplace=order.marketplace,
+                    event_type=NotificationType.ORDER_CANCELLED.value,
+                    external_event_id=order.order_external_id,
+                    order_id=order.id,
+                    image_url=card.image_url,
+                    product_url=card.product_url,
+                    parse_mode=card.parse_mode,
+                )
+            )
+        return notifications
+
+    async def _pending_return_notifications(
+        self,
+        *,
+        limit: int,
+    ) -> list[OrderLifecycleNotification]:
+        events = await self.returns.pending_notifications(limit=limit)
+        notifications: list[OrderLifecycleNotification] = []
+        account_ids = {event.marketplace_account_id for event in events}
+        accounts = await self._accounts_by_id(account_ids)
+        users = await self._users_by_id({event.user_id for event in events})
+        for event in events:
+            account = accounts.get(event.marketplace_account_id)
+            user = users.get(event.user_id)
+            if account is None or user is None:
+                logger.warning(
+                    "return_notification_skipped_without_user",
+                    extra=_return_log_extra(event),
+                )
+                continue
+            if not user.notifications_enabled:
+                continue
+            if not self._lifecycle_notifications_enabled(account, NotificationType.RETURN_CREATED):
+                continue
+            try:
+                card = await self.cards.return_card(event=event, timezone_name=user.timezone)
+            except Exception as exc:
+                logger.exception(
+                    "return_notification_card_failed",
+                    extra={
+                        **_return_log_extra(event),
+                        "exception_class": type(exc).__name__,
+                        "error": str(exc)[:300],
+                    },
+                )
+                continue
+            notifications.append(
+                OrderLifecycleNotification(
+                    event_id=event.id,
+                    user_id=user.id,
+                    account_id=event.marketplace_account_id,
+                    telegram_id=user.telegram_id,
+                    text=card.text,
+                    marketplace=event.marketplace,
+                    event_type=NotificationType.RETURN_CREATED.value,
+                    external_event_id=event.external_event_id,
+                    order_id=None,
+                    image_url=card.image_url,
+                    product_url=card.product_url,
+                    parse_mode=card.parse_mode,
+                )
+            )
+        return notifications
+
+    async def _accounts_by_id(self, ids: set[int]) -> dict[int, MarketplaceAccount]:
+        if not ids:
+            return {}
+        result = await self.session.execute(
+            select(MarketplaceAccount).where(MarketplaceAccount.id.in_(ids))
+        )
+        return {account.id: account for account in result.scalars().all()}
+
+    async def _users_by_id(self, ids: set[int]) -> dict[int, User]:
+        if not ids:
+            return {}
+        result = await self.session.execute(select(User).where(User.id.in_(ids)))
+        return {user.id: user for user in result.scalars().all()}
 
     async def _upsert_order_with_profit(
         self,
@@ -437,6 +623,33 @@ class SalesEventSyncService:
             raw_payload=raw_payload if isinstance(raw_payload, dict) else {},
         )
 
+    async def _upsert_ozon_return_event(
+        self,
+        account: MarketplaceAccount,
+        row: dict[str, object],
+    ) -> tuple[ReturnsEvent, bool]:
+        event_date = _parse_return_date(
+            row.get("created_at") or row.get("returned_at") or row.get("updated_at")
+        )
+        external_id = str(
+            row.get("return_id")
+            or row.get("id")
+            or row.get("posting_number")
+            or f"ozon-return-{account.id}-{event_date.isoformat()}"
+        )
+        return await self.returns.upsert(
+            user_id=account.user_id,
+            account_id=account.id,
+            marketplace=Marketplace.OZON,
+            external_event_id=external_id,
+            order_external_id=str(row.get("posting_number") or "") or None,
+            event_date=event_date,
+            quantity=_int_value(row.get("quantity"), default=1),
+            amount=Decimal(str(row.get("price") or row.get("amount") or 0)),
+            reason=str(row.get("return_reason_name") or row.get("reason") or "") or None,
+            raw_payload=dict(row),
+        )
+
     @staticmethod
     def _extract_postings(data: dict[str, object]) -> list[object]:
         result = data.get("result")
@@ -446,10 +659,30 @@ class SalesEventSyncService:
         return result if isinstance(result, list) else []
 
     @staticmethod
+    def _extract_returns(data: dict[str, object]) -> list[dict[str, object]]:
+        rows = data.get("returns")
+        if not isinstance(rows, list):
+            result = data.get("result")
+            if isinstance(result, dict):
+                rows = result.get("returns")
+            elif isinstance(result, list):
+                rows = result
+        return [row for row in rows or [] if isinstance(row, dict)]
+
+    @staticmethod
     def _buyout_notifications_enabled(account: MarketplaceAccount) -> bool:
         settings = account.notification_settings or {}
         value = settings.get(NotificationType.SALE_COMPLETED.value, True)
-        return bool(value)
+        return _settings_bool(value)
+
+    @staticmethod
+    def _lifecycle_notifications_enabled(
+        account: MarketplaceAccount,
+        notification_type: NotificationType,
+    ) -> bool:
+        settings = account.notification_settings or {}
+        value = settings.get(notification_type.value, True)
+        return _settings_bool(value)
 
     @staticmethod
     def format_sale_notification(row: SalesEvent) -> str:
@@ -493,3 +726,45 @@ def _int_value(value: object, *, default: int) -> int:
         return int(str(value))
     except ValueError:
         return default
+
+
+def _parse_return_date(value: object) -> datetime:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    if value:
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+        except ValueError:
+            pass
+    return datetime.now(tz=UTC)
+
+
+def _settings_bool(value: object) -> bool:
+    if isinstance(value, str):
+        return value.lower() in {"1", "true", "yes", "on", "да"}
+    return bool(value)
+
+
+def _lifecycle_log_extra(order: Order, event_type: str) -> dict[str, object]:
+    return {
+        "event_type": event_type,
+        "account_id": order.marketplace_account_id,
+        "user_id": order.user_id,
+        "order_id": order.id,
+        "order_external_id": order.order_external_id,
+        "marketplace": order.marketplace.value,
+        "status": order.normalized_status or order.status,
+    }
+
+
+def _return_log_extra(event: ReturnsEvent) -> dict[str, object]:
+    return {
+        "event_type": NotificationType.RETURN_CREATED.value,
+        "event_id": event.id,
+        "external_event_id": event.external_event_id,
+        "account_id": event.marketplace_account_id,
+        "user_id": event.user_id,
+        "order_external_id": event.order_external_id,
+        "marketplace": event.marketplace.value,
+    }

@@ -203,6 +203,17 @@ class OrderRepository:
             )
         )
 
+    async def mark_cancellation_notified(
+        self,
+        order_id: int,
+        notified_at: datetime | None = None,
+    ) -> None:
+        await self.session.execute(
+            update(Order)
+            .where(Order.id == order_id)
+            .values(cancellation_notified_at=notified_at or datetime.now(tz=UTC))
+        )
+
     async def order_totals(self, order_id: int) -> tuple[Decimal, Decimal]:
         result = await self.session.execute(
             select(
@@ -233,6 +244,21 @@ class OrderRepository:
             .where(Order.marketplace_account_id == account_id)
             .where(Order.first_notified_at.is_(None))
             .where(Order.sale_model.in_(sale_models))
+            .order_by(Order.event_received_at.asc(), Order.id.asc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def pending_cancelled_unnotified(
+        self,
+        *,
+        limit: int = 100,
+    ) -> list[Order]:
+        result = await self.session.execute(
+            select(Order)
+            .options(selectinload(Order.items))
+            .where(Order.cancellation_notified_at.is_(None))
+            .where(func.lower(func.coalesce(Order.normalized_status, Order.status)).in_(_CANCELLED))
             .order_by(Order.event_received_at.asc(), Order.id.asc())
             .limit(limit)
         )
@@ -354,3 +380,6 @@ class FboDigestQueueRepository:
             .where(FboDigestQueue.id.in_(row_ids))
             .values(sent_at=sent_at or datetime.now(tz=UTC))
         )
+
+
+_CANCELLED = ("cancelled", "canceled", "cancel")

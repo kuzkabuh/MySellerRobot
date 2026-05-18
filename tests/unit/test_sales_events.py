@@ -8,7 +8,7 @@ from decimal import Decimal
 
 from app.integrations.wb import WildberriesClient
 from app.models.domain import SalesEvent
-from app.models.enums import Marketplace, SaleEventType
+from app.models.enums import Marketplace, NotificationType, SaleEventType
 from app.services.sales_event_sync_service import SalesEventSyncService
 
 
@@ -78,3 +78,29 @@ def test_wb_supplier_return_normalization() -> None:
     assert row["external_event_id"] == "wb-return-R123"
     assert row["quantity"] == 1
     assert row["amount"] == Decimal("450.25")
+
+
+def test_ozon_return_rows_are_extracted_from_supported_shapes() -> None:
+    service = SalesEventSyncService(object())  # type: ignore[arg-type]
+
+    assert service._extract_returns({"returns": [{"id": 1}]}) == [{"id": 1}]
+    assert service._extract_returns({"result": {"returns": [{"id": 2}]}}) == [{"id": 2}]
+    assert service._extract_returns({"result": [{"id": 3}]}) == [{"id": 3}]
+
+
+def test_string_false_disables_sale_notifications() -> None:
+    account = type("Account", (), {"notification_settings": {"SALE_COMPLETED": "false"}})()
+
+    assert SalesEventSyncService._buyout_notifications_enabled(account) is False
+
+
+def test_string_false_disables_return_notifications() -> None:
+    account = type("Account", (), {"notification_settings": {"RETURN_CREATED": "false"}})()
+
+    assert (
+        SalesEventSyncService._lifecycle_notifications_enabled(
+            account,
+            NotificationType.RETURN_CREATED,
+        )
+        is False
+    )

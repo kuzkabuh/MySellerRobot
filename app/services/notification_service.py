@@ -171,3 +171,43 @@ class NotificationService:
                 return
             await self.bot.send_photo(telegram_id, photo=image_url)
         await self.bot.send_message(telegram_id, text, parse_mode=parse_mode, reply_markup=keyboard)
+
+    async def send_order_lifecycle_event(
+        self,
+        telegram_id: int,
+        text: str,
+        *,
+        order_id: int | None = None,
+        image_url: str | None = None,
+        product_url: str | None = None,
+        marketplace: Marketplace | None = None,
+        parse_mode: str | None = None,
+    ) -> None:
+        keyboard = self._build_new_order_keyboard(order_id, product_url, marketplace)
+        if image_url:
+            try:
+                if len(text) <= TELEGRAM_CAPTION_LIMIT:
+                    await self.bot.send_photo(
+                        telegram_id,
+                        photo=image_url,
+                        caption=text,
+                        parse_mode=parse_mode,
+                        reply_markup=keyboard,
+                    )
+                    return
+                await self.bot.send_photo(telegram_id, photo=image_url)
+            except Exception:
+                logger.exception(
+                    "order_lifecycle_photo_send_failed_fallback_to_text",
+                    extra={
+                        "telegram_id": telegram_id,
+                        "order_id": order_id,
+                        "marketplace": marketplace.value if marketplace else None,
+                    },
+                )
+        await self.bot.send_message(
+            telegram_id,
+            text,
+            parse_mode=parse_mode,
+            reply_markup=keyboard,
+        )

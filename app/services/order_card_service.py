@@ -12,7 +12,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.domain import Order, OrderItem, Product, SalesEvent, StockSnapshot
+from app.models.domain import Order, OrderItem, Product, ReturnsEvent, SalesEvent, StockSnapshot
 from app.models.enums import Marketplace, SaleModel
 from app.repositories.products import ProductRepository
 from app.services.marketplace_estimates import (
@@ -148,6 +148,64 @@ class OrderCardService:
             text="\n".join(lines),
             image_url=image_url,
             product_url=product_url,
+        )
+
+    async def cancellation_card(
+        self,
+        *,
+        order: Order,
+        item: OrderItem | None,
+        timezone_name: str,
+    ) -> VisualNotification:
+        product = await self._resolve_product(order, item) if item else None
+        article = item.marketplace_article if item else None
+        product_url = self._product_url(order.marketplace, article)
+        title = item.title or item.seller_article if item else None
+        lines = [
+            format_datetime_for_user(order.order_date, timezone_name),
+            "",
+            f"❌ Отмена заказа — {order.marketplace.value}",
+            f"📦 {escape(title or order.order_external_id or 'Заказ')}",
+            f"🆔 Заказ: {escape(order.order_external_id)}",
+            f"📌 Статус: {escape(order.normalized_status or order.status or 'cancelled')}",
+        ]
+        if item:
+            economics = calculate_planned_economics(
+                order,
+                item,
+                product_commission_rate=product.marketplace_commission_rate if product else None,
+            )
+            lines.extend(
+                [
+                    f"💰 Сумма заказа: {rub(economics.revenue)}",
+                    f"📊 Плановая прибыль была: {rub(economics.profit)}",
+                ]
+            )
+        return VisualNotification(
+            text="\n".join(lines),
+            image_url=product.image_url if product else None,
+            product_url=product_url,
+        )
+
+    async def return_card(
+        self,
+        *,
+        event: ReturnsEvent,
+        timezone_name: str,
+    ) -> VisualNotification:
+        lines = [
+            format_datetime_for_user(event.event_date, timezone_name),
+            "",
+            f"↩️ Возврат — {event.marketplace.value}",
+            f"🆔 Заказ: {escape(event.order_external_id or 'н/д')}",
+            f"📦 Количество: {event.quantity}",
+            f"💰 Сумма возврата: {rub(event.amount)}",
+        ]
+        if event.reason:
+            lines.append(f"📌 Причина: {escape(event.reason)}")
+        return VisualNotification(
+            text="\n".join(lines),
+            product_url=None,
         )
 
     async def _resolve_product(self, order: Order, item: OrderItem) -> Product | None:

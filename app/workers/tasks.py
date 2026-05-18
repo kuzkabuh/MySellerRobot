@@ -28,7 +28,11 @@ from app.services.notification_service import NotificationService
 from app.services.order_processing_service import NewOrderNotification, OrderProcessingService
 from app.services.ozon_catalog_enrichment_service import OzonCatalogEnrichmentService
 from app.services.product_sync_service import ProductSyncService
-from app.services.sales_event_sync_service import SaleNotification, SalesEventSyncService
+from app.services.sales_event_sync_service import (
+    OrderLifecycleNotification,
+    SaleNotification,
+    SalesEventSyncService,
+)
 from app.services.stock_service import StockService
 from app.services.wb_report_service import WbFinancialReportService
 
@@ -222,6 +226,8 @@ async def sync_sale_events(ctx: dict[str, Any]) -> None:
                         "orders_created": sync_result.orders_created,
                         "sales_fetched": sync_result.sales_fetched,
                         "sales_created": sync_result.sales_created,
+                        "returns_fetched": sync_result.returns_fetched,
+                        "returns_created": sync_result.returns_created,
                         "failed": sync_result.failed,
                     },
                 )
@@ -233,6 +239,13 @@ async def sync_sale_events(ctx: dict[str, Any]) -> None:
                 await session.rollback()
         notifications = await service.pending_notifications(limit=100)
         await _deliver_sale_notifications(session, service, notifier, notifications)
+        lifecycle_notifications = await service.pending_order_lifecycle_notifications(limit=100)
+        await _deliver_order_lifecycle_notifications(
+            session,
+            service,
+            notifier,
+            lifecycle_notifications,
+        )
     await bot.session.close()
 
 
@@ -336,6 +349,57 @@ async def _deliver_sale_notifications(
     return sent, failed
 
 
+async def _deliver_order_lifecycle_notifications(
+    session: AsyncSession,
+    service: SalesEventSyncService,
+    notifier: NotificationService,
+    notifications: list[OrderLifecycleNotification],
+) -> tuple[int, int]:
+    sent = 0
+    failed = 0
+    for notification in notifications:
+        logger.info(
+            "notification_send_attempt",
+            extra=_lifecycle_notification_log_extra(notification),
+        )
+        try:
+            await notifier.send_order_lifecycle_event(
+                notification.telegram_id,
+                notification.text,
+                order_id=notification.order_id,
+                image_url=notification.image_url,
+                product_url=notification.product_url,
+                marketplace=notification.marketplace,
+                parse_mode=notification.parse_mode,
+            )
+            await service.mark_lifecycle_notified(
+                event_type=notification.event_type,
+                event_id=notification.event_id,
+            )
+            await session.commit()
+            sent += 1
+            logger.info(
+                "notification_send_success",
+                extra=_lifecycle_notification_log_extra(notification),
+            )
+        except Exception as exc:
+            failed += 1
+            await session.rollback()
+            logger.exception(
+                "notification_send_failure",
+                extra={
+                    **_lifecycle_notification_log_extra(notification),
+                    "exception_class": type(exc).__name__,
+                    "error": str(exc)[:300],
+                },
+            )
+            logger.warning(
+                "order_lifecycle_notification_retry_left_pending",
+                extra=_lifecycle_notification_log_extra(notification),
+            )
+    return sent, failed
+
+
 def _order_notification_log_extra(notification: NewOrderNotification) -> dict[str, object]:
     return {
         "event_type": notification.event_type,
@@ -356,6 +420,21 @@ def _sale_notification_log_extra(notification: SaleNotification) -> dict[str, ob
         "external_event_id": notification.external_event_id,
         "account_id": notification.account_id,
         "user_id": notification.user_id,
+        "telegram_id": notification.telegram_id,
+        "marketplace": notification.marketplace.value,
+    }
+
+
+def _lifecycle_notification_log_extra(
+    notification: OrderLifecycleNotification,
+) -> dict[str, object]:
+    return {
+        "event_type": notification.event_type,
+        "event_id": notification.event_id,
+        "external_event_id": notification.external_event_id,
+        "account_id": notification.account_id,
+        "user_id": notification.user_id,
+        "order_id": notification.order_id,
         "telegram_id": notification.telegram_id,
         "marketplace": notification.marketplace.value,
     }
