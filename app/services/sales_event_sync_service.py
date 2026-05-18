@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import TokenCipher
 from app.integrations.ozon import OzonClient
 from app.integrations.wb import WildberriesClient
-from app.models.domain import MarketplaceAccount, OrderItem, ProfitSnapshot, SalesEvent
+from app.models.domain import MarketplaceAccount, OrderItem, ProfitSnapshot, SalesEvent, User
 from app.models.enums import CalculationType, Marketplace, NotificationType, SaleModel
 from app.repositories.events import ReturnsEventRepository, SalesEventRepository
 from app.repositories.orders import OrderRepository
@@ -47,9 +47,13 @@ class SalesSyncResult:
 @dataclass(slots=True)
 class SaleNotification:
     event_id: int
+    user_id: int
+    account_id: int
     telegram_id: int
     text: str
     marketplace: Marketplace
+    event_type: str
+    external_event_id: str
     image_url: str | None = None
     product_url: str | None = None
     parse_mode: str | None = "HTML"
@@ -82,26 +86,85 @@ class SalesEventSyncService:
         return await self._sync_ozon(account, date_from, datetime.now(tz=UTC))
 
     async def pending_notifications(self, limit: int = 100) -> list[SaleNotification]:
-        rows = await self.sales.pending_notifications(limit=limit)
+        result = await self.session.execute(
+            select(SalesEvent, MarketplaceAccount, User)
+            .outerjoin(
+                MarketplaceAccount,
+                MarketplaceAccount.id == SalesEvent.marketplace_account_id,
+            )
+            .outerjoin(User, User.id == SalesEvent.user_id)
+            .where(SalesEvent.notification_sent_at.is_(None))
+            .order_by(SalesEvent.event_date.asc())
+            .limit(limit)
+        )
         notifications: list[SaleNotification] = []
-        for row in rows:
-            account = await self.session.get(MarketplaceAccount, row.marketplace_account_id)
-            if account is None or account.user is None:
+        for row, account, user in result.all():
+            if account is None or user is None:
+                logger.warning(
+                    "sale_notification_skipped_without_user",
+                    extra={
+                        "event_id": row.id,
+                        "event_type": row.event_type.value,
+                        "marketplace": row.marketplace.value,
+                        "account_id": row.marketplace_account_id,
+                        "user_id": row.user_id,
+                        "external_event_id": row.external_event_id,
+                    },
+                )
                 continue
-            if not account.user.notifications_enabled:
+            if not user.notifications_enabled:
+                logger.info(
+                    "sale_notification_skipped_by_user_settings",
+                    extra={
+                        "event_id": row.id,
+                        "event_type": row.event_type.value,
+                        "marketplace": row.marketplace.value,
+                        "account_id": account.id,
+                        "user_id": user.id,
+                        "external_event_id": row.external_event_id,
+                    },
+                )
                 continue
             if not self._buyout_notifications_enabled(account):
+                logger.info(
+                    "sale_notification_skipped_by_account_settings",
+                    extra={
+                        "event_id": row.id,
+                        "event_type": row.event_type.value,
+                        "marketplace": row.marketplace.value,
+                        "account_id": account.id,
+                        "user_id": user.id,
+                        "external_event_id": row.external_event_id,
+                    },
+                )
                 continue
-            card = await self.cards.buyout_card(
-                event=row,
-                timezone_name=account.user.timezone,
-            )
+            try:
+                card = await self.cards.buyout_card(event=row, timezone_name=user.timezone)
+            except Exception as exc:
+                logger.exception(
+                    "sale_notification_card_failed",
+                    extra={
+                        "event_id": row.id,
+                        "event_type": row.event_type.value,
+                        "marketplace": row.marketplace.value,
+                        "account_id": account.id,
+                        "user_id": user.id,
+                        "external_event_id": row.external_event_id,
+                        "exception_class": type(exc).__name__,
+                        "error": str(exc)[:300],
+                    },
+                )
+                continue
             notifications.append(
                 SaleNotification(
                     event_id=row.id,
-                    telegram_id=account.user.telegram_id,
+                    user_id=user.id,
+                    account_id=account.id,
+                    telegram_id=user.telegram_id,
                     text=card.text,
                     marketplace=account.marketplace,
+                    event_type=row.event_type.value,
+                    external_event_id=row.external_event_id,
                     image_url=card.image_url,
                     product_url=card.product_url,
                     parse_mode=card.parse_mode,
@@ -122,6 +185,15 @@ class SalesEventSyncService:
         try:
             orders = await client.get_supplier_orders(date_from)
             result.orders_fetched = len(orders)
+            logger.info(
+                "wb_statistics_orders_fetched",
+                extra={
+                    "account_id": account.id,
+                    "user_id": account.user_id,
+                    "marketplace": account.marketplace.value,
+                    "orders_fetched": result.orders_fetched,
+                },
+            )
             for payload in orders:
                 normalized = client.normalize_statistics_order(payload)
                 created = await self._upsert_order_with_profit(account, normalized)
@@ -134,6 +206,15 @@ class SalesEventSyncService:
         try:
             sales = await client.get_supplier_sales(date_from)
             result.sales_fetched = len(sales)
+            logger.info(
+                "wb_supplier_sales_fetched",
+                extra={
+                    "account_id": account.id,
+                    "user_id": account.user_id,
+                    "marketplace": account.marketplace.value,
+                    "sales_fetched": result.sales_fetched,
+                },
+            )
             for payload in sales:
                 row, created = await self._upsert_sale_event(
                     account,
@@ -234,6 +315,16 @@ class SalesEventSyncService:
                     if not postings:
                         break
                     result.orders_fetched += len(postings)
+                    logger.info(
+                        "ozon_sale_orders_fetched",
+                        extra={
+                            "account_id": account.id,
+                            "user_id": account.user_id,
+                            "marketplace": account.marketplace.value,
+                            "postings_fetched": len(postings),
+                            "offset": offset,
+                        },
+                    )
                     for payload in postings:
                         if not isinstance(payload, dict):
                             continue

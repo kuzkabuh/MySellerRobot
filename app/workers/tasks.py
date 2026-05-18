@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 from aiogram import Bot
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
@@ -24,9 +25,9 @@ from app.services.fbo_digest_service import FboDigestService
 from app.services.fbs_control_service import FbsControlService
 from app.services.history_backfill_service import BackfillCounters, HistoryBackfillService
 from app.services.notification_service import NotificationService
-from app.services.order_processing_service import OrderProcessingService
+from app.services.order_processing_service import NewOrderNotification, OrderProcessingService
 from app.services.ozon_catalog_enrichment_service import OzonCatalogEnrichmentService
-from app.services.sales_event_sync_service import SalesEventSyncService
+from app.services.sales_event_sync_service import SaleNotification, SalesEventSyncService
 from app.services.stock_service import StockService
 from app.services.wb_report_service import WbFinancialReportService
 
@@ -53,90 +54,11 @@ async def poll_new_orders(ctx: dict[str, Any]) -> None:
             marketplace = account.marketplace.value
             try:
                 poll_result = await OrderProcessingService(session).poll_account_with_stats(account)
-                sent = 0
-                for notification in poll_result.notifications or []:
-                    try:
-                        await notifier.send_new_order(
-                            notification.telegram_id,
-                            notification.text,
-                            notification.order_id,
-                            image_url=notification.image_url,
-                            product_url=notification.product_url,
-                            marketplace=notification.marketplace,
-                            parse_mode=notification.parse_mode,
-                        )
-                        await OrderRepository(session).mark_notified(notification.order_id)
-                        sent += 1
-                        logger.info(
-                            "new_order_notification_sent",
-                            extra={
-                                "account_id": notification.account_id,
-                                "user_id": notification.user_id,
-                                "order_id": notification.order_id,
-                                "telegram_id": notification.telegram_id,
-                                "marketplace": notification.marketplace.value,
-                                "fulfillment_type": notification.fulfillment_type,
-                                "sale_model": notification.sale_model,
-                                "event_type": notification.event_type,
-                            },
-                        )
-                        if _is_fbs_like_notification(notification.sale_model):
-                            logger.info(
-                                "fbs_order_notification_sent",
-                                extra={
-                                    "account_id": notification.account_id,
-                                    "user_id": notification.user_id,
-                                    "order_id": notification.order_id,
-                                    "telegram_id": notification.telegram_id,
-                                    "marketplace": notification.marketplace.value,
-                                    "fulfillment_type": notification.fulfillment_type,
-                                    "sale_model": notification.sale_model,
-                                    "event_type": notification.event_type,
-                                },
-                            )
-                    except Exception:
-                        logger.exception(
-                            "new_order_notification_send_failed",
-                            extra={
-                                "account_id": notification.account_id,
-                                "user_id": notification.user_id,
-                                "order_id": notification.order_id,
-                                "telegram_id": notification.telegram_id,
-                                "marketplace": notification.marketplace.value,
-                                "fulfillment_type": notification.fulfillment_type,
-                                "sale_model": notification.sale_model,
-                                "event_type": notification.event_type,
-                            },
-                        )
-                        if _is_fbs_like_notification(notification.sale_model):
-                            logger.warning(
-                                "fbs_order_notification_retry_scheduled",
-                                extra={
-                                    "account_id": notification.account_id,
-                                    "user_id": notification.user_id,
-                                    "order_id": notification.order_id,
-                                    "telegram_id": notification.telegram_id,
-                                    "marketplace": notification.marketplace.value,
-                                    "fulfillment_type": notification.fulfillment_type,
-                                    "sale_model": notification.sale_model,
-                                    "event_type": notification.event_type,
-                                },
-                            )
-                            logger.exception(
-                                "fbs_order_notification_failed",
-                                extra={
-                                    "account_id": notification.account_id,
-                                    "user_id": notification.user_id,
-                                    "order_id": notification.order_id,
-                                    "telegram_id": notification.telegram_id,
-                                    "marketplace": notification.marketplace.value,
-                                    "fulfillment_type": notification.fulfillment_type,
-                                    "sale_model": notification.sale_model,
-                                    "event_type": notification.event_type,
-                                },
-                            )
-                if sent:
-                    await session.commit()
+                sent, failed = await _deliver_new_order_notifications(
+                    session,
+                    notifier,
+                    poll_result.notifications or [],
+                )
                 logger.info(
                     "order_poll_notifications_sent",
                     extra={
@@ -151,7 +73,7 @@ async def poll_new_orders(ctx: dict[str, Any]) -> None:
                         "notifications_prepared": poll_result.notification_count,
                         "notifications_attempted": poll_result.notification_count,
                         "notifications_sent": sent,
-                        "notifications_failed": poll_result.notification_count - sent,
+                        "notifications_failed": failed,
                     },
                 )
             except Exception as exc:
@@ -254,25 +176,133 @@ async def sync_sale_events(ctx: dict[str, Any]) -> None:
                 )
                 await session.rollback()
         notifications = await service.pending_notifications(limit=100)
-        for notification in notifications:
-            try:
-                await notifier.send_sale_completed(
-                    notification.telegram_id,
-                    notification.text,
-                    image_url=notification.image_url,
-                    product_url=notification.product_url,
-                    marketplace=notification.marketplace,
-                    parse_mode=notification.parse_mode,
-                )
-                await service.mark_notified(notification.event_id)
-                await session.commit()
-            except Exception:
-                logger.exception(
-                    "sale_completed_notification_failed",
-                    extra={"event_id": notification.event_id},
-                )
-                await session.rollback()
+        await _deliver_sale_notifications(session, service, notifier, notifications)
     await bot.session.close()
+
+
+async def _deliver_new_order_notifications(
+    session: AsyncSession,
+    notifier: NotificationService,
+    notifications: list[NewOrderNotification],
+) -> tuple[int, int]:
+    sent = 0
+    failed = 0
+    for notification in notifications:
+        logger.info(
+            "notification_send_attempt",
+            extra=_order_notification_log_extra(notification),
+        )
+        try:
+            await notifier.send_new_order(
+                notification.telegram_id,
+                notification.text,
+                notification.order_id,
+                image_url=notification.image_url,
+                product_url=notification.product_url,
+                marketplace=notification.marketplace,
+                parse_mode=notification.parse_mode,
+            )
+            await OrderRepository(session).mark_notified(notification.order_id)
+            await session.commit()
+            sent += 1
+            logger.info(
+                "notification_send_success",
+                extra=_order_notification_log_extra(notification),
+            )
+            if _is_fbs_like_notification(notification.sale_model):
+                logger.info(
+                    "fbs_order_notification_sent",
+                    extra=_order_notification_log_extra(notification),
+                )
+        except Exception as exc:
+            failed += 1
+            await session.rollback()
+            logger.exception(
+                "notification_send_failure",
+                extra={
+                    **_order_notification_log_extra(notification),
+                    "exception_class": type(exc).__name__,
+                    "error": str(exc)[:300],
+                },
+            )
+            if _is_fbs_like_notification(notification.sale_model):
+                logger.warning(
+                    "fbs_order_notification_retry_scheduled",
+                    extra=_order_notification_log_extra(notification),
+                )
+    return sent, failed
+
+
+async def _deliver_sale_notifications(
+    session: AsyncSession,
+    service: SalesEventSyncService,
+    notifier: NotificationService,
+    notifications: list[SaleNotification],
+) -> tuple[int, int]:
+    sent = 0
+    failed = 0
+    for notification in notifications:
+        logger.info(
+            "notification_send_attempt",
+            extra=_sale_notification_log_extra(notification),
+        )
+        try:
+            await notifier.send_sale_completed(
+                notification.telegram_id,
+                notification.text,
+                image_url=notification.image_url,
+                product_url=notification.product_url,
+                marketplace=notification.marketplace,
+                parse_mode=notification.parse_mode,
+            )
+            await service.mark_notified(notification.event_id)
+            await session.commit()
+            sent += 1
+            logger.info(
+                "notification_send_success",
+                extra=_sale_notification_log_extra(notification),
+            )
+        except Exception as exc:
+            failed += 1
+            await session.rollback()
+            logger.exception(
+                "notification_send_failure",
+                extra={
+                    **_sale_notification_log_extra(notification),
+                    "exception_class": type(exc).__name__,
+                    "error": str(exc)[:300],
+                },
+            )
+            logger.warning(
+                "sale_notification_retry_left_pending",
+                extra=_sale_notification_log_extra(notification),
+            )
+    return sent, failed
+
+
+def _order_notification_log_extra(notification: NewOrderNotification) -> dict[str, object]:
+    return {
+        "event_type": notification.event_type,
+        "account_id": notification.account_id,
+        "user_id": notification.user_id,
+        "order_id": notification.order_id,
+        "telegram_id": notification.telegram_id,
+        "marketplace": notification.marketplace.value,
+        "fulfillment_type": notification.fulfillment_type,
+        "sale_model": notification.sale_model,
+    }
+
+
+def _sale_notification_log_extra(notification: SaleNotification) -> dict[str, object]:
+    return {
+        "event_type": notification.event_type,
+        "event_id": notification.event_id,
+        "external_event_id": notification.external_event_id,
+        "account_id": notification.account_id,
+        "user_id": notification.user_id,
+        "telegram_id": notification.telegram_id,
+        "marketplace": notification.marketplace.value,
+    }
 
 
 async def sync_wb_daily_sales_reports(ctx: dict[str, Any]) -> None:
