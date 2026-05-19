@@ -380,7 +380,13 @@ async def _process_payment(
 ) -> None:
     """Execute payment creation after email is confirmed."""
     settings = get_settings()
-    base_return_url = settings.yookassa_return_url or f"{settings.web_base_url}/payment/success"
+    if settings.yookassa_return_url:
+        base_return_url = settings.yookassa_return_url
+    else:
+        web_url = settings.web_base_url.rstrip("/")
+        if web_url.endswith("/web"):
+            web_url = web_url[:-4]
+        base_return_url = f"{web_url}/payment/success"
 
     try:
         async with AsyncSessionFactory() as session:
