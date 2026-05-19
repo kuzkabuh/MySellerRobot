@@ -1,6 +1,6 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: Unit tests for plan/fact deviation classification and rendering.
-updated: 2026-05-15
+updated: 2026-05-20
 """
 
 from datetime import UTC, datetime
@@ -111,3 +111,24 @@ def test_plan_fact_filters_keep_custom_period_dates() -> None:
 
     assert filters.date_from < datetime(2026, 5, 1, 22, 0, tzinfo=UTC)
     assert filters.marketplace == Marketplace.WB
+
+
+def test_plan_fact_target_model_has_server_default_timestamps() -> None:
+    """PlanFactTarget must have server_default on created_at and updated_at.
+
+    Regression test for NotNullViolationError on plan_fact_targets.created_at.
+    The server_default ensures the DB fills timestamps on INSERT.
+    """
+    from app.models.domain import PlanFactTarget
+
+    created_at_col = PlanFactTarget.__table__.c.created_at
+    updated_at_col = PlanFactTarget.__table__.c.updated_at
+
+    assert created_at_col.server_default is not None, (
+        "created_at must have server_default to avoid NOT NULL violation"
+    )
+    assert updated_at_col.server_default is not None, (
+        "updated_at must have server_default to avoid NOT NULL violation"
+    )
+    assert created_at_col.nullable is False
+    assert updated_at_col.nullable is False
