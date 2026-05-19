@@ -285,6 +285,10 @@ class StockService:
         for snapshot in result.scalars().all():
             if snapshot.product_id not in latest_by_product:
                 latest_by_product[snapshot.product_id] = snapshot
+        product_ids = {
+            product_id for product_id in latest_by_product if product_id is not None
+        }
+        products_by_id = await self._products_by_id(product_ids)
         created = 0
         for snapshot in latest_by_product.values():
             if snapshot.quantity > threshold:
@@ -299,13 +303,70 @@ class StockService:
                     alert_type=AlertType.LOW_STOCK,
                     idempotency_key=key,
                     title="Низкий остаток",
-                    message=f"📦 Остаток товара ниже порога: {snapshot.quantity} шт.",
-                    payload={"product_id": snapshot.product_id, "quantity": snapshot.quantity},
+                    message=self._format_low_stock_alert(
+                        snapshot,
+                        products_by_id.get(snapshot.product_id),
+                        threshold=threshold,
+                    ),
+                    payload={
+                        "product_id": snapshot.product_id,
+                        "quantity": snapshot.quantity,
+                        "marketplace": snapshot.marketplace.value,
+                        "warehouse": snapshot.warehouse,
+                    },
                 )
             )
             created += 1
         await self.session.commit()
         return created
+
+    async def _products_by_id(self, product_ids: set[int]) -> dict[int, Product]:
+        if not product_ids:
+            return {}
+        result = await self.session.execute(select(Product).where(Product.id.in_(product_ids)))
+        return {product.id: product for product in result.scalars().all()}
+
+    @staticmethod
+    def _format_low_stock_alert(
+        snapshot: StockSnapshot,
+        product: Product | None,
+        *,
+        threshold: int,
+    ) -> str:
+        marketplace = "Wildberries" if snapshot.marketplace == Marketplace.WB else "Ozon"
+        raw = snapshot.raw_payload or {}
+        title = (
+            (product.title if product else None)
+            or _str_value(raw.get("name"))
+            or _str_value(raw.get("title"))
+            or "товар не распознан"
+        )
+        seller_article = (
+            (product.seller_article if product else None)
+            or _str_value(raw.get("vendorCode"))
+            or _str_value(raw.get("supplierArticle"))
+            or _str_value(raw.get("offer_id"))
+        )
+        marketplace_article = (
+            (product.marketplace_article if product else None)
+            or _str_value(raw.get("nmID"))
+            or _str_value(raw.get("nmId"))
+            or _str_value(raw.get("sku"))
+            or _str_value(raw.get("product_id"))
+        )
+        lines = [
+            "📦 <b>Низкий остаток</b>",
+            f"Маркетплейс: {marketplace}",
+            f"Товар: {escape(title)}",
+        ]
+        if seller_article:
+            lines.append(f"Артикул продавца: {escape(seller_article)}")
+        if marketplace_article:
+            lines.append(f"Артикул маркетплейса: {escape(marketplace_article)}")
+        if snapshot.warehouse:
+            lines.append(f"Склад: {escape(snapshot.warehouse)}")
+        lines.append(f"Остаток: {snapshot.quantity} шт. (порог: {threshold} шт.)")
+        return "\n".join(lines)
 
     async def create_stockout_forecast_alerts(self, threshold_days: int = 7) -> int:
         user_result = await self.session.execute(select(StockSnapshot.user_id).distinct())
@@ -442,6 +503,12 @@ def _int_or_none(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _str_value(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    return str(value)
 
 
 def _chunks(values: list[int], size: int) -> list[list[int]]:

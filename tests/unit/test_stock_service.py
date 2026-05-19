@@ -1,8 +1,11 @@
 """version: 1.1.0
-description: Unit tests for stock service helper parsing and marketplace stock quantities.
+description: Unit tests for stock service helper parsing, quantities, and alerts.
 updated: 2026-05-17
 """
 
+from datetime import UTC, datetime
+
+from app.models.domain import Product, StockSnapshot
 from app.models.enums import Marketplace
 from app.services.stock_service import StockService
 
@@ -59,6 +62,58 @@ def test_stock_quantity_ignores_malformed_values() -> None:
     quantity = StockService._quantity_from_stock_row({"stocks": [{"present": "bad"}]})
 
     assert quantity == 0
+
+
+def test_low_stock_alert_mentions_product_and_marketplace() -> None:
+    snapshot = StockSnapshot(
+        user_id=7,
+        marketplace_account_id=55,
+        product_id=10,
+        marketplace=Marketplace.WB,
+        warehouse="FBS: склад продавца",
+        quantity=3,
+        snapshot_at=datetime(2026, 5, 19, 8, 0, tzinfo=UTC),
+        raw_payload={},
+    )
+    product = Product(
+        id=10,
+        user_id=7,
+        marketplace_account_id=55,
+        marketplace=Marketplace.WB,
+        external_product_id="123456",
+        seller_article="SKU <1>",
+        marketplace_article="123456",
+        title="Крем & тест",
+    )
+
+    text = StockService._format_low_stock_alert(snapshot, product, threshold=5)
+
+    assert "Маркетплейс: Wildberries" in text
+    assert "Товар: Крем &amp; тест" in text
+    assert "Артикул продавца: SKU &lt;1&gt;" in text
+    assert "Артикул маркетплейса: 123456" in text
+    assert "Склад: FBS: склад продавца" in text
+    assert "Остаток: 3 шт. (порог: 5 шт.)" in text
+
+
+def test_low_stock_alert_uses_raw_payload_when_product_missing() -> None:
+    snapshot = StockSnapshot(
+        user_id=7,
+        marketplace_account_id=55,
+        product_id=None,
+        marketplace=Marketplace.OZON,
+        warehouse="Ozon: общий остаток",
+        quantity=4,
+        snapshot_at=datetime(2026, 5, 19, 8, 0, tzinfo=UTC),
+        raw_payload={"offer_id": "OFFER-1", "sku": "987654", "name": "Товар Ozon"},
+    )
+
+    text = StockService._format_low_stock_alert(snapshot, None, threshold=5)
+
+    assert "Маркетплейс: Ozon" in text
+    assert "Товар: Товар Ozon" in text
+    assert "Артикул продавца: OFFER-1" in text
+    assert "Артикул маркетплейса: 987654" in text
 
 
 async def test_wb_analytics_stock_sync_reads_all_pages() -> None:
