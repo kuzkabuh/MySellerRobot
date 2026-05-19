@@ -83,6 +83,20 @@ class OrderProcessingService:
         result = await self.poll_account_with_stats(account)
         return result.notifications or []
 
+    async def collect_saved_unnotified_notifications(
+        self,
+        account: MarketplaceAccount,
+    ) -> list[NewOrderNotification]:
+        """Prepare saved FBS-like order notifications without polling marketplace APIs."""
+        result = OrderPollResult(
+            account_id=account.id,
+            marketplace=account.marketplace,
+            notifications=[],
+        )
+        policy = await self.notification_policy.resolve(account)
+        await self._append_saved_unnotified(account, policy, result)
+        return result.notifications or []
+
     async def poll_account_with_stats(self, account: MarketplaceAccount) -> OrderPollResult:
         """Poll marketplace account for new orders with comprehensive error handling."""
         with LogContext(

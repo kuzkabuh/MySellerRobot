@@ -89,6 +89,35 @@ def test_wb_historical_fbs_order_is_not_urgent() -> None:
     assert order.requires_seller_action is False
 
 
+def test_wb_statistics_order_from_seller_warehouse_is_fbs() -> None:
+    order = WildberriesClient("token").normalize_statistics_order(
+        {
+            "date": "2026-05-19T12:10:57",
+            "nmId": 370506135,
+            "srid": "eAW.r005991fab4f34657a7542e1ef81ff823.0.0",
+            "brand": "Wai Ora",
+            "barcode": "2043368529507",
+            "subject": "Полотенца кухонные",
+            "category": "Текстиль для дома",
+            "isCancel": False,
+            "finishedPrice": 686,
+            "warehouseName": "Внуково",
+            "warehouseType": "Склад продавца",
+            "supplierArticle": "W4016",
+        }
+    )
+
+    assert order.sale_model == SaleModel.FBS
+    assert order.fulfillment_type == "FBS"
+    assert order.delivery_schema == "FBS"
+    assert order.warehouse == "Внуково"
+    assert order.warehouse_type == "seller"
+    assert order.source_event_type == SourceEventType.STATISTICS_ORDER
+    assert order.requires_seller_action is False
+    assert order.items[0].seller_article == "W4016"
+    assert order.items[0].marketplace_article == "370506135"
+
+
 def test_ozon_fbs_posting_requires_seller_action() -> None:
     order = OzonClient("client", "key").normalize_fbs_posting(
         {

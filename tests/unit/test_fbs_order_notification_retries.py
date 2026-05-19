@@ -324,6 +324,31 @@ async def test_saved_unnotified_order_is_recovered_without_marketplace_duplicate
     assert notification.order_id == 404
 
 
+@pytest.mark.asyncio
+async def test_saved_unnotified_order_can_be_collected_without_marketplace_poll() -> None:
+    existing = _order(
+        order_id=405,
+        user_id=7,
+        account_id=55,
+        external_id="wb-stat-fbs-recover",
+        sale_model=SaleModel.FBS,
+        fulfillment_type="FBS",
+        first_notified_at=None,
+    )
+    service, _ = _service(existing=existing)
+
+    async def fetch_orders(_: MarketplaceAccount) -> list[NormalizedOrder]:
+        raise AssertionError("marketplace polling is not expected")
+
+    service._fetch_orders = fetch_orders  # type: ignore[method-assign]
+
+    notifications = await service.collect_saved_unnotified_notifications(_account(Marketplace.WB))
+
+    assert len(notifications) == 1
+    assert notifications[0].order_id == 405
+    assert notifications[0].sale_model == SaleModel.FBS.value
+
+
 def test_initial_ozon_poll_uses_wide_window_for_first_sync() -> None:
     now = datetime(2026, 5, 18, 12, 0, tzinfo=UTC)
     account = _account(Marketplace.OZON)

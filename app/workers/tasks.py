@@ -231,6 +231,27 @@ async def sync_sale_events(ctx: dict[str, Any]) -> None:
                         "failed": sync_result.failed,
                     },
                 )
+                order_notifications = (
+                    await OrderProcessingService(session).collect_saved_unnotified_notifications(
+                        account
+                    )
+                )
+                sent, failed = await _deliver_new_order_notifications(
+                    session,
+                    notifier,
+                    order_notifications,
+                )
+                if order_notifications:
+                    logger.info(
+                        "sale_sync_order_notifications_sent",
+                        extra={
+                            "account_id": sync_result.account_id,
+                            "marketplace": sync_result.marketplace.value,
+                            "notifications_prepared": len(order_notifications),
+                            "notifications_sent": sent,
+                            "notifications_failed": failed,
+                        },
+                    )
             except Exception:
                 logger.exception(
                     "sale_events_sync_failed",

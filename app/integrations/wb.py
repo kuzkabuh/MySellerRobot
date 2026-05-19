@@ -475,21 +475,25 @@ class WildberriesClient:
             or f"wb-stat-order-{nm_id}-{order_date.isoformat()}"
         )
         is_cancel = bool(payload.get("isCancel"))
+        is_seller_warehouse = self._is_seller_warehouse(payload.get("warehouseType"))
+        sale_model = SaleModel.FBS if is_seller_warehouse else SaleModel.FBO
+        warehouse_type = "seller" if is_seller_warehouse else "marketplace"
+        delivery_schema = "FBS" if is_seller_warehouse else "FBO"
         return NormalizedOrder(
             marketplace=Marketplace.WB,
             order_external_id=external_id,
             srid=str(payload.get("srid") or "") or None,
             order_date=order_date,
-            sale_model=SaleModel.FBO,
-            fulfillment_type="FBO",
+            sale_model=sale_model,
+            fulfillment_type=delivery_schema,
             urgency_type=UrgencyType.INFORMATIONAL,
             source_event_type=SourceEventType.STATISTICS_ORDER,
             status="cancelled" if is_cancel else "statistics_order",
             raw_status="cancelled" if is_cancel else "statistics_order",
             normalized_status="cancelled" if is_cancel else "ordered",
             warehouse=str(payload.get("warehouseName") or ""),
-            warehouse_type="marketplace",
-            delivery_schema="FBO",
+            warehouse_type=warehouse_type,
+            delivery_schema=delivery_schema,
             requires_seller_action=False,
             items=[item],
             raw_payload=payload,
@@ -568,6 +572,11 @@ class WildberriesClient:
                 return datetime.strptime(text, "%d.%m.%Y").replace(tzinfo=UTC)
             except ValueError:
                 return None
+
+    @staticmethod
+    def _is_seller_warehouse(value: object) -> bool:
+        normalized = str(value or "").casefold()
+        return "склад продавца" in normalized or normalized in {"seller", "fbs"}
 
     @classmethod
     def extract_fbs_order_price(cls, payload: dict[str, Any]) -> Decimal:
