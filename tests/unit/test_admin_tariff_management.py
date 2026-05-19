@@ -5,7 +5,7 @@ updated: 2026-05-17
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -342,3 +342,359 @@ class TestAssignAdminSubscription:
         assert subscription.expires_at is not None
         delta = subscription.expires_at - datetime.now(tz=UTC)
         assert 360 <= delta.days <= 370
+
+
+class TestAdminTariffAssignHandler:
+    """Test the Telegram bot handler for admin tariff assignment."""
+
+    def _make_callback(self, data: str, msg: MagicMock, bot=None):
+        """Create a mock callback that satisfies the handler's expectations."""
+        callback = MagicMock()
+        callback.data = data
+        callback.from_user = MagicMock(id=100, first_name="Admin")
+        callback.message = msg
+        callback.answer = AsyncMock()
+        callback.bot = bot
+        return callback
+
+    def _mock_settings(self):
+        """Mock settings with admin_ids containing 100."""
+        settings = MagicMock()
+        settings.admin_ids = {100}
+        return settings
+
+    @pytest.mark.asyncio
+    async def test_assign_handler_uses_target_user_timezone(self) -> None:
+        """Handler should use target user timezone, not crash with UnboundLocalError."""
+        from app.bot.handlers.subscription import admin_tariff_assign_handler
+
+        msg = MagicMock()
+        msg.edit_text = AsyncMock()
+        callback = self._make_callback(
+            data="admin_tariff:assign:pro:30:200",
+            msg=msg,
+            bot=MagicMock(send_message=AsyncMock()),
+        )
+
+        mock_admin_user = MagicMock()
+        mock_admin_user.id = 10
+        mock_admin_user.telegram_id = 100
+        mock_admin_user.first_name = "Admin"
+        mock_admin_user.timezone = "Europe/Moscow"
+
+        mock_target_user = MagicMock()
+        mock_target_user.id = 20
+        mock_target_user.telegram_id = 200
+        mock_target_user.first_name = "TargetUser"
+        mock_target_user.timezone = "Asia/Yekaterinburg"
+
+        mock_tier = MagicMock()
+        mock_tier.id = 2
+        mock_tier.code = "pro"
+        mock_tier.name = "PRO"
+
+        mock_subscription = MagicMock()
+        mock_subscription.id = 50
+        mock_subscription.expires_at = datetime(2026, 6, 19, tzinfo=UTC)
+        mock_subscription.tier_id = 2
+        mock_subscription.tier = mock_tier
+
+        class FakeUserRepo:
+            def __init__(self, session):
+                self._map = {100: mock_admin_user, 200: mock_target_user}
+
+            async def get_by_telegram_id(self, telegram_id: int):
+                return self._map.get(telegram_id)
+
+        class FakeSubService:
+            def __init__(self, session):
+                self.session = session
+
+            async def get_tier_by_code(self, code: str):
+                return mock_tier if code == "pro" else None
+
+            async def assign_admin_subscription(self, **kwargs):
+                return mock_subscription
+
+        class FakeSessionFactory:
+            def __init__(self):
+                self.session = MagicMock()
+                self.session.commit = AsyncMock()
+
+            async def __aenter__(self):
+                return self.session
+
+            async def __aexit__(self, *args):
+                pass
+
+        with patch(
+            "app.bot.handlers.subscription.UserRepository",
+            FakeUserRepo,
+        ), patch(
+            "app.bot.handlers.subscription.SubscriptionService",
+            FakeSubService,
+        ), patch(
+            "app.bot.handlers.subscription.AsyncSessionFactory",
+            FakeSessionFactory,
+        ), patch(
+            "app.bot.handlers.subscription.get_settings",
+            return_value=self._mock_settings(),
+        ), patch(
+            "app.bot.handlers.subscription._callback_message",
+            return_value=msg,
+        ):
+            await admin_tariff_assign_handler(callback)
+
+        msg.edit_text.assert_called_once()
+        call_args = msg.edit_text.call_args
+        text = call_args[0][0]
+        assert "PRO" in text
+        assert "TargetUser" in text
+        assert "19.06.2026" in text
+        callback.answer.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_assign_handler_self_assignment(self) -> None:
+        """Handler should work when admin assigns to themselves."""
+        from app.bot.handlers.subscription import admin_tariff_assign_handler
+
+        msg = MagicMock()
+        msg.edit_text = AsyncMock()
+        callback = self._make_callback(
+            data="admin_tariff:assign:basic:30",
+            msg=msg,
+            bot=MagicMock(send_message=AsyncMock()),
+        )
+
+        mock_admin_user = MagicMock()
+        mock_admin_user.id = 10
+        mock_admin_user.telegram_id = 100
+        mock_admin_user.first_name = "Admin"
+        mock_admin_user.timezone = "Europe/Moscow"
+
+        mock_tier = MagicMock()
+        mock_tier.id = 1
+        mock_tier.code = "basic"
+        mock_tier.name = "BASIC"
+
+        mock_subscription = MagicMock()
+        mock_subscription.id = 51
+        mock_subscription.expires_at = datetime(2026, 6, 19, tzinfo=UTC)
+
+        class FakeUserRepo:
+            def __init__(self, session):
+                self.session = session
+
+            async def get_by_telegram_id(self, telegram_id: int):
+                return mock_admin_user
+
+        class FakeSubService:
+            def __init__(self, session):
+                self.session = session
+
+            async def get_tier_by_code(self, code: str):
+                return mock_tier
+
+            async def assign_admin_subscription(self, **kwargs):
+                return mock_subscription
+
+        class FakeSessionFactory:
+            def __init__(self):
+                self.session = MagicMock()
+                self.session.commit = AsyncMock()
+
+            async def __aenter__(self):
+                return self.session
+
+            async def __aexit__(self, *args):
+                pass
+
+        with patch(
+            "app.bot.handlers.subscription.UserRepository",
+            FakeUserRepo,
+        ), patch(
+            "app.bot.handlers.subscription.SubscriptionService",
+            FakeSubService,
+        ), patch(
+            "app.bot.handlers.subscription.AsyncSessionFactory",
+            FakeSessionFactory,
+        ), patch(
+            "app.bot.handlers.subscription.get_settings",
+            return_value=self._mock_settings(),
+        ), patch(
+            "app.bot.handlers.subscription._callback_message",
+            return_value=msg,
+        ):
+            await admin_tariff_assign_handler(callback)
+
+        msg.edit_text.assert_called_once()
+        call_args = msg.edit_text.call_args
+        text = call_args[0][0]
+        assert "BASIC" in text
+        assert "Admin" in text
+        callback.answer.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_assign_handler_fallback_timezone(self) -> None:
+        """Handler should use fallback timezone if target user has no timezone."""
+        from app.bot.handlers.subscription import admin_tariff_assign_handler
+
+        msg = MagicMock()
+        msg.edit_text = AsyncMock()
+        callback = self._make_callback(
+            data="admin_tariff:assign:pro:30:200",
+            msg=msg,
+            bot=MagicMock(send_message=AsyncMock()),
+        )
+
+        mock_admin_user = MagicMock()
+        mock_admin_user.id = 10
+        mock_admin_user.telegram_id = 100
+        mock_admin_user.first_name = "Admin"
+        mock_admin_user.timezone = "Europe/Moscow"
+
+        mock_target_user = MagicMock()
+        mock_target_user.id = 20
+        mock_target_user.telegram_id = 200
+        mock_target_user.first_name = "NoTZ"
+        mock_target_user.timezone = None
+
+        mock_tier = MagicMock()
+        mock_tier.id = 2
+        mock_tier.code = "pro"
+        mock_tier.name = "PRO"
+
+        mock_subscription = MagicMock()
+        mock_subscription.id = 52
+        mock_subscription.expires_at = datetime(2026, 6, 19, tzinfo=UTC)
+
+        class FakeUserRepo:
+            def __init__(self, session):
+                self._map = {100: mock_admin_user, 200: mock_target_user}
+
+            async def get_by_telegram_id(self, telegram_id: int):
+                return self._map.get(telegram_id)
+
+        class FakeSubService:
+            def __init__(self, session):
+                self.session = session
+
+            async def get_tier_by_code(self, code: str):
+                return mock_tier
+
+            async def assign_admin_subscription(self, **kwargs):
+                return mock_subscription
+
+        class FakeSessionFactory:
+            def __init__(self):
+                self.session = MagicMock()
+                self.session.commit = AsyncMock()
+
+            async def __aenter__(self):
+                return self.session
+
+            async def __aexit__(self, *args):
+                pass
+
+        with patch(
+            "app.bot.handlers.subscription.UserRepository",
+            FakeUserRepo,
+        ), patch(
+            "app.bot.handlers.subscription.SubscriptionService",
+            FakeSubService,
+        ), patch(
+            "app.bot.handlers.subscription.AsyncSessionFactory",
+            FakeSessionFactory,
+        ), patch(
+            "app.bot.handlers.subscription.get_settings",
+            return_value=self._mock_settings(),
+        ), patch(
+            "app.bot.handlers.subscription._callback_message",
+            return_value=msg,
+        ):
+            await admin_tariff_assign_handler(callback)
+
+        msg.edit_text.assert_called_once()
+        callback.answer.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_assign_handler_service_error_no_duplicate(self) -> None:
+        """If service fails, admin sees error. No duplicate subscription created."""
+        from app.bot.handlers.subscription import admin_tariff_assign_handler
+
+        msg = MagicMock()
+        msg.edit_text = AsyncMock()
+        callback = self._make_callback(
+            data="admin_tariff:assign:pro:30:200",
+            msg=msg,
+            bot=None,
+        )
+
+        mock_admin_user = MagicMock()
+        mock_admin_user.id = 10
+        mock_admin_user.telegram_id = 100
+
+        mock_target_user = MagicMock()
+        mock_target_user.id = 20
+        mock_target_user.telegram_id = 200
+        mock_target_user.first_name = "Target"
+        mock_target_user.timezone = "Europe/Moscow"
+
+        mock_tier = MagicMock()
+        mock_tier.code = "pro"
+        mock_tier.name = "PRO"
+
+        class FakeUserRepo:
+            def __init__(self, session):
+                self._map = {100: mock_admin_user, 200: mock_target_user}
+
+            async def get_by_telegram_id(self, telegram_id: int):
+                return self._map.get(telegram_id)
+
+        class FakeSubService:
+            def __init__(self, session):
+                self.session = session
+
+            async def get_tier_by_code(self, code: str):
+                return mock_tier
+
+            async def assign_admin_subscription(self, **kwargs):
+                raise ValueError("DB error")
+
+        class FakeSessionFactory:
+            def __init__(self):
+                self.session = MagicMock()
+                self.session.commit = AsyncMock()
+
+            async def __aenter__(self):
+                return self.session
+
+            async def __aexit__(self, *args):
+                pass
+
+        with patch(
+            "app.bot.handlers.subscription.UserRepository",
+            FakeUserRepo,
+        ), patch(
+            "app.bot.handlers.subscription.SubscriptionService",
+            FakeSubService,
+        ), patch(
+            "app.bot.handlers.subscription.AsyncSessionFactory",
+            FakeSessionFactory,
+        ), patch(
+            "app.bot.handlers.subscription.get_settings",
+            return_value=self._mock_settings(),
+        ), patch(
+            "app.bot.handlers.subscription._callback_message",
+            return_value=msg,
+        ):
+            await admin_tariff_assign_handler(callback)
+
+        callback.answer.assert_called()
+        # Check that at least one call had show_alert=True
+        show_alert_used = any(
+            call_kwargs.get("show_alert") is True
+            for call_args, call_kwargs in callback.answer.call_args_list
+        )
+        assert show_alert_used
+        msg.edit_text.assert_not_called()

@@ -1014,21 +1014,25 @@ async def admin_tariff_assign_handler(callback: CallbackQuery) -> None:
         target_user_id: int
         target_user_name: str
         target_telegram_id: int
+        target_user_timezone: str = "Europe/Moscow"
 
         if target_telegram_id_from_callback is not None:
             target_telegram_id = target_telegram_id_from_callback
-            user = await user_repo.get_by_telegram_id(target_telegram_id)
-            if not user:
+            target_user_obj = await user_repo.get_by_telegram_id(target_telegram_id)
+            if not target_user_obj:
                 await callback.answer("Пользователь не найден", show_alert=True)
                 return
-            target_user_id = user.id
-            target_user_name = user.first_name or f"ID:{user.telegram_id}"
-            target_telegram_id = user.telegram_id
+            target_user_id = target_user_obj.id
+            target_user_name = target_user_obj.first_name or f"ID:{target_user_obj.telegram_id}"
+            target_telegram_id = target_user_obj.telegram_id
+            target_user_timezone = target_user_obj.timezone or "Europe/Moscow"
         else:
             target_user_id = admin_user.id
             target_user_name = admin_user.first_name or "Администратор"
             target_telegram_id = admin_user.telegram_id
+            target_user_timezone = admin_user.timezone or "Europe/Moscow"
 
+        new_subscription = None
         try:
             new_subscription = await service.assign_admin_subscription(
                 user_id=target_user_id,
@@ -1037,11 +1041,28 @@ async def admin_tariff_assign_handler(callback: CallbackQuery) -> None:
                 admin_user_id=admin_user.id,
             )
             await session.commit()
+        except Exception as e:
+            logger.exception(
+                "admin_tariff_assignment_failed",
+                extra={
+                    "admin_telegram_id": callback.from_user.id,
+                    "target_user_id": target_user_id,
+                    "tier_code": tier_code,
+                    "error": str(e),
+                },
+            )
+            await callback.answer(
+                "Не удалось изменить тариф. Подробности записаны в лог.",
+                show_alert=True,
+            )
+            await callback.answer()
+            return
 
+        try:
             expires_at_str = None
             if new_subscription and new_subscription.expires_at:
                 expires_at_str = format_datetime_for_user(
-                    new_subscription.expires_at, user.timezone, "%d.%m.%Y"
+                    new_subscription.expires_at, target_user_timezone, "%d.%m.%Y"
                 )
 
             confirmation_text = format_admin_tariff_confirmation(
@@ -1074,19 +1095,14 @@ async def admin_tariff_assign_handler(callback: CallbackQuery) -> None:
                     tier_name=tier.name,
                     expires_at=expires_at_str,
                 )
-
-        except Exception as e:
+        except Exception:
             logger.exception(
-                "admin_tariff_change_failed",
+                "admin_tariff_confirmation_message_failed",
                 extra={
                     "admin_telegram_id": callback.from_user.id,
                     "target_user_id": target_user_id,
-                    "error": str(e),
+                    "subscription_id": new_subscription.id if new_subscription else None,
                 },
-            )
-            await callback.answer(
-                "Не удалось изменить тариф. Подробности записаны в лог.",
-                show_alert=True,
             )
 
         await callback.answer()
