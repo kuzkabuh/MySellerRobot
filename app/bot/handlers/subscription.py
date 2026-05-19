@@ -15,6 +15,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from app.bot.keyboards.main import (
     admin_tariff_menu,
     admin_tariff_select_menu,
+    back_to_settings,
     subscription_cancel_confirm_menu,
     subscription_current_menu_v2,
     subscription_menu,
@@ -23,7 +24,7 @@ from app.bot.keyboards.main import (
     subscription_pricing_menu_v2,
     subscription_tier_detail_menu_v2,
 )
-from app.bot.states import AdminTariffStates
+from app.bot.states import AdminTariffStates, PaymentStates
 from app.core.config import get_settings
 from app.core.db import AsyncSessionFactory
 from app.repositories.users import UserRepository
@@ -282,8 +283,8 @@ async def handle_payment_initiation(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data.startswith("subscription:pay_confirm:"))
-async def handle_payment_confirmation(callback: CallbackQuery) -> None:
-    """Create payment and send payment link."""
+async def handle_payment_confirmation(callback: CallbackQuery, state: FSMContext) -> None:
+    """Create payment and send payment link, or prompt for email if missing."""
     message = _callback_message(callback)
     if not callback.from_user or not message or not callback.data:
         return
@@ -299,50 +300,129 @@ async def handle_payment_confirmation(callback: CallbackQuery) -> None:
             await callback.answer("Пользователь не найден", show_alert=True)
             return
 
-        settings = get_settings()
-        return_url = settings.yookassa_return_url or f"{settings.web_base_url}/web/payment/success"
+        if user.payment_email:
+            await _process_payment(
+                callback=callback,
+                message=message,
+                user=user,
+                tier_code=tier_code,
+                period=period,
+            )
+            await callback.answer()
+            return
 
-        try:
+        await state.update_data(tier_code=tier_code, period=period)
+        await state.set_state(PaymentStates.waiting_for_email)
+        await _safe_edit_text(
+            message,
+            "Для оплаты необходимо указать ваш e-mail.\n\n"
+            "На этот адрес будет отправлен чек от ЮKassa.\n\n"
+            "Введите e-mail:",
+        )
+        await callback.answer()
+
+
+@router.message(PaymentStates.waiting_for_email)
+async def handle_payment_email_input(message: Message, state: FSMContext) -> None:
+    """Handle user email input for payment receipt."""
+    email = (message.text or "").strip()
+    if not email or "@" not in email or "." not in email.split("@")[-1]:
+        await message.answer(
+            "Пожалуйста, введите корректный e-mail.\n\n"
+            "Пример: example@mail.ru"
+        )
+        return
+
+    data = await state.get_data()
+    tier_code = data.get("tier_code")
+    period = data.get("period")
+
+    if not tier_code or not period:
+        await message.answer("Ошибка: данные платежа не найдены. Начните заново.")
+        await state.clear()
+        return
+
+    async with AsyncSessionFactory() as session:
+        user_repo = UserRepository(session)
+        user = await user_repo.get_by_telegram_id(message.from_user.id)
+        if not user:
+            await message.answer("Пользователь не найден.")
+            await state.clear()
+            return
+
+        user.payment_email = email
+        await session.commit()
+
+    await state.clear()
+    await _process_payment(
+        callback=None,
+        message=message,
+        user=user,
+        tier_code=tier_code,
+        period=period,
+    )
+
+
+@router.message(PaymentStates.waiting_for_email, Command("cancel"))
+async def cancel_payment_email(message: Message, state: FSMContext) -> None:
+    """Cancel payment email collection."""
+    await state.clear()
+    await message.answer("Ввод e-mail отменён.", reply_markup=back_to_settings())
+
+
+async def _process_payment(
+    *,
+    callback: CallbackQuery | None,
+    message: Message,
+    user,
+    tier_code: str,
+    period: str,
+) -> None:
+    """Execute payment creation after email is confirmed."""
+    settings = get_settings()
+    return_url = settings.yookassa_return_url or f"{settings.web_base_url}/web/payment/success"
+
+    try:
+        async with AsyncSessionFactory() as session:
             payment_service = PaymentService(session)
             payment, confirmation_url = await payment_service.create_subscription_payment(
                 user_id=user.id,
                 tier_code=tier_code,
                 period=period,
                 return_url=return_url,
+                customer_email=user.payment_email,
             )
             await session.commit()
 
-            keyboard = InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [InlineKeyboardButton(text="💳 Перейти к оплате", url=confirmation_url)],
-                    [InlineKeyboardButton(text="Назад", callback_data="subscription:pricing")],
-                ]
-            )
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="💳 Перейти к оплате", url=confirmation_url)],
+                [InlineKeyboardButton(text="Назад", callback_data="subscription:pricing")],
+            ]
+        )
 
-            await _safe_edit_text(
-                message,
-                "✅ Счет создан!\n\n"
-                "Нажмите кнопку ниже для перехода на страницу оплаты.\n\n"
-                "После успешной оплаты подписка активируется автоматически.",
-                reply_markup=keyboard,
-            )
-            await callback.answer()
+        await _safe_edit_text(
+            message,
+            "✅ Счет создан!\n\n"
+            "Нажмите кнопку ниже для перехода на страницу оплаты.\n\n"
+            "После успешной оплаты подписка активируется автоматически.",
+            reply_markup=keyboard,
+        )
 
-        except Exception as exc:
-            logger.error(
-                "payment_creation_failed",
-                extra={
-                    "user_id": user.id,
-                    "tier_code": tier_code,
-                    "period": period,
-                    "error_type": type(exc).__name__,
-                    "error": str(exc),
-                },
-            )
-            await callback.answer(
-                "Не удалось создать платёж. Попробуйте позже.",
-                show_alert=True,
-            )
+    except Exception as exc:
+        logger.error(
+            "payment_creation_failed",
+            extra={
+                "user_id": user.id,
+                "tier_code": tier_code,
+                "period": period,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            },
+        )
+        await message.answer(
+            "Не удалось создать платёж. Попробуйте позже.",
+        )
 
 
 # ============================================================

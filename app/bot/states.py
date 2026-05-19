@@ -24,3 +24,9 @@ class CostStates(StatesGroup):
 
 class AdminTariffStates(StatesGroup):
     waiting_for_user_id = State()
+
+
+class PaymentStates(StatesGroup):
+    waiting_for_email = State()
+    pending_tier_code = State()
+    pending_period = State()

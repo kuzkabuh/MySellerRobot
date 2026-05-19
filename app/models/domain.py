@@ -62,6 +62,7 @@ class User(TimestampMixin, Base):
         Numeric(5, 2), default=Decimal("10.00")
     )
     language: Mapped[str] = mapped_column(String(16), default="ru")
+    payment_email: Mapped[str | None] = mapped_column(String(255))
     notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     subscription_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

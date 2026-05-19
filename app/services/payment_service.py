@@ -1,6 +1,6 @@
-"""version: 2.1.0
-description: Payment service with secure YooKassa webhooks and subscription periods.
-updated: 2026-05-17
+"""version: 3.0.0
+description: Payment service with YooKassa webhooks, subscription periods, and receipt generation.
+updated: 2026-05-19
 """
 
 import logging
@@ -19,6 +19,33 @@ from app.models.subscriptions import Payment, SubscriptionTier
 from app.services.subscription_service import SubscriptionService
 
 logger = logging.getLogger(__name__)
+
+_PERIOD_LABELS = {"monthly": "1 месяц", "yearly": "1 год"}
+
+
+def _build_receipt(
+    *,
+    tier_name: str,
+    period: str,
+    amount: Decimal,
+    customer_email: str,
+) -> dict[str, Any]:
+    """Build YooKassa-compliant receipt for a subscription payment."""
+    period_label = _PERIOD_LABELS.get(period, period)
+    item_description = f"Подписка MP Control — тариф {tier_name}, {period_label}"
+    return {
+        "customer": {"email": customer_email},
+        "items": [
+            {
+                "description": item_description,
+                "quantity": "1.00",
+                "amount": {"value": str(amount), "currency": "RUB"},
+                "vat_code": 1,
+                "payment_subject": "service",
+                "payment_mode": "full_payment",
+            }
+        ],
+    }
 
 
 class PaymentService:
@@ -58,6 +85,7 @@ class PaymentService:
         tier_code: str,
         period: str = "monthly",
         return_url: str,
+        customer_email: str,
     ) -> tuple[Payment, str]:
         """Create payment for subscription.
 
@@ -83,7 +111,26 @@ class PaymentService:
             user_id=user_id, tier_code=tier_code, period=period
         )
 
+        receipt = _build_receipt(
+            tier_name=tier.name,
+            period=period,
+            amount=amount,
+            customer_email=customer_email,
+        )
+
         self._check_credentials()
+
+        logger.info(
+            "yookassa_payment_request",
+            extra={
+                "user_id": user_id,
+                "tier_code": tier_code,
+                "period": period,
+                "amount": str(amount),
+                "customer_email_present": bool(customer_email),
+                "receipt_items_count": len(receipt.get("items", [])),
+            },
+        )
 
         # Create payment in YooKassa
         yookassa_payment = await self.yookassa.create_payment(
@@ -92,6 +139,7 @@ class PaymentService:
             return_url=return_url,
             metadata=metadata,
             idempotence_key=idempotence_key,
+            receipt=receipt,
         )
 
         # Save payment to database

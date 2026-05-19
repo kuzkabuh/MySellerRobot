@@ -28,22 +28,24 @@ class YooKassaClient:
         return_url: str,
         metadata: dict[str, Any] | None = None,
         idempotence_key: str | None = None,
+        receipt: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Create a new payment.
 
         Returns payment object with confirmation URL.
         """
+        payment_payload: dict[str, Any] = {
+            "amount": {"value": str(amount), "currency": currency},
+            "confirmation": {"type": "redirect", "return_url": return_url},
+            "capture": True,
+            "description": description,
+            "metadata": metadata or {},
+        }
+        if receipt:
+            payment_payload["receipt"] = receipt
+
         try:
-            payment = Payment.create(
-                {
-                    "amount": {"value": str(amount), "currency": currency},
-                    "confirmation": {"type": "redirect", "return_url": return_url},
-                    "capture": True,
-                    "description": description,
-                    "metadata": metadata or {},
-                },
-                idempotence_key,
-            )
+            payment = Payment.create(payment_payload, idempotence_key)
             logger.info(
                 "yookassa_payment_created",
                 extra={
