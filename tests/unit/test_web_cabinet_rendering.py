@@ -100,6 +100,42 @@ def test_cost_edit_form_uses_canonical_web_action() -> None:
     assert "/web/web/" not in html
 
 
+def test_cost_dates_use_user_timezone() -> None:
+    product = SimpleNamespace(
+        id=11,
+        title="Товар",
+        seller_article="SKU-11",
+        marketplace=Marketplace.WB,
+    )
+    cost = SimpleNamespace(
+        cost_price=Decimal("100.00"),
+        package_cost=Decimal("10.00"),
+        additional_cost=Decimal("5.00"),
+        tax_rate=Decimal("0.0600"),
+        valid_from=datetime(2026, 5, 16, 22, 0, tzinfo=UTC),
+    )
+    data = SimpleNamespace(
+        rows=[
+            SimpleNamespace(
+                product=product,
+                account_name="Основной",
+                cost=cost,
+                stock_quantity=3,
+                orders_count=2,
+            )
+        ],
+        configured_count=1,
+        missing_count=0,
+    )
+
+    html = routes._costs_content(data, "Europe/Moscow")
+
+    assert "17.05.2026" in html
+    assert routes._datetime_from_form("2026-05-17", "Europe/Moscow") == datetime(
+        2026, 5, 16, 21, 0, tzinfo=UTC
+    )
+
+
 def test_subscription_content_shows_limits_features_and_payments_empty_state() -> None:
     tier = SimpleNamespace(
         code="pro",

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import MarketplaceAccount, Order, SalesEvent, SyncJob, User
 from app.models.enums import AccountStatus, Marketplace, SyncJobStatus
+from app.utils.datetime import DEFAULT_TIMEZONE, format_datetime_for_user, get_user_timezone
 
 
 class AdminService:
@@ -41,7 +42,10 @@ class AdminService:
             "Последние регистрации:",
         ]
         for telegram_id, username, created_at in recent.all():
-            lines.append(f"— {created_at:%d.%m %H:%M}: {_safe_text(username or telegram_id)}")
+            lines.append(
+                f"— {format_datetime_for_user(created_at, DEFAULT_TIMEZONE, '%d.%m %H:%M')}: "
+                f"{_safe_text(username or telegram_id)}"
+            )
         return "\n".join(lines)
 
     async def accounts_text(self) -> str:
@@ -82,7 +86,10 @@ class AdminService:
         lines = ["🔄 Синхронизации", ""]
         for job_id, marketplace, job_type, status, created_at in rows.all():
             title = marketplace.value if marketplace else "н/д"
-            lines.append(f"#{job_id} {title} {job_type}: {status.value} ({created_at:%d.%m %H:%M})")
+            lines.append(
+                f"#{job_id} {title} {job_type}: {status.value} "
+                f"({format_datetime_for_user(created_at, DEFAULT_TIMEZONE, '%d.%m %H:%M')})"
+            )
         if len(lines) == 2:
             lines.append("Задач пока нет.")
         failed = await self._scalar(
@@ -113,7 +120,11 @@ class AdminService:
         by_marketplace = {marketplace: row for marketplace, *row in rows.all()}
         for marketplace in [Marketplace.WB, Marketplace.OZON]:
             created, latest, notified = by_marketplace.get(marketplace, (0, None, 0))
-            latest_text = latest.strftime("%d.%m %H:%M") if latest else "нет"
+            latest_text = (
+                format_datetime_for_user(latest, DEFAULT_TIMEZONE, "%d.%m %H:%M")
+                if latest
+                else "нет"
+            )
             lines.extend(
                 [
                     f"{marketplace.value}:",
@@ -125,7 +136,7 @@ class AdminService:
         return "\n".join(lines)
 
     async def wildberries_diagnostics_text(self) -> str:
-        today = datetime.now(tz=UTC).date()
+        today = datetime.now(tz=get_user_timezone(DEFAULT_TIMEZONE)).date()
         yesterday = today - timedelta(days=1)
         account = (
             await self.session.execute(
@@ -216,7 +227,7 @@ class AdminService:
         result = await self.session.execute(
             select(func.count(Order.id))
             .where(Order.marketplace == marketplace)
-            .where(func.date(func.timezone("Europe/Moscow", Order.order_date)) == day)
+            .where(func.date(func.timezone(DEFAULT_TIMEZONE, Order.order_date)) == day)
         )
         return int(result.scalar_one() or 0)
 
@@ -232,13 +243,14 @@ class AdminService:
 
     @staticmethod
     def _dt(value: datetime | None) -> str:
-        return value.strftime("%d.%m.%Y %H:%M") if value else "нет"
+        return format_datetime_for_user(value, DEFAULT_TIMEZONE) if value else "нет"
 
     @staticmethod
     def _sale_line(value: SalesEvent | None) -> str:
         if value is None:
             return "нет"
-        return f"{value.event_date:%d.%m %H:%M}, {value.external_event_id}, {value.amount} ₽"
+        event_date = format_datetime_for_user(value.event_date, DEFAULT_TIMEZONE, "%d.%m %H:%M")
+        return f"{event_date}, {value.external_event_id}, {value.amount} ₽"
 
     async def _users_with_marketplace(self, marketplace: Marketplace) -> int:
         return await self._scalar(

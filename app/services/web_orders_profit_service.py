@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import Select, func, literal_column, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +18,7 @@ from app.services.marketplace_presentation import order_status_label
 from app.services.web_dashboard_service import (
     build_dashboard_filters,
 )
+from app.utils.datetime import format_datetime_for_user
 
 ZERO = Decimal("0")
 
@@ -614,7 +614,7 @@ def _decimal(value: object) -> Decimal:
 
 
 def localized_order_date(value: datetime, timezone: str) -> str:
-    return value.astimezone(ZoneInfo(timezone)).strftime("%d.%m.%Y %H:%M")
+    return format_datetime_for_user(value, timezone)
 
 
 def order_state_label(status: str | None, requires_action: bool) -> str:

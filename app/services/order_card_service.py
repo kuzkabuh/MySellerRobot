@@ -106,7 +106,7 @@ class OrderCardService:
         buyouts_3m, orders_3m = await self._buyout_rate_3m(event)
         title = product.title if product and product.title else event.seller_article or "Товар"
         article = self._link_article(event.marketplace_article, product_url)
-        days_from_order = await self._days_from_order(event)
+        days_from_order = await self._days_from_order(event, timezone_name)
         rate_line = (
             f"💎 Выкуп за 3 мес: {buyouts_3m * 100 // orders_3m}% ({buyouts_3m}/{orders_3m})"
             if orders_3m
@@ -568,10 +568,13 @@ class OrderCardService:
         orders = (await self.session.execute(order_query)).scalar_one() or 0
         return int(buyouts), int(orders)
 
-    async def _days_from_order(self, event: SalesEvent) -> int | None:
+    async def _days_from_order(self, event: SalesEvent, timezone_name: str) -> int | None:
         if not event.related_order_id:
             return None
         order = await self.session.get(Order, event.related_order_id)
         if order is None:
             return None
-        return max((event.event_date.date() - order.order_date.date()).days, 0)
+        timezone = get_user_timezone(timezone_name)
+        event_date = event.event_date.astimezone(timezone).date()
+        order_date = order.order_date.astimezone(timezone).date()
+        return max((event_date - order_date).days, 0)

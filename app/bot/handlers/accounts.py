@@ -40,6 +40,7 @@ from app.services.account_service import (
 from app.services.history_backfill_service import HistoryBackfillService
 from app.services.marketplace_presentation import marketplace_marker
 from app.services.wb_report_service import WbFinancialReportService
+from app.utils.datetime import format_datetime_for_user
 
 router = Router(name="accounts")
 logger = logging.getLogger(__name__)
@@ -224,7 +225,7 @@ async def account_action_handler(callback: CallbackQuery) -> None:
             await session.commit()
             await _edit_or_answer(
                 callback,
-                _format_seller_profile(profile.account, profile.balance),
+                _format_seller_profile(profile.account, profile.balance, user.timezone),
                 account_actions(account.id, account.is_active),
             )
             await callback.answer()
@@ -366,6 +367,7 @@ def _format_account_card(account: MarketplaceAccount) -> str:
 def _format_seller_profile(
     account: MarketplaceAccount,
     balance: AccountBalanceSnapshot | None,
+    timezone: str = "Europe/Moscow",
 ) -> str:
     payload = account.seller_info_payload or {}
     lines = [
@@ -390,7 +392,7 @@ def _format_seller_profile(
                 "💰 Баланс",
                 f"Текущий: {current} {currency}",
                 f"Доступно к выводу: {for_withdraw} {currency}",
-                f"Обновлено: {balance.fetched_at.strftime('%d.%m.%Y %H:%M')}",
+                f"Обновлено: {format_datetime_for_user(balance.fetched_at, timezone)}",
             ]
         )
     else:

@@ -39,6 +39,7 @@ from app.web.views import *
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
 @router.get("/costs", response_class=HTMLResponse)
 async def costs_page(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
@@ -48,7 +49,7 @@ async def costs_page(
     return page(
         "Себестоимость",
         _user_display_name(user),
-        _costs_content(data),
+        _costs_content(data, user.timezone),
         active_path="/web/costs",
     )
 
@@ -68,7 +69,7 @@ async def cost_edit_page(
     return page(
         "Редактирование себестоимости",
         _user_display_name(user),
-        _cost_edit_content(detail),
+        _cost_edit_content(detail, user.timezone),
         active_path="/web/costs",
     )
 
@@ -102,7 +103,7 @@ async def save_product_cost(
                     _decimal_from_query(_form_value(form, "tax_rate", "0"), Decimal("0"))
                     / Decimal("100")
                 ).quantize(Decimal("0.0001")),
-                valid_from=_datetime_from_form(_form_value(form, "valid_from", "")),
+                valid_from=_datetime_from_form(_form_value(form, "valid_from", ""), user.timezone),
                 comment=_form_value(form, "comment", ""),
             )
         )
@@ -134,7 +135,7 @@ async def profile_page(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> str:
-    subscription = await WebCabinetService(session).subscription_page(user.id)
+    subscription = await WebCabinetService(session).subscription_page(user.id, user.timezone)
     return page(
         "Профиль",
         _user_display_name(user),
@@ -167,12 +168,12 @@ async def subscription_page_web(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> str:
-    data = await WebCabinetService(session).subscription_page(user.id)
+    data = await WebCabinetService(session).subscription_page(user.id, user.timezone)
     tiers = await SubscriptionService(session).get_all_tiers()
     return page(
         "Подписка и тариф",
         _user_display_name(user),
-        _subscription_content(data, tiers),
+        _subscription_content(data, tiers, user.timezone),
         active_path="/web/subscription",
     )
 
@@ -182,11 +183,11 @@ async def accounts_page_web(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> str:
-    data = await WebCabinetService(session).accounts_page(user.id)
+    data = await WebCabinetService(session).accounts_page(user.id, user.timezone)
     return page(
         "Кабинеты маркетплейсов",
         _user_display_name(user),
-        _accounts_content(data),
+        _accounts_content(data, user.timezone),
         active_path="/web/accounts",
     )
 
@@ -229,4 +230,3 @@ async def save_low_margin_settings(
         db_user.low_margin_threshold_percent = value
     await session.commit()
     return RedirectResponse(url="/web/settings", status_code=303)
-

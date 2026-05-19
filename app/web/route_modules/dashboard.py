@@ -67,8 +67,8 @@ async def dashboard(
         date_from=date_from,
         date_to=date_to,
     )
-    subscription = await WebCabinetService(session).subscription_page(user.id)
-    accounts = await WebCabinetService(session).accounts_page(user.id)
+    subscription = await WebCabinetService(session).subscription_page(user.id, user.timezone)
+    accounts = await WebCabinetService(session).accounts_page(user.id, user.timezone)
     content = _dashboard_welcome(user, subscription, accounts, data) + _dashboard_content(data)
     return page("Главная", _user_display_name(user), content)
 

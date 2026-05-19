@@ -38,6 +38,7 @@ from app.services.subscription_text_formatter import (
     format_tier_card,
     format_user_tariff_notification,
 )
+from app.utils.datetime import format_datetime_for_user
 
 router = Router(name="subscription")
 logger = logging.getLogger(__name__)
@@ -122,9 +123,13 @@ async def show_current_subscription(callback: CallbackQuery) -> None:
         trial_ends_at = None
         if active_subscription:
             if active_subscription.expires_at:
-                expires_at = active_subscription.expires_at.strftime("%d.%m.%Y")
+                expires_at = format_datetime_for_user(
+                    active_subscription.expires_at, user.timezone, "%d.%m.%Y"
+                )
             if active_subscription.trial_ends_at:
-                trial_ends_at = active_subscription.trial_ends_at.strftime("%d.%m.%Y")
+                trial_ends_at = format_datetime_for_user(
+                    active_subscription.trial_ends_at, user.timezone, "%d.%m.%Y"
+                )
 
         features = [
             ("Web-кабинет", bool(current_tier.feature_web_cabinet)),
@@ -381,7 +386,7 @@ async def show_payment_history(callback: CallbackQuery) -> None:
 
             lines.append(
                 f"{status_emoji} {payment.amount} ₽ — {status_text}\n"
-                f"   {payment.created_at:%d.%m.%Y %H:%M}"
+                f"   {format_datetime_for_user(payment.created_at, user.timezone)}"
             )
 
         await _safe_edit_text(
@@ -471,10 +476,13 @@ async def cancel_subscription(callback: CallbackQuery) -> None:
         await service.cancel_subscription(active_subscription.id)
         await session.commit()
 
+        expires_at = format_datetime_for_user(
+            active_subscription.expires_at, user.timezone, "%d.%m.%Y"
+        )
         text = (
             "✅ <b>Подписка отменена</b>\n\n"
             f"Доступ к функциям тарифа {active_subscription.tier.name} сохранится до "
-            f"{active_subscription.expires_at:%d.%m.%Y}.\n\n"
+            f"{expires_at}.\n\n"
             "После этого вы вернётесь на тариф FREE.\n"
             "Вы можете возобновить подписку в любой момент."
         )
@@ -579,7 +587,10 @@ async def admin_tariff_self_handler(callback: CallbackQuery) -> None:
         ]
 
         if active_subscription and active_subscription.expires_at:
-            lines.append(f"Действует до: {active_subscription.expires_at:%d.%m.%Y}")
+            expires_at = format_datetime_for_user(
+                active_subscription.expires_at, user.timezone, "%d.%m.%Y"
+            )
+            lines.append(f"Действует до: {expires_at}")
 
         lines.extend(["", "Выберите новый тариф:"])
 
@@ -608,7 +619,7 @@ async def admin_tariff_user_prompt_handler(
         message,
         "🔎 <b>Изменение тарифа пользователя</b>\n\n"
         "Введите Telegram ID пользователя, которому нужно изменить тариф.\n\n"
-        "ID можно узнать через админское меню: 👥 Пользователи."
+        "ID можно узнать через админское меню: 👥 Пользователи.",
     )
     await state.set_state(AdminTariffStates.waiting_for_user_id)
     await callback.answer()
@@ -647,7 +658,10 @@ async def admin_tariff_user_lookup_handler(message: Message, state: FSMContext) 
         lines.append(f"Текущий тариф: <b>{_html(current_tier.name)}</b>")
 
         if active_subscription and active_subscription.expires_at:
-            lines.append(f"Действует до: {active_subscription.expires_at:%d.%m.%Y}")
+            expires_at = format_datetime_for_user(
+                active_subscription.expires_at, user.timezone, "%d.%m.%Y"
+            )
+            lines.append(f"Действует до: {expires_at}")
 
         lines.extend(["", "Выберите новый тариф:"])
 
@@ -758,7 +772,9 @@ async def admin_tariff_assign_handler(callback: CallbackQuery) -> None:
 
             expires_at_str = None
             if new_subscription and new_subscription.expires_at:
-                expires_at_str = new_subscription.expires_at.strftime("%d.%m.%Y")
+                expires_at_str = format_datetime_for_user(
+                    new_subscription.expires_at, user.timezone, "%d.%m.%Y"
+                )
 
             confirmation_text = format_admin_tariff_confirmation(
                 user_name=target_user_name,

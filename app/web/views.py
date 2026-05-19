@@ -62,6 +62,7 @@ from app.services.web_orders_profit_service import (
     localized_order_date,
     order_state_label,
 )
+from app.utils.datetime import format_datetime_for_user, get_user_timezone, user_day_bounds_utc
 from app.web.rendering import page
 
 ZERO = Decimal("0")
@@ -834,7 +835,7 @@ def _stock_filters(marketplace: str, sale_model: str, stock_status: str) -> str:
     """
 
 
-def _alerts_content(events: list[AlertEvent]) -> str:
+def _alerts_content(events: list[AlertEvent], timezone: str = "Europe/Moscow") -> str:
     pending = sum(1 for event in events if not event.sent_at)
     sent = len(events) - pending
     critical = sum(
@@ -844,7 +845,7 @@ def _alerts_content(events: list[AlertEvent]) -> str:
     )
     body = "".join(
         "<tr>"
-        f"<td>{escape(event.created_at.strftime('%d.%m.%Y %H:%M'))}</td>"
+        f"<td>{escape(_dt(event.created_at, timezone))}</td>"
         f"<td>{_alert_type_badge(event.alert_type.value)}</td>"
         f"<td>{escape(event.title)}</td>"
         f"<td>{escape(event.message)}</td>"
@@ -960,7 +961,7 @@ def _returns_content(data: ReturnsPageData, timezone: str, sku: str) -> str:
     """
 
 
-def _costs_content(data: CostsPageData) -> str:
+def _costs_content(data: CostsPageData, timezone: str = "Europe/Moscow") -> str:
     rows = "".join(
         "<tr>"
         f"<td>{escape(row.product.title or 'Без названия')}"
@@ -971,7 +972,7 @@ def _costs_content(data: CostsPageData) -> str:
         f'<td class="num">{_rub(row.cost.package_cost) if row.cost else "н/д"}</td>'
         f'<td class="num">{_rub(row.cost.additional_cost) if row.cost else "н/д"}</td>'
         f'<td class="num">{(row.cost.tax_rate * Decimal("100")).quantize(Decimal("0.01")) if row.cost else "н/д"}%</td>'
-        f"<td>{row.cost.valid_from.strftime('%d.%m.%Y') if row.cost else 'н/д'}</td>"
+        f"<td>{format_datetime_for_user(row.cost.valid_from, timezone, '%d.%m.%Y') if row.cost else 'н/д'}</td>"
         f"<td>{_cost_status_badge(row.cost is not None and row.cost.cost_price > 0)}</td>"
         f'<td><a class="button" href="/web/costs/{row.product.id}">Редактировать</a></td>'
         "</tr>"
@@ -1002,13 +1003,13 @@ def _costs_content(data: CostsPageData) -> str:
     """
 
 
-def _cost_edit_content(detail: ProductCostDetail) -> str:
+def _cost_edit_content(detail: ProductCostDetail, timezone: str = "Europe/Moscow") -> str:
     latest = detail.history[0] if detail.history else None
     history = (
         "".join(
             "<tr>"
-            f"<td>{row.valid_from.strftime('%d.%m.%Y')}</td>"
-            f"<td>{row.valid_to.strftime('%d.%m.%Y') if row.valid_to else 'сейчас'}</td>"
+            f"<td>{format_datetime_for_user(row.valid_from, timezone, '%d.%m.%Y')}</td>"
+            f"<td>{format_datetime_for_user(row.valid_to, timezone, '%d.%m.%Y') if row.valid_to else 'сейчас'}</td>"
             f'<td class="num">{_rub(row.cost_price)}</td>'
             f'<td class="num">{_rub(row.package_cost)}</td>'
             f'<td class="num">{_rub(row.additional_cost)}</td>'
@@ -1034,7 +1035,7 @@ def _cost_edit_content(detail: ProductCostDetail) -> str:
             <label for="tax_rate">Налог, %</label>
             <input id="tax_rate" name="tax_rate" type="number" step="0.01" value="{(latest.tax_rate * Decimal("100")).quantize(Decimal("0.01")) if latest else 0}">
             <label for="valid_from">Дата начала действия</label>
-            <input id="valid_from" name="valid_from" type="date" value="{datetime.now(tz=UTC).date().isoformat()}">
+            <input id="valid_from" name="valid_from" type="date" value="{datetime.now(tz=get_user_timezone(timezone)).date().isoformat()}">
             <label for="comment">Комментарий</label>
             <input id="comment" name="comment" type="text" value="WEB-обновление">
             <p><button class="button primary" type="submit">Сохранить</button></p>
@@ -1047,7 +1048,7 @@ def _cost_edit_content(detail: ProductCostDetail) -> str:
             <span>Кабинет</span><strong>{escape(detail.account_name)}</strong>
             <span>Артикул продавца</span><strong>{escape(detail.product.seller_article or "н/д")}</strong>
             <span>Артикул МП</span><strong>{escape(detail.product.marketplace_article or detail.product.external_product_id)}</strong>
-            <span>Актуальная цена Ozon</span><strong>{_ozon_price_label(getattr(detail, "latest_ozon_price", None))}</strong>
+            <span>Актуальная цена Ozon</span><strong>{_ozon_price_label(getattr(detail, "latest_ozon_price", None), timezone)}</strong>
           </div>
         </section>
       </section>
@@ -1063,7 +1064,7 @@ def _cost_edit_content(detail: ProductCostDetail) -> str:
     """
 
 
-def _accounts_content(data: AccountsPageData) -> str:
+def _accounts_content(data: AccountsPageData, timezone: str = "Europe/Moscow") -> str:
     rows = "".join(
         "<tr>"
         f'<td>{escape(row.account.name)}<div class="muted">#{row.account.id}'
@@ -1072,8 +1073,8 @@ def _accounts_content(data: AccountsPageData) -> str:
         f"<td>{_account_status_badge(row.account.status.value, row.account.is_active)}</td>"
         f"<td>{_seller_profile_web(row.account, row.latest_balance)}</td>"
         f"<td>{_wb_reports_web(row.latest_daily_report, row.latest_weekly_report, row.report_states or [])}</td>"
-        f"<td>{_dt(row.account.last_success_sync_at)}</td>"
-        f'<td>{_dt(row.account.last_error_at)}<div class="muted">{escape(row.account.last_error_message or row.latest_job_error or "")}</div></td>'
+        f"<td>{_dt(row.account.last_success_sync_at, timezone)}</td>"
+        f'<td>{_dt(row.account.last_error_at, timezone)}<div class="muted">{escape(row.account.last_error_message or row.latest_job_error or "")}</div></td>'
         f'<td class="num">{row.products_count}</td>'
         f'<td class="num">{row.orders_30d}</td>'
         f"<td>{escape(row.latest_job_status or 'нет задач')}</td>"
@@ -1173,22 +1174,28 @@ def _report_short(report: object | None, state: object | None) -> str:
     return '<span class="muted">не найден</span>'
 
 
-def _ozon_price_label(snapshot: object | None) -> str:
+def _ozon_price_label(snapshot: object | None, timezone: str = "Europe/Moscow") -> str:
     if snapshot is None or not hasattr(snapshot, "price"):
         return "н/д"
     price = getattr(snapshot, "price", None)
     synced_at = getattr(snapshot, "synced_at", None)
     if price is None:
         return "н/д"
-    date_label = f" · {_dt(synced_at)}" if synced_at else ""
+    date_label = f" · {_dt(synced_at, timezone)}" if synced_at else ""
     return f"{_rub(price)}{date_label}"
 
 
-def _subscription_content(data: SubscriptionPageData, tiers: list[SubscriptionTier]) -> str:
+def _subscription_content(
+    data: SubscriptionPageData,
+    tiers: list[SubscriptionTier],
+    timezone: str = "Europe/Moscow",
+) -> str:
     active = data.active_subscription
     status = subscription_status(active)
     expires = (
-        active.expires_at.strftime("%d.%m.%Y") if active and active.expires_at else "бессрочно"
+        format_datetime_for_user(active.expires_at, timezone, "%d.%m.%Y")
+        if active and active.expires_at
+        else "бессрочно"
     )
     feature_rows = "".join(
         f"<li>{'✅' if enabled else '❌'} {escape(label)}</li>"
@@ -1206,7 +1213,7 @@ def _subscription_content(data: SubscriptionPageData, tiers: list[SubscriptionTi
     payment_rows = (
         "".join(
             "<tr>"
-            f"<td>{payment.created_at.strftime('%d.%m.%Y')}</td>"
+            f"<td>{format_datetime_for_user(payment.created_at, timezone, '%d.%m.%Y')}</td>"
             f"<td>{_rub(payment.amount)}</td>"
             f"<td>{escape(payment.status.value)}</td>"
             f"<td>{escape(payment.provider)}</td>"
@@ -1260,7 +1267,7 @@ def _profile_content(user: User, subscription: SubscriptionPageData) -> str:
             <span>Telegram ID</span><strong>{user.telegram_id}</strong>
             <span>Язык</span><strong>{escape(user.language)}</strong>
             <span>Статус</span><strong>{escape(user.status.value)}</strong>
-            <span>Регистрация</span><strong>{_dt(user.created_at)}</strong>
+            <span>Регистрация</span><strong>{_dt(user.created_at, user.timezone)}</strong>
           </div>
         </section>
         <section class="band">
@@ -1667,7 +1674,7 @@ def _dashboard_content(data: DashboardData) -> str:
             </div>
             <a class="button" href="/web/orders">Все заказы</a>
           </div>
-          {_recent_events(data.recent_events)}
+          {_recent_events(data.recent_events, data.filters.timezone)}
         </section>
       </section>
       <section class="premium-grid">
@@ -1701,7 +1708,9 @@ def _dashboard_welcome(
 ) -> str:
     active = subscription.active_subscription
     expires = (
-        active.expires_at.strftime("%d.%m.%Y") if active and active.expires_at else "бессрочно"
+        format_datetime_for_user(active.expires_at, user.timezone, "%d.%m.%Y")
+        if active and active.expires_at
+        else "бессрочно"
     )
     return f"""
       <section class="premium-hero">
@@ -1720,7 +1729,7 @@ def _dashboard_welcome(
           </div>
         </div>
         <div class="hero-panel">
-          <div class="hero-stat"><span>Последняя синхронизация</span><strong>{escape(_last_sync_label(accounts))}</strong></div>
+          <div class="hero-stat"><span>Последняя синхронизация</span><strong>{escape(_last_sync_label(accounts, user.timezone))}</strong></div>
           <div class="hero-stat"><span>Тариф</span><strong>{escape(subscription.tier.name)} до {escape(expires)}</strong></div>
           <div class="hero-stat"><span>Кабинеты МП</span><strong>{accounts.active_accounts} из {subscription.tier.max_marketplace_accounts}</strong></div>
           <div class="page-actions">
@@ -1808,7 +1817,7 @@ def _conversion_label(orders: KpiMetric | None, sales: KpiMetric | None) -> str:
     return f"{(sales_count / order_count * Decimal('100')).quantize(Decimal('0.1'))}%"
 
 
-def _last_sync_label(accounts: AccountsPageData) -> str:
+def _last_sync_label(accounts: AccountsPageData, timezone: str = "Europe/Moscow") -> str:
     dates = [
         row.account.last_success_sync_at
         for row in accounts.rows
@@ -1816,7 +1825,7 @@ def _last_sync_label(accounts: AccountsPageData) -> str:
     ]
     if not dates:
         return "ещё не было"
-    return _dt(max(dates))
+    return _dt(max(dates), timezone)
 
 
 def _sync_status(accounts: AccountsPageData) -> str:
@@ -1919,15 +1928,17 @@ def _marketplace_panel(item, total_revenue: Decimal) -> str:  # type: ignore[no-
     """
 
 
-def _recent_events(events: list[DashboardEvent]) -> str:
+def _recent_events(events: list[DashboardEvent], timezone: str) -> str:
     if not events:
         return '<div class="empty-state">За выбранный период новых событий пока нет.</div>'
     return (
-        '<div class="event-list">' + "".join(_event_item(event) for event in events[:5]) + "</div>"
+        '<div class="event-list">'
+        + "".join(_event_item(event, timezone) for event in events[:5])
+        + "</div>"
     )
 
 
-def _event_item(event: DashboardEvent) -> str:
+def _event_item(event: DashboardEvent, timezone: str) -> str:
     href = event.href or "/web/orders"
     return f"""
       <article class="event-item">
@@ -1936,7 +1947,7 @@ def _event_item(event: DashboardEvent) -> str:
           <p>{escape(event.subtitle)}</p>
           <div class="event-meta">
             {_marketplace_label(event.marketplace)}
-            <span class="badge {escape(event.tone)}">{escape(_dt(event.event_date))}</span>
+            <span class="badge {escape(event.tone)}">{escape(_dt(event.event_date, timezone))}</span>
           </div>
         </div>
         <div class="num">
@@ -2318,8 +2329,8 @@ def _limit(value: int | None) -> str:
     return "без ограничений" if value is None else str(value)
 
 
-def _dt(value: datetime | None) -> str:
-    return value.strftime("%d.%m.%Y %H:%M") if value else "н/д"
+def _dt(value: datetime | None, timezone: str = "Europe/Moscow") -> str:
+    return format_datetime_for_user(value, timezone)
 
 
 def _user_display_name(user: User) -> str:
@@ -2330,10 +2341,11 @@ def _form_value(form: dict[str, list[str]], name: str, default: str) -> str:
     return (form.get(name) or [default])[0]
 
 
-def _datetime_from_form(value: str) -> datetime:
+def _datetime_from_form(value: str, timezone: str = "Europe/Moscow") -> datetime:
     if not value:
         return datetime.now(tz=UTC)
-    return datetime.fromisoformat(value).replace(tzinfo=UTC)
+    local_day = datetime.fromisoformat(value).date()
+    return user_day_bounds_utc(local_day, timezone)[0]
 
 
 def _kpi(metric: KpiMetric) -> str:

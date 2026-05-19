@@ -366,8 +366,7 @@ async def callback_handler(callback: CallbackQuery, state: FSMContext) -> None:
         user = await _get_or_create_user(callback)
         if user:
             await _safe_edit_text(
-                message,
-                _timezone_text(user.timezone), reply_markup=timezone_menu(user.timezone)
+                message, _timezone_text(user.timezone), reply_markup=timezone_menu(user.timezone)
             )
     elif data.startswith("timezone:set:"):
         user = await _set_user_timezone(callback, data.removeprefix("timezone:set:"))
@@ -465,7 +464,7 @@ async def _profile_text(user_id: int) -> str:
         ozon_count = sum(1 for account in active_accounts if account.marketplace.value == "OZON")
         notifications = "включены" if user and user.notifications_enabled else "отключены"
         expires_at = (
-            active_subscription.expires_at.strftime("%d.%m.%Y")
+            format_user_dt(active_subscription.expires_at, user.timezone).split(",")[0]
             if active_subscription and active_subscription.expires_at
             else "без активного платного периода"
         )

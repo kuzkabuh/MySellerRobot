@@ -145,7 +145,7 @@ def _patch_empty_web_pages(monkeypatch: pytest.MonkeyPatch) -> None:
             actual_profit=Decimal("0"),
         )
 
-    async def fake_subscription_page(self, user_id):  # type: ignore[no-untyped-def]
+    async def fake_subscription_page(self, user_id, timezone="Europe/Moscow"):  # type: ignore[no-untyped-def]
         return SimpleNamespace(
             tier=_free_tier(),
             active_subscription=None,
@@ -155,7 +155,7 @@ def _patch_empty_web_pages(monkeypatch: pytest.MonkeyPatch) -> None:
             used_products=0,
         )
 
-    async def fake_accounts_page(self, user_id):  # type: ignore[no-untyped-def]
+    async def fake_accounts_page(self, user_id, timezone="Europe/Moscow"):  # type: ignore[no-untyped-def]
         return SimpleNamespace(tier=_free_tier(), active_accounts=0, rows=[])
 
     async def fake_get_all_tiers(self):  # type: ignore[no-untyped-def]
@@ -469,7 +469,7 @@ def test_web_trailing_slash_routes_do_not_loop(
     async def fake_current_web_user():  # type: ignore[no-untyped-def]
         return _web_user()
 
-    async def fake_accounts_page(self, user_id):  # type: ignore[no-untyped-def]
+    async def fake_accounts_page(self, user_id, timezone="Europe/Moscow"):  # type: ignore[no-untyped-def]
         return SimpleNamespace(tier=_free_tier(), active_accounts=0, rows=[])
 
     app.dependency_overrides[get_session] = fake_get_session

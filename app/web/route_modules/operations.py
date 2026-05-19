@@ -39,6 +39,7 @@ from app.web.views import *
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
 @router.get("/sales", response_class=HTMLResponse)
 async def sales_page(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
@@ -104,7 +105,7 @@ async def alerts_page(
         .order_by(AlertEvent.created_at.desc())
         .limit(50)
     )
-    content = _alerts_content(list(result.scalars().all()))
+    content = _alerts_content(list(result.scalars().all()), user.timezone)
     return page(
         "Алерты",
         user.first_name or user.username or str(user.telegram_id),

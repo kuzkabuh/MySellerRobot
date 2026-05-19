@@ -32,6 +32,7 @@ from app.schemas.sales import NormalizedSaleEvent
 from app.services.message_formatter import rub
 from app.services.order_card_service import OrderCardService
 from app.services.order_profit_service import OrderProfitService
+from app.utils.datetime import format_datetime_for_user
 
 logger = logging.getLogger(__name__)
 
@@ -695,7 +696,7 @@ class SalesEventSyncService:
         return _settings_bool(value)
 
     @staticmethod
-    def format_sale_notification(row: SalesEvent) -> str:
+    def format_sale_notification(row: SalesEvent, timezone_name: str = "Europe/Moscow") -> str:
         marketplace_title = "Wildberries" if row.marketplace == Marketplace.WB else "Ozon"
         title = (
             f"✅ Выкуп товара — {marketplace_title}"
@@ -711,7 +712,7 @@ class SalesEventSyncService:
             f"🏷 Артикул продавца: {row.seller_article or 'н/д'}",
             f"🔢 Артикул маркетплейса: {row.marketplace_article or 'н/д'}",
             "",
-            f"🕒 Событие зафиксировано: {row.event_date:%d.%m.%Y %H:%M}",
+            f"🕒 Событие зафиксировано: {format_datetime_for_user(row.event_date, timezone_name)}",
             f"💰 Сумма продажи: {rub(row.amount)}",
             "",
             "📊 Предварительный результат:",

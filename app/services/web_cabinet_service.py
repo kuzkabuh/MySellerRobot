@@ -4,7 +4,7 @@ updated: 2026-05-17
 """
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import func, select
@@ -31,6 +31,7 @@ from app.models.subscriptions import Payment, SubscriptionTier, UserSubscription
 from app.services.data_quality_service import DataQualityReport, DataQualityService
 from app.services.subscription_service import SubscriptionService
 from app.services.web_dashboard_service import DashboardFilters, build_dashboard_filters
+from app.utils.datetime import get_user_timezone, user_day_bounds_utc
 
 ZERO = Decimal("0")
 
@@ -258,7 +259,9 @@ class WebCabinetService:
             total_amount=sum((row.amount for row in rows), ZERO),
         )
 
-    async def accounts_page(self, user_id: int) -> AccountsPageData:
+    async def accounts_page(
+        self, user_id: int, timezone: str = "Europe/Moscow"
+    ) -> AccountsPageData:
         tier = await SubscriptionService(self.session).get_user_tier(user_id)
         result = await self.session.execute(
             select(MarketplaceAccount)
@@ -268,7 +271,7 @@ class WebCabinetService:
         rows = []
         for account in result.scalars().all():
             products = await self._count(Product.id, Product.marketplace_account_id == account.id)
-            orders = await self._count_recent_orders(account.id)
+            orders = await self._count_recent_orders(account.id, timezone)
             job_result = await self.session.execute(
                 select(SyncJob)
                 .where(SyncJob.marketplace_account_id == account.id)
@@ -390,14 +393,17 @@ class WebCabinetService:
             latest_ozon_price=latest_price,
         )
 
-    async def subscription_page(self, user_id: int) -> SubscriptionPageData:
+    async def subscription_page(
+        self, user_id: int, timezone: str = "Europe/Moscow"
+    ) -> SubscriptionPageData:
         service = SubscriptionService(self.session)
         tier = await service.get_user_tier(user_id)
         active_subscription = await service.get_active_subscription(user_id)
         payments = await self.session.execute(
             select(Payment).where(Payment.user_id == user_id).order_by(Payment.created_at.desc())
         )
-        month_start = datetime.now(tz=UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        now_local = datetime.now(tz=get_user_timezone(timezone))
+        month_start = user_day_bounds_utc(now_local.date().replace(day=1), timezone)[0]
         return SubscriptionPageData(
             tier=tier,
             active_subscription=active_subscription,
@@ -456,8 +462,10 @@ class WebCabinetService:
         result = await self.session.execute(query)
         return int(result.scalar_one() or 0)
 
-    async def _count_recent_orders(self, account_id: int) -> int:
-        since = datetime.now(tz=UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    async def _count_recent_orders(self, account_id: int, timezone: str) -> int:
+        since = user_day_bounds_utc(datetime.now(tz=get_user_timezone(timezone)).date(), timezone)[
+            0
+        ]
         result = await self.session.execute(
             select(func.count(Order.id))
             .where(Order.marketplace_account_id == account_id)
