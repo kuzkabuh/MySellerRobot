@@ -10,7 +10,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -104,7 +104,7 @@ class PaymentService:
         if amount is None or amount == Decimal("0"):
             raise ValueError(f"Tier {tier_code} has no price for {period} period")
 
-        existing = await self._find_pending_payment(user_id)
+        existing = await self._find_pending_payment(user_id, tier_code=tier_code, period=period)
         if existing:
             logger.info(
                 "payment_reused_pending",
@@ -131,7 +131,6 @@ class PaymentService:
         metadata = {
             "user_id": str(user_id),
             "tier_code": tier_code,
-            "subscription_period": period,
             "period": period,
             "provider": "yookassa",
         }
@@ -315,6 +314,11 @@ class PaymentService:
         4. Update payment status.
         5. Notify user via Telegram.
         """
+        logger.info(
+            "subscription_payment_confirmation_started",
+            extra={"provider_payment_id": payment_id, "source": source},
+        )
+
         result = await self.session.execute(
             select(Payment).where(Payment.provider_payment_id == payment_id)
         )
@@ -363,21 +367,46 @@ class PaymentService:
             return
 
         logger.info(
-            "yookassa_webhook_payment_matched",
-            extra={"payment_id": payment.id, "provider_payment_id": payment_id},
+            "subscription_payment_status_verified",
+            extra={
+                "payment_id": payment.id,
+                "provider_payment_id": payment_id,
+                "user_id": payment.user_id,
+            },
         )
 
         metadata = payment.payment_metadata or {}
         tier_code = metadata.get("tier_code")
-        period = metadata.get("subscription_period") or metadata.get("period", "monthly")
+        period = metadata.get("period") or metadata.get("subscription_period")
         user_id = metadata.get("user_id")
 
         if not tier_code:
             logger.error(
-                "payment_missing_tier_code",
-                extra={"payment_id": payment.id, "metadata": metadata},
+                "paid_payment_unknown_tier_or_period",
+                extra={
+                    "payment_id": payment.id,
+                    "provider_payment_id": payment_id,
+                    "user_id": payment.user_id,
+                    "metadata": metadata,
+                    "detail": "tier_code missing from payment metadata",
+                },
             )
+            payment.status = PaymentStatus.SUCCEEDED
+            payment.paid_at = datetime.now(tz=UTC)
+            await self.session.flush()
             return
+
+        if not period:
+            period = "monthly"
+            logger.warning(
+                "paid_payment_period_missing_defaulted",
+                extra={
+                    "payment_id": payment.id,
+                    "provider_payment_id": payment_id,
+                    "user_id": payment.user_id,
+                    "default_period": period,
+                },
+            )
 
         if not user_id or str(payment.user_id) != str(user_id):
             logger.error(
@@ -389,6 +418,27 @@ class PaymentService:
                 },
             )
             return
+
+        logger.info(
+            "subscription_payment_matched_by_provider_id",
+            extra={
+                "payment_id": payment.id,
+                "provider_payment_id": payment_id,
+                "user_id": payment.user_id,
+                "tier_code": tier_code,
+                "period": period,
+            },
+        )
+
+        logger.info(
+            "subscription_activation_started",
+            extra={
+                "payment_id": payment.id,
+                "user_id": payment.user_id,
+                "tier_code": tier_code,
+                "period": period,
+            },
+        )
 
         subscription = None
         try:
@@ -416,7 +466,7 @@ class PaymentService:
                 )
             else:
                 logger.error(
-                    "payment_subscription_activation_failed",
+                    "subscription_activation_failed",
                     extra={
                         "payment_id": payment.id,
                         "user_id": payment.user_id,
@@ -432,12 +482,13 @@ class PaymentService:
         await self.session.flush()
 
         logger.info(
-            "payment_status_updated",
+            "subscription_payment_marked_paid",
             extra={
                 "payment_id": payment.id,
                 "user_id": payment.user_id,
-                "old_status": "PENDING",
-                "new_status": "SUCCEEDED",
+                "tier_code": tier_code,
+                "period": period,
+                "subscription_id": subscription.id if subscription else None,
             },
         )
 
@@ -450,6 +501,11 @@ class PaymentService:
                     "subscription_id": subscription.id,
                     "tier_code": tier_code,
                     "period": period,
+                    "expires_at": (
+                        subscription.expires_at.isoformat()
+                        if subscription.expires_at
+                        else None
+                    ),
                 },
             )
 
@@ -458,6 +514,17 @@ class PaymentService:
                 tier_code=tier_code,
                 period=period,
                 expires_at=subscription.expires_at,
+            )
+        elif source == "reconciliation":
+            logger.info(
+                "reconciled_paid_payment_processed",
+                extra={
+                    "payment_id": payment.id,
+                    "user_id": payment.user_id,
+                    "tier_code": tier_code,
+                    "period": period,
+                    "subscription_created": False,
+                },
             )
 
     async def _notify_user_subscription_activated(
@@ -533,14 +600,6 @@ class PaymentService:
                         source="reconciliation",
                     )
                     reconciled += 1
-                    logger.info(
-                        "yookassa_pending_payment_reconciled",
-                        extra={
-                            "payment_id": payment.id,
-                            "provider_payment_id": payment.provider_payment_id,
-                            "new_status": "SUCCEEDED",
-                        },
-                    )
                 elif status in {"canceled", "cancelled"}:
                     payment.status = PaymentStatus.CANCELLED
                     await self.session.flush()
@@ -581,11 +640,26 @@ class PaymentService:
         )
         return result.scalar_one_or_none()
 
-    async def _find_pending_payment(self, user_id: int) -> Payment | None:
-        """Return the most recent PENDING payment for a user, if any."""
+    async def _find_pending_payment(
+        self, user_id: int, *, tier_code: str, period: str
+    ) -> Payment | None:
+        """Return the most recent PENDING payment for a user+tier+period, if any.
+
+        Matches payments where metadata period equals the requested period,
+        checking both ``period`` and ``subscription_period`` keys for backward
+        compatibility with older payment records.
+        """
         result = await self.session.execute(
             select(Payment)
-            .where(Payment.user_id == user_id, Payment.status == PaymentStatus.PENDING)
+            .where(
+                Payment.user_id == user_id,
+                Payment.status == PaymentStatus.PENDING,
+                text("payment_metadata->>'tier_code' = :tier_code").bindparams(tier_code=tier_code),
+                text(
+                    "(payment_metadata->>'period' = :period"
+                    " OR payment_metadata->>'subscription_period' = :period)"
+                ).bindparams(period=period),
+            )
             .order_by(Payment.created_at.desc())
             .limit(1)
         )

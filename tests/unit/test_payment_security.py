@@ -224,7 +224,11 @@ async def test_payment_cancel_verified_with_api(payment_service, mock_session):
 
 @pytest.mark.asyncio
 async def test_invalid_metadata_does_not_activate_subscription(payment_service, mock_session):
-    """Payment with invalid metadata should not activate subscription."""
+    """Payment with invalid metadata should not activate subscription.
+
+    The payment is still marked SUCCEEDED to prevent infinite reconciliation
+    retries, but no subscription is created.
+    """
     payment = Payment(
         id=1,
         user_id=100,
@@ -243,12 +247,15 @@ async def test_invalid_metadata_does_not_activate_subscription(payment_service, 
     payment_service.yookassa.get_payment = AsyncMock(
         return_value={"id": "test_payment_123", "status": "succeeded"}
     )
+    payment_service.subscription_service.create_subscription = AsyncMock()
 
     yookassa_data = {"id": "test_payment_123", "status": "succeeded"}
 
     await payment_service.handle_payment_success(yookassa_data)
 
-    assert payment.status == PaymentStatus.PENDING
+    payment_service.subscription_service.create_subscription.assert_not_called()
+    assert payment.status == PaymentStatus.SUCCEEDED
+    assert payment.subscription_id is None
 
 
 @pytest.mark.asyncio
