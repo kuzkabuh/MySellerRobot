@@ -68,6 +68,19 @@ class TestRubFormatter:
         assert "100" in result
 
 
+class TestRequestLogging:
+    """Test request logging redacts sensitive query values."""
+
+    def test_redact_query_hides_web_login_token(self):
+        from app.api.main import _redact_query
+
+        redacted = _redact_query("token=raw-login-token&period=7d")
+
+        assert "raw-login-token" not in redacted
+        assert "token=%2A%2A%2AREDACTED%2A%2A%2A" in redacted
+        assert "period=7d" in redacted
+
+
 class TestParseSaleModel:
     """Test parse_sale_model() handles non-string values safely."""
 
@@ -82,14 +95,14 @@ class TestParseSaleModel:
         assert parse_sale_model("all") is None
 
     def test_parse_sale_model_fbo(self):
-        from app.services.web_dashboard_service import parse_sale_model
         from app.models.enums import SaleModel
+        from app.services.web_dashboard_service import parse_sale_model
 
         assert parse_sale_model("FBO") == SaleModel.FBO
 
     def test_parse_sale_model_fbs(self):
-        from app.services.web_dashboard_service import parse_sale_model
         from app.models.enums import SaleModel
+        from app.services.web_dashboard_service import parse_sale_model
 
         assert parse_sale_model("FBS") == SaleModel.FBS
 
@@ -126,14 +139,14 @@ class TestParseMarketplace:
         assert parse_marketplace("all") is None
 
     def test_parse_marketplace_wb(self):
-        from app.services.web_dashboard_service import parse_marketplace
         from app.models.enums import Marketplace
+        from app.services.web_dashboard_service import parse_marketplace
 
         assert parse_marketplace("WB") == Marketplace.WB
 
     def test_parse_marketplace_ozon(self):
-        from app.services.web_dashboard_service import parse_marketplace
         from app.models.enums import Marketplace
+        from app.services.web_dashboard_service import parse_marketplace
 
         assert parse_marketplace("OZON") == Marketplace.OZON
 

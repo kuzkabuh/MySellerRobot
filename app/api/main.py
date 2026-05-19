@@ -2,11 +2,13 @@
 description: FastAPI application factory, service endpoints, and web error handling.
 updated: 2026-05-17
 """
+
 # ruff: noqa: E501
 
 import asyncio
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler as fastapi_http_exception_handler
@@ -53,7 +55,7 @@ def create_app() -> FastAPI:
             extra={
                 "method": request.method,
                 "path": request.url.path,
-                "query": str(request.url.query),
+                "query": _redact_query(str(request.url.query)),
                 "headers": headers,
             },
         )
@@ -65,7 +67,7 @@ def create_app() -> FastAPI:
                 extra={
                     "method": request.method,
                     "path": request.url.path,
-                    "query": str(request.url.query),
+                    "query": _redact_query(str(request.url.query)),
                 },
             )
             if request.url.path.startswith("/web"):
@@ -135,6 +137,19 @@ def _read_errors_log() -> str:
     if not path.exists():
         return ""
     return path.read_text(encoding="utf-8")[-20_000:]
+
+
+def _redact_query(query: str) -> str:
+    sensitive_keys = {"token", "api_key", "secret", "password", "client_id"}
+    pairs = parse_qsl(query, keep_blank_values=True)
+    if not pairs:
+        return query
+    return urlencode(
+        [
+            (key, "***REDACTED***" if key.lower() in sensitive_keys else value)
+            for key, value in pairs
+        ]
+    )
 
 
 def _landing_page() -> str:

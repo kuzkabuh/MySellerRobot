@@ -2,6 +2,7 @@
 description: Server-side HTML rendering helpers and Material-style web cabinet shell.
 updated: 2026-05-17
 """
+
 # ruff: noqa: E501
 
 from html import escape
@@ -49,6 +50,28 @@ NAV_GROUPS = [
     ),
 ]
 
+NAV_ICONS = {
+    "Главная": "Об",
+    "Заказы": "Зк",
+    "Продажи": "Пр",
+    "Возвраты": "Вз",
+    "Прибыль": "₽",
+    "План/факт": "%",
+    "Безубыточность": "0",
+    "Себестоимость": "Сб",
+    "Товары": "Тв",
+    "Сопоставление WB / Ozon": "↔",
+    "Остатки": "Ос",
+    "Алерты": "Ал",
+    "Качество данных": "Кд",
+    "Контроль ошибок": "!",
+    "Аналитика": "Ан",
+    "Кабинеты МП": "МП",
+    "Подписка и тариф": "Тф",
+    "Профиль и настройки": "Пф",
+    "Настройки": "Нс",
+}
+
 
 def page(title: str, user_name: str, content: str, *, active_path: str = "/web/") -> str:
     safe_title = escape(title)
@@ -62,67 +85,69 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
   <style>
     :root {{
       color-scheme: light;
-      --primary: #4557f6;
-      --primary-hover: #3543d8;
-      --primary-soft: #eef0ff;
-      --color-primary: #4557f6;
-      --color-primary-hover: #3543d8;
-      --color-secondary: #006d77;
-      --color-background: #f8fafc;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --primary-soft: #eff6ff;
+      --color-primary: #2563eb;
+      --color-primary-hover: #1d4ed8;
+      --color-secondary: #0f766e;
+      --color-background: #f3f6fb;
       --color-surface: #ffffff;
-      --color-surface-muted: #f9fafb;
-      --color-border: #e2e8f0;
+      --color-surface-muted: #f8fafc;
+      --color-border: #dbe3ef;
       --color-text-primary: #0f172a;
       --color-text-secondary: #475569;
-      --color-success: #10b981;
-      --color-warning: #f59e0b;
-      --color-danger: #ef4444;
-      --color-info: #0ea5e9;
+      --color-success: #059669;
+      --color-warning: #d97706;
+      --color-danger: #dc2626;
+      --color-info: #2563eb;
       --space-1: 4px;
       --space-2: 8px;
       --space-3: 12px;
       --space-4: 16px;
       --space-5: 20px;
       --space-6: 24px;
-      --secondary: #006d77;
+      --secondary: #0f766e;
       --surface: #ffffff;
-      --surface-alt: #f9fafb;
-      --background: #f8fafc;
+      --surface-alt: #f8fafc;
+      --background: #f3f6fb;
       --text-primary: #0f172a;
       --text-secondary: #475569;
-      --border: #e2e8f0;
-      --success: #10b981;
-      --warning: #f59e0b;
-      --danger: #ef4444;
-      --info: #0ea5e9;
-      --bg: #f8fafc;
+      --border: #dbe3ef;
+      --success: #059669;
+      --warning: #d97706;
+      --danger: #dc2626;
+      --info: #2563eb;
+      --bg: #f3f6fb;
       --panel: #ffffff;
-      --panel-soft: #f9fafb;
+      --panel-soft: #f8fafc;
       --text: #0f172a;
       --text-secondary: #475569;
       --muted: #64748b;
-      --line: #e2e8f0;
-      --sidebar: #1e293b;
-      --sidebar-active: #334155;
-      --sidebar-hover: #2d3a4f;
-      --accent: #0ea5e9;
-      --accent-hover: #0284c7;
-      --accent-soft: #e0f2fe;
-      --wb: #8b5cf6;
-      --ozon: #3b82f6;
-      --good: #10b981;
-      --good-soft: #d1fae5;
-      --bad: #ef4444;
+      --line: #dbe3ef;
+      --sidebar: #ffffff;
+      --sidebar-active: #eff6ff;
+      --sidebar-hover: #f8fafc;
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --accent-soft: #dbeafe;
+      --wb: #7c3aed;
+      --ozon: #2563eb;
+      --good: #059669;
+      --good-soft: #dcfce7;
+      --bad: #dc2626;
       --bad-soft: #fee2e2;
-      --warn: #f59e0b;
+      --warn: #d97706;
       --warn-soft: #fef3c7;
-      --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-      --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
-      --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-      --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
-      --radius: 10px;
-      --radius-sm: 6px;
-      --radius-lg: 14px;
+      --neutral-soft: #f1f5f9;
+      --shadow-sm: 0 1px 2px 0 rgb(15 23 42 / 0.05);
+      --shadow: 0 10px 30px -24px rgb(15 23 42 / 0.45);
+      --shadow-md: 0 18px 45px -32px rgb(15 23 42 / 0.55);
+      --shadow-lg: 0 24px 70px -42px rgb(15 23 42 / 0.58);
+      --radius: 12px;
+      --radius-sm: 8px;
+      --radius-lg: 18px;
+      --radius-xl: 24px;
     }}
     * {{ box-sizing: border-box; }}
     body {{
@@ -130,58 +155,92 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
       font-family:
         -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', 'Roboto',
         'Helvetica Neue', Arial, sans-serif;
-      background: var(--bg);
+      background:
+        radial-gradient(circle at 18% -8%, rgb(37 99 235 / 0.10), transparent 28%),
+        linear-gradient(180deg, #f8fbff 0%, var(--bg) 42%);
       color: var(--text);
-      line-height: 1.6;
+      line-height: 1.55;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
     }}
     .shell {{
       display: grid;
-      grid-template-columns: 260px minmax(0, 1fr);
+      grid-template-columns: 280px minmax(0, 1fr);
       min-height: 100vh;
     }}
     aside {{
       background: var(--sidebar);
-      color: white;
-      padding: 28px 20px;
-      box-shadow: var(--shadow-lg);
+      color: var(--text);
+      padding: 22px 18px;
+      border-right: 1px solid var(--line);
       position: sticky;
       top: 0;
       height: 100vh;
       overflow-y: auto;
     }}
     .brand {{
-      font-size: 20px;
-      font-weight: 700;
-      margin-bottom: 32px;
-      letter-spacing: -0.02em;
-      background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 18px;
+      font-weight: 800;
+      margin-bottom: 22px;
+      letter-spacing: 0;
+      color: var(--text);
+    }}
+    .brand::before {{
+      content: "MP";
+      display: inline-grid;
+      place-items: center;
+      width: 38px;
+      height: 38px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #2563eb, #0f766e);
+      color: white;
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      box-shadow: var(--shadow-md);
     }}
     nav a {{
       display: flex;
       align-items: center;
-      color: #cbd5e1;
+      gap: 10px;
+      color: var(--text-secondary);
       text-decoration: none;
-      padding: 11px 14px;
-      border-radius: var(--radius-sm);
-      margin-bottom: 4px;
+      padding: 9px 10px;
+      border-radius: 10px;
+      margin-bottom: 3px;
       font-size: 14px;
-      font-weight: 500;
+      font-weight: 650;
+      border: 1px solid transparent;
       transition: all 0.15s ease;
     }}
     nav a:hover {{
       background: var(--sidebar-hover);
-      color: #fff;
-      transform: translateX(2px);
+      color: var(--text);
+      border-color: var(--line);
     }}
     nav a.active {{
       background: var(--sidebar-active);
-      color: #fff;
-      box-shadow: var(--shadow-sm);
+      color: var(--accent);
+      border-color: #bfdbfe;
+      box-shadow: none;
+    }}
+    .nav-icon {{
+      display: inline-grid;
+      place-items: center;
+      width: 26px;
+      height: 26px;
+      flex: 0 0 auto;
+      border-radius: 8px;
+      background: var(--neutral-soft);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+    }}
+    nav a.active .nav-icon {{
+      background: var(--accent);
+      color: white;
     }}
     .nav-group {{
       margin-top: 18px;
@@ -193,18 +252,52 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
       font-weight: 700;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      padding: 0 14px 8px;
+      padding: 0 10px 8px;
     }}
     main {{
-      padding: 32px;
-      max-width: 1600px;
+      padding: 26px 30px 38px;
+      max-width: 1680px;
+      width: 100%;
     }}
     .topbar {{
       display: flex;
       justify-content: space-between;
       gap: 20px;
       align-items: center;
-      margin-bottom: 28px;
+      margin-bottom: 22px;
+      background: rgb(255 255 255 / 0.82);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      padding: 18px 20px;
+      box-shadow: var(--shadow-sm);
+      backdrop-filter: blur(12px);
+    }}
+    .topbar-meta {{
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }}
+    .user-pill {{
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 12px;
+      background: var(--panel-soft);
+      color: var(--text-secondary);
+      font-size: 13px;
+      font-weight: 700;
+    }}
+    .user-pill::before {{
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--good);
     }}
     .page-header {{
       display: flex;
@@ -212,11 +305,11 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
       gap: 20px;
       align-items: flex-start;
       margin-bottom: 20px;
-      background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+      background: linear-gradient(135deg, #ffffff 0%, #f8fbff 100%);
       border: 1px solid var(--line);
-      border-radius: var(--radius-lg);
+      border-radius: var(--radius-xl);
       padding: 24px;
-      box-shadow: var(--shadow-sm);
+      box-shadow: var(--shadow);
     }}
     .page-header h2 {{
       margin-bottom: 6px;
@@ -228,25 +321,46 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
       gap: 10px;
       justify-content: flex-end;
     }}
+    .summary-strip {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+    }}
+    .summary-strip span {{
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: white;
+      padding: 7px 11px;
+      color: var(--text-secondary);
+      font-size: 13px;
+      font-weight: 700;
+    }}
+    .summary-strip strong {{
+      color: var(--text);
+    }}
     h1 {{
       font-size: 28px;
       margin: 0;
-      letter-spacing: -0.02em;
-      font-weight: 700;
+      letter-spacing: 0;
+      font-weight: 800;
       color: var(--text);
     }}
     h2 {{
       font-size: 20px;
       margin: 0 0 16px;
-      letter-spacing: -0.01em;
-      font-weight: 600;
+      letter-spacing: 0;
+      font-weight: 750;
       color: var(--text);
     }}
     h3 {{
       font-size: 16px;
       margin: 0 0 12px;
-      letter-spacing: -0.01em;
-      font-weight: 600;
+      letter-spacing: 0;
+      font-weight: 750;
     }}
     .muted {{
       color: var(--muted);
@@ -254,13 +368,13 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
     }}
     .filters {{
       display: grid;
-      grid-template-columns: repeat(5, minmax(140px, 1fr)) auto;
+      grid-template-columns: repeat(auto-fit, minmax(156px, 1fr));
       gap: 12px;
       align-items: end;
       background: var(--panel);
       border: 1px solid var(--line);
-      border-radius: var(--radius);
-      padding: 20px;
+      border-radius: var(--radius-lg);
+      padding: 16px;
       margin-bottom: 20px;
       box-shadow: var(--shadow-sm);
     }}
@@ -268,13 +382,15 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
     label {{
       display: block;
       color: var(--text-secondary);
-      font-size: 13px;
-      font-weight: 500;
+      font-size: 12px;
+      font-weight: 750;
       margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
     }}
     select, input {{
       width: 100%;
-      height: 40px;
+      height: 42px;
       border: 1px solid var(--line);
       border-radius: var(--radius-sm);
       background: white;
@@ -300,20 +416,20 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
       border: 1px solid var(--line);
       color: var(--text);
       text-decoration: none;
-      border-radius: var(--radius-sm);
+      border-radius: 10px;
       padding: 10px 16px;
       background: white;
       cursor: pointer;
       font: inherit;
       font-size: 14px;
-      font-weight: 500;
+      font-weight: 750;
       white-space: nowrap;
       transition: all 0.15s ease;
       box-shadow: var(--shadow-sm);
     }}
     .button:hover {{
       background: var(--panel-soft);
-      border-color: var(--muted);
+      border-color: #cbd5e1;
       transform: translateY(-1px);
       box-shadow: var(--shadow);
     }}
@@ -321,6 +437,7 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
       background: var(--accent);
       border-color: var(--accent);
       color: white;
+      box-shadow: 0 10px 22px -16px var(--accent);
     }}
     .primary-button {{ background: var(--accent); border-color: var(--accent); color: white; }}
     .secondary-button {{ background: white; }}
@@ -331,39 +448,53 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
     }}
     .kpi-grid {{
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
       gap: 16px;
     }}
     .kpi {{
       background: var(--panel);
       border: 1px solid var(--line);
-      border-radius: var(--radius);
-      padding: 20px;
-      min-height: 120px;
+      border-radius: var(--radius-lg);
+      padding: 18px;
+      min-height: 118px;
       box-shadow: var(--shadow-sm);
       transition: all 0.2s ease;
+      position: relative;
+      overflow: hidden;
+    }}
+    .kpi::before {{
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 4px;
+      background: var(--line);
     }}
     .kpi-card {{ background: var(--panel); }}
     .kpi:hover {{
       box-shadow: var(--shadow-md);
-      transform: translateY(-2px);
+      transform: translateY(-1px);
     }}
     .kpi span {{
       display: block;
       color: var(--muted);
-      font-size: 13px;
-      font-weight: 500;
+      font-size: 12px;
+      font-weight: 800;
       margin-bottom: 10px;
       text-transform: uppercase;
-      letter-spacing: 0.03em;
+      letter-spacing: 0.04em;
     }}
     .kpi strong {{
       display: block;
-      font-size: 26px;
+      font-size: 28px;
       line-height: 1.2;
       overflow-wrap: anywhere;
       font-weight: 700;
     }}
+    .kpi.good::before {{ background: var(--good); }}
+    .kpi.bad::before {{ background: var(--bad); }}
+    .kpi.warn::before {{ background: var(--warn); }}
+    .kpi.action::before {{ background: var(--accent); }}
+    .kpi.neutral::before {{ background: var(--accent); }}
     .change {{
       display: inline-block;
       margin-top: 10px;
@@ -385,7 +516,7 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
     .band {{
       background: var(--panel);
       border: 1px solid var(--line);
-      border-radius: var(--radius);
+      border-radius: var(--radius-lg);
       padding: 24px;
       min-width: 0;
       box-shadow: var(--shadow-sm);
@@ -394,7 +525,7 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
     .section-card, .table-card, .form-card, .alert-card {{
       background: var(--panel);
       border: 1px solid var(--line);
-      border-radius: var(--radius);
+      border-radius: var(--radius-lg);
       padding: 24px;
       box-shadow: var(--shadow-sm);
     }}
@@ -405,9 +536,10 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
       text-align: center;
       color: var(--muted);
       background: var(--panel-soft);
-      border: 2px dashed var(--line);
-      border-radius: var(--radius);
+      border: 1px dashed #cbd5e1;
+      border-radius: var(--radius-lg);
       padding: 24px;
+      font-weight: 650;
     }}
     .band:hover {{
       box-shadow: var(--shadow);
@@ -420,8 +552,8 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
       place-items: center;
       color: var(--muted);
       background: var(--panel-soft);
-      border: 2px dashed var(--line);
-      border-radius: var(--radius);
+      border: 1px dashed #cbd5e1;
+      border-radius: var(--radius-lg);
       font-weight: 500;
     }}
     .legend {{
@@ -442,36 +574,41 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
     }}
     .table {{
       width: 100%;
-      border-collapse: collapse;
+      border-collapse: separate;
+      border-spacing: 0;
       font-size: 14px;
     }}
     .table-wrap {{
       width: 100%;
       overflow-x: auto;
-      border-radius: var(--radius-sm);
+      border-radius: var(--radius);
+      border: 1px solid var(--line);
+      background: var(--panel);
     }}
     .table th, .table td {{
-      padding: 12px 10px;
+      padding: 13px 14px;
       border-bottom: 1px solid var(--line);
       text-align: left;
       vertical-align: top;
     }}
     .table thead {{
-      background: var(--panel-soft);
+      background: #f8fafc;
     }}
     .table th {{
       color: var(--text-secondary);
-      font-weight: 600;
-      font-size: 13px;
+      font-weight: 800;
+      font-size: 12px;
       text-transform: uppercase;
-      letter-spacing: 0.03em;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
     }}
     .table tbody tr {{
       transition: background 0.15s ease;
     }}
     .table tbody tr:hover {{
-      background: var(--panel-soft);
+      background: #f8fbff;
     }}
+    .table tbody tr:last-child td {{ border-bottom: 0; }}
     .table td.num, .table th.num {{ text-align: right; }}
     .table a {{
       color: var(--accent);
@@ -492,15 +629,16 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
       background: var(--panel-soft);
       color: var(--muted);
       font-size: 12px;
-      font-weight: 600;
+      font-weight: 800;
       white-space: nowrap;
+      border: 1px solid transparent;
     }}
-    .badge.good {{ background: var(--good-soft); color: var(--good); }}
-    .badge.bad {{ background: var(--bad-soft); color: var(--bad); }}
-    .badge.warn {{ background: var(--warn-soft); color: var(--warn); }}
-    .badge.action {{ background: var(--accent-soft); color: var(--accent); }}
-    .badge.wb {{ background: #f3e8ff; color: var(--wb); }}
-    .badge.ozon {{ background: #dbeafe; color: var(--ozon); }}
+    .badge.good {{ background: var(--good-soft); color: #047857; border-color: #bbf7d0; }}
+    .badge.bad {{ background: var(--bad-soft); color: #b91c1c; border-color: #fecaca; }}
+    .badge.warn {{ background: var(--warn-soft); color: #92400e; border-color: #fde68a; }}
+    .badge.action {{ background: var(--accent-soft); color: var(--accent); border-color: #bfdbfe; }}
+    .badge.wb {{ background: #f5f3ff; color: var(--wb); border-color: #ddd6fe; }}
+    .badge.ozon {{ background: #dbeafe; color: var(--ozon); border-color: #bfdbfe; }}
     .marketplace-badge {{
       display: inline-flex;
       align-items: center;
@@ -542,7 +680,7 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
       background: var(--panel-soft);
       border: 1px solid var(--line);
       font-size: 12px;
-      font-weight: 700;
+      font-weight: 800;
     }}
     .metric-delta {{ color: var(--muted); font-size: 13px; font-weight: 600; }}
     .tabs, .breadcrumbs {{
@@ -575,10 +713,10 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
       text-decoration: none;
       border: 1px solid var(--line);
       background: white;
-      border-radius: var(--radius-sm);
+      border-radius: 999px;
       padding: 10px 14px;
       font-size: 14px;
-      font-weight: 500;
+      font-weight: 750;
       transition: all 0.15s ease;
       box-shadow: var(--shadow-sm);
     }}
@@ -626,7 +764,8 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
       line-height: 1.5;
     }}
     @media (max-width: 1100px) {{
-      .filters {{ grid-template-columns: repeat(3, minmax(130px, 1fr)); }}
+      .shell {{ grid-template-columns: 230px minmax(0, 1fr); }}
+      .filters {{ grid-template-columns: repeat(2, minmax(150px, 1fr)); }}
       .kpi-grid {{ grid-template-columns: repeat(2, minmax(160px, 1fr)); }}
       .dashboard-grid {{ grid-template-columns: 1fr; }}
       .detail-grid {{ grid-template-columns: 1fr; }}
@@ -636,6 +775,8 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
       aside {{
         position: static;
         height: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
       }}
       main {{ padding: 20px; }}
       .filters {{ grid-template-columns: 1fr; }}
@@ -643,9 +784,16 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
         align-items: flex-start;
         flex-direction: column;
       }}
+      .topbar-meta {{ justify-content: flex-start; }}
       .page-header {{
         flex-direction: column;
       }}
+      nav {{
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 4px;
+      }}
+      .nav-title {{ grid-column: 1 / -1; }}
     }}
     @media (max-width: 520px) {{
       .kpi-grid {{ grid-template-columns: 1fr; }}
@@ -655,7 +803,7 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
 <body>
   <div class="shell">
     <aside>
-      <div class="brand">KUZ’KA.SELLER</div>
+      <div class="brand">MP Control</div>
       <nav>
         {_nav(active_path)}
       </nav>
@@ -664,9 +812,12 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
       <div class="topbar">
         <div>
           <h1>{safe_title}</h1>
-          <div class="muted">Вошли как {safe_user}</div>
+          <div class="muted">Операционный кабинет Wildberries и Ozon</div>
         </div>
-        <a class="button" href="/web/logout">Выйти</a>
+        <div class="topbar-meta">
+          <span class="user-pill">{safe_user}</span>
+          <a class="button" href="/web/logout">Выйти</a>
+        </div>
       </div>
       {content}
     </main>
@@ -681,7 +832,11 @@ def _nav(active_path: str) -> str:
         links = []
         for label, href in items:
             active = ' class="active"' if href == active_path else ""
-            links.append(f'<a{active} href="{href}">{escape(label)}</a>')
+            icon = escape(NAV_ICONS.get(label, "•"))
+            links.append(
+                f'<a{active} href="{href}"><span class="nav-icon">{icon}</span>'
+                f"<span>{escape(label)}</span></a>"
+            )
         groups.append(
             '<div class="nav-group">'
             f'<div class="nav-title">{escape(title)}</div>' + "\n".join(links) + "</div>"

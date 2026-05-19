@@ -1,4 +1,5 @@
 """HTML rendering helpers and form/query utilities for the web cabinet."""
+
 # ruff: noqa: E501, F401
 
 import json
@@ -148,6 +149,7 @@ __all__ = [
     "_optional_query_param",
     "_decimal_from_query",
 ]
+
 
 def _placeholder_page(section: str, user: User) -> str:
     titles = {
@@ -720,12 +722,25 @@ def _stocks_forecast_content(
     stock_status: str = "all",
 ) -> str:
     body_rows = []
+    critical_count = 0
+    warning_count = 0
+    out_count = 0
+    common_fbs_count = 0
+    total_quantity = 0
     for row in rows:
+        total_quantity += row.quantity
+        common_fbs_count += int(row.is_common_fbs)
+        if row.status == "out_of_stock":
+            out_count += 1
+        elif row.status == "critical":
+            critical_count += 1
+        elif row.status == "warning":
+            warning_count += 1
         days_until_stockout = (
             str(row.days_until_stockout) if row.days_until_stockout is not None else "н/д"
         )
         marketplace_cell = (
-            '<span class="marketplace-badge neutral">WB + Ozon</span>'
+            '<span class="marketplace-badge neutral"><span class="mp-logo">FBS</span>Общий FBS</span>'
             if row.is_common_fbs
             else _marketplace_label(row.marketplace)
         )
@@ -748,12 +763,20 @@ def _stocks_forecast_content(
     body = "".join(body_rows)
     if not body:
         body = (
-            '<tr><td colspan="10" class="muted">'
-            "Остатков пока нет. Дождитесь фоновой синхронизации складов.</td></tr>"
+            '<tr><td colspan="10"><div class="empty-state">'
+            "Остатков пока нет. Запустите синхронизацию или дождитесь фоновой загрузки складов."
+            "</div></td></tr>"
         )
     return f"""
       {_section_subnav("stocks")}
       {_stock_filters(marketplace, sale_model, stock_status)}
+      <section class="kpi-grid">
+        {_simple_kpi("Всего позиций", str(len(rows)))}
+        {_simple_kpi("Суммарный остаток", str(total_quantity))}
+        {_simple_kpi("Нет в наличии", str(out_count), "bad" if out_count else "neutral")}
+        {_simple_kpi("Низкий остаток", str(critical_count + warning_count), "warn" if critical_count + warning_count else "neutral")}
+        {_simple_kpi("Общий FBS", str(common_fbs_count), "action" if common_fbs_count else "neutral")}
+      </section>
       <section class="band">
         <h2>Остатки, out-of-stock и потери выручки</h2>
         <p class="muted">
@@ -811,20 +834,33 @@ def _stock_filters(marketplace: str, sale_model: str, stock_status: str) -> str:
 
 
 def _alerts_content(events: list[AlertEvent]) -> str:
+    pending = sum(1 for event in events if not event.sent_at)
+    sent = len(events) - pending
+    critical = sum(
+        1
+        for event in events
+        if event.alert_type.value in {"LOSS_ORDER", "LOW_STOCK", "STOCKOUT_FORECAST"}
+    )
     body = "".join(
         "<tr>"
         f"<td>{escape(event.created_at.strftime('%d.%m.%Y %H:%M'))}</td>"
-        f"<td>{escape(event.alert_type.value)}</td>"
+        f"<td>{_alert_type_badge(event.alert_type.value)}</td>"
         f"<td>{escape(event.title)}</td>"
         f"<td>{escape(event.message)}</td>"
-        f"<td>{'отправлено' if event.sent_at else 'новое'}</td>"
+        f"<td>{_alert_delivery_badge(event.sent_at is not None)}</td>"
         "</tr>"
         for event in events
     )
     if not body:
-        body = '<tr><td colspan="5" class="muted">Активных алертов пока нет.</td></tr>'
+        body = '<tr><td colspan="5"><div class="empty-state">Активных алертов пока нет. Всё спокойно.</div></td></tr>'
     return f"""
       {_section_subnav("alerts")}
+      <section class="kpi-grid">
+        {_simple_kpi("Всего алертов", str(len(events)))}
+        {_simple_kpi("Новые", str(pending), "action" if pending else "neutral")}
+        {_simple_kpi("Критичные", str(critical), "bad" if critical else "neutral")}
+        {_simple_kpi("Отправлены", str(sent), "good" if sent else "neutral")}
+      </section>
       <section class="band">
         <h2>Расширенные алерты</h2>
         <p class="muted">
@@ -1570,6 +1606,10 @@ def _dashboard_welcome(
             Тариф: {escape(subscription.tier.name)} · действует до {escape(expires)} ·
             подключено кабинетов: {accounts.active_accounts} из {subscription.tier.max_marketplace_accounts}
           </p>
+          <div class="summary-strip">
+            <span><strong>{accounts.active_accounts}</strong> кабинетов подключено</span>
+            <span><strong>{data_quality_hint(accounts.active_accounts)}</strong> статус работы</span>
+          </div>
         </div>
         <div class="page-actions">
           <a class="button" href="/web/subscription">Подписка</a>
@@ -1850,7 +1890,7 @@ def _period_select(selected: str) -> str:
 def _page_header(title: str, description: str, href: str, action: str) -> str:
     return (
         '<section class="page-header">'
-        f'<div><h2>{escape(title)}</h2><p class="muted">{description}</p></div>'
+        f'<div><h2>{escape(title)}</h2><p class="muted">{escape(description)}</p></div>'
         f'<div class="page-actions"><a class="button" href="{escape(href)}">{escape(action)}</a></div>'
         "</section>"
     )
@@ -2131,10 +2171,9 @@ def _sale_model_chart(points: list[DailyPoint]) -> str:
 def _marketplace_table(data: DashboardData) -> str:
     rows = []
     for item in data.marketplace_breakdown:
-        label = "Wildberries" if item.marketplace == Marketplace.WB else "Ozon"
         rows.append(
             "<tr>"
-            f"<td>{label}</td>"
+            f"<td>{_marketplace_label(item.marketplace)}</td>"
             f'<td class="num">{item.orders}</td>'
             f'<td class="num">{item.sales}</td>'
             f'<td class="num">{_rub(item.revenue)}</td>'
@@ -2203,12 +2242,14 @@ def _marketplace_label(value: Marketplace | str | None) -> str:
     logo_html = f'<span class="mp-logo">{logo}</span>' if logo else ""
     return (
         f'<span class="marketplace-badge {css_class}">'
-        f'{logo_html}{escape(marketplace_title(value))}</span>'
+        f"{logo_html}{escape(marketplace_title(value))}</span>"
     )
 
 
 def _sale_model_badge(value: str | None) -> str:
-    return f'<span class="badge">{escape(sale_model_title(value))}</span>'
+    raw = str(value or "")
+    tone = "action" if raw in {"FBS", "rFBS", "DBS", "DBW"} else "neutral"
+    return f'<span class="badge {tone}">{escape(sale_model_title(value))}</span>'
 
 
 def _order_status_badge(status: str | None, requires_action: bool = False) -> str:
@@ -2225,6 +2266,31 @@ def _confidence_badge(value: str | None) -> str:
     }
     tone, label = labels.get(value or "PRELIMINARY", labels["PRELIMINARY"])
     return f'<span class="badge {tone}">{label}</span>'
+
+
+def _alert_type_badge(value: str) -> str:
+    labels = {
+        "LOW_MARGIN": ("warn", "Низкая маржа"),
+        "LOSS_ORDER": ("bad", "Убыточный заказ"),
+        "MISSING_COST": ("warn", "Нет себестоимости"),
+        "LOW_STOCK": ("bad", "Низкий остаток"),
+        "STOCKOUT_FORECAST": ("bad", "Риск out-of-stock"),
+        "FBS_DEADLINE": ("warn", "FBS-дедлайн"),
+        "SYNC_ERROR": ("bad", "Ошибка синхронизации"),
+        "ORDERS_DROP": ("warn", "Просадка заказов"),
+    }
+    tone, label = labels.get(value, ("neutral", value.replace("_", " ").title()))
+    return f'<span class="badge {tone}">{escape(label)}</span>'
+
+
+def _alert_delivery_badge(is_sent: bool) -> str:
+    if is_sent:
+        return '<span class="badge good">отправлено</span>'
+    return '<span class="badge action">новое</span>'
+
+
+def data_quality_hint(active_accounts: int) -> str:
+    return "активен" if active_accounts else "нужна настройка"
 
 
 def _parse_int_list(raw: str) -> list[int]:

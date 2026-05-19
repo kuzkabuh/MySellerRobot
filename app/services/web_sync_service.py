@@ -8,6 +8,7 @@ from arq.connections import RedisSettings, create_pool
 from redis.asyncio import Redis
 
 from app.core.config import get_settings
+from app.core.redis import redis_settings_from_url
 
 
 class WebSyncType(StrEnum):
@@ -85,10 +86,7 @@ def _redis() -> Redis:
 
 
 def _redis_settings() -> RedisSettings:
-    redis_url = get_settings().redis_url.replace("redis://", "")
-    host_port, _, database = redis_url.partition("/")
-    host, _, port = host_port.partition(":")
-    return RedisSettings(host=host, port=int(port or 6379), database=int(database or 0))
+    return redis_settings_from_url(get_settings().redis_url)
 
 
 def _parse_sync_type(value: str) -> WebSyncType | None:

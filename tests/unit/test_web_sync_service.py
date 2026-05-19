@@ -1,5 +1,6 @@
 """Unit tests for web-triggered synchronization queue facade."""
 
+from app.core.redis import redis_settings_from_url
 from app.services import web_sync_service
 from app.services.web_sync_service import WebSyncService
 
@@ -80,3 +81,14 @@ async def test_web_sync_enqueues_product_and_profile_tasks(monkeypatch) -> None:
     assert products.queued is True
     assert profile.queued is True
     assert queue.jobs == ["sync_products", "sync_wb_account_profiles"]
+
+
+def test_redis_settings_from_url_preserves_auth_and_ssl() -> None:
+    settings = redis_settings_from_url("rediss://worker:secret@redis.example:6380/2")
+
+    assert settings.host == "redis.example"
+    assert settings.port == 6380
+    assert settings.database == 2
+    assert settings.username == "worker"
+    assert settings.password == "secret"
+    assert settings.ssl is True

@@ -7,6 +7,7 @@ from arq import cron
 from arq.connections import RedisSettings
 
 from app.core.config import get_settings
+from app.core.redis import redis_settings_from_url
 from app.workers.tasks import (
     check_fbs_deadlines,
     check_low_stocks,
@@ -27,10 +28,7 @@ settings = get_settings()
 
 
 def _redis_settings() -> RedisSettings:
-    redis_url = settings.redis_url.replace("redis://", "")
-    host_port, _, database = redis_url.partition("/")
-    host, _, port = host_port.partition(":")
-    return RedisSettings(host=host, port=int(port or 6379), database=int(database or 0))
+    return redis_settings_from_url(settings.redis_url)
 
 
 class WorkerSettings:
