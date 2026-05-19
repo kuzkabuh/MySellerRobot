@@ -750,6 +750,191 @@ def test_web_cost_save_accepts_canonical_and_legacy_double_post(
     assert saved[0].tax_rate == Decimal("0.0600")
 
 
+def test_web_plan_fact_save_accepts_canonical_and_legacy_double_post(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST /web/plan-fact/plans and POST /web/web/plan-fact/plans must both work."""
+    app = create_app()
+    user = SimpleNamespace(
+        id=1,
+        telegram_id=123456789,
+        username="seller",
+        first_name="Артем",
+        timezone="Europe/Moscow",
+        language="ru",
+        status=UserStatus.ACTIVE,
+        notifications_enabled=True,
+        low_margin_threshold_percent=Decimal("10"),
+        created_at=datetime(2026, 5, 17, tzinfo=UTC),
+    )
+    saved_plans: list[dict] = []
+
+    async def fake_get_session():  # type: ignore[no-untyped-def]
+        yield FakeAsyncSession()
+
+    async def fake_current_web_user():  # type: ignore[no-untyped-def]
+        return user
+
+    async def fake_save_plan(self, **kwargs):  # type: ignore[no-untyped-def]
+        saved_plans.append(kwargs)
+
+    app.dependency_overrides[get_session] = fake_get_session
+    app.dependency_overrides[current_web_user] = fake_current_web_user
+    monkeypatch.setattr(
+        "app.services.plan_fact_service.PlanFactService.save_plan",
+        fake_save_plan,
+    )
+    monkeypatch.setattr(
+        "app.services.plan_fact_service.PlanFactService.compare",
+        lambda *a, **kw: SimpleNamespace(
+            summary=SimpleNamespace(
+                orders=0, buyouts=0, estimated_profit=Decimal("0"),
+                actual_profit=Decimal("0"), deviation=Decimal("0"),
+                deviation_percent=Decimal("0"), pending_actual=0,
+            ),
+            rows=[], plan=None,
+            filters=SimpleNamespace(
+                local_date_from=datetime(2026, 5, 1).date(),
+                local_date_to=datetime(2026, 5, 31).date(),
+            ),
+        ),
+    )
+    form = {
+        "period_start": "2026-05-01",
+        "period_end": "2026-05-31",
+        "marketplace": "wb",
+        "revenue_plan": "100000",
+        "profit_plan": "20000",
+        "orders_plan": "50",
+        "buyouts_plan": "30",
+    }
+
+    with TestClient(app, raise_server_exceptions=True) as client:
+        canonical = client.post("/web/plan-fact/plans", data=form, follow_redirects=False)
+        legacy = client.post("/web/web/plan-fact/plans", data=form, follow_redirects=False)
+
+    app.dependency_overrides.clear()
+
+    assert canonical.status_code == 303
+    assert canonical.headers["location"] == "/web/plan-fact"
+    assert legacy.status_code == 303
+    assert legacy.headers["location"] == "/web/plan-fact"
+    assert len(saved_plans) == 2
+    assert saved_plans[0]["period_start"] == datetime(2026, 5, 1).date()
+    assert saved_plans[0]["period_end"] == datetime(2026, 5, 31).date()
+
+
+def test_web_plan_fact_page_renders_without_double_web_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GET /web/plan-fact must not contain /web/web/ in the HTML."""
+    app = create_app()
+    user = SimpleNamespace(
+        id=1,
+        telegram_id=123456789,
+        username="seller",
+        first_name="Артем",
+        timezone="Europe/Moscow",
+        language="ru",
+        status=UserStatus.ACTIVE,
+        notifications_enabled=True,
+        low_margin_threshold_percent=Decimal("10"),
+        created_at=datetime(2026, 5, 17, tzinfo=UTC),
+    )
+
+    async def fake_get_session():  # type: ignore[no-untyped-def]
+        yield FakeAsyncSession()
+
+    async def fake_current_web_user():  # type: ignore[no-untyped-def]
+        return user
+
+    from app.services.web_orders_profit_service import OrderWebFilters
+
+    async def fake_compare(self, **kw):  # type: ignore[no-untyped-def]
+        return SimpleNamespace(
+            summary=SimpleNamespace(
+                orders=0, buyouts=0, estimated_profit=Decimal("0"),
+                actual_profit=Decimal("0"), deviation=Decimal("0"),
+                deviation_percent=Decimal("0"), pending_actual=0,
+            ),
+            rows=[], plan=None,
+            filters=OrderWebFilters(
+                period="30d", marketplace=None, sale_model=None,
+                local_date_from=datetime(2026, 4, 19).date(),
+                local_date_to=datetime(2026, 5, 19).date(),
+                date_from=datetime(2026, 4, 19, tzinfo=UTC),
+                date_to=datetime(2026, 5, 19, tzinfo=UTC),
+                economy="all", status="all", sku="", sort="deviation", direction="asc",
+            ),
+        )
+
+    monkeypatch.setattr(
+        "app.services.plan_fact_service.PlanFactService.compare",
+        fake_compare,
+    )
+    app.dependency_overrides[get_session] = fake_get_session
+    app.dependency_overrides[current_web_user] = fake_current_web_user
+
+    with TestClient(app, raise_server_exceptions=True) as client:
+        response = client.get("/web/plan-fact")
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert 'action="/web/plan-fact/plans"' in response.text
+    assert "/web/web/" not in response.text
+    assert 'href="/web/web/' not in response.text
+    assert 'action="/web/web/' not in response.text
+
+
+def test_web_plan_fact_delete_accepts_canonical_and_legacy_double_post(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST /web/plan-fact/plans/{id}/delete and legacy /web/web/... must both work."""
+    app = create_app()
+    user = SimpleNamespace(
+        id=1,
+        telegram_id=123456789,
+        username="seller",
+        first_name="Артем",
+        timezone="Europe/Moscow",
+        language="ru",
+        status=UserStatus.ACTIVE,
+        notifications_enabled=True,
+        low_margin_threshold_percent=Decimal("10"),
+        created_at=datetime(2026, 5, 17, tzinfo=UTC),
+    )
+    deleted_ids: list[int] = []
+
+    async def fake_get_session():  # type: ignore[no-untyped-def]
+        yield FakeAsyncSession()
+
+    async def fake_current_web_user():  # type: ignore[no-untyped-def]
+        return user
+
+    async def fake_delete_plan(self, *, user_id, target_id):  # type: ignore[no-untyped-def]
+        deleted_ids.append(target_id)
+
+    app.dependency_overrides[get_session] = fake_get_session
+    app.dependency_overrides[current_web_user] = fake_current_web_user
+    monkeypatch.setattr(
+        "app.services.plan_fact_service.PlanFactService.delete_plan",
+        fake_delete_plan,
+    )
+
+    with TestClient(app, raise_server_exceptions=True) as client:
+        canonical = client.post("/web/plan-fact/plans/42/delete", follow_redirects=False)
+        legacy = client.post("/web/web/plan-fact/plans/42/delete", follow_redirects=False)
+
+    app.dependency_overrides.clear()
+
+    assert canonical.status_code == 303
+    assert canonical.headers["location"] == "/web/plan-fact"
+    assert legacy.status_code == 303
+    assert legacy.headers["location"] == "/web/plan-fact"
+    assert deleted_ids == [42, 42]
+
+
 def test_web_unhandled_exception_returns_controlled_html_error() -> None:
     app = create_app()
 

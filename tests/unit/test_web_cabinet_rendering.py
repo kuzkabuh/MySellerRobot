@@ -341,6 +341,37 @@ def test_plan_fact_content_has_canonical_form_actions() -> None:
     html = routes._plan_fact_content(data)
 
     assert 'action="/web/plan-fact/plans"' in html
+    assert 'action="/web/plan-fact/plans/1/delete"' in html
+    assert "/web/web/" not in html
+    assert 'action="/web/web/' not in html
+
+
+def test_plan_fact_content_without_plan_has_canonical_form_action() -> None:
+    """When no plan exists, the save form must still use canonical action."""
+    from app.services.plan_fact_service import PlanFactSummary
+    from app.services.web_orders_profit_service import OrderWebFilters
+
+    summary = PlanFactSummary(
+        orders=0, buyouts=0, estimated_profit=Decimal("0"),
+        actual_profit=Decimal("0"), deviation=Decimal("0"),
+        deviation_percent=Decimal("0"), pending_actual=0,
+    )
+    filters = OrderWebFilters(
+        period="30d", marketplace=None, sale_model=None,
+        local_date_from=datetime(2026, 5, 1).date(),
+        local_date_to=datetime(2026, 5, 31).date(),
+        date_from=datetime(2026, 5, 1, tzinfo=UTC),
+        date_to=datetime(2026, 5, 31, tzinfo=UTC),
+        economy="all", status="all", sku="", sort="deviation", direction="asc",
+    )
+    data = SimpleNamespace(
+        summary=summary, rows=[], plan=None, filters=filters,
+    )
+    html = routes._plan_fact_content(data)
+
+    assert 'action="/web/plan-fact/plans"' in html
+    assert 'action="/web/plan-fact/plans//delete"' not in html
+    assert "/web/web/" not in html
     assert 'action="/web/web/' not in html
 
 

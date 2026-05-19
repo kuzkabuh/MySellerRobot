@@ -110,6 +110,34 @@ async def delete_plan_fact_plan(
     return RedirectResponse(url="/web/plan-fact", status_code=303)
 
 
+@router.post("/web/plan-fact/plans", include_in_schema=False)
+async def save_plan_fact_plan_legacy_double_web(
+    request: Request,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    """Accept plan saves from legacy /web/web/plan-fact/plans and redirect canonically."""
+    return await save_plan_fact_plan(
+        request=request,
+        user=user,
+        session=session,
+    )
+
+
+@router.post("/web/plan-fact/plans/{target_id}/delete", include_in_schema=False)
+async def delete_plan_fact_plan_legacy_double_web(
+    target_id: int,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    """Accept plan deletes from legacy /web/web/plan-fact/plans/{id}/delete and redirect canonically."""
+    return await delete_plan_fact_plan(
+        target_id=target_id,
+        user=user,
+        session=session,
+    )
+
+
 @router.get("/break-even", response_class=HTMLResponse)
 async def break_even_page(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
