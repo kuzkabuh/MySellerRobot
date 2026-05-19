@@ -1,6 +1,6 @@
-"""version: 1.1.0
+"""version: 1.2.0
 description: Regression tests for worker session safety after rollback.
-updated: 2026-05-19
+updated: 2026-05-20
 """
 
 from types import SimpleNamespace
@@ -42,37 +42,66 @@ class FakeAsyncSession:
 
 
 @pytest.mark.asyncio
-async def test_poll_new_orders_survives_rollback_and_continues() -> None:
-    """After an error in poll_new_orders, the worker should continue
-    processing remaining accounts without MissingGreenlet errors."""
-    session = FakeAsyncSession()
+async def test_poll_new_orders_uses_isolated_sessions() -> None:
+    """Each account should use its own session so errors in one
+    do not affect processing of other accounts."""
+    sessions: list[FakeAsyncSession] = []
+    session_call_index = [0]
 
     account1 = SimpleNamespace(
         id=1, marketplace=Marketplace.WB, user_id=1,
         last_error_at=None, last_error_message=None,
     )
+    account2 = SimpleNamespace(
+        id=2, marketplace=Marketplace.OZON, user_id=1,
+        last_error_at=None, last_error_message=None,
+    )
 
-    call_count = 0
+    poll_results = []
 
     async def fake_poll_account_with_stats(account):
-        nonlocal call_count
-        call_count += 1
-        raise RuntimeError("API error")
+        if account.id == 1:
+            raise RuntimeError("API error for account 1")
+        poll_results.append(account.id)
+        return SimpleNamespace(
+            fetched=1, created=1, duplicated=0, queued_digest=0,
+            skipped_by_policy=0, skipped_without_user=0,
+            skipped_without_items=0, retried_unnotified=0,
+            recovered_unnotified=0, notifications=[],
+            notification_count=0,
+        )
 
-    # First execute call: _load_account_refs
-    session._execute_results.append(FakeResult([
-        (1, Marketplace.WB, 1),
-        (2, Marketplace.OZON, 1),
-    ]))
-    # Second execute call: _load_account_by_id for account 1
-    session._execute_results.append(FakeResult([account1]))
-    # Third execute call: _load_account_by_id for account 2
-    session._execute_results.append(FakeResult([]))
+    def make_session():
+        s = FakeAsyncSession()
+        sessions.append(s)
+        idx = session_call_index[0]
+        session_call_index[0] += 1
+        if idx == 0:
+            s._execute_results.append(FakeResult([
+                (1, Marketplace.WB, 1),
+                (2, Marketplace.OZON, 1),
+            ]))
+        elif idx == 1:
+            s._execute_results.append(FakeResult([account1]))
+        elif idx == 2:
+            s._execute_results.append(FakeResult([account2]))
+        return s
 
-    with patch("app.workers.tasks.AsyncSessionFactory") as mock_factory:
-        mock_factory.return_value.__aenter__ = AsyncMock(return_value=session)
-        mock_factory.return_value.__aexit__ = AsyncMock(return_value=False)
+    class FakeAsyncCM:
+        def __init__(self, session):
+            self._session = session
 
+        async def __aenter__(self):
+            return self._session
+
+        async def __aexit__(self, *args):
+            return False
+
+    def mock_factory():
+        s = make_session()
+        return FakeAsyncCM(s)
+
+    with patch("app.workers.tasks.AsyncSessionFactory", mock_factory):
         with patch("app.workers.tasks.OrderProcessingService") as mock_service:
             mock_service.return_value.poll_account_with_stats = fake_poll_account_with_stats
 
@@ -83,14 +112,15 @@ async def test_poll_new_orders_survives_rollback_and_continues() -> None:
                     from app.workers.tasks import poll_new_orders
                     await poll_new_orders({})
 
-    # Rollback should have happened, but no crash
-    assert session.rolled_back is True
+    assert len(sessions) >= 2
+    assert 2 in poll_results
 
 
 @pytest.mark.asyncio
 async def test_sync_products_survives_rollback_and_continues() -> None:
     """sync_products should survive errors without MissingGreenlet."""
-    session = FakeAsyncSession()
+    sessions: list[FakeAsyncSession] = []
+    session_call_index = [0]
 
     account = SimpleNamespace(
         id=10, marketplace=Marketplace.WB, user_id=5,
@@ -100,15 +130,34 @@ async def test_sync_products_survives_rollback_and_continues() -> None:
     async def fake_sync_account_products(account):
         raise RuntimeError("Sync failed")
 
-    session._execute_results.append(FakeResult([
-        (10, Marketplace.WB, 5),
-    ]))
-    session._execute_results.append(FakeResult([account]))
+    def make_session():
+        s = FakeAsyncSession()
+        sessions.append(s)
+        idx = session_call_index[0]
+        session_call_index[0] += 1
+        if idx == 0:
+            s._execute_results.append(FakeResult([
+                (10, Marketplace.WB, 5),
+            ]))
+        elif idx == 1:
+            s._execute_results.append(FakeResult([account]))
+        return s
 
-    with patch("app.workers.tasks.AsyncSessionFactory") as mock_factory:
-        mock_factory.return_value.__aenter__ = AsyncMock(return_value=session)
-        mock_factory.return_value.__aexit__ = AsyncMock(return_value=False)
+    class FakeAsyncCM:
+        def __init__(self, session):
+            self._session = session
 
+        async def __aenter__(self):
+            return self._session
+
+        async def __aexit__(self, *args):
+            return False
+
+    def mock_factory():
+        s = make_session()
+        return FakeAsyncCM(s)
+
+    with patch("app.workers.tasks.AsyncSessionFactory", mock_factory):
         with patch("app.workers.tasks.ProductSyncService") as mock_service:
             mock_service.return_value.sync_account_products = fake_sync_account_products
 
@@ -116,7 +165,7 @@ async def test_sync_products_survives_rollback_and_continues() -> None:
                 from app.workers.tasks import sync_products
                 await sync_products({})
 
-    assert session.rolled_back is True
+    assert len(sessions) >= 1
 
 
 def test_account_ref_is_plain_data() -> None:

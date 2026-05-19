@@ -54,6 +54,7 @@ class OrderPollResult:
     queued_digest: int = 0
     skipped_by_policy: int = 0
     skipped_without_user: int = 0
+    skipped_without_items: int = 0
     retried_unnotified: int = 0
     recovered_unnotified: int = 0
     notifications: list[NewOrderNotification] | None = None
@@ -209,7 +210,10 @@ class OrderProcessingService:
                             continue
 
                         first_item = normalized.items[0] if normalized.items else None
-                        if not first_item or not account.user:
+                        if not first_item:
+                            result.skipped_without_items += 1
+                            continue
+                        if not account.user:
                             result.skipped_without_user += 1
                             continue
 
@@ -484,13 +488,21 @@ class OrderProcessingService:
         prepared_ids = {notification.order_id for notification in result.notifications or []}
         pending = await self.orders.pending_unnotified_for_account(
             account_id=account.id,
-            sale_models={SaleModel.FBS, SaleModel.RFBS, SaleModel.DBS, SaleModel.DBW},
+            sale_models={
+                SaleModel.FBS, SaleModel.RFBS,
+                SaleModel.DBS, SaleModel.DBW,
+                SaleModel.FBO,
+            },
             limit=100,
         )
         for order in pending:
             if order.id in prepared_ids:
                 continue
-            if not policy.is_instant_enabled_for(order.sale_model):
+            if order.sale_model == SaleModel.FBO and not policy.fbo_enabled:
+                result.skipped_by_policy += 1
+                continue
+            is_fbo = order.sale_model == SaleModel.FBO
+            if not is_fbo and not policy.is_instant_enabled_for(order.sale_model):
                 result.skipped_by_policy += 1
                 continue
             if not account.user or not account.user.notifications_enabled:
@@ -536,7 +548,7 @@ class OrderProcessingService:
         order_with_items = await self.orders.get_with_items(order.id)
         item = order_with_items.items[0] if order_with_items and order_with_items.items else None
         if item is None or order_with_items is None:
-            result.skipped_without_user += 1
+            result.skipped_without_items += 1
             logger.warning(
                 "order_notification_skipped_without_items",
                 extra={

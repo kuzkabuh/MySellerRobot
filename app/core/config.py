@@ -46,7 +46,6 @@ class Settings(BaseSettings):
     # Support contact
     support_telegram_username: str = "mpcontrol_support"
 
-    order_poll_interval_seconds: int = 180
     daily_report_hour: int = 9
     backfill_default_days: int = 30
     backfill_chunk_days: int = 7
