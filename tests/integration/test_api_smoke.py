@@ -297,6 +297,18 @@ def test_web_routes_are_registered() -> None:
     assert "/web/logout" in paths
 
 
+def test_webhook_routes_are_registered() -> None:
+    """Both canonical and compatibility webhook routes must exist."""
+    app = create_app()
+    paths = {route.path for route in app.routes}
+    methods = {(route.path, m) for route in app.routes for m in getattr(route, "methods", set())}
+
+    assert "/webhooks/yookassa" in paths
+    assert ("/webhooks/yookassa", "POST") in methods
+    assert "/web/webhooks/yookassa" in paths
+    assert ("/web/webhooks/yookassa", "POST") in methods
+
+
 def test_web_login_token_flow_renders_empty_free_dashboard(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1165,3 +1177,113 @@ def test_settings_expose_history_backfill_defaults() -> None:
 
     assert settings.backfill_default_days == 30
     assert settings.backfill_chunk_days == 7
+
+
+def test_yookassa_webhook_compat_route_accepts_post(monkeypatch: pytest.MonkeyPatch) -> None:
+    """POST /web/webhooks/yookassa must accept and process YooKassa events."""
+    app = create_app()
+
+    async def fake_get_session():
+        yield FakeAsyncSession()
+
+    captured_events: list[dict] = []
+
+    async def fake_handle_success(self, payment_data):
+        captured_events.append(payment_data)
+
+    monkeypatch.setattr(
+        "app.services.payment_service.PaymentService.handle_payment_success",
+        fake_handle_success,
+    )
+    monkeypatch.setattr(
+        "app.services.payment_service.PaymentService.handle_payment_cancel",
+        lambda self, data: None,
+    )
+    app.dependency_overrides[get_session] = fake_get_session
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.post(
+            "/web/webhooks/yookassa",
+            json={
+                "type": "notification",
+                "event": "payment.succeeded",
+                "object": {"id": "yk-test-123", "status": "succeeded", "paid": True},
+            },
+        )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    assert len(captured_events) == 1
+    assert captured_events[0]["id"] == "yk-test-123"
+
+
+def test_yookassa_webhook_compat_rejects_invalid_json() -> None:
+    """POST /web/webhooks/yookassa must return 400 for invalid JSON."""
+    app = create_app()
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.post(
+            "/web/webhooks/yookassa",
+            content=b"not json",
+            headers={"content-type": "application/json"},
+        )
+
+    assert response.status_code == 400
+
+
+def test_yookassa_webhook_compat_rejects_missing_fields() -> None:
+    """POST /web/webhooks/yookassa must return 400 when event/object missing."""
+    app = create_app()
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.post(
+            "/web/webhooks/yookassa",
+            json={"type": "notification"},
+        )
+
+    assert response.status_code == 400
+
+
+def test_yookassa_webhook_compat_ignores_unknown_event() -> None:
+    """POST /web/webhooks/yookassa must return 200 for unknown event types."""
+    app = create_app()
+
+    async def fake_get_session():
+        yield FakeAsyncSession()
+
+    monkeypatch_ctx: dict[str, object] = {}
+
+    async def fake_handle_success(self, payment_data):
+        monkeypatch_ctx["called"] = True
+
+    import pytest
+
+    with pytest.MonkeyPatch().context() as mp:
+        mp.setattr(
+            "app.services.payment_service.PaymentService.handle_payment_success",
+            fake_handle_success,
+        )
+        mp.setattr(
+            "app.services.payment_service.PaymentService.handle_payment_cancel",
+            lambda self, data: None,
+        )
+        app.dependency_overrides[get_session] = fake_get_session
+
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.post(
+                "/web/webhooks/yookassa",
+                json={
+                    "type": "notification",
+                    "event": "payment.waiting_for_capture",
+                    "object": {"id": "yk-waiting", "status": "waiting_for_capture"},
+                },
+            )
+
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    assert "called" not in monkeypatch_ctx
+

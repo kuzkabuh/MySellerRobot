@@ -104,8 +104,8 @@ async def test_new_wb_fbs_order_prepares_notification_without_marking_notified()
     service, fake_orders = _service(existing=None)
     account = _account(Marketplace.WB)
 
-    async def fetch_orders(_: MarketplaceAccount) -> list[NormalizedOrder]:
-        return [_normalized_order(Marketplace.WB, "wb-fbs-1")]
+    async def fetch_orders(_: MarketplaceAccount) -> tuple[list[NormalizedOrder], bool]:
+        return [_normalized_order(Marketplace.WB, "wb-fbs-1")], False
 
     service._fetch_orders = fetch_orders  # type: ignore[method-assign]
 
@@ -136,8 +136,8 @@ async def test_existing_unnotified_ozon_fbs_order_is_retried() -> None:
     service, _ = _service(existing=existing)
     account = _account(Marketplace.OZON)
 
-    async def fetch_orders(_: MarketplaceAccount) -> list[NormalizedOrder]:
-        return [_normalized_order(Marketplace.OZON, "ozon-fbs-1")]
+    async def fetch_orders(_: MarketplaceAccount) -> tuple[list[NormalizedOrder], bool]:
+        return [_normalized_order(Marketplace.OZON, "ozon-fbs-1")], False
 
     service._fetch_orders = fetch_orders  # type: ignore[method-assign]
 
@@ -158,8 +158,8 @@ async def test_new_ozon_fbs_order_prepares_notification_without_marking_notified
     service, fake_orders = _service(existing=None)
     account = _account(Marketplace.OZON)
 
-    async def fetch_orders(_: MarketplaceAccount) -> list[NormalizedOrder]:
-        return [_normalized_order(Marketplace.OZON, "ozon-fbs-new")]
+    async def fetch_orders(_: MarketplaceAccount) -> tuple[list[NormalizedOrder], bool]:
+        return [_normalized_order(Marketplace.OZON, "ozon-fbs-new")], False
 
     service._fetch_orders = fetch_orders  # type: ignore[method-assign]
 
@@ -189,8 +189,8 @@ async def test_existing_notified_fbs_order_does_not_duplicate_notification() -> 
     service, _ = _service(existing=existing)
     account = _account(Marketplace.WB)
 
-    async def fetch_orders(_: MarketplaceAccount) -> list[NormalizedOrder]:
-        return [_normalized_order(Marketplace.WB, "wb-fbs-2")]
+    async def fetch_orders(_: MarketplaceAccount) -> tuple[list[NormalizedOrder], bool]:
+        return [_normalized_order(Marketplace.WB, "wb-fbs-2")], False
 
     service._fetch_orders = fetch_orders  # type: ignore[method-assign]
 

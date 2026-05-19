@@ -568,6 +568,67 @@ def _lifecycle_notification_log_extra(
     }
 
 
+async def resend_unnotified_orders(ctx: dict[str, Any]) -> None:
+    """Recovery task: deliver saved FBS-like orders with first_notified_at IS NULL.
+
+    Runs independently of API polling to catch orders that were persisted
+    but never notified due to polling failures or worker crashes.
+    """
+    settings = get_settings()
+    bot = Bot(settings.bot_token.get_secret_value())
+    notifier = NotificationService(bot)
+    account_refs = await _load_account_refs(AsyncSessionFactory)
+    logger.info("unnotified_recovery_started", extra={"accounts": len(account_refs)})
+    total_sent = 0
+    total_failed = 0
+    for ref in account_refs:
+        try:
+            async with AsyncSessionFactory() as session:
+                account = await _load_account_by_id(session, ref.id)
+                if account is None:
+                    continue
+                notifications = await OrderProcessingService(
+                    session
+                ).collect_saved_unnotified_notifications(account)
+                if not notifications:
+                    continue
+                sent, failed = await _deliver_new_order_notifications(
+                    session,
+                    notifier,
+                    notifications,
+                )
+                total_sent += sent
+                total_failed += failed
+                logger.info(
+                    "unnotified_recovery_account_done",
+                    extra={
+                        "account_id": ref.id,
+                        "marketplace": ref.marketplace,
+                        "notifications_prepared": len(notifications),
+                        "sent": sent,
+                        "failed": failed,
+                    },
+                )
+        except Exception:
+            logger.exception(
+                "unnotified_recovery_account_failed",
+                extra={
+                    "account_id": ref.id,
+                    "marketplace": ref.marketplace,
+                    "user_id": ref.user_id,
+                },
+            )
+    logger.info(
+        "unnotified_recovery_completed",
+        extra={
+            "accounts_processed": len(account_refs),
+            "total_sent": total_sent,
+            "total_failed": total_failed,
+        },
+    )
+    await bot.session.close()
+
+
 async def sync_wb_daily_sales_reports(ctx: dict[str, Any]) -> None:
     moscow_today = datetime.now(tz=MOSCOW_TZ).date()
     report_dates = [moscow_today - timedelta(days=days) for days in (1, 2, 3)]

@@ -260,6 +260,12 @@ class Order(TimestampMixin, Base):
         ),
         Index("ix_orders_user_date", "user_id", "order_date"),
         Index("ix_orders_deadline_status", "deadline_at", "status"),
+        Index(
+            "ix_orders_account_unnotified",
+            "marketplace_account_id",
+            "first_notified_at",
+            "sale_model",
+        ),
     )
 
     id: Mapped[int_pk]
@@ -275,7 +281,9 @@ class Order(TimestampMixin, Base):
     srid: Mapped[str | None] = mapped_column(String(255), index=True)
     order_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     event_received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    sale_model: Mapped[SaleModel | None] = mapped_column(Enum(SaleModel))
+    sale_model: Mapped[SaleModel | None] = mapped_column(
+        Enum(SaleModel, values_callable=lambda e: [m.value for m in e])
+    )
     fulfillment_type: Mapped[str | None] = mapped_column(String(64))
     urgency_type: Mapped[UrgencyType | None] = mapped_column(Enum(UrgencyType))
     source_event_type: Mapped[SourceEventType | None] = mapped_column(Enum(SourceEventType))

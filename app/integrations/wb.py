@@ -104,14 +104,48 @@ class WildberriesClient:
         *,
         date_from: datetime,
         date_to: datetime,
+        limit: int = 1000,
     ) -> list[dict[str, Any]]:
-        data = await self.marketplace.request(
-            "GET",
-            "/api/v3/orders",
-            headers=self.headers,
-            params={"dateFrom": date_from.isoformat(), "dateTo": date_to.isoformat()},
-        )
-        return list(data.get("orders", []))
+        """Fetch FBS orders for a period with pagination.
+
+        Wildberries GET /api/v3/orders supports:
+        - dateFrom / dateTo in ISO 8601 format (UTC with 'Z' suffix)
+        - limit (max 1000)
+        - next cursor for pagination
+        """
+        all_orders: list[dict[str, Any]] = []
+        next_cursor: str | None = None
+        page_count = 0
+
+        while True:
+            params: dict[str, Any] = {
+                "dateFrom": date_from.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "dateTo": date_to.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "limit": limit,
+            }
+            if next_cursor is not None:
+                params["next"] = next_cursor
+
+            data = await self.marketplace.request(
+                "GET",
+                "/api/v3/orders",
+                headers=self.headers,
+                params=params,
+            )
+            page_count += 1
+            orders = list(data.get("orders", []))
+            all_orders.extend(orders)
+
+            logger.debug(
+                "wb_fbs_period_page_fetched",
+                extra={"page": page_count, "orders_on_page": len(orders)},
+            )
+
+            next_cursor = data.get("next")
+            if not next_cursor or not orders:
+                break
+
+        return all_orders
 
     async def get_fbs_orders_status(self, order_ids: list[int]) -> list[dict[str, Any]]:
         if not order_ids:

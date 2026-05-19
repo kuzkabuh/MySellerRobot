@@ -100,20 +100,26 @@ class OrderProcessingService:
 
     async def poll_account_with_stats(self, account: MarketplaceAccount) -> OrderPollResult:
         """Poll marketplace account for new orders with comprehensive error handling."""
+        account_id = account.id
+        marketplace_value = account.marketplace.value
+        user_id = account.user_id
+
         with LogContext(
-            account_id=account.id,
-            marketplace=account.marketplace.value,
-            user_id=account.user_id,
+            account_id=account_id,
+            marketplace=marketplace_value,
+            user_id=user_id,
         ):
             result = OrderPollResult(
-                account_id=account.id,
+                account_id=account_id,
                 marketplace=account.marketplace,
                 notifications=[],
             )
 
+            recovery_failed = False
+
             try:
                 logger.info("order_poll_started")
-                normalized_orders = await self._fetch_orders(account)
+                normalized_orders, recovery_failed = await self._fetch_orders(account)
                 result.fetched = len(normalized_orders)
 
                 policy = await self.notification_policy.resolve(account)
@@ -121,7 +127,7 @@ class OrderProcessingService:
                 for normalized in normalized_orders:
                     try:
                         existing_order = await self.orders.get_by_external(
-                            account_id=account.id,
+                            account_id=account_id,
                             marketplace=normalized.marketplace,
                             order_external_id=normalized.order_external_id,
                         )
@@ -139,9 +145,9 @@ class OrderProcessingService:
                                 logger.info(
                                     "fbs_order_duplicate_skipped",
                                     extra={
-                                        "account_id": account.id,
-                                        "user_id": account.user_id,
-                                        "marketplace": account.marketplace.value,
+                                        "account_id": account_id,
+                                        "user_id": user_id,
+                                        "marketplace": marketplace_value,
                                         "fulfillment_type": normalized.fulfillment_type,
                                         "sale_model": normalized.sale_model.value
                                         if normalized.sale_model
@@ -153,14 +159,14 @@ class OrderProcessingService:
                                 )
                             continue
 
-                        order = await self.orders.create(account.user_id, account.id, normalized)
+                        order = await self.orders.create(account.user_id, account_id, normalized)
                         result.created += 1
                         logger.info(
                             "order_persisted",
                             extra={
-                                "account_id": account.id,
-                                "user_id": account.user_id,
-                                "marketplace": account.marketplace.value,
+                                "account_id": account_id,
+                                "user_id": user_id,
+                                "marketplace": marketplace_value,
                                 "fulfillment_type": normalized.fulfillment_type,
                                 "sale_model": normalized.sale_model.value
                                 if normalized.sale_model
@@ -172,9 +178,9 @@ class OrderProcessingService:
                             logger.info(
                                 "fbs_order_detected_as_new",
                                 extra={
-                                    "account_id": account.id,
-                                    "user_id": account.user_id,
-                                    "marketplace": account.marketplace.value,
+                                    "account_id": account_id,
+                                    "user_id": user_id,
+                                    "marketplace": marketplace_value,
                                     "fulfillment_type": normalized.fulfillment_type,
                                     "sale_model": normalized.sale_model.value
                                     if normalized.sale_model
@@ -186,9 +192,9 @@ class OrderProcessingService:
                             logger.info(
                                 "fbs_order_persisted",
                                 extra={
-                                    "account_id": account.id,
-                                    "user_id": account.user_id,
-                                    "marketplace": account.marketplace.value,
+                                    "account_id": account_id,
+                                    "user_id": user_id,
+                                    "marketplace": marketplace_value,
                                     "fulfillment_type": normalized.fulfillment_type,
                                     "sale_model": normalized.sale_model.value
                                     if normalized.sale_model
@@ -234,7 +240,18 @@ class OrderProcessingService:
 
                 await self._append_saved_unnotified(account, policy, result)
 
-                account.last_order_poll_at = datetime.now(tz=UTC)
+                if recovery_failed:
+                    logger.warning(
+                        "order_poll_partial_failure",
+                        extra={
+                            "account_id": account_id,
+                            "user_id": user_id,
+                            "marketplace": marketplace_value,
+                            "reason": "recovery_poll_failed_cursor_not_advanced",
+                        },
+                    )
+                else:
+                    account.last_order_poll_at = datetime.now(tz=UTC)
                 await self.session.commit()
 
                 logger.info(
@@ -248,6 +265,7 @@ class OrderProcessingService:
                         "retried_unnotified": result.retried_unnotified,
                         "recovered_unnotified": result.recovered_unnotified,
                         "notifications_prepared": result.notification_count,
+                        "recovery_failed": recovery_failed,
                     },
                 )
 
@@ -255,20 +273,28 @@ class OrderProcessingService:
 
             except Exception as exc:
                 await self.session.rollback()
-                log_exception(logger, exc, "order_poll_failed")
+                log_exception(
+                    logger,
+                    exc,
+                    "order_poll_failed",
+                    account_id=account_id,
+                    user_id=user_id,
+                    marketplace=marketplace_value,
+                )
                 raise IntegrationError(
-                    f"Failed to poll orders for {account.marketplace.value}",
-                    details={"account_id": account.id},
+                    f"Failed to poll orders for {marketplace_value}",
+                    details={"account_id": account_id},
                 ) from exc
 
-    async def _fetch_orders(self, account: MarketplaceAccount) -> list[NormalizedOrder]:
+    async def _fetch_orders(self, account: MarketplaceAccount) -> tuple[list[NormalizedOrder], bool]:
+        """Fetch orders from marketplace. Returns (orders, recovery_failed)."""
         if account.marketplace == Marketplace.WB:
             api_key = self.cipher.decrypt(account.encrypted_api_key)
             wb_client = WildberriesClient(api_key)
             now = datetime.now(tz=UTC)
             raw_orders = await wb_client.get_new_fbs_orders()
             logger.info(
-                "fbs_order_polled",
+                "wb_fbs_new_orders_polled",
                 extra={
                     "account_id": account.id,
                     "user_id": account.user_id,
@@ -282,10 +308,11 @@ class OrderProcessingService:
                 for item in raw_orders
             ]
             seen_order_ids = {order.order_external_id for order in normalized_orders}
+            recovery_failed = False
             try:
                 window_start = self._poll_window_start(account, now)
                 logger.info(
-                    "poll_window_computed",
+                    "wb_fbs_period_poll_started",
                     extra={
                         "account_id": account.id,
                         "marketplace": account.marketplace.value,
@@ -301,13 +328,12 @@ class OrderProcessingService:
                     date_to=now,
                 )
                 logger.info(
-                    "fbs_order_polled",
+                    "wb_fbs_period_poll_finished",
                     extra={
                         "account_id": account.id,
                         "user_id": account.user_id,
                         "marketplace": account.marketplace.value,
-                        "source": "wb_orders_period",
-                        "count": len(recovered_orders),
+                        "orders_count": len(recovered_orders),
                     },
                 )
                 dedup_count = 0
@@ -330,11 +356,16 @@ class OrderProcessingService:
                         },
                     )
             except Exception:
+                recovery_failed = True
                 logger.exception(
                     "wb_fbs_period_poll_failed",
-                    extra={"account_id": account.id, "user_id": account.user_id},
+                    extra={
+                        "account_id": account.id,
+                        "user_id": account.user_id,
+                        "marketplace": account.marketplace.value,
+                    },
                 )
-            return normalized_orders
+            return normalized_orders, recovery_failed
 
         api_key = self.cipher.decrypt(account.encrypted_api_key)
         client_id = self.cipher.decrypt(account.encrypted_client_id or "")
@@ -414,7 +445,7 @@ class OrderProcessingService:
                 "total": len(normalized_fbs) + len(normalized_fbo),
             },
         )
-        return normalized_fbs + normalized_fbo
+        return normalized_fbs + normalized_fbo, False
 
     async def _queue_fbo_digest(
         self,

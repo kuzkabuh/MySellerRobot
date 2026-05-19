@@ -15,6 +15,7 @@ from app.workers.tasks import (
     poll_new_orders,
     process_history_backfills,
     reconcile_pending_payments,
+    resend_unnotified_orders,
     send_alert_notifications,
     send_daily_reports,
     send_fbo_digests,
@@ -48,6 +49,7 @@ class WorkerSettings:
         sync_wb_account_profiles,
         check_wb_financial_reports,
         reconcile_pending_payments,
+        resend_unnotified_orders,
     ]
     order_poll_minutes = {
         0,
@@ -88,6 +90,7 @@ class WorkerSettings:
         cron(sync_wb_account_profiles, hour={7, 19}, minute=40),
         cron(check_wb_financial_reports, hour=4, minute=10),
         cron(reconcile_pending_payments, minute={5, 25, 45}),
+        cron(resend_unnotified_orders, minute={7, 22, 37, 52}),
     ]
     redis_settings = _redis_settings()
     max_jobs = 10

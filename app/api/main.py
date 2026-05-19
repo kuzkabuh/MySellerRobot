@@ -8,7 +8,7 @@ updated: 2026-05-17
 import asyncio
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from urllib.parse import parse_qsl, urlencode
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler as fastapi_http_exception_handler
@@ -26,6 +26,47 @@ from app.web.routes import router as web_router
 
 SESSION_DEPENDENCY = Depends(get_session)
 SETTINGS_DEPENDENCY = Depends(get_settings)
+
+
+def _redact_query(query: str) -> str:
+    sensitive_keys = {"token", "api_key", "secret", "password", "client_id"}
+    pairs = parse_qsl(query, keep_blank_values=True)
+    if not pairs:
+        return query
+    return urlencode(
+        [
+            (key, "***REDACTED***" if key.lower() in sensitive_keys else value)
+            for key, value in pairs
+        ]
+    )
+
+
+def _sanitize_url(url: str) -> str:
+    """Mask sensitive query parameters in a URL string (e.g. Referer header)."""
+    if not url:
+        return url
+    try:
+        parsed = urlparse(url)
+        if not parsed.query:
+            return url
+        redacted_query = _redact_query(parsed.query)
+        return urlunparse(parsed._replace(query=redacted_query))
+    except Exception:
+        return url
+
+
+def _sanitize_headers(headers: dict[str, str]) -> dict[str, str]:
+    """Redact sensitive headers and mask tokens in URL-valued headers."""
+    result = dict(headers)
+    sensitive_headers = {"authorization", "cookie", "x-api-key", "x-admin-secret"}
+    url_headers = {"referer", "referrer"}
+    for key in list(result.keys()):
+        lower_key = key.lower()
+        if lower_key in sensitive_headers:
+            result[key] = "***REDACTED***"
+        elif lower_key in url_headers:
+            result[key] = _sanitize_url(result[key])
+    return result
 
 
 def create_app() -> FastAPI:
@@ -52,6 +93,16 @@ def create_app() -> FastAPI:
             url = f"/payment/cancel?payment_id={payment_id}"
         return RedirectResponse(url=url, status_code=301)
 
+    @app.post("/web/webhooks/yookassa", include_in_schema=False)
+    async def yookassa_webhook_compat(
+        request: Request,
+        session: AsyncSession = SESSION_DEPENDENCY,
+    ) -> dict[str, str]:
+        """Accept YooKassa webhooks when a reverse proxy prepends /web upstream."""
+        from app.api.webhooks import yookassa_webhook
+
+        return await yookassa_webhook(request=request, session=session)
+
     @app.middleware("http")
     async def log_requests(
         request: Request,
@@ -61,12 +112,8 @@ def create_app() -> FastAPI:
 
         logger = logging.getLogger("app.api.main")
 
-        # Sanitize sensitive headers
-        headers = dict(request.headers)
-        sensitive_headers = {"authorization", "cookie", "x-api-key", "x-admin-secret"}
-        for header in sensitive_headers:
-            if header in headers:
-                headers[header] = "***REDACTED***"
+        # Sanitize sensitive headers and mask tokens in URL-valued headers
+        headers = _sanitize_headers(dict(request.headers))
 
         logger.info(
             "incoming_request",
@@ -155,19 +202,6 @@ def _read_errors_log() -> str:
     if not path.exists():
         return ""
     return path.read_text(encoding="utf-8")[-20_000:]
-
-
-def _redact_query(query: str) -> str:
-    sensitive_keys = {"token", "api_key", "secret", "password", "client_id"}
-    pairs = parse_qsl(query, keep_blank_values=True)
-    if not pairs:
-        return query
-    return urlencode(
-        [
-            (key, "***REDACTED***" if key.lower() in sensitive_keys else value)
-            for key, value in pairs
-        ]
-    )
 
 
 def _landing_page() -> str:

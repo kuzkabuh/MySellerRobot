@@ -160,16 +160,25 @@ class NotificationService:
             ]
         )
         if image_url:
-            if len(text) <= TELEGRAM_CAPTION_LIMIT:
-                await self.bot.send_photo(
-                    telegram_id,
-                    photo=image_url,
-                    caption=text,
-                    parse_mode=parse_mode,
-                    reply_markup=keyboard,
+            try:
+                if len(text) <= TELEGRAM_CAPTION_LIMIT:
+                    await self.bot.send_photo(
+                        telegram_id,
+                        photo=image_url,
+                        caption=text,
+                        parse_mode=parse_mode,
+                        reply_markup=keyboard,
+                    )
+                    return
+                await self.bot.send_photo(telegram_id, photo=image_url)
+            except Exception:
+                logger.exception(
+                    "sale_photo_send_failed_fallback_to_text",
+                    extra={
+                        "telegram_id": telegram_id,
+                        "marketplace": marketplace.value if marketplace else None,
+                    },
                 )
-                return
-            await self.bot.send_photo(telegram_id, photo=image_url)
         await self.bot.send_message(telegram_id, text, parse_mode=parse_mode, reply_markup=keyboard)
 
     async def send_order_lifecycle_event(
