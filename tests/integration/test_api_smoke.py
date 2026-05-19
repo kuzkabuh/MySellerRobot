@@ -23,7 +23,8 @@ from app.services.web_orders_profit_service import (
     ProfitSummary,
     build_order_web_filters,
 )
-from app.web.routes import current_web_user, dashboard_compat, double_web_compat, login
+from app.web.dependencies import current_web_user
+from app.web.routes import double_web_compat, login
 from app.workers.settings import WorkerSettings
 
 
@@ -799,74 +800,65 @@ async def test_web_login_valid_token_renders_opening_page(monkeypatch: pytest.Mo
 
 
 @pytest.mark.asyncio
-async def test_legacy_double_web_dashboard_route_renders_not_404(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def fake_dashboard(*args, **kwargs):  # type: ignore[no-untyped-def]
-        return "<html>Кабинет</html>"
-
-    monkeypatch.setattr("app.web.routes.dashboard", fake_dashboard)
-
-    response = await dashboard_compat(user=object(), session=object())
-
-    assert "Кабинет" in response
+async def test_legacy_double_web_dashboard_redirects_to_canonical() -> None:
+    request = SimpleNamespace(
+        url=SimpleNamespace(path="/web/web", query="period=today"),
+    )
+    response = await double_web_compat(section="", request=request)
+    assert response.status_code == 301
+    assert response.headers["location"] == "/web/?period=today"
 
 
 @pytest.mark.asyncio
-async def test_legacy_double_web_sections_are_served_without_redirect_loop(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def fake_sales_page(*args, **kwargs):  # type: ignore[no-untyped-def]
-        return "<html>Продажи без redirect loop</html>"
-
-    monkeypatch.setattr("app.web.routes.sales_page", fake_sales_page)
-
-    user = SimpleNamespace(
-        id=1,
-        timezone="Europe/Moscow",
-        first_name="Тест",
-        username="seller",
-        telegram_id=123456,
-    )
+async def test_legacy_double_web_orders_redirects_to_canonical() -> None:
     request = SimpleNamespace(
-        url=SimpleNamespace(path="/web/web/sales", query="period=30d"),
-        query_params={},
+        url=SimpleNamespace(path="/web/web/orders", query="period=30d&marketplace=wb"),
     )
-
-    response = await double_web_compat(
-        section="sales",
-        request=request,
-        user=user,
-        session=object(),
-    )
-
-    assert response.status_code == 200
-    assert "Продажи без redirect loop" in response.body.decode()
-    assert "location" not in response.headers
+    response = await double_web_compat(section="orders", request=request)
+    assert response.status_code == 301
+    assert response.headers["location"] == "/web/orders?period=30d&marketplace=wb"
 
 
 @pytest.mark.asyncio
-async def test_unknown_double_web_section_returns_russian_404() -> None:
-    user = SimpleNamespace(
-        id=1,
-        timezone="Europe/Moscow",
-        first_name="Тест",
-        username="seller",
-        telegram_id=123456,
-    )
+async def test_legacy_double_web_order_detail_redirects_to_canonical() -> None:
     request = SimpleNamespace(
-        url=SimpleNamespace(path="/web/web/missing-section", query=""),
-        query_params={},
+        url=SimpleNamespace(path="/web/web/orders/42", query=""),
     )
-    with pytest.raises(Exception) as exc_info:
-        await double_web_compat(
-            section="missing-section",
-            request=request,
-            user=user,
-            session=object(),
-        )
+    response = await double_web_compat(section="orders/42", request=request)
+    assert response.status_code == 301
+    assert response.headers["location"] == "/web/orders/42"
 
-    assert getattr(exc_info.value, "status_code", None) == 404
+
+@pytest.mark.asyncio
+async def test_legacy_double_web_profit_redirects_to_canonical() -> None:
+    request = SimpleNamespace(
+        url=SimpleNamespace(path="/web/web/profit", query="period=7d"),
+    )
+    response = await double_web_compat(section="profit", request=request)
+    assert response.status_code == 301
+    assert response.headers["location"] == "/web/profit?period=7d"
+
+
+@pytest.mark.asyncio
+async def test_legacy_double_web_unknown_section_redirects() -> None:
+    request = SimpleNamespace(
+        url=SimpleNamespace(path="/web/web/unknown", query=""),
+    )
+    response = await double_web_compat(section="unknown", request=request)
+    assert response.status_code == 301
+    assert response.headers["location"] == "/web/unknown"
+
+
+@pytest.mark.asyncio
+async def test_legacy_double_web_login_redirects() -> None:
+    from app.web.route_modules.auth import login_compat
+
+    request = SimpleNamespace(
+        url=SimpleNamespace(path="/web/web/login", query="token=abc123"),
+    )
+    response = await login_compat(request=request)
+    assert response.status_code == 301
+    assert response.headers["location"] == "/web/login?token=abc123"
 
 
 def test_app_package_discovery_includes_utility_package() -> None:

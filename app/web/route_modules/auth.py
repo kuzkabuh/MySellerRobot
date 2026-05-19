@@ -1,41 +1,20 @@
-# ruff: noqa: E501, F401, F403, F405
+# ruff: noqa: E501
 
 import logging
-from datetime import UTC, date, datetime
-from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models.domain import AlertEvent, MarketplaceAccount, User
-from app.models.enums import Marketplace
-from app.models.subscriptions import SubscriptionTier
-from app.repositories.products import ProductCostRepository
-from app.schemas.products import CostUpdate
-from app.services.cost_management_service import CostManagementError
-from app.services.data_quality_service import DataQualityService
-from app.services.master_product_service import MasterProductService
-from app.services.plan_fact_service import PlanFactService
-from app.services.stock_forecast_service import StockForecastService
-from app.services.subscription_service import SubscriptionService
-from app.services.unit_economics_service import UnitEconomicsService
 from app.services.web_auth_service import WEB_SESSION_COOKIE, WebAuthService
-from app.services.web_cabinet_service import WebCabinetService
-from app.services.web_dashboard_service import WebDashboardService
-from app.services.web_orders_profit_service import WebOrdersProfitService
-from app.services.web_sync_service import WebSyncService
 from app.web.dependencies import (
-    CURRENT_WEB_USER_DEPENDENCY,
     SESSION_DEPENDENCY,
     WEB_DASHBOARD_PATH,
     WEB_LOGIN_REQUIRED_PATH,
     WEB_SESSION_COOKIE_PATH,
 )
-from app.web.rendering import page
-from app.web.views import *
+from app.web.views import _mask_token, _request_path
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -94,13 +73,12 @@ async def login(
     return response
 
 
-@router.get("/web/login")
-async def login_compat(
-    request: Request,
-    session: AsyncSession = SESSION_DEPENDENCY,
-    token: str | None = Query(default=None),
-) -> Response:
-    return await login(request=request, session=session, token=token)
+@router.get("/web/login", include_in_schema=False)
+async def login_compat(request: Request) -> Response:
+    """Redirect legacy /web/web/login to canonical /web/login."""
+    query_string = request.url.query
+    suffix = f"?{query_string}" if query_string else ""
+    return RedirectResponse(url=f"/web/login{suffix}", status_code=301)
 
 
 @router.get("/logout")
