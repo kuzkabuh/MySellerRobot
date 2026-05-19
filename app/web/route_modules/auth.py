@@ -40,6 +40,7 @@ from app.web.views import *
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
 @router.get("/login")
 async def login(
     request: Request,
@@ -80,7 +81,7 @@ async def login(
         "web_login_success",
         extra={"path": _request_path(request), "target": WEB_DASHBOARD_PATH},
     )
-    response = RedirectResponse(url=WEB_DASHBOARD_PATH, status_code=303)
+    response = _login_success_response()
     response.set_cookie(
         WEB_SESSION_COOKIE,
         web_session.token,
@@ -88,10 +89,7 @@ async def login(
         httponly=True,
         samesite="lax",
         path=WEB_SESSION_COOKIE_PATH,
-        secure=(
-            getattr(getattr(request, "url", None), "scheme", "http") == "https"
-            or get_settings().app_env == "production"
-        ),
+        secure=_is_secure_request(request),
     )
     return response
 
@@ -159,3 +157,49 @@ async def login_required() -> str:
         "<p>Откройте Telegram-бота и нажмите «🌐 Web-кабинет», чтобы получить новую ссылку.</p>"
     )
 
+
+def _login_success_response() -> HTMLResponse:
+    return HTMLResponse(
+        """
+        <!doctype html>
+        <html lang="ru">
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>Вход выполнен · MP Control</title>
+          <style>
+            body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;background:#f3f6fb;color:#0f172a}
+            main{min-height:100vh;display:grid;place-items:center;padding:24px}
+            section{width:min(520px,100%);background:#fff;border:1px solid #dbe3ef;border-radius:22px;padding:28px;box-shadow:0 18px 45px -32px rgb(15 23 42 / .55)}
+            h1{margin:0 0 10px;font-size:28px;line-height:1.15}
+            p{margin:0 0 18px;color:#475569;line-height:1.55}
+            a{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:0 16px;border-radius:10px;background:#2563eb;color:#fff;text-decoration:none;font-weight:750}
+            .muted{font-size:13px;color:#64748b;margin-top:14px}
+          </style>
+          <script>
+            window.setTimeout(function(){ window.location.replace('/web/'); }, 500);
+          </script>
+        </head>
+        <body>
+          <main>
+            <section>
+              <h1>Вход выполнен</h1>
+              <p>Открываем WEB-кабинет MP Control. Если переход не произошёл автоматически, нажмите кнопку ниже.</p>
+              <a href="/web/">Открыть кабинет</a>
+              <p class="muted">Эта страница помогает Telegram WebView корректно сохранить сессию перед открытием кабинета.</p>
+            </section>
+          </main>
+        </body>
+        </html>
+        """,
+        status_code=200,
+    )
+
+
+def _is_secure_request(request: Request) -> bool:
+    forwarded_proto = request.headers.get("x-forwarded-proto", "")
+    return (
+        getattr(getattr(request, "url", None), "scheme", "http") == "https"
+        or forwarded_proto.split(",", 1)[0].strip().lower() == "https"
+        or get_settings().app_env == "production"
+    )
