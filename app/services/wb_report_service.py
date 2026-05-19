@@ -187,7 +187,17 @@ class WbFinancialReportService:
         await self.session.flush()
 
 
-def _extract_report_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+def _extract_report_rows(payload: Any) -> list[dict[str, Any]]:
+    if payload is None:
+        return []
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if not isinstance(payload, dict):
+        logger.warning(
+            "wb_report_unexpected_payload_type",
+            extra={"payload_type": type(payload).__name__},
+        )
+        return []
     for key in ("reports", "data", "result"):
         value = payload.get(key)
         if isinstance(value, list):

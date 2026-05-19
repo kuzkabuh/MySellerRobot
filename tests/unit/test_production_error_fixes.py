@@ -293,3 +293,160 @@ class TestSellerProfileWeb:
         assert "5 000" in result
         assert "3 000" in result
         assert "1234567890" in result
+
+
+class TestYookassaIdempotenceKey:
+    """Test idempotence key is valid UUID v4 and within 64-char limit."""
+
+    def test_idempotence_key_is_uuid_v4_format(self):
+        import uuid
+
+        from app.services.payment_service import PaymentService
+
+        mock_session = AsyncMock()
+        with patch("app.services.payment_service.get_settings") as mock_settings:
+            settings = MagicMock()
+            settings.yookassa_shop_id = "test_shop"
+            settings.yookassa_secret_key.get_secret_value.return_value = "test_secret"
+            mock_settings.return_value = settings
+
+            service = PaymentService(mock_session)
+            key = service._generate_idempotence_key(
+                user_id=100, tier_code="basic", period="monthly"
+            )
+            uuid.UUID(key, version=4)
+
+    def test_idempotence_key_within_64_chars(self):
+        from app.services.payment_service import PaymentService
+
+        mock_session = AsyncMock()
+        with patch("app.services.payment_service.get_settings") as mock_settings:
+            settings = MagicMock()
+            settings.yookassa_shop_id = "test_shop"
+            settings.yookassa_secret_key.get_secret_value.return_value = "test_secret"
+            mock_settings.return_value = settings
+
+            service = PaymentService(mock_session)
+            key = service._generate_idempotence_key(
+                user_id=100, tier_code="basic", period="monthly"
+            )
+            assert len(key) <= 64
+
+    def test_idempotence_key_unique_per_call(self):
+        from app.services.payment_service import PaymentService
+
+        mock_session = AsyncMock()
+        with patch("app.services.payment_service.get_settings") as mock_settings:
+            settings = MagicMock()
+            settings.yookassa_shop_id = "test_shop"
+            settings.yookassa_secret_key.get_secret_value.return_value = "test_secret"
+            mock_settings.return_value = settings
+
+            service = PaymentService(mock_session)
+            key1 = service._generate_idempotence_key(
+                user_id=100, tier_code="basic", period="monthly"
+            )
+            key2 = service._generate_idempotence_key(
+                user_id=100, tier_code="basic", period="monthly"
+            )
+            assert key1 != key2
+
+
+class TestExtractReportRows:
+    """Test _extract_report_rows handles all payload formats safely."""
+
+    def test_payload_is_list_of_dicts(self):
+        from app.services.wb_report_service import _extract_report_rows
+
+        payload = [
+            {"reportId": "1", "dateFrom": "2026-05-01"},
+            {"reportId": "2", "dateFrom": "2026-05-02"},
+        ]
+        result = _extract_report_rows(payload)
+        assert len(result) == 2
+        assert result[0]["reportId"] == "1"
+
+    def test_payload_is_list_with_non_dict_items(self):
+        from app.services.wb_report_service import _extract_report_rows
+
+        payload = [{"reportId": "1"}, "string_item", 42, None]
+        result = _extract_report_rows(payload)
+        assert len(result) == 1
+        assert result[0]["reportId"] == "1"
+
+    def test_payload_is_empty_list(self):
+        from app.services.wb_report_service import _extract_report_rows
+
+        result = _extract_report_rows([])
+        assert result == []
+
+    def test_payload_is_none(self):
+        from app.services.wb_report_service import _extract_report_rows
+
+        result = _extract_report_rows(None)
+        assert result == []
+
+    def test_payload_is_dict_with_reports_key(self):
+        from app.services.wb_report_service import _extract_report_rows
+
+        payload = {
+            "reports": [
+                {"reportId": "1"},
+                {"reportId": "2"},
+            ]
+        }
+        result = _extract_report_rows(payload)
+        assert len(result) == 2
+
+    def test_payload_is_dict_with_data_key(self):
+        from app.services.wb_report_service import _extract_report_rows
+
+        payload = {
+            "data": [
+                {"id": "a"},
+                {"id": "b"},
+            ]
+        }
+        result = _extract_report_rows(payload)
+        assert len(result) == 2
+
+    def test_payload_is_dict_with_result_key(self):
+        from app.services.wb_report_service import _extract_report_rows
+
+        payload = {
+            "result": {
+                "reports": [{"reportId": "x"}]
+            }
+        }
+        result = _extract_report_rows(payload)
+        assert len(result) == 1
+        assert result[0]["reportId"] == "x"
+
+    def test_payload_is_dict_with_result_items(self):
+        from app.services.wb_report_service import _extract_report_rows
+
+        payload = {
+            "result": {
+                "items": [{"id": "1"}, {"id": "2"}]
+            }
+        }
+        result = _extract_report_rows(payload)
+        assert len(result) == 2
+
+    def test_payload_is_empty_dict(self):
+        from app.services.wb_report_service import _extract_report_rows
+
+        result = _extract_report_rows({})
+        assert result == []
+
+    def test_payload_is_unexpected_type_logs_warning(self):
+        from app.services.wb_report_service import _extract_report_rows
+
+        result = _extract_report_rows("unexpected_string")
+        assert result == []
+
+    def test_payload_is_int_returns_empty(self):
+        from app.services.wb_report_service import _extract_report_rows
+
+        result = _extract_report_rows(42)
+        assert result == []

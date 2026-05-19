@@ -46,6 +46,11 @@ class PaymentService:
                 "Платёжная система не настроена. Обратитесь к администратору."
             )
 
+    def _generate_idempotence_key(
+        self, *, user_id: int, tier_code: str, period: str
+    ) -> str:
+        return str(uuid4())
+
     async def create_subscription_payment(
         self,
         *,
@@ -74,7 +79,9 @@ class PaymentService:
             "period": period,
             "provider": "yookassa",
         }
-        idempotence_key = f"subscription:{user_id}:{tier_code}:{period}:{uuid4()}"
+        idempotence_key = self._generate_idempotence_key(
+            user_id=user_id, tier_code=tier_code, period=period
+        )
 
         self._check_credentials()
 

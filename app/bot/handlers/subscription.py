@@ -328,8 +328,17 @@ async def handle_payment_confirmation(callback: CallbackQuery) -> None:
             )
             await callback.answer()
 
-        except Exception:
-            logger.exception("payment_creation_failed", extra={"user_id": user.id})
+        except Exception as exc:
+            logger.error(
+                "payment_creation_failed",
+                extra={
+                    "user_id": user.id,
+                    "tier_code": tier_code,
+                    "period": period,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+            )
             await callback.answer(
                 "Не удалось создать платёж. Попробуйте позже.",
                 show_alert=True,
