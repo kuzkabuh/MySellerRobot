@@ -114,8 +114,17 @@ class PaymentService:
                     "tier_code": tier_code,
                 },
             )
-            confirmation_url = await self._get_confirmation_url(existing.provider_payment_id)
-            return existing, confirmation_url or ""
+            meta = existing.payment_metadata or {}
+            confirmation_url = meta.get("confirmation_url", "")
+            if not confirmation_url:
+                confirmation_url = (
+                    await self._get_confirmation_url(existing.provider_payment_id) or ""
+                )
+                if confirmation_url:
+                    meta["confirmation_url"] = confirmation_url
+                    existing.payment_metadata = meta
+                    await self.session.flush()
+            return existing, confirmation_url
 
         period_label = _PERIOD_LABELS.get(period, period)
         description = f"Подписка MP Control — тариф {tier.name}, {period_label}"
@@ -169,12 +178,18 @@ class PaymentService:
             amount=amount,
             currency="RUB",
             status=PaymentStatus.PENDING,
-            payment_metadata={**metadata, "idempotence_key": idempotence_key},
+            payment_metadata={
+                **metadata,
+                "idempotence_key": idempotence_key,
+                "confirmation_url": (
+                    yookassa_payment.get("confirmation", {}).get("confirmation_url", "")
+                ),
+            },
         )
         self.session.add(payment)
         await self.session.flush()
 
-        confirmation_url = yookassa_payment.get("confirmation", {}).get("confirmation_url", "")
+        confirmation_url = payment.payment_metadata["confirmation_url"]
 
         logger.info(
             "payment_created",

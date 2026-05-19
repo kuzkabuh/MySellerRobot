@@ -394,20 +394,42 @@ async def _process_payment(
             )
             await session.commit()
 
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text="💳 Перейти к оплате", url=confirmation_url)],
-                [InlineKeyboardButton(text="Назад", callback_data="subscription:pricing")],
-            ]
-        )
+        if confirmation_url:
+            keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text="💳 Перейти к оплате", url=confirmation_url)],
+                    [InlineKeyboardButton(text="Назад", callback_data="subscription:pricing")],
+                ]
+            )
 
-        await _safe_edit_text(
-            message,
-            "✅ Счет создан!\n\n"
-            "Нажмите кнопку ниже для перехода на страницу оплаты.\n\n"
-            "После успешной оплаты подписка активируется автоматически.",
-            reply_markup=keyboard,
-        )
+            await _safe_edit_text(
+                message,
+                "✅ Счет создан!\n\n"
+                "Нажмите кнопку ниже для перехода на страницу оплаты.\n\n"
+                "После успешной оплаты подписка активируется автоматически.",
+                reply_markup=keyboard,
+            )
+        else:
+            retry_cb = f"subscription:pay_confirm:{tier_code}:{period}"
+            keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="🔄 Попробовать снова",
+                            callback_data=retry_cb,
+                        )
+                    ],
+                    [InlineKeyboardButton(text="Назад", callback_data="subscription:pricing")],
+                ]
+            )
+
+            await _safe_edit_text(
+                message,
+                "⏳ Платёж ожидает оплаты.\n\n"
+                "Ссылка на оплату временно недоступна. "
+                "Попробуйте создать новый счёт или обратитесь в поддержку.",
+                reply_markup=keyboard,
+            )
 
     except Exception as exc:
         logger.error(
