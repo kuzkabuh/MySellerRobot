@@ -380,7 +380,7 @@ async def _process_payment(
 ) -> None:
     """Execute payment creation after email is confirmed."""
     settings = get_settings()
-    return_url = settings.yookassa_return_url or f"{settings.web_base_url}/web/payment/success"
+    base_return_url = settings.yookassa_return_url or f"{settings.web_base_url}/payment/success"
 
     try:
         async with AsyncSessionFactory() as session:
@@ -389,10 +389,12 @@ async def _process_payment(
                 user_id=user.id,
                 tier_code=tier_code,
                 period=period,
-                return_url=return_url,
+                return_url=base_return_url,
                 customer_email=user.payment_email,
             )
             await session.commit()
+
+            return_url = f"{base_return_url}?payment_id={payment.provider_payment_id}"
 
         if confirmation_url:
             keyboard = InlineKeyboardMarkup(

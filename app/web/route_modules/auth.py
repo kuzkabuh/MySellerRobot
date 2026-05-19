@@ -103,40 +103,6 @@ async def login_compat(
     return await login(request=request, session=session, token=token)
 
 
-@router.get("/payment/success")
-async def payment_success() -> HTMLResponse:
-    """Payment return page after YooKassa redirect."""
-    return HTMLResponse(
-        """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>Оплата принята</title>
-            <style>
-                body {
-                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-                    max-width: 600px; margin: 100px auto; padding: 20px; text-align: center;
-                }
-                h1 { color: #2ea043; }
-                p { color: #57606a; line-height: 1.6; }
-                .icon { font-size: 64px; margin-bottom: 20px; }
-            </style>
-        </head>
-        <body>
-            <div class="icon">✅</div>
-            <h1>Платёж принят</h1>
-            <p>Ваш платёж успешно обработан.</p>
-            <p>Подписка активируется автоматически после подтверждения платёжной системой.</p>
-            <p><strong>Вернитесь в Telegram-бот</strong>, чтобы продолжить работу.</p>
-        </body>
-        </html>
-        """,
-        status_code=200,
-    )
-
-
 @router.get("/logout")
 async def logout(
     request: Request,

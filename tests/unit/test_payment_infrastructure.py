@@ -49,10 +49,27 @@ def test_payment_success_page_exists() -> None:
     """Payment success return URL should exist and return 200."""
     app = create_app()
     client = TestClient(app)
-    response = client.get("/web/payment/success")
+    response = client.get("/payment/success")
     assert response.status_code == 200
     assert "Платёж принят" in response.text
-    assert "подписка активируется автоматически" in response.text.lower()
+    assert "активируется автоматически" in response.text.lower()
+
+
+def test_payment_cancel_page_exists() -> None:
+    """Payment cancel return URL should exist and return 200."""
+    app = create_app()
+    client = TestClient(app)
+    response = client.get("/payment/cancel")
+    assert response.status_code == 200
+    assert "Платёж отменён" in response.text
+
+
+def test_public_payment_routes_not_under_web_prefix() -> None:
+    """Payment return routes must be public (outside /web prefix)."""
+    app = create_app()
+    routes = [route.path for route in app.routes]
+    assert "/payment/success" in routes
+    assert "/payment/cancel" in routes
 
 
 def test_webhook_route_structure() -> None:

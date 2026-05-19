@@ -33,7 +33,7 @@ from app.web.route_modules.account_settings import (
     settings_page,
     subscription_page_web,
 )
-from app.web.route_modules.auth import login, login_compat, login_required, logout, payment_success
+from app.web.route_modules.auth import login, login_compat, login_required, logout
 from app.web.route_modules.catalog import (
     product_detail_page,
     product_matching_create,

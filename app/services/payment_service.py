@@ -299,6 +299,29 @@ class PaymentService:
             },
         )
 
+    async def confirm_payment(
+        self,
+        provider_payment_id: str,
+        *,
+        yookassa_data: dict[str, Any] | None = None,
+        source: str = "return_page",
+    ) -> Payment | None:
+        """Public entry point for payment confirmation.
+
+        Used by webhook, reconciliation, and return page reconciliation.
+        Returns the Payment object if found and processed, None otherwise.
+        """
+        await self._confirm_payment(
+            provider_payment_id,
+            yookassa_data=yookassa_data,
+            source=source,
+        )
+
+        result = await self.session.execute(
+            select(Payment).where(Payment.provider_payment_id == provider_payment_id)
+        )
+        return result.scalar_one_or_none()
+
     async def _confirm_payment(
         self,
         payment_id: str,
