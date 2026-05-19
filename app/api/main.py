@@ -12,7 +12,7 @@ from urllib.parse import parse_qsl, urlencode
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler as fastapi_http_exception_handler
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -21,8 +21,8 @@ from app.api.webhooks import router as webhooks_router
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.core.logging import configure_logging
-from app.web.routes import router as web_router
 from app.web.route_modules.payment_public import router as payment_public_router
+from app.web.routes import router as web_router
 
 SESSION_DEPENDENCY = Depends(get_session)
 SETTINGS_DEPENDENCY = Depends(get_settings)
@@ -35,6 +35,22 @@ def create_app() -> FastAPI:
     app.include_router(web_router)
     app.include_router(webhooks_router)
     app.include_router(payment_public_router)
+
+    @app.get("/web/payment/success")
+    async def redirect_payment_success(payment_id: str | None = None) -> RedirectResponse:
+        """Redirect legacy /web/payment/success to /payment/success."""
+        url = "/payment/success"
+        if payment_id:
+            url = f"/payment/success?payment_id={payment_id}"
+        return RedirectResponse(url=url, status_code=301)
+
+    @app.get("/web/payment/cancel")
+    async def redirect_payment_cancel(payment_id: str | None = None) -> RedirectResponse:
+        """Redirect legacy /web/payment/cancel to /payment/cancel."""
+        url = "/payment/cancel"
+        if payment_id:
+            url = f"/payment/cancel?payment_id={payment_id}"
+        return RedirectResponse(url=url, status_code=301)
 
     @app.middleware("http")
     async def log_requests(

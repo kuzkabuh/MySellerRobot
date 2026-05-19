@@ -58,8 +58,8 @@ from app.models.domain import (
     ProfitSnapshot,
     User,
 )
-from app.models.enums import CalculationType, SaleModel
-from app.models.subscriptions import UserSubscription
+from app.models.enums import CalculationType, PaymentStatus, SaleModel
+from app.models.subscriptions import Payment, UserSubscription
 from app.repositories.accounts import MarketplaceAccountRepository
 from app.repositories.orders import OrderRepository
 from app.repositories.users import UserRepository
@@ -1243,6 +1243,61 @@ async def admin_reconcile_subscriptions(message: Message) -> None:
                 "admin_telegram_id": message.from_user.id,
                 "users_checked": len(users_with_multiple),
                 "subscriptions_fixed": len(fixed),
+            },
+        )
+
+
+@router.message(Command("admin_fix_payment_urls"))
+async def admin_fix_payment_urls(message: Message) -> None:
+    """Admin command to fix payment confirmation URLs for pending payments."""
+    if not _is_admin_telegram(message.from_user.id):
+        await message.answer("Доступно только администраторам.")
+        return
+
+    async with AsyncSessionFactory() as session:
+        result = await session.execute(
+            select(Payment).where(
+                Payment.status == PaymentStatus.PENDING,
+                Payment.provider == "yookassa",
+            )
+        )
+        pending_payments = list(result.scalars().all())
+
+        fixed_count = 0
+        settings = get_settings()
+        web_url = settings.web_base_url.rstrip("/")
+        if web_url.endswith("/web"):
+            web_url = web_url[:-4]
+        correct_base = f"{web_url}/payment/success"
+
+        for payment in pending_payments:
+            meta = payment.payment_metadata or {}
+            old_url = meta.get("confirmation_url", "")
+            if "/web/payment/success" in old_url or "web/payment/success" in old_url:
+                new_url = old_url.replace("/web/payment/success", "/payment/success")
+                meta["confirmation_url"] = new_url
+                payment.payment_metadata = meta
+                fixed_count += 1
+
+        await session.commit()
+
+        lines = [
+            "🔧 <b>Исправление URL платежей</b>",
+            "",
+            f"Найдено pending платежей: {len(pending_payments)}",
+            f"Исправлено URL: {fixed_count}",
+            "",
+            f"Правильный base URL: <code>{correct_base}</code>",
+        ]
+
+        await message.answer("\n".join(lines), reply_markup=admin_menu())
+
+        logger.info(
+            "admin_fix_payment_urls_completed",
+            extra={
+                "admin_telegram_id": message.from_user.id,
+                "pending_payments": len(pending_payments),
+                "urls_fixed": fixed_count,
             },
         )
 
