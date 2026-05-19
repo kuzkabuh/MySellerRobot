@@ -3,7 +3,7 @@
 import logging
 
 from fastapi import APIRouter, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import User
@@ -15,6 +15,10 @@ from app.web.views import _dashboard_content, _dashboard_welcome, _user_display_
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _qp(request: Request, name: str, default: str = "") -> str:
+    return request.query_params.get(name, default)
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -43,10 +47,33 @@ async def dashboard(
     return page("Главная", _user_display_name(user), content)
 
 
-@router.get("/web", include_in_schema=False)
-@router.get("/web/", include_in_schema=False)
-async def dashboard_compat(request: Request) -> Response:
-    """Redirect legacy /web/web paths to canonical /web/."""
-    query_string = request.url.query
-    suffix = f"?{query_string}" if query_string else ""
-    return RedirectResponse(url=f"/web/{suffix}", status_code=301)
+@router.get("/web", response_class=HTMLResponse, include_in_schema=False)
+@router.get("/web/", response_class=HTMLResponse, include_in_schema=False)
+async def dashboard_compat(
+    request: Request,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    """Serve cabinet dashboard when a reverse proxy prepends /web upstream.
+
+    Renders content directly to avoid redirect loops caused by the proxy
+    re-adding the /web prefix on every response.
+    """
+    logger.warning(
+        "legacy_double_web_dashboard_served",
+        extra={"path": str(request.url.path)},
+    )
+    service = WebDashboardService(session)
+    data = await service.dashboard(
+        user_id=user.id,
+        timezone=user.timezone,
+        period=_qp(request, "period", "today"),
+        marketplace=_qp(request, "marketplace", "all"),
+        sale_model=_qp(request, "sale_model", "all"),
+        date_from=_qp(request, "date_from") or None,
+        date_to=_qp(request, "date_to") or None,
+    )
+    subscription = await WebCabinetService(session).subscription_page(user.id, user.timezone)
+    accounts = await WebCabinetService(session).accounts_page(user.id, user.timezone)
+    content = _dashboard_welcome(user, subscription, accounts, data) + _dashboard_content(data)
+    return page("Главная", _user_display_name(user), content)

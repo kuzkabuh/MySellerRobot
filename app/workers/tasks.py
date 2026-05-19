@@ -1,9 +1,10 @@
-"""version: 1.5.0
+"""version: 1.6.0
 description: ARQ tasks for sync, Ozon enrichment, WB daily sales, reports, and alerts.
-updated: 2026-05-17
+updated: 2026-05-19
 """
 
 import logging
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -40,6 +41,35 @@ logger = logging.getLogger(__name__)
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 
 
+@dataclass(slots=True)
+class AccountRef:
+    """Plain-data snapshot of a MarketplaceAccount to avoid expired-ORM issues after rollback."""
+
+    id: int
+    marketplace: str
+    user_id: int
+
+
+async def _load_account_refs(session: AsyncSession) -> list[AccountRef]:
+    result = await session.execute(
+        select(MarketplaceAccount.id, MarketplaceAccount.marketplace, MarketplaceAccount.user_id)
+        .where(MarketplaceAccount.is_active.is_(True))
+    )
+    return [
+        AccountRef(id=row[0], marketplace=row[1].value, user_id=row[2])
+        for row in result.all()
+    ]
+
+
+async def _load_account_by_id(session: AsyncSession, account_id: int) -> MarketplaceAccount | None:
+    result = await session.execute(
+        select(MarketplaceAccount)
+        .options(selectinload(MarketplaceAccount.user))
+        .where(MarketplaceAccount.id == account_id)
+    )
+    return result.scalar_one_or_none()
+
+
 async def poll_new_orders(ctx: dict[str, Any]) -> None:
     """Poll active marketplace accounts and store unseen orders."""
 
@@ -47,18 +77,13 @@ async def poll_new_orders(ctx: dict[str, Any]) -> None:
     bot = Bot(settings.bot_token.get_secret_value())
     notifier = NotificationService(bot)
     async with AsyncSessionFactory() as session:
-        result = await session.execute(
-            select(MarketplaceAccount)
-            .options(selectinload(MarketplaceAccount.user))
-            .where(MarketplaceAccount.is_active.is_(True))
-        )
-        accounts = list(result.scalars().all())
-        logger.info("order_poll_started", extra={"accounts": len(accounts)})
-        for account in accounts:
-            account_id = account.id
-            marketplace = account.marketplace.value
-            user_id = account.user_id
+        account_refs = await _load_account_refs(session)
+        logger.info("order_poll_started", extra={"accounts": len(account_refs)})
+        for ref in account_refs:
             try:
+                account = await _load_account_by_id(session, ref.id)
+                if account is None:
+                    continue
                 poll_result = await OrderProcessingService(session).poll_account_with_stats(account)
                 sent, failed = await _deliver_new_order_notifications(
                     session,
@@ -68,8 +93,8 @@ async def poll_new_orders(ctx: dict[str, Any]) -> None:
                 logger.info(
                     "order_poll_notifications_sent",
                     extra={
-                        "account_id": account_id,
-                        "marketplace": marketplace,
+                        "account_id": ref.id,
+                        "marketplace": ref.marketplace,
                         "fetched": poll_result.fetched,
                         "orders_created": poll_result.created,
                         "duplicates": poll_result.duplicated,
@@ -82,26 +107,17 @@ async def poll_new_orders(ctx: dict[str, Any]) -> None:
                         "notifications_failed": failed,
                     },
                 )
-            except Exception as exc:
+            except Exception:
                 logger.exception(
                     "marketplace_poll_failed",
                     extra={
-                        "account_id": account_id,
-                        "marketplace": marketplace,
-                        "user_id": user_id,
+                        "account_id": ref.id,
+                        "marketplace": ref.marketplace,
+                        "user_id": ref.user_id,
                     },
                 )
-                account.last_error_at = datetime.now(tz=UTC)
-                account.last_error_message = str(exc)[:2000]
                 try:
-                    await session.commit()
-                except Exception:
-                    try:
-                        await session.rollback()
-                    except Exception:
-                        pass
-                try:
-                    await session.refresh(account)
+                    await session.rollback()
                 except Exception:
                     pass
     await bot.session.close()
@@ -150,12 +166,16 @@ async def send_fbo_digests(ctx: dict[str, Any]) -> None:
             try:
                 await notifier.send_fbo_digest(notification.telegram_id, notification.text)
                 await service.mark_sent(notification.row_ids)
+                await session.commit()
             except Exception:
                 logger.exception(
                     "fbo_digest_send_failed",
                     extra={"user_id": notification.user_id},
                 )
-                await session.rollback()
+                try:
+                    await session.rollback()
+                except Exception:
+                    pass
     await bot.session.close()
 
 
@@ -187,10 +207,17 @@ async def _deliver_alert_notifications(
     sent = 0
     failed = 0
     for event, telegram_id in rows:
+        event_id = event.id
+        event_type = event.alert_type.value
         try:
             logger.info(
                 "alert_notification_send_attempt",
-                extra=_alert_notification_log_extra(event),
+                extra={
+                    "event_type": event_type,
+                    "event_id": event_id,
+                    "user_id": event.user_id,
+                    "idempotency_key": event.idempotency_key,
+                },
             )
             await bot.send_message(int(telegram_id), event.message, parse_mode="HTML")
             event.sent_at = datetime.now(tz=UTC)
@@ -198,15 +225,22 @@ async def _deliver_alert_notifications(
             sent += 1
             logger.info(
                 "alert_notification_send_success",
-                extra=_alert_notification_log_extra(event),
+                extra={
+                    "event_type": event_type,
+                    "event_id": event_id,
+                },
             )
         except Exception as exc:
             failed += 1
-            await session.rollback()
+            try:
+                await session.rollback()
+            except Exception:
+                pass
             logger.exception(
                 "alert_notification_send_failure",
                 extra={
-                    **_alert_notification_log_extra(event),
+                    "event_type": event_type,
+                    "event_id": event_id,
                     "exception_class": type(exc).__name__,
                     "error": str(exc)[:300],
                 },
@@ -219,25 +253,20 @@ async def sync_sale_events(ctx: dict[str, Any]) -> None:
     bot = Bot(settings.bot_token.get_secret_value())
     notifier = NotificationService(bot)
     async with AsyncSessionFactory() as session:
-        result = await session.execute(
-            select(MarketplaceAccount)
-            .options(selectinload(MarketplaceAccount.user))
-            .where(MarketplaceAccount.is_active.is_(True))
-        )
-        accounts = list(result.scalars().all())
-        logger.info("sale_events_sync_started", extra={"accounts": len(accounts)})
-        for account in accounts:
-            account_id = account.id
-            marketplace = account.marketplace.value
-            user_id = account.user_id
+        account_refs = await _load_account_refs(session)
+        logger.info("sale_events_sync_started", extra={"accounts": len(account_refs)})
+        for ref in account_refs:
             try:
+                account = await _load_account_by_id(session, ref.id)
+                if account is None:
+                    continue
                 service = SalesEventSyncService(session)
                 sync_result = await service.sync_account(account)
                 logger.info(
                     "sale_events_sync_finished",
                     extra={
-                        "account_id": account_id,
-                        "marketplace": marketplace,
+                        "account_id": ref.id,
+                        "marketplace": ref.marketplace,
                         "orders_fetched": sync_result.orders_fetched,
                         "orders_created": sync_result.orders_created,
                         "orders_updated": sync_result.orders_updated,
@@ -263,8 +292,8 @@ async def sync_sale_events(ctx: dict[str, Any]) -> None:
                     logger.info(
                         "sale_sync_order_notifications_sent",
                         extra={
-                            "account_id": account_id,
-                            "marketplace": marketplace,
+                            "account_id": ref.id,
+                            "marketplace": ref.marketplace,
                             "notifications_prepared": len(order_notifications),
                             "notifications_sent": sent,
                             "notifications_failed": failed,
@@ -274,19 +303,15 @@ async def sync_sale_events(ctx: dict[str, Any]) -> None:
                 logger.exception(
                     "sale_events_sync_failed",
                     extra={
-                        "account_id": account_id,
-                        "marketplace": marketplace,
-                        "user_id": user_id,
+                        "account_id": ref.id,
+                        "marketplace": ref.marketplace,
+                        "user_id": ref.user_id,
                         "exception_class": type(exc).__name__,
                         "error": str(exc)[:500],
                     },
                 )
                 try:
                     await session.rollback()
-                except Exception:
-                    logger.exception("sale_events_sync_rollback_failed")
-                try:
-                    await session.refresh(account)
                 except Exception:
                     pass
         try:
@@ -343,7 +368,10 @@ async def _deliver_new_order_notifications(
                 )
         except Exception as exc:
             failed += 1
-            await session.rollback()
+            try:
+                await session.rollback()
+            except Exception:
+                pass
             logger.exception(
                 "notification_send_failure",
                 extra={
@@ -391,7 +419,10 @@ async def _deliver_sale_notifications(
             )
         except Exception as exc:
             failed += 1
-            await session.rollback()
+            try:
+                await session.rollback()
+            except Exception:
+                pass
             logger.exception(
                 "notification_send_failure",
                 extra={
@@ -442,7 +473,10 @@ async def _deliver_order_lifecycle_notifications(
             )
         except Exception as exc:
             failed += 1
-            await session.rollback()
+            try:
+                await session.rollback()
+            except Exception:
+                pass
             logger.exception(
                 "notification_send_failure",
                 extra={
@@ -498,95 +532,64 @@ def _lifecycle_notification_log_extra(
     }
 
 
-def _alert_notification_log_extra(event: AlertEvent) -> dict[str, object]:
-    return {
-        "event_type": event.alert_type.value,
-        "event_id": event.id,
-        "user_id": event.user_id,
-        "idempotency_key": event.idempotency_key,
-    }
-
-
 async def sync_wb_daily_sales_reports(ctx: dict[str, Any]) -> None:
     moscow_today = datetime.now(tz=MOSCOW_TZ).date()
     report_dates = [moscow_today - timedelta(days=days) for days in (1, 2, 3)]
     async with AsyncSessionFactory() as session:
-        result = await session.execute(
-            select(MarketplaceAccount)
-            .where(MarketplaceAccount.is_active.is_(True))
-            .where(MarketplaceAccount.marketplace == Marketplace.WB)
-        )
-        accounts = list(result.scalars().all())
-        service = SalesEventSyncService(session)
-        for account in accounts:
-            account_id = account.id
+        account_refs = await _load_account_refs_wb(session)
+        for ref in account_refs:
             for report_date in report_dates:
                 try:
+                    account = await _load_account_by_id(session, ref.id)
+                    if account is None:
+                        continue
+                    service = SalesEventSyncService(session)
                     await service.sync_wb_sales_report_day(account, report_date)
                 except Exception:
                     logger.exception(
                         "daily_wb_sales_account_sync_failed",
-                        extra={"account_id": account_id, "report_date": report_date.isoformat()},
+                        extra={"account_id": ref.id, "report_date": report_date.isoformat()},
                     )
-                    account.last_error_at = datetime.now(tz=UTC)
-                    account.last_error_message = "Ошибка ежедневной загрузки отчёта WB sales"
                     try:
-                        await session.commit()
-                    except Exception:
-                        try:
-                            await session.rollback()
-                        except Exception:
-                            pass
-                    try:
-                        await session.refresh(account)
+                        await session.rollback()
                     except Exception:
                         pass
 
 
 async def sync_wb_account_profiles(ctx: dict[str, Any]) -> None:
     async with AsyncSessionFactory() as session:
-        result = await session.execute(
-            select(MarketplaceAccount)
-            .where(MarketplaceAccount.is_active.is_(True))
-            .where(MarketplaceAccount.marketplace == Marketplace.WB)
-        )
-        accounts = list(result.scalars().all())
+        account_refs = await _load_account_refs_wb(session)
         service = AccountProfileService(session)
-        for account in accounts:
-            account_id = account.id
+        for ref in account_refs:
             try:
+                account = await _load_account_by_id(session, ref.id)
+                if account is None:
+                    continue
                 await service.refresh_wb_account(account)
                 await session.commit()
             except Exception:
-                logger.exception("wb_account_profile_sync_failed", extra={"account_id": account_id})
+                logger.exception("wb_account_profile_sync_failed", extra={"account_id": ref.id})
                 try:
                     await session.rollback()
-                except Exception:
-                    pass
-                try:
-                    await session.refresh(account)
                 except Exception:
                     pass
 
 
 async def check_wb_financial_reports(ctx: dict[str, Any]) -> None:
     async with AsyncSessionFactory() as session:
-        result = await session.execute(
-            select(MarketplaceAccount)
-            .where(MarketplaceAccount.is_active.is_(True))
-            .where(MarketplaceAccount.marketplace == Marketplace.WB)
-        )
-        accounts = list(result.scalars().all())
+        account_refs = await _load_account_refs_wb(session)
         service = WbFinancialReportService(session)
-        for account in accounts:
-            account_id = account.id
+        for ref in account_refs:
             try:
+                account = await _load_account_by_id(session, ref.id)
+                if account is None:
+                    continue
                 results = await service.check_recent(account)
                 await session.commit()
                 logger.info(
                     "wb_financial_reports_checked",
                     extra={
-                        "account_id": account_id,
+                        "account_id": ref.id,
                         "daily_status": results[0].status,
                         "weekly_status": results[1].status,
                     },
@@ -594,35 +597,28 @@ async def check_wb_financial_reports(ctx: dict[str, Any]) -> None:
             except Exception:
                 logger.exception(
                     "wb_financial_reports_check_failed",
-                    extra={"account_id": account_id},
+                    extra={"account_id": ref.id},
                 )
                 try:
                     await session.rollback()
-                except Exception:
-                    pass
-                try:
-                    await session.refresh(account)
                 except Exception:
                     pass
 
 
 async def sync_ozon_catalog_enrichment(ctx: dict[str, Any]) -> None:
     async with AsyncSessionFactory() as session:
-        result = await session.execute(
-            select(MarketplaceAccount)
-            .where(MarketplaceAccount.is_active.is_(True))
-            .where(MarketplaceAccount.marketplace == Marketplace.OZON)
-        )
-        accounts = list(result.scalars().all())
+        account_refs = await _load_account_refs_ozon(session)
         service = OzonCatalogEnrichmentService(session)
-        for account in accounts:
-            account_id = account.id
+        for ref in account_refs:
             try:
+                account = await _load_account_by_id(session, ref.id)
+                if account is None:
+                    continue
                 stats = await service.sync_account(account)
                 logger.info(
                     "ozon_catalog_enrichment_finished",
                     extra={
-                        "account_id": account_id,
+                        "account_id": ref.id,
                         "warehouses": stats.warehouses_upserted,
                         "prices": stats.prices_upserted,
                         "promo_products": stats.promo_products_upserted,
@@ -632,40 +628,33 @@ async def sync_ozon_catalog_enrichment(ctx: dict[str, Any]) -> None:
             except Exception:
                 logger.exception(
                     "ozon_catalog_enrichment_failed",
-                    extra={"account_id": account_id},
+                    extra={"account_id": ref.id},
                 )
                 try:
                     await session.rollback()
-                except Exception:
-                    pass
-                try:
-                    await session.refresh(account)
                 except Exception:
                     pass
 
 
 async def sync_products(ctx: dict[str, Any]) -> None:
     async with AsyncSessionFactory() as session:
-        result = await session.execute(
-            select(MarketplaceAccount).where(MarketplaceAccount.is_active.is_(True))
-        )
-        accounts = list(result.scalars().all())
+        account_refs = await _load_account_refs(session)
         service = ProductSyncService(session)
         total = 0
         failed = 0
-        for account in accounts:
-            account_id = account.id
-            user_id = account.user_id
-            marketplace = account.marketplace.value
+        for ref in account_refs:
             try:
+                account = await _load_account_by_id(session, ref.id)
+                if account is None:
+                    continue
                 synced = await service.sync_account_products(account)
                 total += synced
                 logger.info(
                     "manual_product_sync_finished",
                     extra={
-                        "account_id": account_id,
-                        "user_id": user_id,
-                        "marketplace": marketplace,
+                        "account_id": ref.id,
+                        "user_id": ref.user_id,
+                        "marketplace": ref.marketplace,
                         "products_synced": synced,
                     },
                 )
@@ -674,34 +663,29 @@ async def sync_products(ctx: dict[str, Any]) -> None:
                 logger.exception(
                     "manual_product_sync_failed",
                     extra={
-                        "account_id": account_id,
-                        "user_id": user_id,
-                        "marketplace": marketplace,
+                        "account_id": ref.id,
+                        "user_id": ref.user_id,
+                        "marketplace": ref.marketplace,
                     },
                 )
                 try:
                     await session.rollback()
                 except Exception:
                     pass
-                try:
-                    await session.refresh(account)
-                except Exception:
-                    pass
         logger.info(
             "manual_product_sync_completed",
-            extra={"accounts": len(accounts), "products_synced": total, "failed": failed},
+            extra={"accounts": len(account_refs), "products_synced": total, "failed": failed},
         )
 
 
 async def check_low_stocks(ctx: dict[str, Any]) -> None:
     async with AsyncSessionFactory() as session:
-        accounts = (
-            await session.execute(
-                select(MarketplaceAccount).where(MarketplaceAccount.is_active.is_(True))
-            )
-        ).scalars()
+        account_refs = await _load_account_refs(session)
         service = StockService(session)
-        for account in accounts:
+        for ref in account_refs:
+            account = await _load_account_by_id(session, ref.id)
+            if account is None:
+                continue
             await service.sync_account_stocks(account)
         created = await service.create_low_stock_alerts()
         forecast_created = await service.create_stockout_forecast_alerts()
@@ -717,12 +701,14 @@ async def process_history_backfills(ctx: dict[str, Any]) -> None:
     async with AsyncSessionFactory() as session:
         jobs = await SyncJobRepository(session).pending_history_jobs(limit=3)
         for job in jobs:
+            job_id = job.id
+            job_user_id = job.user_id
             try:
                 service = HistoryBackfillService(session)
-                counters = await service.run_job(job.id)
-                refreshed_job = await SyncJobRepository(session).get(job.id)
+                counters = await service.run_job(job_id)
+                refreshed_job = await SyncJobRepository(session).get(job_id)
                 user = (
-                    await session.execute(select(User).where(User.id == job.user_id))
+                    await session.execute(select(User).where(User.id == job_user_id))
                 ).scalar_one_or_none()
                 if user and refreshed_job:
                     await bot.send_message(
@@ -730,11 +716,14 @@ async def process_history_backfills(ctx: dict[str, Any]) -> None:
                         service.format_completion_message(refreshed_job, counters),
                     )
             except Exception:
-                logger.exception("history_backfill_worker_failed", extra={"job_id": job.id})
-                await session.rollback()
-                refreshed_job = await SyncJobRepository(session).get(job.id)
+                logger.exception("history_backfill_worker_failed", extra={"job_id": job_id})
+                try:
+                    await session.rollback()
+                except Exception:
+                    pass
+                refreshed_job = await SyncJobRepository(session).get(job_id)
                 user = (
-                    await session.execute(select(User).where(User.id == job.user_id))
+                    await session.execute(select(User).where(User.id == job_user_id))
                 ).scalar_one_or_none()
                 if user and refreshed_job:
                     await bot.send_message(
@@ -763,4 +752,31 @@ async def reconcile_pending_payments(ctx: dict[str, Any]) -> None:
                 )
         except Exception:
             logger.exception("yookassa_reconciliation_failed")
-            await session.rollback()
+            try:
+                await session.rollback()
+            except Exception:
+                pass
+
+
+async def _load_account_refs_wb(session: AsyncSession) -> list[AccountRef]:
+    result = await session.execute(
+        select(MarketplaceAccount.id, MarketplaceAccount.marketplace, MarketplaceAccount.user_id)
+        .where(MarketplaceAccount.is_active.is_(True))
+        .where(MarketplaceAccount.marketplace == Marketplace.WB)
+    )
+    return [
+        AccountRef(id=row[0], marketplace=row[1].value, user_id=row[2])
+        for row in result.all()
+    ]
+
+
+async def _load_account_refs_ozon(session: AsyncSession) -> list[AccountRef]:
+    result = await session.execute(
+        select(MarketplaceAccount.id, MarketplaceAccount.marketplace, MarketplaceAccount.user_id)
+        .where(MarketplaceAccount.is_active.is_(True))
+        .where(MarketplaceAccount.marketplace == Marketplace.OZON)
+    )
+    return [
+        AccountRef(id=row[0], marketplace=row[1].value, user_id=row[2])
+        for row in result.all()
+    ]

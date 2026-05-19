@@ -74,11 +74,17 @@ async def login(
 
 
 @router.get("/web/login", include_in_schema=False)
-async def login_compat(request: Request) -> Response:
-    """Redirect legacy /web/web/login to canonical /web/login."""
-    query_string = request.url.query
-    suffix = f"?{query_string}" if query_string else ""
-    return RedirectResponse(url=f"/web/login{suffix}", status_code=301)
+async def login_compat(
+    request: Request,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> Response:
+    """Serve login when a reverse proxy prepends /web upstream.
+
+    Delegates to the main login handler with the token extracted from
+    query params, avoiding redirect loops.
+    """
+    token = request.query_params.get("token")
+    return await login(request=request, session=session, token=token)
 
 
 @router.get("/logout")

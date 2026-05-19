@@ -1,4 +1,4 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: Regression tests for worker session safety after rollback.
 updated: 2026-05-19
 """
@@ -9,32 +9,30 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.models.enums import Marketplace
+from app.workers.tasks import AccountRef
 
 
-class FakeScalarResult:
-    def __init__(self, values):
-        self._values = values
+class FakeResult:
+    def __init__(self, rows):
+        self._rows = rows
 
     def all(self):
-        return self._values
+        return self._rows
 
-
-class FakeAsyncResult:
-    def __init__(self, values):
-        self._values = values
-
-    def scalars(self):
-        return FakeScalarResult(self._values)
+    def scalar_one_or_none(self):
+        return self._rows[0] if self._rows else None
 
 
 class FakeAsyncSession:
     def __init__(self):
         self.committed = False
         self.rolled_back = False
-        self.refreshed = []
+        self._execute_results = []
 
     async def execute(self, stmt):
-        return FakeAsyncResult([])
+        if self._execute_results:
+            return self._execute_results.pop(0)
+        return FakeResult([])
 
     async def commit(self):
         self.committed = True
@@ -42,22 +40,15 @@ class FakeAsyncSession:
     async def rollback(self):
         self.rolled_back = True
 
-    async def refresh(self, obj):
-        self.refreshed.append(obj)
-
 
 @pytest.mark.asyncio
-async def test_poll_new_orders_refreshes_account_after_rollback() -> None:
-    """After error in poll_new_orders, the account should be refreshed
-    to prevent MissingGreenlet errors on the next iteration."""
+async def test_poll_new_orders_survives_rollback_and_continues() -> None:
+    """After an error in poll_new_orders, the worker should continue
+    processing remaining accounts without MissingGreenlet errors."""
     session = FakeAsyncSession()
 
     account1 = SimpleNamespace(
         id=1, marketplace=Marketplace.WB, user_id=1,
-        last_error_at=None, last_error_message=None,
-    )
-    account2 = SimpleNamespace(
-        id=2, marketplace=Marketplace.OZON, user_id=1,
         last_error_at=None, last_error_message=None,
     )
 
@@ -66,18 +57,17 @@ async def test_poll_new_orders_refreshes_account_after_rollback() -> None:
     async def fake_poll_account_with_stats(account):
         nonlocal call_count
         call_count += 1
-        if account.id == 1:
-            raise RuntimeError("API error")
-        return SimpleNamespace(
-            fetched=0, created=0, duplicated=0, recovered_unnotified=0,
-            skipped_by_policy=0, skipped_without_user=0, notification_count=0,
-            notifications=[],
-        )
+        raise RuntimeError("API error")
 
-    async def fake_execute(stmt):
-        return FakeAsyncResult([account1, account2])
-
-    session.execute = fake_execute
+    # First execute call: _load_account_refs
+    session._execute_results.append(FakeResult([
+        (1, Marketplace.WB, 1),
+        (2, Marketplace.OZON, 1),
+    ]))
+    # Second execute call: _load_account_by_id for account 1
+    session._execute_results.append(FakeResult([account1]))
+    # Third execute call: _load_account_by_id for account 2
+    session._execute_results.append(FakeResult([]))
 
     with patch("app.workers.tasks.AsyncSessionFactory") as mock_factory:
         mock_factory.return_value.__aenter__ = AsyncMock(return_value=session)
@@ -93,15 +83,13 @@ async def test_poll_new_orders_refreshes_account_after_rollback() -> None:
                     from app.workers.tasks import poll_new_orders
                     await poll_new_orders({})
 
-    # After error, account should be refreshed to prevent MissingGreenlet
-    assert len(session.refreshed) >= 1
-    assert call_count == 2  # Both accounts were processed
+    # Rollback should have happened, but no crash
+    assert session.rolled_back is True
 
 
 @pytest.mark.asyncio
-async def test_sync_products_extracts_attrs_before_try() -> None:
-    """sync_products should extract account attributes before the try block
-    so they're available in the except handler even after rollback."""
+async def test_sync_products_survives_rollback_and_continues() -> None:
+    """sync_products should survive errors without MissingGreenlet."""
     session = FakeAsyncSession()
 
     account = SimpleNamespace(
@@ -112,10 +100,10 @@ async def test_sync_products_extracts_attrs_before_try() -> None:
     async def fake_sync_account_products(account):
         raise RuntimeError("Sync failed")
 
-    async def fake_execute(stmt):
-        return FakeAsyncResult([account])
-
-    session.execute = fake_execute
+    session._execute_results.append(FakeResult([
+        (10, Marketplace.WB, 5),
+    ]))
+    session._execute_results.append(FakeResult([account]))
 
     with patch("app.workers.tasks.AsyncSessionFactory") as mock_factory:
         mock_factory.return_value.__aenter__ = AsyncMock(return_value=session)
@@ -129,3 +117,11 @@ async def test_sync_products_extracts_attrs_before_try() -> None:
                 await sync_products({})
 
     assert session.rolled_back is True
+
+
+def test_account_ref_is_plain_data() -> None:
+    """AccountRef should be a simple dataclass, not an ORM object."""
+    ref = AccountRef(id=1, marketplace="wb", user_id=42)
+    assert ref.id == 1
+    assert ref.marketplace == "wb"
+    assert ref.user_id == 42

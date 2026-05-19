@@ -800,65 +800,115 @@ async def test_web_login_valid_token_renders_opening_page(monkeypatch: pytest.Mo
 
 
 @pytest.mark.asyncio
-async def test_legacy_double_web_dashboard_redirects_to_canonical() -> None:
+async def test_legacy_double_web_dashboard_serves_content() -> None:
+    """Compatibility route should serve the dashboard directly, not redirect."""
+    from collections import OrderedDict
+    from types import SimpleNamespace
+
+    class FakeQP(OrderedDict):
+        def get(self, key, default=""):
+            return super().get(key, default)
+
     request = SimpleNamespace(
         url=SimpleNamespace(path="/web/web", query="period=today"),
+        query_params=FakeQP([("period", "today")]),
     )
-    response = await double_web_compat(section="", request=request)
-    assert response.status_code == 301
-    assert response.headers["location"] == "/web/?period=today"
+
+    async def fake_dashboard(*args, **kwargs):
+        return "<html>Кабинет</html>"
+
+    import pytest
+
+    import app.web.routes as facade
+    with pytest.MonkeyPatch().context() as mp:
+        mp.setattr(facade, "dashboard", fake_dashboard)
+        response = await double_web_compat(
+            section="", request=request, user=object(), session=object(),
+        )
+
+    assert response.status_code == 200
+    assert "Кабинет" in response.body.decode()
 
 
 @pytest.mark.asyncio
-async def test_legacy_double_web_orders_redirects_to_canonical() -> None:
+async def test_legacy_double_web_orders_serves_content() -> None:
+    """Compatibility route should serve orders directly, not redirect."""
+    from collections import OrderedDict
+    from types import SimpleNamespace
+
+    class FakeQP(OrderedDict):
+        def get(self, key, default=""):
+            return super().get(key, default)
+
     request = SimpleNamespace(
-        url=SimpleNamespace(path="/web/web/orders", query="period=30d&marketplace=wb"),
+        url=SimpleNamespace(path="/web/web/orders", query="period=30d"),
+        query_params=FakeQP([("period", "30d")]),
     )
-    response = await double_web_compat(section="orders", request=request)
-    assert response.status_code == 301
-    assert response.headers["location"] == "/web/orders?period=30d&marketplace=wb"
+
+    async def fake_orders_page(*args, **kwargs):
+        return "<html>Orders page</html>"
+
+    import pytest
+
+    import app.web.routes as facade
+    with pytest.MonkeyPatch().context() as mp:
+        mp.setattr(facade, "orders_page", fake_orders_page)
+        response = await double_web_compat(
+            section="orders", request=request, user=object(), session=object(),
+        )
+
+    assert response.status_code == 200
+    assert "Orders page" in response.body.decode()
 
 
 @pytest.mark.asyncio
-async def test_legacy_double_web_order_detail_redirects_to_canonical() -> None:
-    request = SimpleNamespace(
-        url=SimpleNamespace(path="/web/web/orders/42", query=""),
-    )
-    response = await double_web_compat(section="orders/42", request=request)
-    assert response.status_code == 301
-    assert response.headers["location"] == "/web/orders/42"
+async def test_legacy_double_web_unknown_section_returns_404() -> None:
+    """Unknown sections should return a 404 HTML response, not redirect."""
+    from collections import OrderedDict
+    from types import SimpleNamespace
 
-
-@pytest.mark.asyncio
-async def test_legacy_double_web_profit_redirects_to_canonical() -> None:
-    request = SimpleNamespace(
-        url=SimpleNamespace(path="/web/web/profit", query="period=7d"),
-    )
-    response = await double_web_compat(section="profit", request=request)
-    assert response.status_code == 301
-    assert response.headers["location"] == "/web/profit?period=7d"
-
-
-@pytest.mark.asyncio
-async def test_legacy_double_web_unknown_section_redirects() -> None:
     request = SimpleNamespace(
         url=SimpleNamespace(path="/web/web/unknown", query=""),
+        query_params=OrderedDict(),
     )
-    response = await double_web_compat(section="unknown", request=request)
-    assert response.status_code == 301
-    assert response.headers["location"] == "/web/unknown"
+    response = await double_web_compat(
+        section="unknown", request=request, user=object(), session=object(),
+    )
+    assert response.status_code == 404
+    assert "Раздел не найден" in response.body.decode()
 
 
 @pytest.mark.asyncio
-async def test_legacy_double_web_login_redirects() -> None:
+async def test_legacy_double_web_login_serves_content() -> None:
+    from collections import OrderedDict
+    from types import SimpleNamespace
+
     from app.web.route_modules.auth import login_compat
+
+    class FakeQP(OrderedDict):
+        def get(self, key, default=""):
+            return super().get(key, default)
 
     request = SimpleNamespace(
         url=SimpleNamespace(path="/web/web/login", query="token=abc123"),
+        query_params=FakeQP([("token", "abc123")]),
+        client=SimpleNamespace(host="127.0.0.1"),
+        headers={"user-agent": "test"},
     )
-    response = await login_compat(request=request)
-    assert response.status_code == 301
-    assert response.headers["location"] == "/web/login?token=abc123"
+
+    async def fake_login(request, session, token):
+        from fastapi.responses import HTMLResponse
+        return HTMLResponse(f"<html>Login token={token}</html>")
+
+    import pytest
+
+    import app.web.route_modules.auth as auth_module
+    with pytest.MonkeyPatch().context() as mp:
+        mp.setattr(auth_module, "login", fake_login)
+        response = await login_compat(request=request, session=object())
+
+    assert response.status_code == 200
+    assert "token=abc123" in response.body.decode()
 
 
 def test_app_package_discovery_includes_utility_package() -> None:
