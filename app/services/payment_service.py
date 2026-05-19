@@ -90,6 +90,9 @@ class PaymentService:
         """Create payment for subscription.
 
         Returns (Payment, confirmation_url).
+
+        If a PENDING payment already exists for this user, returns it
+        instead of creating a duplicate.
         """
         tier = await self._get_tier_by_code(tier_code)
         if not tier:
@@ -99,7 +102,21 @@ class PaymentService:
         if amount is None or amount == Decimal("0"):
             raise ValueError(f"Tier {tier_code} has no price for {period} period")
 
-        description = f"Подписка {tier.name} ({period})"
+        existing = await self._find_pending_payment(user_id)
+        if existing:
+            logger.info(
+                "payment_reused_pending",
+                extra={
+                    "payment_id": existing.id,
+                    "user_id": user_id,
+                    "tier_code": tier_code,
+                },
+            )
+            confirmation_url = await self._get_confirmation_url(existing.provider_payment_id)
+            return existing, confirmation_url or ""
+
+        period_label = _PERIOD_LABELS.get(period, period)
+        description = f"Подписка MP Control — тариф {tier.name}, {period_label}"
         metadata = {
             "user_id": str(user_id),
             "tier_code": tier_code,
@@ -371,3 +388,25 @@ class PaymentService:
             select(SubscriptionTier).where(SubscriptionTier.code == code)
         )
         return result.scalar_one_or_none()
+
+    async def _find_pending_payment(self, user_id: int) -> Payment | None:
+        """Return the most recent PENDING payment for a user, if any."""
+        result = await self.session.execute(
+            select(Payment)
+            .where(Payment.user_id == user_id, Payment.status == PaymentStatus.PENDING)
+            .order_by(Payment.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def _get_confirmation_url(self, provider_payment_id: str) -> str | None:
+        """Fetch confirmation URL from YooKassa for an existing payment."""
+        try:
+            payment_data = await self.yookassa.get_payment(provider_payment_id)
+            return payment_data.get("confirmation", {}).get("confirmation_url")
+        except Exception:
+            logger.warning(
+                "payment_confirmation_url_fetch_failed",
+                extra={"provider_payment_id": provider_payment_id},
+            )
+            return None
