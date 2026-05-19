@@ -304,3 +304,183 @@ def _sale_event_kwargs(event):  # type: ignore[no-untyped-def]
         "amount": event.amount,
         "raw_payload": event.raw_payload,
     }
+
+
+def test_wb_sale_event_for_current_day_is_stored() -> None:
+    """Verify that a WB sale event for today is correctly normalized and stored."""
+    client = WildberriesClient("token")
+    payload = {
+        "saleID": "S456",
+        "srid": "srid-today",
+        "date": "2026-05-19T12:00:00Z",
+        "nmId": 789,
+        "supplierArticle": "TODAY-SKU",
+        "subject": "Тестовый товар",
+        "finishedPrice": "2500",
+        "forPay": "2000",
+    }
+    event = client.normalize_supplier_sale(payload)
+
+    assert event.external_event_id == "wb-sale-S456"
+    assert event.event_type == SaleEventType.BUYOUT
+    assert event.event_date == datetime(2026, 5, 19, 12, 0, tzinfo=UTC)
+    assert event.seller_article == "TODAY-SKU"
+    assert event.amount == Decimal("2500")
+    assert event.expected_payout == Decimal("2000")
+    assert event.marketplace == Marketplace.WB
+
+
+def test_ozon_completed_sale_event_is_stored() -> None:
+    """Verify that an Ozon completed sale event is correctly normalized."""
+    from app.integrations.ozon import OzonClient
+
+    client = OzonClient(client_id="cid", api_key="key")
+    payload = {
+        "posting_number": "ozon-posting-1",
+        "status": "delivered",
+        "delivering_date": "2026-05-19T15:00:00Z",
+        "products": [
+            {
+                "sku": 111,
+                "offer_id": "OZON-SKU-1",
+                "name": "Ozon Товар",
+                "price": "1500",
+                "quantity": 2,
+            }
+        ],
+    }
+    events = client.normalize_completed_sale_events(payload, sale_model=SaleModel.FBS)
+
+    assert len(events) == 1
+    event = events[0]
+    assert event.external_event_id == "ozon-sale-ozon-posting-1-111"
+    assert event.event_type == SaleEventType.DELIVERED_TO_CUSTOMER
+    assert event.event_date == datetime(2026, 5, 19, 15, 0, tzinfo=UTC)
+    assert event.seller_article == "OZON-SKU-1"
+    assert event.amount == Decimal("3000")
+    assert event.quantity == 2
+    assert event.marketplace == Marketplace.OZON
+
+
+@pytest.mark.asyncio
+async def test_new_sale_events_not_lost_on_resync(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify that new sale events are created on each sync, not lost."""
+    service = SalesEventSyncService(_FakeSession())  # type: ignore[arg-type]
+    service.cipher = _FakeCipher()  # type: ignore[assignment]
+    service.orders = _FakeOrders()  # type: ignore[assignment]
+    service.profits = _FakeProfits()  # type: ignore[assignment]
+    sales = _FakeSales()
+    returns = _FakeReturns()
+    service.sales = sales  # type: ignore[assignment]
+    service.returns = returns  # type: ignore[assignment]
+    service.products = _FakeProducts()  # type: ignore[assignment]
+
+    class _FakeWbClientWithTodaySales(WildberriesClient):
+        def __init__(self, _api_key: str) -> None:
+            return None
+
+        async def get_supplier_orders(self, _date_from):  # type: ignore[no-untyped-def]
+            return []
+
+        async def get_supplier_sales(self, _date_from):  # type: ignore[no-untyped-def]
+            return [
+                {
+                    "saleID": "S789",
+                    "srid": "srid-new",
+                    "date": "2026-05-19T08:00:00Z",
+                    "nmId": 456,
+                    "supplierArticle": "NEW-SKU",
+                    "finishedPrice": "3000",
+                }
+            ]
+
+        normalize_supplier_sale = WildberriesClient.normalize_supplier_sale
+        normalize_supplier_return = WildberriesClient.normalize_supplier_return
+        is_supplier_sales_return = staticmethod(WildberriesClient.is_supplier_sales_return)
+
+    monkeypatch.setattr(
+        "app.services.sales_event_sync_service.WildberriesClient",
+        _FakeWbClientWithTodaySales,
+    )
+
+    result = await service.sync_account(_account(), lookback_hours=72)
+
+    assert result.sales_created == 1
+    assert result.sales_fetched == 1
+    assert len(sales.events) == 1
+    assert sales.events[0].external_event_id == "wb-sale-S789"
+
+
+@pytest.mark.asyncio
+async def test_sync_does_not_crash_on_rollback_recovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify that sync handles rollback gracefully without greenlet_spawn errors."""
+    session = _FakeSessionWithRollback()
+    service = SalesEventSyncService(session)  # type: ignore[arg-type]
+    service.cipher = _FakeCipher()  # type: ignore[assignment]
+    service.orders = _FakeOrders()  # type: ignore[assignment]
+    service.profits = _FakeProfits()  # type: ignore[assignment]
+    service.sales = _FakeSales()  # type: ignore[assignment]
+    service.returns = _FakeReturns()  # type: ignore[assignment]
+    service.products = _FakeProducts()  # type: ignore[assignment]
+
+    class _FailingWbClient(WildberriesClient):
+        def __init__(self, _api_key: str) -> None:
+            return None
+
+        async def get_supplier_orders(self, _date_from):  # type: ignore[no-untyped-def]
+            raise RuntimeError("API timeout")
+
+        async def get_supplier_sales(self, _date_from):  # type: ignore[no-untyped-def]
+            return []
+
+        normalize_supplier_sale = WildberriesClient.normalize_supplier_sale
+        normalize_supplier_return = WildberriesClient.normalize_supplier_return
+        is_supplier_sales_return = staticmethod(WildberriesClient.is_supplier_sales_return)
+
+    monkeypatch.setattr(
+        "app.services.sales_event_sync_service.WildberriesClient",
+        _FailingWbClient,
+    )
+
+    result = await service.sync_account(_account(), lookback_hours=72)
+
+    assert result.failed >= 1
+    assert session.rollback_count >= 1
+
+
+def test_web_sales_page_filters_today_period() -> None:
+    """Verify that the web sales page correctly builds filters for today period."""
+    from app.services.web_dashboard_service import build_dashboard_filters
+
+    filters = build_dashboard_filters(
+        timezone="Europe/Moscow",
+        period="today",
+        marketplace="all",
+        sale_model="all",
+        date_from=None,
+        date_to=None,
+    )
+
+    assert filters.period == "today"
+    assert filters.local_date_from == filters.local_date_to
+
+
+class _FakeSessionWithRollback:
+    """Fake session that tracks rollback calls."""
+
+    def __init__(self) -> None:
+        self.rollback_count = 0
+        self.commit_count = 0
+
+    async def execute(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+        return _FakeResult()
+
+    async def commit(self) -> None:
+        self.commit_count += 1
+
+    async def rollback(self) -> None:
+        self.rollback_count += 1

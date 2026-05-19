@@ -227,7 +227,10 @@ class SalesEventSyncService:
         account: MarketplaceAccount,
         date_from: datetime,
     ) -> SalesSyncResult:
-        result = SalesSyncResult(account_id=account.id, marketplace=account.marketplace)
+        account_id = account.id
+        user_id = account.user_id
+        marketplace = account.marketplace.value
+        result = SalesSyncResult(account_id=account_id, marketplace=account.marketplace)
         client = WildberriesClient(self.cipher.decrypt(account.encrypted_api_key))
         try:
             orders = await client.get_supplier_orders(date_from)
@@ -235,10 +238,11 @@ class SalesEventSyncService:
             logger.info(
                 "wb_statistics_orders_fetched",
                 extra={
-                    "account_id": account.id,
-                    "user_id": account.user_id,
-                    "marketplace": account.marketplace.value,
+                    "account_id": account_id,
+                    "user_id": user_id,
+                    "marketplace": marketplace,
                     "orders_fetched": result.orders_fetched,
+                    "date_from": date_from.isoformat(),
                 },
             )
             for payload in orders:
@@ -246,9 +250,18 @@ class SalesEventSyncService:
                 created = await self._upsert_order_with_profit(account, normalized)
                 result.orders_created += int(created)
                 result.orders_updated += int(not created)
-        except Exception:
+        except Exception as exc:
             result.failed += 1
-            logger.exception("wb_statistics_orders_sync_failed", extra={"account_id": account.id})
+            logger.exception(
+                "wb_statistics_orders_sync_failed",
+                extra={
+                    "account_id": account_id,
+                    "user_id": user_id,
+                    "marketplace": marketplace,
+                    "exception_class": type(exc).__name__,
+                    "error": str(exc)[:500],
+                },
+            )
             await self.session.rollback()
         try:
             sales = await client.get_supplier_sales(date_from)
@@ -256,14 +269,18 @@ class SalesEventSyncService:
             logger.info(
                 "wb_supplier_sales_fetched",
                 extra={
-                    "account_id": account.id,
-                    "user_id": account.user_id,
-                    "marketplace": account.marketplace.value,
+                    "account_id": account_id,
+                    "user_id": user_id,
+                    "marketplace": marketplace,
                     "sales_fetched": result.sales_fetched,
+                    "date_from": date_from.isoformat(),
                 },
             )
+            sales_as_buyouts = 0
+            sales_as_returns = 0
             for payload in sales:
                 if client.is_supplier_sales_return(payload):
+                    sales_as_returns += 1
                     event, created = await self._upsert_return_event(
                         account,
                         client.normalize_supplier_return(payload),
@@ -273,6 +290,7 @@ class SalesEventSyncService:
                     result.returns_updated += int(not created)
                     logger.debug("wb_return_event_synced", extra={"event_id": event.id})
                     continue
+                sales_as_buyouts += 1
                 row, created = await self._upsert_sale_event(
                     account,
                     client.normalize_supplier_sale(payload),
@@ -280,11 +298,47 @@ class SalesEventSyncService:
                 result.sales_created += int(created)
                 result.sales_updated += int(not created)
                 logger.debug("wb_sale_event_synced", extra={"event_id": row.id})
-        except Exception:
+            logger.info(
+                "wb_supplier_sales_categorized",
+                extra={
+                    "account_id": account_id,
+                    "marketplace": marketplace,
+                    "total_fetched": result.sales_fetched,
+                    "categorized_as_buyouts": sales_as_buyouts,
+                    "categorized_as_returns": sales_as_returns,
+                    "sales_created": result.sales_created,
+                    "sales_updated": result.sales_updated,
+                    "returns_created": result.returns_created,
+                    "returns_updated": result.returns_updated,
+                },
+            )
+        except Exception as exc:
             result.failed += 1
-            logger.exception("wb_supplier_sales_sync_failed", extra={"account_id": account.id})
+            logger.exception(
+                "wb_supplier_sales_sync_failed",
+                extra={
+                    "account_id": account_id,
+                    "user_id": user_id,
+                    "marketplace": marketplace,
+                    "exception_class": type(exc).__name__,
+                    "error": str(exc)[:500],
+                },
+            )
             await self.session.rollback()
         await self.session.commit()
+        logger.info(
+            "wb_sale_sync_completed",
+            extra={
+                "account_id": account_id,
+                "marketplace": marketplace,
+                "orders_fetched": result.orders_fetched,
+                "orders_created": result.orders_created,
+                "sales_fetched": result.sales_fetched,
+                "sales_created": result.sales_created,
+                "returns_created": result.returns_created,
+                "failed": result.failed,
+            },
+        )
         return result
 
     async def sync_wb_sales_report_day(
@@ -355,7 +409,10 @@ class SalesEventSyncService:
         date_from: datetime,
         date_to: datetime,
     ) -> SalesSyncResult:
-        result = SalesSyncResult(account_id=account.id, marketplace=account.marketplace)
+        account_id = account.id
+        user_id = account.user_id
+        marketplace = account.marketplace.value
+        result = SalesSyncResult(account_id=account_id, marketplace=account.marketplace)
         client = OzonClient(
             client_id=self.cipher.decrypt(account.encrypted_client_id or ""),
             api_key=self.cipher.decrypt(account.encrypted_api_key),
@@ -375,9 +432,9 @@ class SalesEventSyncService:
                     logger.info(
                         "ozon_sale_orders_fetched",
                         extra={
-                            "account_id": account.id,
-                            "user_id": account.user_id,
-                            "marketplace": account.marketplace.value,
+                            "account_id": account_id,
+                            "user_id": user_id,
+                            "marketplace": marketplace,
                             "postings_fetched": len(postings),
                             "offset": offset,
                         },
@@ -404,10 +461,17 @@ class SalesEventSyncService:
                     if len(postings) < 100:
                         break
                     offset += 100
-            except Exception:
+            except Exception as exc:
                 result.failed += 1
                 logger.exception(
-                    "ozon_completed_sales_sync_failed", extra={"account_id": account.id}
+                    "ozon_completed_sales_sync_failed",
+                    extra={
+                        "account_id": account_id,
+                        "user_id": user_id,
+                        "marketplace": marketplace,
+                        "exception_class": type(exc).__name__,
+                        "error": str(exc)[:500],
+                    },
                 )
                 await self.session.rollback()
         try:
@@ -418,11 +482,33 @@ class SalesEventSyncService:
                 result.returns_created += int(created)
                 result.returns_updated += int(not created)
                 logger.debug("ozon_return_event_synced", extra={"event_id": event.id})
-        except Exception:
+        except Exception as exc:
             result.failed += 1
-            logger.exception("ozon_returns_sync_failed", extra={"account_id": account.id})
+            logger.exception(
+                "ozon_returns_sync_failed",
+                extra={
+                    "account_id": account_id,
+                    "user_id": user_id,
+                    "marketplace": marketplace,
+                    "exception_class": type(exc).__name__,
+                    "error": str(exc)[:500],
+                },
+            )
             await self.session.rollback()
         await self.session.commit()
+        logger.info(
+            "ozon_sale_sync_completed",
+            extra={
+                "account_id": account_id,
+                "marketplace": marketplace,
+                "orders_fetched": result.orders_fetched,
+                "orders_created": result.orders_created,
+                "sales_fetched": result.sales_fetched,
+                "sales_created": result.sales_created,
+                "returns_created": result.returns_created,
+                "failed": result.failed,
+            },
+        )
         return result
 
     async def _pending_cancel_notifications(

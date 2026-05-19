@@ -213,19 +213,25 @@ async def sync_sale_events(ctx: dict[str, Any]) -> None:
             .where(MarketplaceAccount.is_active.is_(True))
         )
         accounts = list(result.scalars().all())
-        service = SalesEventSyncService(session)
+        logger.info("sale_events_sync_started", extra={"accounts": len(accounts)})
         for account in accounts:
+            account_id = account.id
+            marketplace = account.marketplace.value
+            user_id = account.user_id
             try:
+                service = SalesEventSyncService(session)
                 sync_result = await service.sync_account(account)
                 logger.info(
                     "sale_events_sync_finished",
                     extra={
-                        "account_id": sync_result.account_id,
-                        "marketplace": sync_result.marketplace.value,
+                        "account_id": account_id,
+                        "marketplace": marketplace,
                         "orders_fetched": sync_result.orders_fetched,
                         "orders_created": sync_result.orders_created,
+                        "orders_updated": sync_result.orders_updated,
                         "sales_fetched": sync_result.sales_fetched,
                         "sales_created": sync_result.sales_created,
+                        "sales_updated": sync_result.sales_updated,
                         "returns_fetched": sync_result.returns_fetched,
                         "returns_created": sync_result.returns_created,
                         "failed": sync_result.failed,
@@ -245,28 +251,43 @@ async def sync_sale_events(ctx: dict[str, Any]) -> None:
                     logger.info(
                         "sale_sync_order_notifications_sent",
                         extra={
-                            "account_id": sync_result.account_id,
-                            "marketplace": sync_result.marketplace.value,
+                            "account_id": account_id,
+                            "marketplace": marketplace,
                             "notifications_prepared": len(order_notifications),
                             "notifications_sent": sent,
                             "notifications_failed": failed,
                         },
                     )
-            except Exception:
+            except Exception as exc:
                 logger.exception(
                     "sale_events_sync_failed",
-                    extra={"account_id": account.id, "marketplace": account.marketplace.value},
+                    extra={
+                        "account_id": account_id,
+                        "marketplace": marketplace,
+                        "user_id": user_id,
+                        "exception_class": type(exc).__name__,
+                        "error": str(exc)[:500],
+                    },
                 )
-                await session.rollback()
-        notifications = await service.pending_notifications(limit=100)
-        await _deliver_sale_notifications(session, service, notifier, notifications)
-        lifecycle_notifications = await service.pending_order_lifecycle_notifications(limit=100)
-        await _deliver_order_lifecycle_notifications(
-            session,
-            service,
-            notifier,
-            lifecycle_notifications,
-        )
+                try:
+                    await session.rollback()
+                except Exception:
+                    logger.exception("sale_events_sync_rollback_failed")
+        try:
+            sale_service = SalesEventSyncService(session)
+            notifications = await sale_service.pending_notifications(limit=100)
+            await _deliver_sale_notifications(session, sale_service, notifier, notifications)
+            lifecycle_notifications = (
+                await sale_service.pending_order_lifecycle_notifications(limit=100)
+            )
+            await _deliver_order_lifecycle_notifications(
+                session,
+                sale_service,
+                notifier,
+                lifecycle_notifications,
+            )
+        except Exception:
+            logger.exception("sale_events_notification_delivery_failed")
     await bot.session.close()
 
 
