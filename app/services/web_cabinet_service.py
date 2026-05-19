@@ -320,19 +320,23 @@ class WebCabinetService:
             .order_by(Product.marketplace, Product.seller_article)
             .limit(200)
         )
+        product_rows = result.all()
+        product_ids = [p.id for p, _ in product_rows]
+
+        costs_map = await self._batch_latest_costs(product_ids)
+        stock_map = await self._batch_latest_stocks(product_ids)
+        orders_map = await self._batch_order_counts(product_ids)
+
         rows = []
-        for product, account_name in result.all():
-            cost = await self._latest_cost(product.id)
+        for product, account_name in product_rows:
+            cost = costs_map.get(product.id)
             rows.append(
                 CostRow(
                     product=product,
                     account_name=str(account_name),
                     cost=cost,
-                    stock_quantity=await self._latest_stock(product.id),
-                    orders_count=await self._count(
-                        OrderItem.id,
-                        OrderItem.product_id == product.id,
-                    ),
+                    stock_quantity=stock_map.get(product.id, 0),
+                    orders_count=orders_map.get(product.id, 0),
                 )
             )
         missing = sum(1 for row in rows if row.cost is None or row.cost.cost_price <= 0)
@@ -341,6 +345,60 @@ class WebCabinetService:
             missing_count=missing,
             configured_count=len(rows) - missing,
         )
+
+    async def _batch_latest_costs(
+        self, product_ids: list[int]
+    ) -> dict[int, ProductCostHistory]:
+        if not product_ids:
+            return {}
+        subq = (
+            select(
+                ProductCostHistory.product_id,
+                func.max(ProductCostHistory.valid_from).label("max_valid_from"),
+            )
+            .where(ProductCostHistory.product_id.in_(product_ids))
+            .group_by(ProductCostHistory.product_id)
+            .subquery()
+        )
+        result = await self.session.execute(
+            select(ProductCostHistory).join(
+                subq,
+                (ProductCostHistory.product_id == subq.c.product_id)
+                & (ProductCostHistory.valid_from == subq.c.max_valid_from),
+            )
+        )
+        return {c.product_id: c for c in result.scalars().all()}
+
+    async def _batch_latest_stocks(self, product_ids: list[int]) -> dict[int, int]:
+        if not product_ids:
+            return {}
+        subq = (
+            select(
+                StockSnapshot.product_id,
+                func.max(StockSnapshot.snapshot_at).label("max_snapshot_at"),
+            )
+            .where(StockSnapshot.product_id.in_(product_ids))
+            .group_by(StockSnapshot.product_id)
+            .subquery()
+        )
+        result = await self.session.execute(
+            select(StockSnapshot.product_id, StockSnapshot.quantity).join(
+                subq,
+                (StockSnapshot.product_id == subq.c.product_id)
+                & (StockSnapshot.snapshot_at == subq.c.max_snapshot_at),
+            )
+        )
+        return dict(result.all())
+
+    async def _batch_order_counts(self, product_ids: list[int]) -> dict[int, int]:
+        if not product_ids:
+            return {}
+        result = await self.session.execute(
+            select(OrderItem.product_id, func.count(OrderItem.id))
+            .where(OrderItem.product_id.in_(product_ids))
+            .group_by(OrderItem.product_id)
+        )
+        return dict(result.all())
 
     async def _latest_wb_report(
         self,

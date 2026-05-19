@@ -43,22 +43,18 @@ class StockForecastService:
 
     async def forecast(self, *, user_id: int, horizon_days: int = 30) -> list[StockForecastRow]:
         latest = await self._latest_snapshots(user_id)
+        product_ids = {s.product_id for s in latest if s.product_id is not None}
+        products_map = await self._batch_products(product_ids)
+        sales_map = await self._batch_daily_sales(user_id, latest)
+        price_map = await self._batch_average_prices(user_id, latest)
         rows: list[StockForecastRow] = []
         for snapshot in latest:
-            title, seller_article = await self._product_title(snapshot)
-            average_daily_sales = await self._average_daily_sales(
-                user_id=user_id,
-                product_id=snapshot.product_id,
-                marketplace=snapshot.marketplace,
-            )
+            title, seller_article = self._product_title_from_map(snapshot, products_map)
+            average_daily_sales = sales_map.get(snapshot.product_id, ZERO)
             if average_daily_sales <= 0 and snapshot.average_daily_sales_7d is not None:
                 average_daily_sales = Decimal(snapshot.average_daily_sales_7d)
             days = calculate_days_until_stockout(snapshot.quantity, average_daily_sales)
-            average_price = await self._average_order_price(
-                user_id=user_id,
-                product_id=snapshot.product_id,
-                marketplace=snapshot.marketplace,
-            )
+            average_price = price_map.get(snapshot.product_id, ZERO)
             lost_revenue = estimate_lost_revenue(
                 days_until_stockout=days,
                 horizon_days=horizon_days,
@@ -88,6 +84,61 @@ class StockForecastService:
             key=lambda row: (row.days_until_stockout is None, row.days_until_stockout or 999999),
         )
 
+    async def _batch_products(
+        self, product_ids: set[int]
+    ) -> dict[int, Product]:
+        if not product_ids:
+            return {}
+        result = await self.session.execute(
+            select(Product).where(Product.id.in_(product_ids))
+        )
+        return {p.id: p for p in result.scalars().all()}
+
+    async def _batch_daily_sales(
+        self,
+        user_id: int,
+        snapshots: list[StockSnapshot],
+    ) -> dict[int | None, Decimal]:
+        product_ids = [s.product_id for s in snapshots if s.product_id is not None]
+        if not product_ids:
+            return {}
+        since = datetime.now(tz=UTC) - timedelta(days=30)
+        result = await self.session.execute(
+            select(
+                SalesEvent.product_id,
+                func.coalesce(func.sum(SalesEvent.quantity), 0),
+            )
+            .where(SalesEvent.user_id == user_id)
+            .where(SalesEvent.product_id.in_(product_ids))
+            .where(SalesEvent.event_date >= since)
+            .group_by(SalesEvent.product_id)
+        )
+        return {
+            pid: Decimal(total) / Decimal("30") for pid, total in result.all()
+        }
+
+    async def _batch_average_prices(
+        self,
+        user_id: int,
+        snapshots: list[StockSnapshot],
+    ) -> dict[int | None, Decimal]:
+        product_ids = [s.product_id for s in snapshots if s.product_id is not None]
+        if not product_ids:
+            return {}
+        since = datetime.now(tz=UTC) - timedelta(days=30)
+        result = await self.session.execute(
+            select(
+                OrderItem.product_id,
+                func.avg(OrderItem.discounted_price),
+            )
+            .join(Order, Order.id == OrderItem.order_id)
+            .where(Order.user_id == user_id)
+            .where(OrderItem.product_id.in_(product_ids))
+            .where(Order.order_date >= since)
+            .group_by(OrderItem.product_id)
+        )
+        return {pid: _money(avg) for pid, avg in result.all()}
+
     async def _latest_snapshots(self, user_id: int) -> list[StockSnapshot]:
         result = await self.session.execute(
             select(StockSnapshot)
@@ -102,52 +153,15 @@ class StockForecastService:
             latest.setdefault(key, snapshot)
         return list(latest.values())
 
-    async def _product_title(self, snapshot: StockSnapshot) -> tuple[str, str]:
+    def _product_title_from_map(
+        self, snapshot: StockSnapshot, products_map: dict[int, Product]
+    ) -> tuple[str, str]:
         if snapshot.product_id is None:
             return "Товар не сопоставлен", "н/д"
-        product = await self.session.get(Product, snapshot.product_id)
+        product = products_map.get(snapshot.product_id)
         if product is None:
             return "Товар не найден", "н/д"
         return product.title or "Без названия", product.seller_article or "н/д"
-
-    async def _average_daily_sales(
-        self,
-        *,
-        user_id: int,
-        product_id: int | None,
-        marketplace: Marketplace,
-    ) -> Decimal:
-        if product_id is None:
-            return ZERO
-        since = datetime.now(tz=UTC) - timedelta(days=30)
-        result = await self.session.execute(
-            select(func.coalesce(func.sum(SalesEvent.quantity), 0))
-            .where(SalesEvent.user_id == user_id)
-            .where(SalesEvent.product_id == product_id)
-            .where(SalesEvent.marketplace == marketplace)
-            .where(SalesEvent.event_date >= since)
-        )
-        return Decimal(result.scalar_one() or 0) / Decimal("30")
-
-    async def _average_order_price(
-        self,
-        *,
-        user_id: int,
-        product_id: int | None,
-        marketplace: Marketplace,
-    ) -> Decimal:
-        if product_id is None:
-            return ZERO
-        since = datetime.now(tz=UTC) - timedelta(days=30)
-        result = await self.session.execute(
-            select(func.avg(OrderItem.discounted_price))
-            .join(Order, Order.id == OrderItem.order_id)
-            .where(Order.user_id == user_id)
-            .where(Order.marketplace == marketplace)
-            .where(OrderItem.product_id == product_id)
-            .where(Order.order_date >= since)
-        )
-        return _money(result.scalar_one())
 
 
 def calculate_days_until_stockout(quantity: int, average_daily_sales: Decimal) -> Decimal | None:

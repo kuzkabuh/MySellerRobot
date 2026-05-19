@@ -122,3 +122,19 @@ async def test_consume_login_token_creates_web_session() -> None:
     assert repo.created_session_hash is not None
     assert repo.created_session_hash != session.token
     assert repo.login_token.used_at is not None
+
+
+def test_canonical_web_base_url_strips_trailing_web() -> None:
+    assert WebAuthService._canonical_web_base_url("https://example.com/web") == "https://example.com"
+    assert WebAuthService._canonical_web_base_url("https://example.com/web/") == "https://example.com"
+    assert WebAuthService._canonical_web_base_url("https://example.com/web/web") == "https://example.com"
+    assert WebAuthService._canonical_web_base_url("https://example.com") == "https://example.com"
+    assert WebAuthService._canonical_web_base_url("https://example.com/") == "https://example.com"
+    assert WebAuthService._canonical_web_base_url("https://app.mpcontrol.online/web") == "https://app.mpcontrol.online"
+
+
+def test_login_link_path_is_canonical() -> None:
+    from app.services.web_auth_service import WEB_LOGIN_PATH
+
+    assert WEB_LOGIN_PATH == "/web/login"
+    assert "/web/web" not in WEB_LOGIN_PATH

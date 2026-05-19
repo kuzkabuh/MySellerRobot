@@ -1,6 +1,6 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: Unit tests for web cabinet rendering helpers and anti-placeholder UI.
-updated: 2026-05-17
+updated: 2026-05-19
 """
 
 from datetime import UTC, datetime
@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 from app.models.enums import Marketplace
 from app.web import routes
-from app.web.rendering import page
+from app.web.rendering import NAV_GROUPS, page
 
 
 def test_web_routes_facade_keeps_router_and_helper_imports() -> None:
@@ -186,3 +186,196 @@ def test_control_content_is_real_work_screen_not_placeholder() -> None:
     assert "Что требует внимания прямо сейчас" in html
     assert "Предварительная экономика" in html
     assert "Раздел подготовлен" not in html
+
+
+def test_nav_groups_no_double_web_prefix() -> None:
+    """Every href in NAV_GROUPS must start with /web/ but never /web/web/."""
+    for _group_title, items in NAV_GROUPS:
+        for _label, href in items:
+            assert href.startswith("/web/"), f"Nav link {href!r} does not start with /web/"
+            assert "/web/web/" not in href, f"Nav link {href!r} has double /web/web/ prefix"
+
+
+def test_page_shell_logout_link_is_canonical() -> None:
+    html = page("Test", "User", "<p>content</p>")
+    assert 'href="/web/logout"' in html
+    assert 'href="/web/web/logout"' not in html
+
+
+def test_orders_content_links_are_canonical() -> None:
+    from app.models.enums import Marketplace as MPEnum
+    from app.services.web_orders_profit_service import OrderWebFilters
+
+    row = SimpleNamespace(
+        order_id=42,
+        item_id=1,
+        order_date=datetime(2026, 5, 19, tzinfo=UTC),
+        marketplace=MPEnum.WB,
+        sale_model="FBS",
+        title="Test Order",
+        seller_article="SKU-42",
+        marketplace_article="MP-42",
+        order_external_id="WB-123",
+        posting_number=None,
+        quantity=1,
+        revenue=Decimal("1000.00"),
+        estimated_profit=Decimal("200.00"),
+        margin_percent=Decimal("20.00"),
+        status="new",
+        requires_action=False,
+        missing_cost=False,
+        economy_confidence="CONFIRMED",
+        source_event_type="new_order",
+    )
+    filters = OrderWebFilters(
+        period="today", marketplace=None, sale_model=None,
+        local_date_from=datetime(2026, 5, 19).date(),
+        local_date_to=datetime(2026, 5, 19).date(),
+        date_from=datetime(2026, 5, 19, tzinfo=UTC),
+        date_to=datetime(2026, 5, 19, tzinfo=UTC),
+        economy="all", status="all", sku="", sort="date", direction="desc",
+    )
+    html = routes._orders_content(filters, [row], "Europe/Moscow")
+
+    assert 'href="/web/orders/42"' in html
+    assert 'href="/web/web/' not in html
+
+
+def test_products_content_links_are_canonical() -> None:
+    linked = SimpleNamespace(
+        product_id=5,
+        marketplace=Marketplace.WB,
+        seller_article="SKU-5",
+        marketplace_article="MP-5",
+    )
+    row = SimpleNamespace(
+        master_product_id=1,
+        title="Product",
+        brand="Brand",
+        category="Cat",
+        canonical_sku="SKU-1",
+        image_url=None,
+        wb_products=1,
+        ozon_products=0,
+        orders=10,
+        sales=5,
+        revenue=Decimal("5000"),
+        estimated_profit=Decimal("1000"),
+        stock_quantity=20,
+        marketplace_products=[linked],
+    )
+    html = routes._products_content([row])
+
+    assert 'href="/web/products/1"' in html
+    assert 'href="/web/costs/5"' in html
+    assert 'href="/web/web/' not in html
+
+
+def test_stocks_content_has_canonical_filter_form_action() -> None:
+    html = routes._stocks_forecast_content(
+        [], marketplace="all", sale_model="all", stock_status="all"
+    )
+    assert 'action="/web/stocks"' in html
+    assert 'action="/web/web/' not in html
+
+
+def test_sales_content_has_canonical_filter_form_action() -> None:
+    from app.services.web_dashboard_service import DashboardFilters
+
+    filters = DashboardFilters(
+        period="30d", marketplace=None, sale_model=None,
+        timezone="Europe/Moscow",
+        local_date_from=datetime(2026, 4, 19).date(),
+        local_date_to=datetime(2026, 5, 19).date(),
+        date_from=datetime(2026, 4, 19, tzinfo=UTC),
+        date_to=datetime(2026, 5, 19, tzinfo=UTC),
+        previous_from=datetime(2026, 3, 20, tzinfo=UTC),
+        previous_to=datetime(2026, 4, 18, tzinfo=UTC),
+    )
+    data = SimpleNamespace(
+        filters=filters, rows=[], total_quantity=0,
+        total_amount=Decimal("0"), total_profit=Decimal("0"),
+    )
+    html = routes._sales_content(data, "Europe/Moscow", sku="")
+
+    assert 'action="/web/sales"' in html
+    assert 'action="/web/web/' not in html
+
+
+def test_plan_fact_content_has_canonical_form_actions() -> None:
+    from app.models.enums import Marketplace as MPEnum
+    from app.services.plan_fact_service import PlanFactSummary
+    from app.services.web_orders_profit_service import OrderWebFilters
+
+    plan = SimpleNamespace(
+        id=1, marketplace=MPEnum.WB,
+        period_start=datetime(2026, 5, 1).date(),
+        period_end=datetime(2026, 5, 31).date(),
+        revenue_plan=Decimal("10000"), profit_plan=Decimal("2000"),
+        orders_plan=50, buyouts_plan=30,
+    )
+    summary = PlanFactSummary(
+        orders=10, buyouts=5, estimated_profit=Decimal("500"),
+        actual_profit=Decimal("400"), deviation=Decimal("-100"),
+        deviation_percent=Decimal("-20.00"), pending_actual=2,
+    )
+    filters = OrderWebFilters(
+        period="30d", marketplace=None, sale_model=None,
+        local_date_from=datetime(2026, 4, 19).date(),
+        local_date_to=datetime(2026, 5, 19).date(),
+        date_from=datetime(2026, 4, 19, tzinfo=UTC),
+        date_to=datetime(2026, 5, 19, tzinfo=UTC),
+        economy="all", status="all", sku="", sort="deviation", direction="asc",
+    )
+    data = SimpleNamespace(
+        summary=summary, rows=[], plan=plan, filters=filters,
+    )
+    html = routes._plan_fact_content(data)
+
+    assert 'action="/web/plan-fact/plans"' in html
+    assert 'action="/web/web/' not in html
+
+
+def test_break_even_content_has_canonical_form_action() -> None:
+    html = routes._break_even_content(rows=[], target_margin="20", price_delta="0")
+
+    assert 'action="/web/break-even"' in html
+    assert 'action="/web/web/' not in html
+
+
+def test_product_matching_content_has_canonical_form_actions() -> None:
+    candidate = SimpleNamespace(
+        product_id=1, marketplace=Marketplace.WB,
+        seller_article="SKU-1", marketplace_article="MP-1",
+        title="Product", current_group=None,
+    )
+    html = routes._product_matching_content([candidate])
+
+    assert 'action="/web/product-matching/create"' in html
+    assert 'action="/web/product-matching/unlink"' in html
+    assert 'action="/web/web/' not in html
+
+
+def test_master_product_detail_content_has_canonical_links() -> None:
+    mp_product = SimpleNamespace(
+        product_id=10, marketplace=Marketplace.WB,
+        seller_article="SKU-10", marketplace_article="MP-10",
+        title="Product", brand="Brand",
+    )
+    comparison = SimpleNamespace(
+        marketplace=Marketplace.WB, orders=5, sales=3,
+        revenue=Decimal("3000"), estimated_profit=Decimal("500"),
+        actual_profit=Decimal("400"), margin_percent=Decimal("16.67"),
+        stock_quantity=10,
+    )
+    detail = SimpleNamespace(
+        title="Product", brand="Brand", category="Cat",
+        canonical_sku="SKU-1", image_url=None,
+        marketplace_products=[mp_product],
+        marketplace_comparison=[comparison],
+        recommendations=["Check pricing"],
+    )
+    html = routes._master_product_detail_content(detail)
+
+    assert 'href="/web/costs/10"' in html
+    assert 'href="/web/web/' not in html
