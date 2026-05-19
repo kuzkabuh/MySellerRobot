@@ -123,6 +123,12 @@ class Payment(TimestampMixin, Base):
 
     payment_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
+    success_notification_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    receipt_id: Mapped[str | None] = mapped_column(String(128))
+
+    receipt_status: Mapped[str | None] = mapped_column(String(32))
+
     # Relationships
     user: Mapped["User"] = relationship()
     subscription: Mapped["UserSubscription | None"] = relationship(back_populates="payments")

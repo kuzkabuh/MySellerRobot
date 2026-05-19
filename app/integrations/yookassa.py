@@ -30,7 +30,7 @@ def _payment_to_dict(payment: Any) -> dict[str, Any]:
     The SDK stores response in ``payment._data``, not in ``__dict__``.
     Using ``__dict__`` previously caused KeyError('id') in callers.
     Always returns a dict with keys: id, status, amount, confirmation,
-    description, metadata.
+    description, metadata, receipt.
     """
     defaults = {
         "id": "",
@@ -39,6 +39,7 @@ def _payment_to_dict(payment: Any) -> dict[str, Any]:
         "confirmation": {"confirmation_url": ""},
         "description": "",
         "metadata": {},
+        "receipt": None,
     }
 
     data = getattr(payment, "_data", None)
@@ -67,12 +68,25 @@ def _payment_to_dict(payment: Any) -> dict[str, Any]:
 
     metadata = getattr(payment, "metadata", None) or {}
 
+    receipt_obj = getattr(payment, "receipt", None)
+    receipt_data = None
+    if receipt_obj:
+        if isinstance(receipt_obj, dict):
+            receipt_data = receipt_obj
+        else:
+            receipt_data = {
+                "id": getattr(receipt_obj, "id", None),
+                "status": getattr(receipt_obj, "status", None),
+                "registration_status": getattr(receipt_obj, "registration_status", None),
+            }
+
     defaults["id"] = getattr(payment, "id", "")
     defaults["status"] = getattr(payment, "status", "")
     defaults["amount"] = {"value": amount_value, "currency": currency}
     defaults["confirmation"] = {"confirmation_url": confirmation_url}
     defaults["description"] = getattr(payment, "description", "")
     defaults["metadata"] = metadata
+    defaults["receipt"] = receipt_data
     return defaults
 
 

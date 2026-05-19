@@ -150,6 +150,12 @@ def admin_menu() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🧪 Диагностика Wildberries", callback_data="admin:wb")],
             [InlineKeyboardButton(text="🧪 Диагностика событий", callback_data="admin:events")],
             [InlineKeyboardButton(text="🚀 Обновление и деплой", callback_data="admin:deploy")],
+            [
+                InlineKeyboardButton(
+                    text="🔧 Реконсиляция подписок",
+                    callback_data="admin:reconcile_subs",
+                )
+            ],
             [InlineKeyboardButton(text="Назад", callback_data="back_main")],
         ]
     )

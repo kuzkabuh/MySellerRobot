@@ -59,6 +59,7 @@ from app.models.domain import (
     User,
 )
 from app.models.enums import CalculationType, SaleModel
+from app.models.subscriptions import UserSubscription
 from app.repositories.accounts import MarketplaceAccountRepository
 from app.repositories.orders import OrderRepository
 from app.repositories.users import UserRepository
@@ -1057,6 +1058,13 @@ async def _handle_admin_callback(callback: CallbackQuery, message: Message, data
             text = await service.wildberries_diagnostics_text()
         elif data == "admin:events":
             text = await service.event_diagnostics_text()
+        elif data == "admin:reconcile_subs":
+            await message.answer(
+                "Используйте команду /admin_reconcile_subs для запуска реконсиляции подписок.",
+                reply_markup=admin_menu(),
+            )
+            await callback.answer()
+            return
         else:
             text = await service.system_text()
     await message.answer(text, reply_markup=admin_menu())
@@ -1139,6 +1147,104 @@ async def _handle_admin_deploy_callback(
         return
     if data == "admin_deploy:cancel":
         await message.answer("Обновление отменено.", reply_markup=admin_deploy_menu())
+
+
+# ============================================================
+# ADMIN: SUBSCRIPTION RECONCILIATION
+# ============================================================
+
+
+class AdminReconcileStates(StatesGroup):
+    waiting_for_confirm = State()
+
+
+@router.message(Command("admin_reconcile_subs"))
+async def admin_reconcile_subscriptions(message: Message) -> None:
+    """Admin command to detect and fix inconsistent subscription states."""
+    if not _is_admin_telegram(message.from_user.id):
+        await message.answer("Доступно только администраторам.")
+        return
+
+    async with AsyncSessionFactory() as session:
+        result = await session.execute(
+            select(User).where(
+                User.id.in_(
+                    select(UserSubscription.user_id)
+                    .group_by(UserSubscription.user_id)
+                    .having(func.count(UserSubscription.id) > 1)
+                )
+            )
+        )
+        users_with_multiple = list(result.scalars().all())
+
+        from app.models.enums import SubscriptionStatus
+
+        issues_found = []
+        fixed = []
+
+        for user in users_with_multiple:
+            subs_result = await session.execute(
+                select(UserSubscription)
+                .where(
+                    UserSubscription.user_id == user.id,
+                    UserSubscription.status.in_(
+                        [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL]
+                    ),
+                )
+                .order_by(UserSubscription.started_at.desc())
+            )
+            active_subs = list(subs_result.scalars().all())
+
+            if len(active_subs) > 1:
+                issues_found.append(
+                    f"User {user.telegram_id} ({user.first_name or 'n/a'}): "
+                    f"{len(active_subs)} active subscriptions"
+                )
+                for old_sub in active_subs[1:]:
+                    old_sub.status = SubscriptionStatus.REPLACED
+                    fixed.append(
+                        f"  → Subscription {old_sub.id} "
+                        f"(tier {old_sub.tier_id}) marked REPLACED"
+                    )
+
+        await session.commit()
+
+        lines = ["🔧 <b>Реконсиляция подписок</b>", ""]
+        if not users_with_multiple:
+            lines.append("✅ Проблем не обнаружено.")
+        else:
+            lines.append(
+                f"Пользователей с несколькими подписками: {len(users_with_multiple)}"
+            )
+            lines.append("")
+            if issues_found:
+                lines.append("<b>Обнаруженные проблемы:</b>")
+                for issue in issues_found:
+                    lines.append(f"⚠ {issue}")
+                lines.append("")
+            if fixed:
+                lines.append("<b>Исправлено:</b>")
+                for fix in fixed:
+                    lines.append(f"✅ {fix}")
+
+        lines.extend(
+            [
+                "",
+                f"Проверено: {len(users_with_multiple)}",
+                f"Исправлено: {len(fixed)}",
+            ]
+        )
+
+        await message.answer("\n".join(lines), reply_markup=admin_menu())
+
+        logger.info(
+            "admin_reconcile_subscriptions_completed",
+            extra={
+                "admin_telegram_id": message.from_user.id,
+                "users_checked": len(users_with_multiple),
+                "subscriptions_fixed": len(fixed),
+            },
+        )
 
 
 def _is_admin_telegram(telegram_id: int | None) -> bool:

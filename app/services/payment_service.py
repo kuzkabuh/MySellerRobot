@@ -1,12 +1,13 @@
-"""version: 4.0.0
+"""version: 5.0.0
 description: Payment service with YooKassa webhooks, subscription periods, receipt generation,
-    and reconciliation.
+    reconciliation, and post-payment notifications.
 updated: 2026-05-19
 """
 
 import logging
 from datetime import UTC, datetime
 from decimal import Decimal
+from html import escape as html_escape
 from typing import Any
 from uuid import uuid4
 
@@ -23,6 +24,17 @@ from app.services.subscription_service import SubscriptionService
 logger = logging.getLogger(__name__)
 
 _PERIOD_LABELS = {"monthly": "1 месяц", "yearly": "1 год"}
+
+_TIER_FEATURE_LABELS = [
+    ("feature_web_cabinet", "Web-кабинет"),
+    ("feature_analytics", "Расширенная аналитика"),
+    ("feature_plan_fact", "План/факт анализ"),
+    ("feature_break_even", "Безубыточная цена"),
+    ("feature_stock_forecast", "Прогноз остатков"),
+    ("feature_alerts", "Умные алерты"),
+    ("feature_priority_support", "Приоритетная поддержка"),
+    ("feature_api_access", "API-доступ"),
+]
 
 
 def _build_receipt(
@@ -519,11 +531,12 @@ class PaymentService:
                 },
             )
 
-            await self._notify_user_subscription_activated(
-                user_id=payment.user_id,
+            await self._save_receipt_info(payment, yookassa_data)
+            await self._send_payment_success_notification(
+                payment=payment,
+                subscription=subscription,
                 tier_code=tier_code,
                 period=period,
-                expires_at=subscription.expires_at,
             )
         elif source == "reconciliation":
             logger.info(
@@ -537,6 +550,196 @@ class PaymentService:
                 },
             )
 
+    async def _save_receipt_info(
+        self,
+        payment: Payment,
+        yookassa_data: dict[str, Any],
+    ) -> None:
+        """Extract and save receipt information from YooKassa payment response."""
+        receipt_data = yookassa_data.get("receipt")
+        if not receipt_data:
+            return
+
+        receipt_id = receipt_data.get("id") or receipt_data.get("receipt_id")
+        receipt_status = receipt_data.get("status") or receipt_data.get("registration_status")
+
+        if receipt_id:
+            payment.receipt_id = receipt_id
+        if receipt_status:
+            payment.receipt_status = receipt_status
+
+        logger.info(
+            "payment_receipt_info_saved",
+            extra={
+                "payment_id": payment.id,
+                "receipt_id": receipt_id,
+                "receipt_status": receipt_status,
+            },
+        )
+
+    async def _fetch_receipt_status(self, payment: Payment) -> str | None:
+        """Fetch current receipt status from YooKassa API if receipt_id is known."""
+        if not payment.receipt_id:
+            return None
+        try:
+            yk_data = await self.yookassa.get_payment(payment.provider_payment_id)
+            receipt_data = yk_data.get("receipt")
+            if receipt_data:
+                status = receipt_data.get("status") or receipt_data.get("registration_status")
+                if status:
+                    payment.receipt_status = status
+                    await self.session.flush()
+                return status
+        except Exception as e:
+            logger.warning(
+                "payment_receipt_status_fetch_failed",
+                extra={
+                    "payment_id": payment.id,
+                    "receipt_id": payment.receipt_id,
+                    "error": str(e),
+                },
+            )
+        return payment.receipt_status
+
+    async def _send_payment_success_notification(
+        self,
+        *,
+        payment: Payment,
+        subscription,
+        tier_code: str,
+        period: str,
+    ) -> None:
+        """Send Telegram notification about successful payment and subscription activation.
+
+        Idempotent: checks success_notification_sent_at to avoid duplicates.
+        """
+        from app.bot.main import create_bot
+        from app.utils.datetime import format_datetime_for_user
+
+        if payment.success_notification_sent_at is not None:
+            logger.info(
+                "payment_success_notification_skipped_duplicate",
+                extra={
+                    "payment_id": payment.id,
+                    "user_id": payment.user_id,
+                    "yookassa_payment_id": payment.provider_payment_id,
+                },
+            )
+            return
+
+        try:
+            user_result = await self.session.execute(select(User).where(User.id == payment.user_id))
+            user = user_result.scalar_one_or_none()
+            if not user or not user.telegram_id:
+                logger.warning(
+                    "payment_success_notification_failed",
+                    extra={
+                        "payment_id": payment.id,
+                        "user_id": payment.user_id,
+                        "error": "user_not_found_or_no_telegram_id",
+                    },
+                )
+                return
+
+            tier = await self._get_tier_by_code(tier_code)
+            tier_name = tier.name if tier else tier_code
+            period_label = _PERIOD_LABELS.get(period, period)
+
+            expires_str = "н/д"
+            if subscription.expires_at:
+                expires_str = format_datetime_for_user(
+                    subscription.expires_at, user.timezone, "%d.%m.%Y"
+                )
+
+            paid_at_str = "н/д"
+            if payment.paid_at:
+                paid_at_str = format_datetime_for_user(
+                    payment.paid_at, user.timezone, "%d.%m.%Y %H:%M"
+                )
+
+            features = []
+            if tier:
+                for attr, label in _TIER_FEATURE_LABELS:
+                    if getattr(tier, attr, False):
+                        features.append(label)
+
+            feature_lines = ""
+            if features:
+                feature_items = "\n".join(f"✅ {f}" for f in features)
+                feature_lines = f"\n{feature_items}"
+
+            text = (
+                f"✅ <b>Оплата получена</b>\n\n"
+                f"Ваш платёж успешно подтверждён.\n"
+                f"Подписка MP Control активирована.\n\n"
+                f"💳 <b>Детали платежа</b>\n"
+                f"• Тариф: {html_escape(tier_name)}\n"
+                f"• Период: {html_escape(period_label)}\n"
+                f"• Сумма: {payment.amount} ₽\n"
+                f"• Статус: Оплачено\n"
+                f"• Дата оплаты: {html_escape(paid_at_str)}\n\n"
+                f"🚀 <b>Ваша подписка</b>\n"
+                f"• Тариф: {html_escape(tier_name)}\n"
+                f"• Статус: Активна\n"
+                f"• Действует до: {html_escape(expires_str)}\n\n"
+                f"Доступ открыт:{feature_lines}\n\n"
+                f"Спасибо за оплату! Подписка уже работает."
+            )
+
+            keyboard = self._build_payment_success_keyboard(payment.id)
+
+            bot = create_bot()
+            await bot.send_message(user.telegram_id, text, parse_mode="HTML", reply_markup=keyboard)
+
+            payment.success_notification_sent_at = datetime.now(tz=UTC)
+            await self.session.flush()
+
+            logger.info(
+                "payment_success_notification_sent",
+                extra={
+                    "payment_id": payment.id,
+                    "user_id": payment.user_id,
+                    "telegram_id": user.telegram_id,
+                    "yookassa_payment_id": payment.provider_payment_id,
+                },
+            )
+        except Exception:
+            logger.exception(
+                "payment_success_notification_failed",
+                extra={
+                    "payment_id": payment.id,
+                    "user_id": payment.user_id,
+                    "yookassa_payment_id": payment.provider_payment_id,
+                },
+            )
+
+    def _build_payment_success_keyboard(self, payment_id: int):
+        """Build inline keyboard for payment success message."""
+        from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+        return InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="💳 Моя подписка",
+                        callback_data="subscription:current",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="🧾 Чек по платежу",
+                        callback_data=f"subscription:receipt:{payment_id}",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="🏠 Главное меню",
+                        callback_data="back_main",
+                    )
+                ],
+            ]
+        )
+
     async def _notify_user_subscription_activated(
         self,
         *,
@@ -545,7 +748,10 @@ class PaymentService:
         period: str,
         expires_at: datetime | None,
     ) -> None:
-        """Send Telegram notification about subscription activation."""
+        """Legacy notification method. Kept for backward compatibility.
+
+        New code should use _send_payment_success_notification instead.
+        """
         try:
             from app.bot.main import create_bot
             from app.utils.datetime import format_datetime_for_user

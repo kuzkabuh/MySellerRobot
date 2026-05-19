@@ -394,8 +394,6 @@ async def _process_payment(
             )
             await session.commit()
 
-            return_url = f"{base_return_url}?payment_id={payment.provider_payment_id}"
-
         if confirmation_url:
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
@@ -497,9 +495,31 @@ async def show_payment_history(callback: CallbackQuery) -> None:
                 "FAILED": "Ошибка",
             }.get(payment.status.value, "Неизвестно")
 
+            meta = payment.payment_metadata or {}
+            tier_code = meta.get("tier_code", "")
+            period = meta.get("period", meta.get("subscription_period", ""))
+            period_label = {"monthly": "1 мес", "yearly": "1 год"}.get(period, period)
+
+            tier_info = ""
+            if tier_code:
+                tier_info = f"\n   Тариф: {_html(tier_code.upper())}, {period_label}"
+
+            receipt_info = ""
+            if payment.status.value == "SUCCEEDED":
+                receipt_status = payment.receipt_status or ""
+                if receipt_status == "succeeded":
+                    receipt_info = "\n   Чек: зарегистрирован"
+                elif receipt_status == "pending":
+                    receipt_info = "\n   Чек: формируется"
+                elif payment.receipt_id:
+                    receipt_info = "\n   Чек: данные сохранены"
+                else:
+                    receipt_info = "\n   Чек: отправлен на email"
+
             lines.append(
                 f"{status_emoji} {payment.amount} ₽ — {status_text}\n"
                 f"   {format_datetime_for_user(payment.created_at, user.timezone)}"
+                f"{tier_info}{receipt_info}"
             )
 
         await _safe_edit_text(
@@ -508,6 +528,135 @@ async def show_payment_history(callback: CallbackQuery) -> None:
             reply_markup=subscription_payments_menu(),
         )
         await callback.answer()
+
+
+# ============================================================
+# RECEIPT STATUS
+# ============================================================
+
+
+@router.callback_query(F.data.startswith("subscription:receipt:"))
+async def show_receipt_status(callback: CallbackQuery) -> None:
+    """Show receipt status for a specific payment."""
+    message = _callback_message(callback)
+    if not message or not callback.from_user or not callback.data:
+        return
+
+    try:
+        payment_internal_id = int(callback.data.split(":")[-1])
+    except (ValueError, IndexError):
+        await callback.answer("Некорректный идентификатор платежа", show_alert=True)
+        return
+
+    async with AsyncSessionFactory() as session:
+        user_repo = UserRepository(session)
+        user = await user_repo.get_by_telegram_id(callback.from_user.id)
+        if not user:
+            await callback.answer("Пользователь не найден", show_alert=True)
+            return
+
+        from sqlalchemy import select as sa_select
+
+        from app.models.subscriptions import Payment as PaymentModel
+
+        result = await session.execute(
+            sa_select(PaymentModel).where(
+                PaymentModel.id == payment_internal_id,
+                PaymentModel.user_id == user.id,
+            )
+        )
+        payment = result.scalar_one_or_none()
+
+        if not payment:
+            logger.warning(
+                "payment_receipt_access_denied",
+                extra={
+                    "user_id": user.id,
+                    "payment_id": payment_internal_id,
+                    "telegram_id": callback.from_user.id,
+                },
+            )
+            await callback.answer("Платёж не найден", show_alert=True)
+            return
+
+        if payment.status.value != "SUCCEEDED":
+            await callback.answer(
+                "Чек доступен только для оплаченных платежей",
+                show_alert=True,
+            )
+            return
+
+        payment_service = PaymentService(session)
+        receipt_status = await payment_service._fetch_receipt_status(payment)
+        await session.commit()
+
+        customer_email = user.payment_email or ""
+        masked_email = _mask_email(customer_email) if customer_email else "не указан"
+
+        paid_at_str = format_datetime_for_user(
+            payment.paid_at, user.timezone, "%d.%m.%Y %H:%M"
+        )
+
+        if receipt_status == "succeeded":
+            text = (
+                f"🧾 <b>Чек по платежу</b>\n\n"
+                f"Сумма: {payment.amount} ₽\n"
+                f"Дата: {paid_at_str}\n\n"
+                f"✅ Чек сформирован ЮKassa и отправлен на email:\n"
+                f"<b>{_html(masked_email)}</b>\n\n"
+                f"ЮKassa отправляет ссылку на чек на email, "
+                f"указанный при оплате."
+            )
+        elif receipt_status == "pending":
+            text = (
+                f"🧾 <b>Чек по платежу</b>\n\n"
+                f"Сумма: {payment.amount} ₽\n\n"
+                f"⏳ Чек ещё формируется. Попробуйте позже.\n\n"
+                f"После регистрации чек будет отправлен на email:\n"
+                f"<b>{_html(masked_email)}</b>"
+            )
+        else:
+            text = (
+                f"🧾 <b>Чек по платежу</b>\n\n"
+                f"Сумма: {payment.amount} ₽\n"
+                f"Дата: {paid_at_str}\n\n"
+                f"Чек сформирован ЮKassa и отправлен на email:\n"
+                f"<b>{_html(masked_email)}</b>\n\n"
+                f"ЮKassa отправляет ссылку на чек на email, "
+                f"указанный при оплате."
+            )
+
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="🔄 Обновить статус",
+                        callback_data=f"subscription:receipt:{payment.id}",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="◀️ Назад к подписке",
+                        callback_data="subscription:current",
+                    )
+                ],
+            ]
+        )
+
+        await _safe_edit_text(message, text, reply_markup=keyboard)
+        await callback.answer()
+
+
+def _mask_email(email: str) -> str:
+    """Mask email for display: a***m@example.com"""
+    if not email or "@" not in email:
+        return email
+    local, domain = email.rsplit("@", 1)
+    if len(local) <= 2:
+        masked_local = local[0] + "***"
+    else:
+        masked_local = local[0] + "***" + local[-1]
+    return f"{masked_local}@{domain}"
 
 
 # ============================================================
