@@ -862,6 +862,45 @@ async def test_legacy_double_web_orders_serves_content() -> None:
 
 
 @pytest.mark.asyncio
+async def test_legacy_double_web_orders_passes_page_number_correctly() -> None:
+    """Compatibility route must pass page_number (not page) to avoid name conflict."""
+    from collections import OrderedDict
+    from types import SimpleNamespace
+
+    class FakeQP(OrderedDict):
+        def get(self, key, default=""):
+            return super().get(key, default)
+
+    request = SimpleNamespace(
+        url=SimpleNamespace(path="/web/web/orders", query="page=3&per_page=20"),
+        query_params=FakeQP([("page", "3"), ("per_page", "20")]),
+    )
+
+    captured_kwargs = {}
+
+    async def fake_orders_page(*args, **kwargs):
+        captured_kwargs.update(kwargs)
+        return "<html>Orders page=3</html>"
+
+    import pytest
+
+    import app.web.routes as facade
+    with pytest.MonkeyPatch().context() as mp:
+        mp.setattr(facade, "orders_page", fake_orders_page)
+        response = await double_web_compat(
+            section="orders", request=request, user=object(), session=object(),
+        )
+
+    assert response.status_code == 200
+    assert "page_number" in captured_kwargs, "Must use page_number parameter"
+    assert captured_kwargs["page_number"] == 3
+    assert captured_kwargs["per_page"] == 20
+    assert "page" not in captured_kwargs or "page_number" in captured_kwargs, (
+        "Must not pass bare 'page' kwarg that could shadow render helper"
+    )
+
+
+@pytest.mark.asyncio
 async def test_legacy_double_web_unknown_section_returns_404() -> None:
     """Unknown sections should return a 404 HTML response, not redirect."""
     from collections import OrderedDict

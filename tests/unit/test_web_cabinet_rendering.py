@@ -387,3 +387,43 @@ def test_master_product_detail_content_has_canonical_links() -> None:
 
     assert 'href="/web/costs/10"' in html
     assert 'href="/web/web/' not in html
+
+
+def test_orders_page_has_no_page_parameter_name_conflict() -> None:
+    """The pagination parameter must not shadow the render helper.
+
+    Regression test for TypeError: 'int' object is not callable
+    caused by `page: int` parameter shadowing the `page` render function.
+    """
+    import inspect
+
+    from app.web.route_modules.orders_profit import orders_page, profit_page
+
+    sig = inspect.signature(orders_page)
+    param_names = list(sig.parameters.keys())
+    assert "page_number" in param_names, "orders_page should use page_number, not page"
+    assert "page" not in param_names, "orders_page must not have a 'page' parameter"
+
+    profit_sig = inspect.signature(profit_page)
+    assert "page" not in profit_sig.parameters, "profit_page must not have a 'page' parameter"
+
+
+def test_profit_page_uses_render_page_not_shadowed_page() -> None:
+    """profit_page must call render_page, not a shadowed page name.
+
+    The module imports `page as render_page`; calling bare `page()` would
+    raise NameError (or TypeError if a local `page` int existed).
+    """
+    import ast
+    import pathlib
+
+    source = pathlib.Path("app/web/route_modules/orders_profit.py").read_text()
+    tree = ast.parse(source)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "profit_page":
+            for child in ast.walk(node):
+                if isinstance(child, ast.Call) and isinstance(child.func, ast.Name):
+                    assert child.func.id != "page", (
+                        "profit_page must call render_page(), not bare page()"
+                    )

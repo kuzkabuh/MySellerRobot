@@ -96,7 +96,7 @@ async def double_web_compat(
                 direction=_qp(request, "direction", "desc"),
                 date_from=_qp(request, "date_from") or None,
                 date_to=_qp(request, "date_to") or None,
-                page=_qp_int(request, "page", 1),
+                page_number=_qp_int(request, "page", 1),
                 per_page=_qp_int(request, "per_page", 50),
             )
         )

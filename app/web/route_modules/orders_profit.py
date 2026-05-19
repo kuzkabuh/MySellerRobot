@@ -33,7 +33,7 @@ from app.web.dependencies import (
     WEB_LOGIN_REQUIRED_PATH,
     WEB_SESSION_COOKIE_PATH,
 )
-from app.web.rendering import page
+from app.web.rendering import page as render_page
 from app.web.views import *
 
 logger = logging.getLogger(__name__)
@@ -53,7 +53,7 @@ async def orders_page(
     direction: str = Query(default="desc"),
     date_from: str | None = Query(default=None),
     date_to: str | None = Query(default=None),
-    page: int = Query(default=1, ge=1),
+    page_number: int = Query(default=1, ge=1),
     per_page: int = Query(default=50, ge=10, le=200),
 ) -> str:
     result = await WebOrdersProfitService(session).list_orders(
@@ -69,12 +69,12 @@ async def orders_page(
         sku=sku,
         sort=sort,
         direction=direction,
-        page=page,
+        page=page_number,
         per_page=per_page,
     )
     last_poll_info = await _get_last_poll_info(session, user.id)
     content = _orders_content(result, user.timezone, last_poll_info=last_poll_info)
-    return page(
+    return render_page(
         "Заказы",
         user.first_name or user.username or str(user.telegram_id),
         content,
@@ -115,7 +115,7 @@ async def order_detail_page(
     if detail is None:
         raise HTTPException(status_code=404, detail="Заказ не найден")
     content = _order_detail_content(detail, user.timezone)
-    return page(
+    return render_page(
         "Карточка заказа",
         user.first_name or user.username or str(user.telegram_id),
         content,
@@ -151,7 +151,7 @@ async def profit_page(
         direction=direction,
     )
     content = _profit_content(data)
-    return page(
+    return render_page(
         "Прибыль",
         user.first_name or user.username or str(user.telegram_id),
         content,
