@@ -70,7 +70,7 @@ async def poll_new_orders(ctx: dict[str, Any]) -> None:
                         "account_id": account_id,
                         "marketplace": marketplace,
                         "fetched": poll_result.fetched,
-                        "created": poll_result.created,
+                        "orders_created": poll_result.created,
                         "duplicates": poll_result.duplicated,
                         "recovered_unnotified": poll_result.recovered_unnotified,
                         "skipped_by_policy": poll_result.skipped_by_policy,
@@ -124,7 +124,7 @@ async def send_daily_reports(ctx: dict[str, Any]) -> None:
 async def check_fbs_deadlines(ctx: dict[str, Any]) -> None:
     async with AsyncSessionFactory() as session:
         created = await FbsControlService(session).create_deadline_alerts()
-        logger.info("fbs_deadline_alerts_created", extra={"created": created})
+        logger.info("fbs_deadline_alerts_created", extra={"alerts_created": created})
 
 
 async def send_fbo_digests(ctx: dict[str, Any]) -> None:

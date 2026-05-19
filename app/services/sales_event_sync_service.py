@@ -339,7 +339,7 @@ class SalesEventSyncService:
                 "user_id": account.user_id,
                 "report_date": report_date.isoformat(),
                 "fetched": result.sales_fetched,
-                "created": result.sales_created,
+                "sales_created": result.sales_created,
                 "updated": result.sales_updated,
                 "returns_created": result.returns_created,
                 "returns_updated": result.returns_updated,
