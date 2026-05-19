@@ -1,6 +1,6 @@
 """Tests for pending payment reuse, confirmation URL handling, and reconciliation."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -347,7 +347,7 @@ class TestReconciliationOfStuckPayments:
 
     @pytest.mark.asyncio
     async def test_reconciliation_succeeds_payment_on_subscription_downgrade(self, mock_session, mock_tier):
-        """Payment marked SUCCEEDED even if subscription activation fails due to downgrade."""
+        """Payment marked SUCCEEDED and subscription activated on downgrade."""
         payment = Payment(
             id=46,
             user_id=1,
@@ -398,16 +398,17 @@ class TestReconciliationOfStuckPayments:
 
             service = PaymentService(mock_session)
 
-            service.subscription_service.create_subscription = AsyncMock(
-                side_effect=ValueError("Downgrade is not available until current subscription ends")
-            )
+            mock_sub = MagicMock()
+            mock_sub.id = 46
+            mock_sub.expires_at = datetime.now(tz=UTC) + timedelta(days=30)
+            service.subscription_service.create_subscription = AsyncMock(return_value=mock_sub)
 
             reconciled = await service.reconcile_pending_payments()
 
             assert reconciled == 1
             assert payment.status == PaymentStatus.SUCCEEDED
             assert payment.paid_at is not None
-            assert payment.subscription_id is None
+            assert payment.subscription_id == 46
 
     @pytest.mark.asyncio
     async def test_reconciliation_succeeds_payment_on_tier_not_found(self, mock_session, mock_tier):

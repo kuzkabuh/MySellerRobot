@@ -96,13 +96,15 @@ class SubscriptionService:
                         period=subscription_period,
                         payment_id=payment_id,
                     )
-                if _tier_rank(tier) <= _tier_rank(active_tier):
-                    raise ValueError("Downgrade is not available until current subscription ends")
                 active_subscription.status = SubscriptionStatus.REPLACED
                 active_subscription.cancelled_at = now
                 active_subscription.auto_renew = False
+                if _tier_rank(tier) > _tier_rank(active_tier):
+                    log_event = "subscription_replaced_by_upgrade"
+                else:
+                    log_event = "subscription_replaced_by_downgrade"
                 logger.info(
-                    "subscription_replaced_by_upgrade",
+                    log_event,
                     extra={
                         "user_id": user_id,
                         "old_tier": active_tier.code,

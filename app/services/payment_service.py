@@ -475,29 +475,16 @@ class PaymentService:
             )
             payment.subscription_id = subscription.id
         except ValueError as exc:
-            error_msg = str(exc)
-            if "downgrade" in error_msg.lower():
-                logger.warning(
-                    "payment_subscription_downgrade_skipped",
-                    extra={
-                        "payment_id": payment.id,
-                        "user_id": payment.user_id,
-                        "attempted_tier": tier_code,
-                        "current_tier_has_higher_access": True,
-                        "error": error_msg,
-                    },
-                )
-            else:
-                logger.error(
-                    "subscription_activation_failed",
-                    extra={
-                        "payment_id": payment.id,
-                        "user_id": payment.user_id,
-                        "tier_code": tier_code,
-                        "period": period,
-                        "error": error_msg,
-                    },
-                )
+            logger.error(
+                "subscription_activation_failed",
+                extra={
+                    "payment_id": payment.id,
+                    "user_id": payment.user_id,
+                    "tier_code": tier_code,
+                    "period": period,
+                    "error": str(exc),
+                },
+            )
 
         payment.status = PaymentStatus.SUCCEEDED
         payment.paid_at = datetime.now(tz=UTC)
