@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from html import escape
+from typing import Any
 from urllib.parse import parse_qs
 
 from fastapi import HTTPException, Request
@@ -186,7 +187,24 @@ def _placeholder_page(section: str, user: User) -> str:
     )
 
 
-def _orders_content(filters: OrderWebFilters, rows: list[OrderRow], timezone: str) -> str:
+def _orders_content(result: Any, timezone: str, *, last_poll_info: dict[str, object] | None = None) -> str:
+    from app.services.web_orders_profit_service import OrderPageResult
+
+    if isinstance(result, OrderPageResult):
+        page_result = result
+        rows = page_result.rows
+        filters = page_result.filters
+        total_count = page_result.total_count
+        page = page_result.page
+        per_page = page_result.per_page
+        total_pages = page_result.total_pages
+    else:
+        filters, rows = result
+        total_count = len(rows)
+        page = 1
+        per_page = 100
+        total_pages = 1
+
     table_rows = []
     for row in rows:
         profit = row.estimated_profit
@@ -219,11 +237,24 @@ def _orders_content(filters: OrderWebFilters, rows: list[OrderRow], timezone: st
         if table_rows
         else '<tr><td colspan="11" class="muted">Заказов по выбранным фильтрам пока нет.</td></tr>'
     )
+
+    range_start = (page - 1) * per_page + 1 if total_count > 0 else 0
+    range_end = min(page * per_page, total_count)
+    range_text = f"Показано {range_start}–{range_end} из {total_count}" if total_count > 0 else "Нет заказов"
+
+    pagination_html = _render_pagination(filters, page, total_pages, per_page, total_count)
+
+    sync_badge = _render_sync_freshness(last_poll_info, timezone) if last_poll_info else ""
+
     return f"""
       {_section_subnav("orders")}
       {_orders_filters(filters)}
+      {sync_badge}
       <section class="band">
-        <h2>Заказы и позиции</h2>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+          <h2 style="margin:0">Заказы и позиции</h2>
+          <div class="muted" style="font-size:13px">{range_text}</div>
+        </div>
         <div class="table-wrap">
           <table class="table">
             <thead>
@@ -237,6 +268,7 @@ def _orders_content(filters: OrderWebFilters, rows: list[OrderRow], timezone: st
             <tbody>{body}</tbody>
           </table>
         </div>
+        {pagination_html}
       </section>
     """
 
@@ -2021,6 +2053,136 @@ def _filters(data: DashboardData) -> str:
         <button class="button primary" type="submit">Применить</button>
       </form>
     """
+
+
+def _render_sync_freshness(last_poll_info: dict[str, object], timezone: str) -> str:
+    """Render a sync freshness indicator badge for the orders page."""
+    last_poll_at = last_poll_info.get("last_poll_at")
+    accounts = last_poll_info.get("accounts", [])
+
+    if not last_poll_at:
+        return (
+            '<div style="margin-bottom:14px">'
+            '<span class="badge warn">Синхронизация заказов: не выполнялась</span>'
+            "</div>"
+        )
+
+    from datetime import UTC, datetime
+
+    now = datetime.now(tz=UTC)
+    poll_dt = last_poll_at
+    if hasattr(poll_dt, "tzinfo") and poll_dt.tzinfo is None:
+        poll_dt = poll_dt.replace(tzinfo=UTC)
+    age_seconds = (now - poll_dt).total_seconds()
+    age_minutes = int(age_seconds / 60)
+
+    if age_minutes < 5:
+        badge_class = "good"
+        label = f"Синхронизация: {age_minutes} мин назад"
+    elif age_minutes < 10:
+        badge_class = "good"
+        label = f"Синхронизация: {age_minutes} мин назад"
+    elif age_minutes < 30:
+        badge_class = "warn"
+        label = f"Синхронизация: {age_minutes} мин назад"
+    else:
+        badge_class = "bad"
+        label = f"Синхронизация: {age_minutes} мин назад (возможна задержка)"
+
+    account_hints = []
+    for acc in accounts[:3]:
+        mp = acc.get("marketplace", "?")
+        acc_poll = acc.get("last_poll_at")
+        if acc_poll:
+            if hasattr(acc_poll, "tzinfo") and acc_poll.tzinfo is None:
+                acc_poll = acc_poll.replace(tzinfo=UTC)
+            acc_age = int((now - acc_poll).total_seconds() / 60)
+            account_hints.append(f"{mp}: {acc_age} мин")
+
+    hint_text = " · ".join(account_hints) if account_hints else ""
+
+    return (
+        '<div style="margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+        f'<span class="badge {badge_class}">{escape(label)}</span>'
+        f'{"<span class=\"muted\" style=\"font-size:12px\">" + escape(hint_text) + "</span>" if hint_text else ""}'
+        "</div>"
+    )
+
+
+def _render_pagination(
+    filters: OrderWebFilters,
+    page: int,
+    total_pages: int,
+    per_page: int,
+    total_count: int,
+) -> str:
+    if total_pages <= 1:
+        return ""
+
+    from urllib.parse import urlencode
+
+    base_params = {
+        "period": filters.period,
+        "marketplace": filters.marketplace.value if filters.marketplace else "all",
+        "sale_model": filters.sale_model.value if filters.sale_model else "all",
+        "economy": filters.economy,
+        "status": filters.status,
+        "sku": filters.sku,
+        "sort": filters.sort,
+        "direction": filters.direction,
+        "per_page": per_page,
+    }
+    if filters.period == "custom":
+        base_params["date_from"] = filters.local_date_from.isoformat()
+        base_params["date_to"] = filters.local_date_to.isoformat()
+
+    def page_url(p: int) -> str:
+        params = {**base_params, "page": p}
+        return f"/web/orders?{urlencode(params)}"
+
+    pages: list[str] = []
+
+    if page > 1:
+        pages.append(f'<a href="{page_url(page - 1)}" class="button">← Назад</a>')
+
+    window = 2
+    start = max(1, page - window)
+    end = min(total_pages, page + window)
+
+    if start > 1:
+        pages.append(f'<a href="{page_url(1)}" class="button">1</a>')
+        if start > 2:
+            pages.append('<span class="muted" style="padding:0 4px">…</span>')
+
+    for p in range(start, end + 1):
+        if p == page:
+            pages.append(f'<span class="button primary" style="cursor:default">{p}</span>')
+        else:
+            pages.append(f'<a href="{page_url(p)}" class="button">{p}</a>')
+
+    if end < total_pages:
+        if end < total_pages - 1:
+            pages.append('<span class="muted" style="padding:0 4px">…</span>')
+        pages.append(f'<a href="{page_url(total_pages)}" class="button">{total_pages}</a>')
+
+    if page < total_pages:
+        pages.append(f'<a href="{page_url(page + 1)}" class="button">Далее →</a>')
+
+    per_page_options = [20, 50, 100, 200]
+    per_page_html = '<span class="muted" style="font-size:12px;margin-left:12px">На странице: '
+    per_page_links = []
+    for opt in per_page_options:
+        if opt == per_page:
+            per_page_links.append(f'<strong>{opt}</strong>')
+        else:
+            params = {**base_params, "page": 1, "per_page": opt}
+            per_page_links.append(f'<a href="/web/orders?{urlencode(params)}">{opt}</a>')
+    per_page_html += " · ".join(per_page_links) + "</span>"
+
+    return (
+        '<div style="display:flex;justify-content:center;align-items:center;flex-wrap:wrap;'
+        f'gap:8px;margin-top:16px;padding:12px 0">{" ".join(pages)}{per_page_html}</div>'
+    )
 
 
 def _orders_filters(filters: OrderWebFilters) -> str:

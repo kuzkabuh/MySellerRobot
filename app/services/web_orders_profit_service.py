@@ -108,6 +108,16 @@ class ProfitSummary:
 
 
 @dataclass(slots=True)
+class OrderPageResult:
+    filters: OrderWebFilters
+    rows: list[OrderRow]
+    total_count: int
+    page: int
+    per_page: int
+    total_pages: int
+
+
+@dataclass(slots=True)
 class ProfitPageData:
     filters: OrderWebFilters
     summary: ProfitSummary
@@ -135,8 +145,9 @@ class WebOrdersProfitService:
         sku: str = "",
         sort: str = "date",
         direction: str = "desc",
-        limit: int = 100,
-    ) -> tuple[OrderWebFilters, list[OrderRow]]:
+        page: int = 1,
+        per_page: int = 50,
+    ) -> OrderPageResult:
         filters = build_order_web_filters(
             timezone=timezone,
             period=period,
@@ -150,7 +161,7 @@ class WebOrdersProfitService:
             sort=sort,
             direction=direction,
         )
-        query = (
+        base_query = (
             select(
                 Order.id,
                 OrderItem.id,
@@ -177,10 +188,28 @@ class WebOrdersProfitService:
             .where(Order.user_id == user_id)
             .where(Order.order_date >= filters.date_from)
             .where(Order.order_date <= filters.date_to)
-            .limit(limit)
         )
-        query = _apply_order_page_filters(query, filters)
-        query = _apply_order_sort(query, filters)
+        base_query = _apply_order_page_filters(base_query, filters)
+
+        count_query = select(func.count(func.distinct(Order.id))).select_from(Order).join(
+            OrderItem, OrderItem.order_id == Order.id
+        ).where(Order.user_id == user_id).where(Order.order_date >= filters.date_from).where(
+            Order.order_date <= filters.date_to
+        )
+        count_query = _apply_order_page_filters(count_query, filters, count_distinct=True)
+        count_result = await self.session.execute(count_query)
+        total_count = int(count_result.scalar() or 0)
+
+        per_page = max(1, min(per_page, 200))
+        page = max(1, page)
+        total_pages = max(1, (total_count + per_page - 1) // per_page)
+        offset = (page - 1) * per_page
+
+        query = (
+            base_query.order_by(*_apply_order_sort_query(base_query, filters))
+            .limit(per_page)
+            .offset(offset)
+        )
         result = await self.session.execute(query)
         rows = []
         for row in result.all():
@@ -237,7 +266,14 @@ class WebOrdersProfitService:
                     ),
                 )
             )
-        return filters, rows
+        return OrderPageResult(
+            filters=filters,
+            rows=rows,
+            total_count=total_count,
+            page=page,
+            per_page=per_page,
+            total_pages=total_pages,
+        )
 
     async def order_detail(self, *, user_id: int, order_id: int) -> OrderDetail | None:
         result = await self.session.execute(
@@ -502,6 +538,7 @@ def _apply_order_page_filters(
     filters: OrderWebFilters,
     *,
     include_economy: bool = True,
+    count_distinct: bool = False,
 ) -> Select[Any]:
     if filters.marketplace is not None:
         query = query.where(Order.marketplace == filters.marketplace)
@@ -548,6 +585,20 @@ def _apply_order_sort(query: Select[Any], filters: OrderWebFilters) -> Select[An
     expression = sort_map.get(filters.sort, Order.order_date)
     expression = expression.asc() if filters.direction == "asc" else expression.desc()
     return query.order_by(expression, Order.id.desc())
+
+
+def _apply_order_sort_query(query: Select[Any], filters: OrderWebFilters) -> Any:
+    """Return sort expression for use in .order_by() chaining."""
+    sort_map = {
+        "date": Order.order_date,
+        "profit": OrderItem.profit_estimated,
+        "revenue": OrderItem.discounted_price * OrderItem.quantity,
+        "margin": OrderItem.margin_percent_estimated,
+    }
+    expression = sort_map.get(filters.sort, Order.order_date)
+    if filters.direction == "asc":
+        return expression.asc(), Order.id.desc()
+    return expression.desc(), Order.id.desc()
 
 
 def _latest_snapshot(

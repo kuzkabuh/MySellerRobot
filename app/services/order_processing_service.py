@@ -279,8 +279,21 @@ class OrderProcessingService:
             ]
             seen_order_ids = {order.order_external_id for order in normalized_orders}
             try:
+                window_start = self._poll_window_start(account, now)
+                logger.info(
+                    "poll_window_computed",
+                    extra={
+                        "account_id": account.id,
+                        "marketplace": account.marketplace.value,
+                        "window_start": window_start.isoformat(),
+                        "window_end": now.isoformat(),
+                        "last_poll_at": account.last_order_poll_at.isoformat()
+                        if account.last_order_poll_at
+                        else None,
+                    },
+                )
                 recovered_orders = await wb_client.get_fbs_orders(
-                    date_from=self._poll_window_start(account, now),
+                    date_from=window_start,
                     date_to=now,
                 )
                 logger.info(
@@ -293,12 +306,25 @@ class OrderProcessingService:
                         "count": len(recovered_orders),
                     },
                 )
+                dedup_count = 0
                 for item in recovered_orders:
                     normalized = wb_client.normalize_historical_fbs_order(item)
                     if normalized.order_external_id in seen_order_ids:
+                        dedup_count += 1
                         continue
                     seen_order_ids.add(normalized.order_external_id)
                     normalized_orders.append(_log_normalized_order(normalized, account))
+                if dedup_count > 0:
+                    logger.info(
+                        "wb_period_poll_dedup",
+                        extra={
+                            "account_id": account.id,
+                            "marketplace": account.marketplace.value,
+                            "recovered_count": len(recovered_orders),
+                            "deduplicated": dedup_count,
+                            "unique_added": len(recovered_orders) - dedup_count,
+                        },
+                    )
             except Exception:
                 logger.exception(
                     "wb_fbs_period_poll_failed",
@@ -349,20 +375,42 @@ class OrderProcessingService:
         try:
             fbo_data = await ozon_client.get_fbo_postings(date_from, now)
             fbo_postings = self._extract_postings(fbo_data)
+            logger.info(
+                "fbo_order_polled",
+                extra={
+                    "account_id": account.id,
+                    "user_id": account.user_id,
+                    "marketplace": account.marketplace.value,
+                    "source": "ozon_fbo_list",
+                    "count": len(fbo_postings),
+                },
+            )
         except Exception:
             logger.exception(
                 "ozon_fbo_poll_failed",
                 extra={"account_id": account.id},
             )
-        return [
+        normalized_fbs = [
             _log_normalized_order(ozon_client.normalize_fbs_posting(item), account)
             for item in fbs_postings
             if isinstance(item, dict)
-        ] + [
+        ]
+        normalized_fbo = [
             ozon_client.normalize_fbo_posting(item)
             for item in fbo_postings
             if isinstance(item, dict)
         ]
+        logger.info(
+            "ozon_poll_summary",
+            extra={
+                "account_id": account.id,
+                "marketplace": account.marketplace.value,
+                "fbs_normalized": len(normalized_fbs),
+                "fbo_normalized": len(normalized_fbo),
+                "total": len(normalized_fbs) + len(normalized_fbo),
+            },
+        )
+        return normalized_fbs + normalized_fbo
 
     async def _queue_fbo_digest(
         self,

@@ -204,7 +204,7 @@ def test_page_shell_logout_link_is_canonical() -> None:
 
 def test_orders_content_links_are_canonical() -> None:
     from app.models.enums import Marketplace as MPEnum
-    from app.services.web_orders_profit_service import OrderWebFilters
+    from app.services.web_orders_profit_service import OrderPageResult, OrderWebFilters
 
     row = SimpleNamespace(
         order_id=42,
@@ -235,7 +235,15 @@ def test_orders_content_links_are_canonical() -> None:
         date_to=datetime(2026, 5, 19, tzinfo=UTC),
         economy="all", status="all", sku="", sort="date", direction="desc",
     )
-    html = routes._orders_content(filters, [row], "Europe/Moscow")
+    page_result = OrderPageResult(
+        filters=filters,
+        rows=[row],
+        total_count=1,
+        page=1,
+        per_page=50,
+        total_pages=1,
+    )
+    html = routes._orders_content(page_result, "Europe/Moscow")
 
     assert 'href="/web/orders/42"' in html
     assert 'href="/web/web/' not in html

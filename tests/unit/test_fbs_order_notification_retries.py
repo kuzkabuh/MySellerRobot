@@ -471,3 +471,91 @@ def _wb_payload(order_id: int, status: str | None = None) -> dict[str, Any]:
     if status:
         payload["status"] = status
     return payload
+
+
+def test_poll_window_uses_10_minute_overlap() -> None:
+    """Verify that the poll window extends 10 minutes before last poll to prevent gaps."""
+    now = datetime(2026, 5, 18, 12, 0, tzinfo=UTC)
+    account = _account(Marketplace.WB)
+    account.last_order_poll_at = datetime(2026, 5, 18, 11, 0, tzinfo=UTC)
+
+    window_start = OrderProcessingService._poll_window_start(account, now)
+
+    assert window_start == datetime(2026, 5, 18, 10, 50, tzinfo=UTC)
+
+
+def test_poll_window_caps_at_7_days() -> None:
+    """Verify that stale accounts don't fetch more than 7 days of history."""
+    now = datetime(2026, 5, 18, 12, 0, tzinfo=UTC)
+    account = _account(Marketplace.WB)
+    account.last_order_poll_at = datetime(2026, 5, 1, 12, 0, tzinfo=UTC)
+
+    window_start = OrderProcessingService._poll_window_start(account, now)
+
+    assert window_start == now - timedelta(days=7)
+
+
+def test_poll_window_fresh_account_uses_overlap() -> None:
+    """Verify that recently polled accounts use the 10-minute overlap, not the 7-day cap."""
+    now = datetime(2026, 5, 18, 12, 0, tzinfo=UTC)
+    account = _account(Marketplace.OZON)
+    account.last_order_poll_at = datetime(2026, 5, 18, 11, 55, tzinfo=UTC)
+
+    window_start = OrderProcessingService._poll_window_start(account, now)
+
+    assert window_start == datetime(2026, 5, 18, 11, 45, tzinfo=UTC)
+
+
+@pytest.mark.asyncio
+async def test_polling_duplicate_orders_do_not_create_new_rows() -> None:
+    """Verify that re-polling the same order increments duplicated counter, not created."""
+    existing = _order(
+        order_id=500,
+        user_id=7,
+        account_id=55,
+        external_id="dup-order-1",
+        sale_model=SaleModel.FBS,
+        fulfillment_type="FBS",
+        first_notified_at=datetime(2026, 5, 17, 10, 0, tzinfo=UTC),
+    )
+    service, _ = _service(existing=existing)
+    account = _account(Marketplace.WB)
+
+    async def fetch_orders(_: MarketplaceAccount) -> list[NormalizedOrder]:
+        return [_normalized_order(Marketplace.WB, "dup-order-1")]
+
+    service._fetch_orders = fetch_orders  # type: ignore[method-assign]
+
+    result = await service.poll_account_with_stats(account)
+
+    assert result.created == 0
+    assert result.duplicated == 1
+    assert result.retried_unnotified == 0
+    assert result.notification_count == 0
+
+
+@pytest.mark.asyncio
+async def test_polling_recovers_unnotified_order() -> None:
+    """Verify that an order saved but never notified gets its notification re-queued."""
+    existing = _order(
+        order_id=501,
+        user_id=7,
+        account_id=55,
+        external_id="recover-order-1",
+        sale_model=SaleModel.FBS,
+        fulfillment_type="FBS",
+        first_notified_at=None,
+    )
+    service, _ = _service(existing=existing)
+    account = _account(Marketplace.WB)
+
+    async def fetch_orders(_: MarketplaceAccount) -> list[NormalizedOrder]:
+        return [_normalized_order(Marketplace.WB, "recover-order-1")]
+
+    service._fetch_orders = fetch_orders  # type: ignore[method-assign]
+
+    result = await service.poll_account_with_stats(account)
+
+    assert result.duplicated == 1
+    assert result.retried_unnotified == 1
+    assert result.notification_count == 1

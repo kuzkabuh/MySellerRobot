@@ -606,26 +606,45 @@ async def _break_even_text(user_id: int) -> str:
 
 
 async def _orders_text(user_id: int, mode: str = "orders:last10") -> str:
-    query = (
-        select(Order).where(Order.user_id == user_id).order_by(Order.order_date.desc()).limit(10)
-    )
+    base_query = select(Order).where(Order.user_id == user_id)
     async with AsyncSessionFactory() as session:
         user = await session.get(User, user_id)
         timezone_name = user.timezone if user else "Europe/Moscow"
+
+        count_query = select(func.count(Order.id)).where(Order.user_id == user_id)
         if mode == "orders:today":
             start_of_day = _today_start_utc(timezone_name)
-            query = query.where(Order.order_date >= start_of_day)
+            base_query = base_query.where(Order.order_date >= start_of_day)
+            count_query = count_query.where(Order.order_date >= start_of_day)
         if mode == "orders:fbs":
-            query = query.where(Order.requires_seller_action.is_(True))
+            base_query = base_query.where(Order.requires_seller_action.is_(True))
+            count_query = count_query.where(Order.requires_seller_action.is_(True))
         if mode == "orders:fbo":
-            query = query.where(Order.sale_model == SaleModel.FBO)
+            base_query = base_query.where(Order.sale_model == SaleModel.FBO)
+            count_query = count_query.where(Order.sale_model == SaleModel.FBO)
+
+        count_result = await session.execute(count_query)
+        total_count = int(count_result.scalar() or 0)
+
+        query = base_query.order_by(Order.order_date.desc()).limit(10)
         result = await session.execute(query)
         orders = list(result.scalars().all())
+
     mode_hint = {
-        "orders:today": "Показываю заказы за сегодня по вашему часовому поясу.",
-        "orders:fbs": "Показываю FBS / rFBS заказы, которые требуют обработки.",
-        "orders:fbo": "Показываю последние FBO заказы.",
-    }.get(mode, "Показываю 10 последних заказов по всем кабинетам.")
+        "orders:today": (
+            f"Показываю 10 последних заказов за сегодня "
+            f"(всего найдено: {total_count})."
+        ),
+        "orders:fbs": (
+            f"Показываю 10 последних FBS / rFBS заказов, "
+            f"которые требуют обработки (всего: {total_count})."
+        ),
+        "orders:fbo": f"Показываю 10 последних FBO заказов (всего: {total_count}).",
+    }.get(mode, f"Показываю 10 последних заказов из {total_count} в базе.")
+
+    if total_count > 10:
+        mode_hint += " Полный список доступен в WEB-кабинете."
+
     return format_recent_orders(orders, timezone_name=timezone_name, mode_hint=mode_hint)
 
 

@@ -53,8 +53,10 @@ async def orders_page(
     direction: str = Query(default="desc"),
     date_from: str | None = Query(default=None),
     date_to: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=50, ge=10, le=200),
 ) -> str:
-    filters, rows = await WebOrdersProfitService(session).list_orders(
+    result = await WebOrdersProfitService(session).list_orders(
         user_id=user.id,
         timezone=user.timezone,
         period=period,
@@ -67,14 +69,40 @@ async def orders_page(
         sku=sku,
         sort=sort,
         direction=direction,
+        page=page,
+        per_page=per_page,
     )
-    content = _orders_content(filters, rows, user.timezone)
+    last_poll_info = await _get_last_poll_info(session, user.id)
+    content = _orders_content(result, user.timezone, last_poll_info=last_poll_info)
     return page(
         "Заказы",
         user.first_name or user.username or str(user.telegram_id),
         content,
         active_path="/web/orders",
     )
+
+
+async def _get_last_poll_info(
+    session: AsyncSession,
+    user_id: int,
+) -> dict[str, object]:
+    """Get the most recent order poll timestamp across user's active accounts."""
+    result = await session.execute(
+        select(MarketplaceAccount.marketplace, MarketplaceAccount.last_order_poll_at)
+        .where(MarketplaceAccount.user_id == user_id)
+        .where(MarketplaceAccount.is_active.is_(True))
+        .where(MarketplaceAccount.last_order_poll_at.is_not(None))
+        .order_by(MarketplaceAccount.last_order_poll_at.desc())
+    )
+    rows = result.all()
+    if not rows:
+        return {"last_poll_at": None, "accounts": []}
+    last_poll_at = rows[0][1]
+    accounts_info = [
+        {"marketplace": mp.value, "last_poll_at": ts}
+        for mp, ts in rows
+    ]
+    return {"last_poll_at": last_poll_at, "accounts": accounts_info}
 
 
 @router.get("/orders/{order_id}", response_class=HTMLResponse)
