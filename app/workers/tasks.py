@@ -661,3 +661,22 @@ async def process_history_backfills(ctx: dict[str, Any]) -> None:
                         ),
                     )
     await bot.session.close()
+
+
+async def reconcile_pending_payments(ctx: dict[str, Any]) -> None:
+    """Check PENDING YooKassa payments against the API and update status."""
+    from app.services.payment_service import PaymentService
+
+    async with AsyncSessionFactory() as session:
+        service = PaymentService(session)
+        try:
+            reconciled = await service.reconcile_pending_payments()
+            await session.commit()
+            if reconciled:
+                logger.info(
+                    "yookassa_reconciliation_completed",
+                    extra={"reconciled_count": reconciled},
+                )
+        except Exception:
+            logger.exception("yookassa_reconciliation_failed")
+            await session.rollback()

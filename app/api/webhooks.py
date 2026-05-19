@@ -1,6 +1,6 @@
-"""version: 1.0.0
-description: Webhook endpoints for payment providers.
-updated: 2026-05-16
+"""version: 2.0.0
+description: Webhook endpoints for payment providers with structured logging.
+updated: 2026-05-19
 """
 
 import logging
@@ -23,7 +23,19 @@ async def yookassa_webhook(
 ) -> dict[str, str]:
     """Handle YooKassa payment notifications.
 
-    YooKassa sends notifications about payment status changes.
+    YooKassa sends POST requests with JSON payload:
+    {
+        "type": "notification",
+        "event": "payment.succeeded",
+        "object": {
+            "id": "payment-id",
+            "status": "succeeded",
+            "paid": true,
+            ...
+        }
+    }
+
+    Supported events: payment.succeeded, payment.canceled
     """
     try:
         payload = await request.json()
@@ -41,25 +53,47 @@ async def yookassa_webhook(
         )
         raise HTTPException(status_code=400, detail="Missing required fields")
 
+    payment_id = payment_data.get("id", "unknown")
+    logger.info(
+        "yookassa_webhook_received",
+        extra={
+            "event": event_type,
+            "provider_payment_id": payment_id,
+            "paid": payment_data.get("paid"),
+        },
+    )
+
     try:
         service = PaymentService(session)
 
         if event_type == "payment.succeeded":
             await service.handle_payment_success(payment_data)
             await session.commit()
-            logger.info("yookassa_webhook_success_processed")
+            logger.info(
+                "yookassa_webhook_success_processed",
+                extra={"provider_payment_id": payment_id},
+            )
         elif event_type == "payment.canceled":
             await service.handle_payment_cancel(payment_data)
             await session.commit()
-            logger.info("yookassa_webhook_cancel_processed")
+            logger.info(
+                "yookassa_webhook_cancel_processed",
+                extra={"provider_payment_id": payment_id},
+            )
         else:
-            logger.info("yookassa_webhook_unhandled_event", extra={"event_type": event_type})
+            logger.info(
+                "yookassa_webhook_unhandled_event",
+                extra={"event_type": event_type},
+            )
 
         return {"status": "ok"}
 
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception("yookassa_webhook_processing_failed", extra={"error": str(exc)})
+        logger.exception(
+            "yookassa_webhook_processing_failed",
+            extra={"error": str(exc), "event": event_type, "provider_payment_id": payment_id},
+        )
         await session.rollback()
         raise HTTPException(status_code=500, detail="Internal server error") from exc

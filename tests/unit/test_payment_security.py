@@ -1,6 +1,6 @@
-"""version: 1.0.0
+"""version: 2.0.0
 description: Tests for Release 1.6.2 — Secure & Idempotent Payment Processing.
-updated: 2026-05-16
+updated: 2026-05-19
 """
 
 from datetime import UTC, datetime
@@ -49,7 +49,6 @@ def payment_service(mock_session, mock_yookassa):
 @pytest.mark.asyncio
 async def test_duplicate_success_webhook_ignored(payment_service, mock_session):
     """Duplicate payment.succeeded webhook should be ignored."""
-    # Arrange: payment already succeeded
     payment = Payment(
         id=1,
         user_id=100,
@@ -66,24 +65,20 @@ async def test_duplicate_success_webhook_ignored(payment_service, mock_session):
     mock_result.scalar_one_or_none.return_value = payment
     mock_session.execute.return_value = mock_result
 
-    # Mock subscription service methods
     payment_service.subscription_service.get_active_subscription = AsyncMock(return_value=None)
     payment_service.subscription_service.create_subscription = AsyncMock()
 
     yookassa_data = {"id": "test_payment_123", "status": "succeeded"}
 
-    # Act
     await payment_service.handle_payment_success(yookassa_data)
 
-    # Assert: status should remain SUCCEEDED, no subscription created
     assert payment.status == PaymentStatus.SUCCEEDED
     payment_service.subscription_service.create_subscription.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_payment_success_verified_with_api(payment_service, mock_session):
-    """Payment success should be verified with YooKassa API."""
-    # Arrange
+    """Payment success should verify status via YooKassa API when webhook lacks status."""
     payment = Payment(
         id=1,
         user_id=100,
@@ -96,33 +91,30 @@ async def test_payment_success_verified_with_api(payment_service, mock_session):
     )
 
     mock_result = MagicMock()
-    mock_result.scalar_one_or_none.return_value = payment
+    mock_result.scalar_one_or_none.side_effect = [payment, None]
     mock_session.execute.return_value = mock_result
 
-    # Mock YooKassa API verification
     payment_service.yookassa.get_payment = AsyncMock(
         return_value={"id": "test_payment_123", "status": "succeeded"}
     )
 
-    # Mock subscription service
-    payment_service.subscription_service.get_active_subscription = AsyncMock(return_value=None)
+    mock_subscription = MagicMock()
+    mock_subscription.id = 1
+    mock_subscription.expires_at = datetime.now(tz=UTC)
     payment_service.subscription_service.create_subscription = AsyncMock(
-        return_value=MagicMock(id=1)
+        return_value=mock_subscription
     )
 
-    yookassa_data = {"id": "test_payment_123", "status": "succeeded"}
+    yookassa_data = {"id": "test_payment_123"}
 
-    # Act
     await payment_service.handle_payment_success(yookassa_data)
 
-    # Assert: API verification was called
     payment_service.yookassa.get_payment.assert_called_once_with("test_payment_123")
 
 
 @pytest.mark.asyncio
 async def test_payment_success_rejected_if_verification_fails(payment_service, mock_session):
     """Payment should not be processed if API verification fails."""
-    # Arrange
     payment = Payment(
         id=1,
         user_id=100,
@@ -138,24 +130,20 @@ async def test_payment_success_rejected_if_verification_fails(payment_service, m
     mock_result.scalar_one_or_none.return_value = payment
     mock_session.execute.return_value = mock_result
 
-    # Mock YooKassa API returns different status
     payment_service.yookassa.get_payment = AsyncMock(
         return_value={"id": "test_payment_123", "status": "pending"}
     )
 
-    yookassa_data = {"id": "test_payment_123", "status": "succeeded"}
+    yookassa_data = {"id": "test_payment_123"}
 
-    # Act
     await payment_service.handle_payment_success(yookassa_data)
 
-    # Assert: payment status should remain PENDING
     assert payment.status == PaymentStatus.PENDING
 
 
 @pytest.mark.asyncio
 async def test_cancel_does_not_override_succeeded_payment(payment_service, mock_session):
     """Cancelled webhook should not override already succeeded payment."""
-    # Arrange: payment already succeeded
     payment = Payment(
         id=1,
         user_id=100,
@@ -174,17 +162,14 @@ async def test_cancel_does_not_override_succeeded_payment(payment_service, mock_
 
     yookassa_data = {"id": "test_payment_123", "status": "canceled"}
 
-    # Act
     await payment_service.handle_payment_cancel(yookassa_data)
 
-    # Assert: status should remain SUCCEEDED
     assert payment.status == PaymentStatus.SUCCEEDED
 
 
 @pytest.mark.asyncio
 async def test_duplicate_cancel_webhook_ignored(payment_service, mock_session):
     """Duplicate payment.canceled webhook should be ignored."""
-    # Arrange: payment already cancelled
     payment = Payment(
         id=1,
         user_id=100,
@@ -202,17 +187,14 @@ async def test_duplicate_cancel_webhook_ignored(payment_service, mock_session):
 
     yookassa_data = {"id": "test_payment_123", "status": "canceled"}
 
-    # Act
     await payment_service.handle_payment_cancel(yookassa_data)
 
-    # Assert: status should remain CANCELLED
     assert payment.status == PaymentStatus.CANCELLED
 
 
 @pytest.mark.asyncio
 async def test_payment_cancel_verified_with_api(payment_service, mock_session):
     """Payment cancel should be verified with YooKassa API."""
-    # Arrange
     payment = Payment(
         id=1,
         user_id=100,
@@ -228,17 +210,14 @@ async def test_payment_cancel_verified_with_api(payment_service, mock_session):
     mock_result.scalar_one_or_none.return_value = payment
     mock_session.execute.return_value = mock_result
 
-    # Mock YooKassa API verification
     payment_service.yookassa.get_payment = AsyncMock(
         return_value={"id": "test_payment_123", "status": "canceled"}
     )
 
     yookassa_data = {"id": "test_payment_123", "status": "canceled"}
 
-    # Act
     await payment_service.handle_payment_cancel(yookassa_data)
 
-    # Assert: API verification was called
     payment_service.yookassa.get_payment.assert_called_once_with("test_payment_123")
     assert payment.status == PaymentStatus.CANCELLED
 
@@ -246,7 +225,6 @@ async def test_payment_cancel_verified_with_api(payment_service, mock_session):
 @pytest.mark.asyncio
 async def test_invalid_metadata_does_not_activate_subscription(payment_service, mock_session):
     """Payment with invalid metadata should not activate subscription."""
-    # Arrange: payment with missing tier_code
     payment = Payment(
         id=1,
         user_id=100,
@@ -255,31 +233,27 @@ async def test_invalid_metadata_does_not_activate_subscription(payment_service, 
         amount=Decimal("490"),
         currency="RUB",
         status=PaymentStatus.PENDING,
-        payment_metadata={"period": "monthly", "user_id": "100"},  # missing tier_code
+        payment_metadata={"period": "monthly", "user_id": "100"},
     )
 
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = payment
     mock_session.execute.return_value = mock_result
 
-    # Mock YooKassa API verification
     payment_service.yookassa.get_payment = AsyncMock(
         return_value={"id": "test_payment_123", "status": "succeeded"}
     )
 
     yookassa_data = {"id": "test_payment_123", "status": "succeeded"}
 
-    # Act
     await payment_service.handle_payment_success(yookassa_data)
 
-    # Assert: no subscription created
-    assert payment.status == PaymentStatus.PENDING  # Should not be updated
+    assert payment.status == PaymentStatus.PENDING
 
 
 @pytest.mark.asyncio
 async def test_user_id_mismatch_prevents_activation(payment_service, mock_session):
     """Payment with mismatched user_id should not activate subscription."""
-    # Arrange: payment with mismatched user_id in metadata
     payment = Payment(
         id=1,
         user_id=100,
@@ -299,15 +273,12 @@ async def test_user_id_mismatch_prevents_activation(payment_service, mock_sessio
     mock_result.scalar_one_or_none.return_value = payment
     mock_session.execute.return_value = mock_result
 
-    # Mock YooKassa API verification
     payment_service.yookassa.get_payment = AsyncMock(
         return_value={"id": "test_payment_123", "status": "succeeded"}
     )
 
     yookassa_data = {"id": "test_payment_123", "status": "succeeded"}
 
-    # Act
     await payment_service.handle_payment_success(yookassa_data)
 
-    # Assert: payment should not be processed
     assert payment.status == PaymentStatus.PENDING

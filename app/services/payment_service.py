@@ -1,5 +1,6 @@
-"""version: 3.0.0
-description: Payment service with YooKassa webhooks, subscription periods, and receipt generation.
+"""version: 4.0.0
+description: Payment service with YooKassa webhooks, subscription periods, receipt generation,
+    and reconciliation.
 updated: 2026-05-19
 """
 
@@ -14,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.integrations.yookassa import YooKassaClient
+from app.models.domain import User
 from app.models.enums import PaymentStatus
 from app.models.subscriptions import Payment, SubscriptionTier
 from app.services.subscription_service import SubscriptionService
@@ -189,61 +191,167 @@ class PaymentService:
     async def handle_payment_success(self, yookassa_data: dict[str, Any]) -> None:
         """Handle successful payment webhook from YooKassa.
 
-        Idempotent: repeated calls with same payment_id are safely ignored.
-        Secure: verifies payment status with YooKassa API before processing.
+        Delegates to _confirm_payment for the core business logic.
         """
         payment_id = yookassa_data.get("id")
         if not payment_id:
             logger.error("payment_success_missing_id")
             return
 
-        logger.info("payment_success_received", extra={"provider_payment_id": payment_id})
+        logger.info(
+            "yookassa_webhook_received",
+            extra={"event": "payment.succeeded", "provider_payment_id": payment_id},
+        )
 
-        # Find payment in database
+        await self._confirm_payment(payment_id, yookassa_data, source="webhook")
+
+    async def handle_payment_cancel(self, yookassa_data: dict[str, Any]) -> None:
+        """Handle cancelled payment webhook from YooKassa.
+
+        Idempotent: repeated calls are safely ignored.
+        Secure: does not cancel already succeeded payments.
+        """
+        payment_id = yookassa_data.get("id")
+        if not payment_id:
+            logger.error("payment_cancel_missing_id")
+            return
+
+        logger.info(
+            "yookassa_webhook_received",
+            extra={"event": "payment.canceled", "provider_payment_id": payment_id},
+        )
+
         result = await self.session.execute(
             select(Payment).where(Payment.provider_payment_id == payment_id)
         )
         payment = result.scalar_one_or_none()
         if not payment:
-            logger.error("payment_not_found", extra={"provider_payment_id": payment_id})
+            logger.warning(
+                "yookassa_webhook_unknown_payment",
+                extra={"provider_payment_id": payment_id},
+            )
             return
 
-        # Idempotency: if already succeeded, ignore duplicate webhook
         if payment.status == PaymentStatus.SUCCEEDED:
-            logger.info(
-                "payment_success_duplicate_ignored",
+            logger.warning(
+                "payment_cancel_ignored_already_succeeded",
                 extra={"payment_id": payment.id, "provider_payment_id": payment_id},
             )
             return
 
-        # Security: verify payment status with YooKassa API
+        if payment.status == PaymentStatus.CANCELLED:
+            logger.info(
+                "payment_cancel_duplicate_ignored",
+                extra={"payment_id": payment.id, "provider_payment_id": payment_id},
+            )
+            return
+
         try:
             verified_payment = await self.yookassa.get_payment(payment_id)
             verified_status = verified_payment.get("status")
 
-            if verified_status != "succeeded":
+            if verified_status not in {"canceled", "cancelled"}:
                 logger.warning(
-                    "payment_success_verification_failed",
+                    "yookassa_webhook_status_mismatch",
                     extra={
                         "payment_id": payment.id,
-                        "webhook_status": "succeeded",
+                        "webhook_event": "payment.canceled",
                         "verified_status": verified_status,
                     },
                 )
                 return
 
             logger.info(
-                "payment_success_verified",
+                "payment_cancel_verified",
                 extra={"payment_id": payment.id, "provider_payment_id": payment_id},
             )
         except Exception as e:
             logger.exception(
-                "payment_verification_error",
+                "payment_cancel_verification_error",
                 extra={"payment_id": payment.id, "error": str(e)},
             )
             return
 
-        # Validate metadata
+        payment.status = PaymentStatus.CANCELLED
+        await self.session.flush()
+
+        logger.info(
+            "payment_status_updated",
+            extra={
+                "payment_id": payment.id,
+                "user_id": payment.user_id,
+                "old_status": "PENDING",
+                "new_status": "CANCELLED",
+            },
+        )
+
+    async def _confirm_payment(
+        self,
+        payment_id: str,
+        yookassa_data: dict[str, Any] | None = None,
+        *,
+        source: str = "webhook",
+    ) -> None:
+        """Core payment confirmation logic shared by webhook and reconciliation.
+
+        1. Find local Payment by provider_payment_id.
+        2. Verify status via YooKassa API.
+        3. Activate subscription.
+        4. Update payment status.
+        5. Notify user via Telegram.
+        """
+        result = await self.session.execute(
+            select(Payment).where(Payment.provider_payment_id == payment_id)
+        )
+        payment = result.scalar_one_or_none()
+        if not payment:
+            logger.warning(
+                "yookassa_webhook_unknown_payment",
+                extra={"provider_payment_id": payment_id, "source": source},
+            )
+            return
+
+        if payment.status == PaymentStatus.SUCCEEDED:
+            logger.info(
+                "subscription_activation_skipped_already_processed",
+                extra={"payment_id": payment.id, "provider_payment_id": payment_id},
+            )
+            return
+
+        if payment.status == PaymentStatus.CANCELLED:
+            logger.info(
+                "payment_confirmation_skipped_cancelled",
+                extra={"payment_id": payment.id, "provider_payment_id": payment_id},
+            )
+            return
+
+        if yookassa_data is None or not yookassa_data.get("status"):
+            try:
+                yookassa_data = await self.yookassa.get_payment(payment_id)
+            except Exception as e:
+                logger.exception(
+                    "payment_verification_error",
+                    extra={"payment_id": payment.id, "error": str(e)},
+                )
+                return
+
+        verified_status = yookassa_data.get("status")
+        if verified_status != "succeeded":
+            logger.warning(
+                "yookassa_webhook_status_mismatch",
+                extra={
+                    "payment_id": payment.id,
+                    "verified_status": verified_status,
+                    "source": source,
+                },
+            )
+            return
+
+        logger.info(
+            "yookassa_webhook_payment_matched",
+            extra={"payment_id": payment.id, "provider_payment_id": payment_id},
+        )
+
         metadata = payment.payment_metadata or {}
         tier_code = metadata.get("tier_code")
         period = metadata.get("subscription_period") or metadata.get("period", "monthly")
@@ -290,7 +398,17 @@ class PaymentService:
         await self.session.flush()
 
         logger.info(
-            "payment_processed_successfully",
+            "payment_status_updated",
+            extra={
+                "payment_id": payment.id,
+                "user_id": payment.user_id,
+                "old_status": "PENDING",
+                "new_status": "SUCCEEDED",
+            },
+        )
+
+        logger.info(
+            "subscription_activated_from_payment",
             extra={
                 "payment_id": payment.id,
                 "user_id": payment.user_id,
@@ -300,77 +418,113 @@ class PaymentService:
             },
         )
 
-    async def handle_payment_cancel(self, yookassa_data: dict[str, Any]) -> None:
-        """Handle cancelled payment webhook from YooKassa.
-
-        Idempotent: repeated calls are safely ignored.
-        Secure: does not cancel already succeeded payments.
-        """
-        payment_id = yookassa_data.get("id")
-        if not payment_id:
-            logger.error("payment_cancel_missing_id")
-            return
-
-        logger.info("payment_cancel_received", extra={"provider_payment_id": payment_id})
-
-        result = await self.session.execute(
-            select(Payment).where(Payment.provider_payment_id == payment_id)
+        await self._notify_user_subscription_activated(
+            user_id=payment.user_id,
+            tier_code=tier_code,
+            period=period,
+            expires_at=subscription.expires_at,
         )
-        payment = result.scalar_one_or_none()
-        if not payment:
-            logger.warning("payment_cancel_not_found", extra={"provider_payment_id": payment_id})
-            return
 
-        # Security: do not cancel already succeeded payments
-        if payment.status == PaymentStatus.SUCCEEDED:
-            logger.warning(
-                "payment_cancel_ignored_already_succeeded",
-                extra={"payment_id": payment.id, "provider_payment_id": payment_id},
-            )
-            return
-
-        # Idempotency: if already cancelled, ignore duplicate webhook
-        if payment.status == PaymentStatus.CANCELLED:
-            logger.info(
-                "payment_cancel_duplicate_ignored",
-                extra={"payment_id": payment.id, "provider_payment_id": payment_id},
-            )
-            return
-
-        # Verify with YooKassa API
+    async def _notify_user_subscription_activated(
+        self,
+        *,
+        user_id: int,
+        tier_code: str,
+        period: str,
+        expires_at: datetime | None,
+    ) -> None:
+        """Send Telegram notification about subscription activation."""
         try:
-            verified_payment = await self.yookassa.get_payment(payment_id)
-            verified_status = verified_payment.get("status")
+            from app.bot.main import create_bot
+            from app.utils.datetime import format_datetime_for_user
 
-            if verified_status not in {"canceled", "cancelled"}:
-                logger.warning(
-                    "payment_cancel_verification_failed",
-                    extra={
-                        "payment_id": payment.id,
-                        "webhook_status": "canceled",
-                        "verified_status": verified_status,
-                    },
-                )
+            tier = await self._get_tier_by_code(tier_code)
+            tier_name = tier.name if tier else tier_code
+            period_label = _PERIOD_LABELS.get(period, period)
+
+            user_result = await self.session.execute(select(User).where(User.id == user_id))
+            user = user_result.scalar_one_or_none()
+            if not user or not user.telegram_id:
                 return
 
+            expires_str = "н/д"
+            if expires_at:
+                expires_str = format_datetime_for_user(expires_at, user.timezone, "%d.%m.%Y")
+
+            text = (
+                f"✅ Оплата получена\n\n"
+                f"Подписка MP Control — тариф {tier_name}, {period_label} активирована.\n"
+                f"Действует до: {expires_str}"
+            )
+
+            bot = create_bot()
+            await bot.send_message(user.telegram_id, text, parse_mode="HTML")
             logger.info(
-                "payment_cancel_verified",
-                extra={"payment_id": payment.id, "provider_payment_id": payment_id},
+                "subscription_notification_sent",
+                extra={"user_id": user_id, "telegram_id": user.telegram_id},
             )
-        except Exception as e:
+        except Exception:
             logger.exception(
-                "payment_cancel_verification_error",
-                extra={"payment_id": payment.id, "error": str(e)},
+                "subscription_notification_failed",
+                extra={"user_id": user_id},
             )
-            return
 
-        payment.status = PaymentStatus.CANCELLED
-        await self.session.flush()
+    async def reconcile_pending_payments(self) -> int:
+        """Check all PENDING payments against YooKassa API and update status.
 
-        logger.info(
-            "payment_cancelled",
-            extra={"payment_id": payment.id, "user_id": payment.user_id},
+        Returns the number of payments reconciled.
+        """
+        result = await self.session.execute(
+            select(Payment).where(
+                Payment.status == PaymentStatus.PENDING,
+                Payment.provider == "yookassa",
+            )
         )
+        pending = list(result.scalars().all())
+        reconciled = 0
+
+        for payment in pending:
+            try:
+                yk_data = await self.yookassa.get_payment(payment.provider_payment_id)
+                status = yk_data.get("status")
+
+                if status == "succeeded":
+                    await self._confirm_payment(
+                        payment.provider_payment_id,
+                        yookassa_data=yk_data,
+                        source="reconciliation",
+                    )
+                    reconciled += 1
+                    logger.info(
+                        "yookassa_pending_payment_reconciled",
+                        extra={
+                            "payment_id": payment.id,
+                            "provider_payment_id": payment.provider_payment_id,
+                            "new_status": "SUCCEEDED",
+                        },
+                    )
+                elif status in {"canceled", "cancelled"}:
+                    payment.status = PaymentStatus.CANCELLED
+                    await self.session.flush()
+                    reconciled += 1
+                    logger.info(
+                        "yookassa_pending_payment_reconciled",
+                        extra={
+                            "payment_id": payment.id,
+                            "provider_payment_id": payment.provider_payment_id,
+                            "new_status": "CANCELLED",
+                        },
+                    )
+            except Exception:
+                logger.exception(
+                    "yookassa_reconciliation_payment_check_failed",
+                    extra={
+                        "payment_id": payment.id,
+                        "provider_payment_id": payment.provider_payment_id,
+                    },
+                )
+
+        return reconciled
 
     async def get_user_payments(self, user_id: int, limit: int = 10) -> list[Payment]:
         """Get user's payment history."""
