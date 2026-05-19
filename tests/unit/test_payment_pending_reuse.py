@@ -346,13 +346,13 @@ class TestReconciliationOfStuckPayments:
             assert payment.status == PaymentStatus.SUCCEEDED
 
     @pytest.mark.asyncio
-    async def test_reconciliation_handles_canceled_payment(self, mock_session, mock_tier):
-        """A payment canceled in YooKassa gets marked as CANCELLED locally."""
+    async def test_reconciliation_succeeds_payment_on_subscription_downgrade(self, mock_session, mock_tier):
+        """Payment marked SUCCEEDED even if subscription activation fails due to downgrade."""
         payment = Payment(
-            id=43,
+            id=46,
             user_id=1,
             provider="yookassa",
-            provider_payment_id="yk-canceled",
+            provider_payment_id="yk-downgrade",
             amount=Decimal("490"),
             currency="RUB",
             status=PaymentStatus.PENDING,
@@ -363,13 +363,21 @@ class TestReconciliationOfStuckPayments:
             },
         )
 
+        user = MagicMock()
+        user.id = 1
+        user.telegram_id = 12345
+        user.timezone = "Europe/Moscow"
+
         mock_session.execute.side_effect = [
             _make_list_result([payment]),
             _make_result(payment),
+            _make_result(mock_tier),
+            _make_result(user),
         ]
 
         with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class:
+             patch("app.services.payment_service.YooKassaClient") as mock_yk_class, \
+             patch("app.bot.main.create_bot") as mock_create_bot:
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
@@ -377,43 +385,63 @@ class TestReconciliationOfStuckPayments:
 
             mock_yk = MagicMock()
             mock_yk.get_payment = AsyncMock(return_value={
-                "id": "yk-canceled",
-                "status": "canceled",
+                "id": "yk-downgrade",
+                "status": "succeeded",
+                "paid": True,
+                "payment_method": {"type": "bank_card"},
             })
             mock_yk_class.return_value = mock_yk
 
+            mock_bot = MagicMock()
+            mock_bot.send_message = AsyncMock()
+            mock_create_bot.return_value = mock_bot
+
             service = PaymentService(mock_session)
+
+            service.subscription_service.create_subscription = AsyncMock(
+                side_effect=ValueError("Downgrade is not available until current subscription ends")
+            )
 
             reconciled = await service.reconcile_pending_payments()
 
             assert reconciled == 1
-            assert payment.status == PaymentStatus.CANCELLED
+            assert payment.status == PaymentStatus.SUCCEEDED
+            assert payment.paid_at is not None
+            assert payment.subscription_id is None
 
     @pytest.mark.asyncio
-    async def test_reconciliation_leaves_truly_pending_unchanged(self, mock_session, mock_tier):
-        """A payment still pending in YooKassa stays PENDING locally."""
+    async def test_reconciliation_succeeds_payment_on_tier_not_found(self, mock_session, mock_tier):
+        """Payment marked SUCCEEDED even if tier_code in metadata is invalid."""
         payment = Payment(
-            id=44,
+            id=47,
             user_id=1,
             provider="yookassa",
-            provider_payment_id="yk-still-pending",
+            provider_payment_id="yk-bad-tier",
             amount=Decimal("490"),
             currency="RUB",
             status=PaymentStatus.PENDING,
             payment_metadata={
-                "tier_code": "basic",
+                "tier_code": "nonexistent_tier",
                 "period": "monthly",
                 "user_id": "1",
             },
         )
 
+        user = MagicMock()
+        user.id = 1
+        user.telegram_id = 12345
+        user.timezone = "Europe/Moscow"
+
         mock_session.execute.side_effect = [
             _make_list_result([payment]),
             _make_result(payment),
+            _make_result(mock_tier),
+            _make_result(user),
         ]
 
         with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class:
+             patch("app.services.payment_service.YooKassaClient") as mock_yk_class, \
+             patch("app.bot.main.create_bot") as mock_create_bot:
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
@@ -421,17 +449,29 @@ class TestReconciliationOfStuckPayments:
 
             mock_yk = MagicMock()
             mock_yk.get_payment = AsyncMock(return_value={
-                "id": "yk-still-pending",
-                "status": "pending",
+                "id": "yk-bad-tier",
+                "status": "succeeded",
+                "paid": True,
+                "payment_method": {"type": "bank_card"},
             })
             mock_yk_class.return_value = mock_yk
 
+            mock_bot = MagicMock()
+            mock_bot.send_message = AsyncMock()
+            mock_create_bot.return_value = mock_bot
+
             service = PaymentService(mock_session)
+
+            service.subscription_service.create_subscription = AsyncMock(
+                side_effect=ValueError("Tier nonexistent_tier not found")
+            )
 
             reconciled = await service.reconcile_pending_payments()
 
-            assert reconciled == 0
-            assert payment.status == PaymentStatus.PENDING
+            assert reconciled == 1
+            assert payment.status == PaymentStatus.SUCCEEDED
+            assert payment.paid_at is not None
+            assert payment.subscription_id is None
 
     @pytest.mark.asyncio
     async def test_reconciliation_handles_missing_payment_id_gracefully(self, mock_session, mock_tier):

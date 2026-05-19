@@ -390,6 +390,7 @@ class PaymentService:
             )
             return
 
+        subscription = None
         try:
             subscription = await self.subscription_service.create_subscription(
                 user_id=payment.user_id,
@@ -399,17 +400,35 @@ class PaymentService:
                 payment_provider="yookassa",
                 payment_id=payment.provider_payment_id,
             )
+            payment.subscription_id = subscription.id
         except ValueError as exc:
-            logger.error(
-                "payment_subscription_activation_failed",
-                extra={"payment_id": payment.id, "error": str(exc)},
-            )
-            return
+            error_msg = str(exc)
+            if "downgrade" in error_msg.lower():
+                logger.warning(
+                    "payment_subscription_downgrade_skipped",
+                    extra={
+                        "payment_id": payment.id,
+                        "user_id": payment.user_id,
+                        "attempted_tier": tier_code,
+                        "current_tier_has_higher_access": True,
+                        "error": error_msg,
+                    },
+                )
+            else:
+                logger.error(
+                    "payment_subscription_activation_failed",
+                    extra={
+                        "payment_id": payment.id,
+                        "user_id": payment.user_id,
+                        "tier_code": tier_code,
+                        "period": period,
+                        "error": error_msg,
+                    },
+                )
 
         payment.status = PaymentStatus.SUCCEEDED
         payment.paid_at = datetime.now(tz=UTC)
         payment.payment_method = yookassa_data.get("payment_method", {}).get("type")
-        payment.subscription_id = subscription.id
         await self.session.flush()
 
         logger.info(
@@ -422,23 +441,24 @@ class PaymentService:
             },
         )
 
-        logger.info(
-            "subscription_activated_from_payment",
-            extra={
-                "payment_id": payment.id,
-                "user_id": payment.user_id,
-                "subscription_id": subscription.id,
-                "tier_code": tier_code,
-                "period": period,
-            },
-        )
+        if subscription:
+            logger.info(
+                "subscription_activated_from_payment",
+                extra={
+                    "payment_id": payment.id,
+                    "user_id": payment.user_id,
+                    "subscription_id": subscription.id,
+                    "tier_code": tier_code,
+                    "period": period,
+                },
+            )
 
-        await self._notify_user_subscription_activated(
-            user_id=payment.user_id,
-            tier_code=tier_code,
-            period=period,
-            expires_at=subscription.expires_at,
-        )
+            await self._notify_user_subscription_activated(
+                user_id=payment.user_id,
+                tier_code=tier_code,
+                period=period,
+                expires_at=subscription.expires_at,
+            )
 
     async def _notify_user_subscription_activated(
         self,
@@ -499,6 +519,9 @@ class PaymentService:
         reconciled = 0
 
         for payment in pending:
+            if payment.status != PaymentStatus.PENDING:
+                continue
+
             try:
                 yk_data = await self.yookassa.get_payment(payment.provider_payment_id)
                 status = yk_data.get("status")
