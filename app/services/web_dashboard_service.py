@@ -3,7 +3,7 @@ description: Web cabinet dashboard aggregation, filters, KPI, and chart data.
 updated: 2026-05-15
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -66,12 +66,24 @@ class MarketplaceBreakdown:
 
 
 @dataclass(slots=True)
+class DashboardEvent:
+    event_date: datetime
+    title: str
+    subtitle: str
+    marketplace: Marketplace
+    amount: Decimal
+    tone: str = "neutral"
+    href: str | None = None
+
+
+@dataclass(slots=True)
 class DashboardData:
     filters: DashboardFilters
     metrics: list[KpiMetric]
     points: list[DailyPoint]
     marketplace_breakdown: list[MarketplaceBreakdown]
     actual_profit: Decimal
+    recent_events: list[DashboardEvent] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -156,6 +168,7 @@ class WebDashboardService:
             points=points,
             marketplace_breakdown=marketplace_breakdown,
             actual_profit=actual_profit,
+            recent_events=self._build_recent_events(raw_rows),
         )
 
     async def _aggregate(
@@ -403,6 +416,35 @@ class WebDashboardService:
         for _row_date, marketplace, quantity, _amount, _profit in rows.sales_rows:
             data[marketplace].sales += quantity
         return list(data.values())
+
+    def _build_recent_events(self, rows: _RawDashboardRows) -> list[DashboardEvent]:
+        events: list[DashboardEvent] = []
+        for row_at, marketplace, sale_model, order_id, status, revenue, _profit in rows.order_rows:
+            is_cancelled = is_cancelled_status(status)
+            events.append(
+                DashboardEvent(
+                    event_date=row_at,
+                    title="Отмена заказа" if is_cancelled else "Новый заказ",
+                    subtitle=sale_model.value if sale_model else "Модель не указана",
+                    marketplace=marketplace,
+                    amount=revenue,
+                    tone="bad" if is_cancelled else "action",
+                    href=f"/web/orders/{order_id}",
+                )
+            )
+        for row_at, marketplace, quantity, amount in rows.return_rows:
+            events.append(
+                DashboardEvent(
+                    event_date=row_at,
+                    title="Возврат",
+                    subtitle=f"{quantity} шт.",
+                    marketplace=marketplace,
+                    amount=amount,
+                    tone="warn",
+                    href="/web/returns",
+                )
+            )
+        return sorted(events, key=lambda event: event.event_date, reverse=True)[:8]
 
     def _build_metrics(
         self,

@@ -4,7 +4,7 @@
 
 import json
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from html import escape
 from urllib.parse import parse_qs
@@ -50,6 +50,7 @@ from app.services.web_cabinet_service import (
 from app.services.web_dashboard_service import (
     DailyPoint,
     DashboardData,
+    DashboardEvent,
     DashboardFilters,
     KpiMetric,
 )
@@ -1304,25 +1305,84 @@ def _analytics_content(data: DashboardData, profit: ProfitPageData) -> str:
             "</tr>"
             for row in profit.rows[:8]
         )
-        or '<tr><td colspan="5" class="muted">Недостаточно данных для топа товаров.</td></tr>'
+        or '<tr><td colspan="5"><div class="empty-state">Недостаточно данных для топа товаров за выбранный период.</div></td></tr>'
     )
+    sales = _metric_by_label(data, "Продажи")
+    orders = _metric_by_label(data, "Заказы")
+    conversion = _conversion_label(orders, sales)
     return f"""
-      {_page_header("Аналитика", "Обзор динамики бизнеса, прибыльности и проблемных зон за выбранный период.", "/web/profit", "Прибыль")}
-      {_analytics_filters(data.filters)}
-      <section class="kpi-grid">
-        {"".join(_kpi(metric) for metric in data.metrics[:6])}
+      <section class="premium-hero">
+        <div class="hero-content">
+          <span class="hero-eyebrow">Аналитика продаж</span>
+          <h2>Управленческая картина за {_period_label(data.filters)}</h2>
+          <p class="hero-lead">
+            Смотрите динамику выручки, заказов, выкупов и прибыльности по Wildberries / Ozon
+            в одном рабочем модуле. Фильтры ниже меняют весь экран без перехода в другие разделы.
+          </p>
+          <div class="summary-strip">
+            <span><strong>{_period_range(data.filters)}</strong> период</span>
+            <span><strong>{_filter_summary(data.filters)}</strong> срез</span>
+            <span><strong>{conversion}</strong> заказ → выкуп</span>
+          </div>
+        </div>
+        <div class="hero-panel">
+          <div class="hero-stat"><span>Выручка</span><strong>{_metric_value(data, "Выручка")}</strong></div>
+          <div class="hero-stat"><span>Плановая прибыль</span><strong>{_metric_value(data, "Плановая прибыль")}</strong></div>
+          <div class="hero-stat"><span>Фактическая прибыль</span><strong>{_rub(data.actual_profit)}</strong></div>
+        </div>
       </section>
-      <section class="dashboard-grid">
-        <section class="band wide">
-          <h2>Динамика выручки</h2>
-          {_line_chart(data.points, "revenue", "Выручка по дням", "#4557f6")}
+      <section class="analytics-shell">
+        <div class="analytics-control">
+          {_analytics_filters(data.filters)}
+        </div>
+        <section class="premium-kpi-grid">
+          {_premium_kpi(_metric_by_label(data, "Выручка"), "Выручка за период")}
+          {_premium_kpi(_metric_by_label(data, "Заказы"), "Заказы")}
+          {_premium_kpi(_metric_by_label(data, "Продажи"), "Выкупы")}
+          {_premium_kpi(_metric_by_label(data, "Возвраты"), "Возвраты")}
+          {_premium_kpi(_metric_by_label(data, "Плановая прибыль"), "Плановая прибыль")}
+          {_premium_kpi(_metric_by_label(data, "Средняя маржа"), "Средняя маржа")}
+          {_simple_premium_kpi("Конверсия в выкуп", conversion, "Доля выкупов от заказов")}
+          {_premium_kpi(_metric_by_label(data, "Убыточные заказы"), "Убыточные заказы")}
         </section>
-        <section class="band">
-          <h2>Прибыльность по МП</h2>
-          {_marketplace_table(data)}
+        <section class="premium-section">
+          <div class="section-head">
+            <div>
+              <h2>Главный график периода</h2>
+              <p class="muted">Динамика выручки по дням. Используйте фильтр маркетплейса, чтобы сравнивать WB и Ozon отдельно.</p>
+            </div>
+            <span class="badge action">Выручка</span>
+          </div>
+          {_line_chart(data.points, "revenue", "Выручка по дням", "#2563eb")}
         </section>
-        <section class="band">
-          <h2>Товары-лидеры</h2>
+        <section class="premium-grid">
+          <section class="premium-section">
+            <div class="section-head">
+              <div>
+                <h2>Сравнение WB и Ozon</h2>
+                <p class="muted">Вклад площадок в выручку, заказы и выкупы.</p>
+              </div>
+            </div>
+            {_marketplace_compare(data)}
+          </section>
+          <section class="premium-section">
+            <div class="section-head">
+              <div>
+                <h2>Заказы и выкупы</h2>
+                <p class="muted">Операционная динамика без лишних деталей.</p>
+              </div>
+            </div>
+            {_grouped_bar_chart(data.points)}
+          </section>
+        </section>
+        <section class="premium-section">
+          <div class="section-head">
+            <div>
+              <h2>Товары-лидеры</h2>
+              <p class="muted">SKU с наибольшей выручкой и вкладом в прибыльность.</p>
+            </div>
+            <a class="button" href="/web/profit">Вся прибыль</a>
+          </div>
           <div class="table-wrap"><table class="table">
             <thead><tr><th>Товар</th><th>МП</th><th class="num">Выручка</th><th class="num">Прибыль</th><th class="num">Маржа</th></tr></thead>
             <tbody>{top_rows}</tbody>
@@ -1555,35 +1615,79 @@ def _section_subnav(active: str) -> str:
 
 def _dashboard_content(data: DashboardData) -> str:
     return f"""
-      {_filters(data)}
-      <section class="kpi-grid">
-        {"".join(_kpi(metric) for metric in data.metrics)}
+      <section class="analytics-control">
+        {_filters(data)}
       </section>
-      <section class="dashboard-grid">
-        <section class="band wide">
-          <h2>Пульс бизнеса</h2>
-          <p class="muted">Заказы, выручка и плановая прибыль за выбранный период.</p>
+      <section class="premium-kpi-grid">
+        {_premium_kpi(_metric_by_label(data, "Выручка"), "Выручка за период")}
+        {_premium_kpi(_metric_by_label(data, "Заказы"), "Заказы")}
+        {_premium_kpi(_metric_by_label(data, "Продажи"), "Выкупы")}
+        {_premium_kpi(_metric_by_label(data, "Плановая прибыль"), "Плановая прибыль")}
+        {_premium_kpi(_metric_by_label(data, "Возвраты"), "Возвраты")}
+        {_premium_kpi(_metric_by_label(data, "Убыточные заказы"), "Проблемные заказы")}
+        {_premium_kpi(_metric_by_label(data, "Средняя маржа"), "Средняя маржа")}
+        {_premium_kpi(_metric_by_label(data, "Фактическая прибыль"), "Факт. прибыль")}
+      </section>
+      <section class="premium-grid">
+        <section class="premium-section">
+          <div class="section-head">
+            <div>
+              <h2>Пульс бизнеса</h2>
+              <p class="muted">Выручка, заказы и прибыль за выбранный период.</p>
+            </div>
+            <a class="button" href="/web/analytics">Открыть аналитику</a>
+          </div>
           {_line_chart(data.points, "revenue", "Выручка по дням", "#0f6f8f")}
         </section>
-        <section class="band">
-          <h2>Плановая прибыль</h2>
-          {_bar_chart(data.points, "estimated_profit", "Плановая прибыль по дням", "#147d4a")}
+        <section class="premium-section">
+          <div class="section-head">
+            <div>
+              <h2>Что требует внимания</h2>
+              <p class="muted">Критичные сигналы по синхронизации, возвратам и экономике.</p>
+            </div>
+          </div>
+          {_attention_list(data)}
         </section>
-        <section class="band">
-          <h2>Заказы vs продажи</h2>
+      </section>
+      <section class="premium-grid">
+        <section class="premium-section">
+          <div class="section-head">
+            <div>
+              <h2>Wildberries / Ozon</h2>
+              <p class="muted">Баланс бизнеса между площадками.</p>
+            </div>
+          </div>
+          {_marketplace_compare(data)}
+        </section>
+        <section class="premium-section">
+          <div class="section-head">
+            <div>
+              <h2>Последние события</h2>
+              <p class="muted">Новые заказы, отмены и возвраты за период.</p>
+            </div>
+            <a class="button" href="/web/orders">Все заказы</a>
+          </div>
+          {_recent_events(data.recent_events)}
+        </section>
+      </section>
+      <section class="premium-grid">
+        <section class="premium-section">
+          <div class="section-head">
+            <div>
+              <h2>Операционная динамика</h2>
+              <p class="muted">Заказы, выкупы, возвраты и отмены в компактном виде.</p>
+            </div>
+          </div>
           {_grouped_bar_chart(data.points)}
         </section>
-        <section class="band">
-          <h2>Возвраты и отмены</h2>
-          {_returns_chart(data.points)}
-        </section>
-        <section class="band">
-          <h2>FBO / FBS / rFBS</h2>
-          {_sale_model_chart(data.points)}
-        </section>
-        <section class="band">
-          <h2>Wildberries / Ozon</h2>
-          {_marketplace_table(data)}
+        <section class="premium-section">
+          <div class="section-head">
+            <div>
+              <h2>Быстрые действия</h2>
+              <p class="muted">Переходы к разделам, которые чаще всего нужны селлеру.</p>
+            </div>
+          </div>
+          {_quick_actions()}
         </section>
       </section>
     """
@@ -1593,31 +1697,272 @@ def _dashboard_welcome(
     user: User,
     subscription: SubscriptionPageData,
     accounts: AccountsPageData,
+    data: DashboardData,
 ) -> str:
     active = subscription.active_subscription
     expires = (
         active.expires_at.strftime("%d.%m.%Y") if active and active.expires_at else "бессрочно"
     )
     return f"""
-      <section class="page-header">
-        <div>
-          <h2>Добро пожаловать, {escape(user.first_name or user.username or "селлер")}!</h2>
-          <p class="muted">
-            Тариф: {escape(subscription.tier.name)} · действует до {escape(expires)} ·
-            подключено кабинетов: {accounts.active_accounts} из {subscription.tier.max_marketplace_accounts}
+      <section class="premium-hero">
+        <div class="hero-content">
+          <span class="hero-eyebrow">Центр управления бизнесом</span>
+          <h2>Добро пожаловать, {escape(user.first_name or user.username or "селлер")}! Обзор бизнеса</h2>
+          <p class="hero-lead">
+            Wildberries / Ozon, заказы, выкупы, прибыль и риски собраны в одном экране,
+            чтобы за несколько секунд понять состояние магазина.
           </p>
           <div class="summary-strip">
+            <span><strong>{escape(_period_label(data.filters))}</strong> период</span>
+            <span><strong>{escape(_sync_status(accounts))}</strong> синхронизация</span>
             <span><strong>{accounts.active_accounts}</strong> кабинетов подключено</span>
             <span><strong>{data_quality_hint(accounts.active_accounts)}</strong> статус работы</span>
           </div>
         </div>
-        <div class="page-actions">
-          <a class="button" href="/web/subscription">Подписка</a>
-          <a class="button" href="/web/accounts">Кабинеты МП</a>
-          <a class="button" href="/web/settings">Настройки</a>
+        <div class="hero-panel">
+          <div class="hero-stat"><span>Последняя синхронизация</span><strong>{escape(_last_sync_label(accounts))}</strong></div>
+          <div class="hero-stat"><span>Тариф</span><strong>{escape(subscription.tier.name)} до {escape(expires)}</strong></div>
+          <div class="hero-stat"><span>Кабинеты МП</span><strong>{accounts.active_accounts} из {subscription.tier.max_marketplace_accounts}</strong></div>
+          <div class="page-actions">
+            <a class="button primary" href="/web/analytics">Аналитика</a>
+            <a class="button" href="/web/accounts">Кабинеты</a>
+          </div>
         </div>
       </section>
     """
+
+
+def _metric_by_label(data: DashboardData, label: str) -> KpiMetric | None:
+    return next((metric for metric in data.metrics if metric.label == label), None)
+
+
+def _metric_value(data: DashboardData, label: str) -> str:
+    metric = _metric_by_label(data, label)
+    return _format_metric_value(metric.value, metric.suffix) if metric else "н/д"
+
+
+def _premium_kpi(metric: KpiMetric | None, label: str | None = None) -> str:
+    if metric is None:
+        return _simple_premium_kpi(label or "Показатель", "н/д", "Данных пока нет")
+    title = label or metric.label
+    value = _format_metric_value(metric.value, metric.suffix)
+    change = _trend_text(metric.change_percent)
+    return (
+        f'<article class="premium-kpi {escape(metric.tone)}">'
+        f"<span>{escape(title)}</span><strong>{value}</strong><small>{change}</small></article>"
+    )
+
+
+def _simple_premium_kpi(
+    label: str,
+    value: str,
+    hint: str,
+    tone: str = "neutral",
+) -> str:
+    return (
+        f'<article class="premium-kpi {escape(tone)}">'
+        f"<span>{escape(label)}</span><strong>{value}</strong><small>{escape(hint)}</small></article>"
+    )
+
+
+def _trend_text(change_percent: Decimal | None) -> str:
+    if change_percent is None:
+        return "Сравнение появится после накопления истории"
+    if change_percent == 0:
+        return "Без изменений к прошлому периоду"
+    sign = "+" if change_percent > 0 else ""
+    direction = "рост" if change_percent > 0 else "снижение"
+    return f"{sign}{change_percent}% к прошлому периоду, {direction}"
+
+
+def _period_label(filters: DashboardFilters) -> str:
+    labels = {
+        "today": "сегодня",
+        "yesterday": "вчера",
+        "7d": "последние 7 дней",
+        "30d": "последние 30 дней",
+        "current_month": "текущий месяц",
+        "previous_month": "прошлый месяц",
+        "custom": "выбранный период",
+    }
+    return labels.get(filters.period, "выбранный период")
+
+
+def _period_range(filters: DashboardFilters) -> str:
+    start = filters.local_date_from.strftime("%d.%m.%Y")
+    end = filters.local_date_to.strftime("%d.%m.%Y")
+    return start if start == end else f"{start} - {end}"
+
+
+def _filter_summary(filters: DashboardFilters) -> str:
+    marketplace = marketplace_title(filters.marketplace) if filters.marketplace else "все МП"
+    sale_model = sale_model_title(filters.sale_model.value) if filters.sale_model else "все модели"
+    return f"{marketplace}, {sale_model}"
+
+
+def _conversion_label(orders: KpiMetric | None, sales: KpiMetric | None) -> str:
+    if orders is None or sales is None or not orders.value:
+        return "н/д"
+    order_count = Decimal(orders.value)
+    sales_count = Decimal(sales.value)
+    return f"{(sales_count / order_count * Decimal('100')).quantize(Decimal('0.1'))}%"
+
+
+def _last_sync_label(accounts: AccountsPageData) -> str:
+    dates = [
+        row.account.last_success_sync_at
+        for row in accounts.rows
+        if row.account.last_success_sync_at is not None
+    ]
+    if not dates:
+        return "ещё не было"
+    return _dt(max(dates))
+
+
+def _sync_status(accounts: AccountsPageData) -> str:
+    if accounts.active_accounts == 0:
+        return "нужна настройка"
+    if any(row.account.last_error_message for row in accounts.rows if row.account.is_active):
+        return "есть ошибки"
+    dates = [
+        row.account.last_success_sync_at
+        for row in accounts.rows
+        if row.account.is_active and row.account.last_success_sync_at is not None
+    ]
+    if not dates:
+        return "ожидает данных"
+    latest = max(dates)
+    if latest.tzinfo is None:
+        latest = latest.replace(tzinfo=UTC)
+    return "актуальна" if datetime.now(tz=UTC) - latest < timedelta(hours=24) else "нужно обновить"
+
+
+def _attention_list(data: DashboardData) -> str:
+    items = []
+    loss = _metric_by_label(data, "Убыточные заказы")
+    returns = _metric_by_label(data, "Возвраты")
+    revenue = _metric_by_label(data, "Выручка")
+    if loss and loss.value:
+        items.append(
+            _attention_item(
+                "bad",
+                "Есть убыточные заказы",
+                f"{loss.value} заказов требуют проверки себестоимости и комиссий.",
+                "/web/profit",
+            )
+        )
+    if returns and returns.value:
+        items.append(
+            _attention_item(
+                "warn",
+                "Возвраты за период",
+                f"{returns.value} возвратов влияют на прибыльность периода.",
+                "/web/returns",
+            )
+        )
+    if revenue and isinstance(revenue.value, Decimal) and revenue.value == ZERO:
+        items.append(
+            _attention_item(
+                "warn",
+                "Нет выручки в выбранном периоде",
+                "Проверьте фильтры, синхронизацию заказов или подключение кабинетов.",
+                "/web/accounts",
+            )
+        )
+    if not items:
+        items.append(
+            _attention_item(
+                "good",
+                "Нет критичных проблем",
+                "По доступным данным за период бизнес выглядит стабильно.",
+                "/web/analytics",
+            )
+        )
+    return '<div class="attention-list">' + "".join(items) + "</div>"
+
+
+def _attention_item(tone: str, title: str, text: str, href: str) -> str:
+    return (
+        f'<article class="attention-item {escape(tone)}">'
+        f"<div><strong>{escape(title)}</strong><p>{escape(text)}</p></div>"
+        f'<a class="button" href="{escape(href)}">Перейти</a></article>'
+    )
+
+
+def _marketplace_compare(data: DashboardData) -> str:
+    total_revenue = sum((item.revenue for item in data.marketplace_breakdown), ZERO)
+    panels = "".join(_marketplace_panel(item, total_revenue) for item in data.marketplace_breakdown)
+    if not panels:
+        return '<div class="empty-state">Данных по маркетплейсам пока нет.</div>'
+    return f'<div class="marketplace-split">{panels}</div>'
+
+
+def _marketplace_panel(item, total_revenue: Decimal) -> str:  # type: ignore[no-untyped-def]
+    share = (
+        Decimal("0")
+        if total_revenue == ZERO
+        else (item.revenue / total_revenue * Decimal("100")).quantize(Decimal("0.1"))
+    )
+    return f"""
+      <article class="marketplace-panel">
+        <div class="marketplace-panel-head">
+          {_marketplace_label(item.marketplace)}
+          <span class="marketplace-share">{share}% выручки</span>
+        </div>
+        <div class="progress-track"><span style="width:{share}%"></span></div>
+        <div class="mini-stat-grid">
+          <div class="mini-stat"><span>Выручка</span><strong>{_rub(item.revenue)}</strong></div>
+          <div class="mini-stat"><span>Заказы</span><strong>{item.orders}</strong></div>
+          <div class="mini-stat"><span>Выкупы</span><strong>{item.sales}</strong></div>
+        </div>
+      </article>
+    """
+
+
+def _recent_events(events: list[DashboardEvent]) -> str:
+    if not events:
+        return '<div class="empty-state">За выбранный период новых событий пока нет.</div>'
+    return (
+        '<div class="event-list">' + "".join(_event_item(event) for event in events[:5]) + "</div>"
+    )
+
+
+def _event_item(event: DashboardEvent) -> str:
+    href = event.href or "/web/orders"
+    return f"""
+      <article class="event-item">
+        <div>
+          <strong>{escape(event.title)}</strong>
+          <p>{escape(event.subtitle)}</p>
+          <div class="event-meta">
+            {_marketplace_label(event.marketplace)}
+            <span class="badge {escape(event.tone)}">{escape(_dt(event.event_date))}</span>
+          </div>
+        </div>
+        <div class="num">
+          <strong>{_rub(event.amount)}</strong>
+          <p><a href="{escape(href)}">Открыть</a></p>
+        </div>
+      </article>
+    """
+
+
+def _quick_actions() -> str:
+    actions = [
+        ("Открыть аналитику", "Динамика, сравнения и товары-лидеры", "/web/analytics"),
+        ("Посмотреть заказы", "Фильтры по статусам и площадкам", "/web/orders"),
+        ("Проверить остатки", "Out-of-stock и общий FBS", "/web/stocks"),
+        ("Контроль ошибок", "Синхронизация и качество данных", "/web/control"),
+        ("План/факт", "Сравнение целей и результата", "/web/plan-fact"),
+    ]
+    return (
+        '<div class="shortcut-grid">'
+        + "".join(
+            f'<a class="shortcut-card" href="{escape(href)}"><strong>{escape(title)}</strong><p>{escape(text)}</p></a>'
+            for title, text, href in actions
+        )
+        + "</div>"
+    )
 
 
 def _filters(data: DashboardData) -> str:

@@ -507,6 +507,291 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
     .kpi.good strong {{ color: var(--good); }}
     .kpi.bad strong {{ color: var(--bad); }}
     .kpi.warn strong {{ color: var(--warn); }}
+    .premium-hero {{
+      position: relative;
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.7fr);
+      gap: 22px;
+      padding: 28px;
+      border: 1px solid #bfdbfe;
+      border-radius: var(--radius-xl);
+      background:
+        radial-gradient(circle at 92% 8%, rgb(15 118 110 / 0.16), transparent 30%),
+        linear-gradient(135deg, #ffffff 0%, #eff6ff 54%, #ecfeff 100%);
+      box-shadow: var(--shadow-md);
+      margin-bottom: 20px;
+    }}
+    .premium-hero::after {{
+      content: "";
+      position: absolute;
+      inset: auto 24px 0 auto;
+      width: 220px;
+      height: 220px;
+      border-radius: 999px;
+      background: rgb(37 99 235 / 0.08);
+      transform: translateY(48%);
+      pointer-events: none;
+    }}
+    .hero-content, .hero-panel {{ position: relative; z-index: 1; }}
+    .hero-eyebrow {{
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgb(255 255 255 / 0.78);
+      border: 1px solid #dbeafe;
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 850;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }}
+    .premium-hero h2 {{
+      margin: 0 0 10px;
+      font-size: 30px;
+      line-height: 1.15;
+      font-weight: 850;
+      color: var(--text);
+    }}
+    .hero-lead {{
+      max-width: 760px;
+      margin: 0;
+      color: var(--text-secondary);
+      font-size: 15px;
+    }}
+    .hero-panel {{
+      display: grid;
+      gap: 10px;
+      align-content: start;
+      border: 1px solid rgb(219 227 239 / 0.9);
+      border-radius: var(--radius-lg);
+      padding: 16px;
+      background: rgb(255 255 255 / 0.82);
+      box-shadow: var(--shadow-sm);
+      backdrop-filter: blur(10px);
+    }}
+    .hero-stat {{
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--line);
+      color: var(--text-secondary);
+      font-size: 13px;
+      font-weight: 700;
+    }}
+    .hero-stat:last-child {{ border-bottom: 0; }}
+    .hero-stat strong {{
+      color: var(--text);
+      text-align: right;
+      font-size: 14px;
+      overflow-wrap: anywhere;
+    }}
+    .premium-kpi-grid {{
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 16px;
+      margin-bottom: 20px;
+    }}
+    .premium-kpi {{
+      min-height: 150px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      background:
+        linear-gradient(180deg, rgb(255 255 255 / 0.96), rgb(248 250 252 / 0.92));
+      box-shadow: var(--shadow-sm);
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.18s ease, box-shadow 0.18s ease;
+    }}
+    .premium-kpi:hover {{
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+    }}
+    .premium-kpi::before {{
+      content: "";
+      position: absolute;
+      inset: 0 0 auto;
+      height: 4px;
+      background: var(--accent);
+    }}
+    .premium-kpi.good::before {{ background: var(--good); }}
+    .premium-kpi.bad::before {{ background: var(--bad); }}
+    .premium-kpi.warn::before {{ background: var(--warn); }}
+    .premium-kpi.neutral::before {{ background: #94a3b8; }}
+    .premium-kpi span {{
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 850;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 10px;
+    }}
+    .premium-kpi strong {{
+      display: block;
+      color: var(--text);
+      font-size: 30px;
+      line-height: 1.12;
+      font-weight: 850;
+      overflow-wrap: anywhere;
+    }}
+    .premium-kpi small {{
+      display: block;
+      margin-top: 10px;
+      color: var(--text-secondary);
+      font-size: 13px;
+      line-height: 1.4;
+    }}
+    .premium-kpi .change {{
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 4px 9px;
+      background: var(--neutral-soft);
+      font-weight: 800;
+    }}
+    .premium-grid {{
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
+      gap: 20px;
+      margin-top: 20px;
+    }}
+    .premium-section {{
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      padding: 22px;
+      box-shadow: var(--shadow-sm);
+      min-width: 0;
+    }}
+    .section-head {{
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      margin-bottom: 16px;
+    }}
+    .section-head h2 {{ margin-bottom: 4px; }}
+    .attention-list, .event-list, .shortcut-grid, .marketplace-split {{
+      display: grid;
+      gap: 12px;
+    }}
+    .attention-item, .event-item, .shortcut-card, .marketplace-panel {{
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      background: var(--panel-soft);
+      padding: 14px;
+    }}
+    .attention-item {{
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 14px;
+      align-items: center;
+      border-left: 4px solid var(--accent);
+    }}
+    .attention-item.good {{ border-left-color: var(--good); }}
+    .attention-item.bad {{ border-left-color: var(--bad); }}
+    .attention-item.warn {{ border-left-color: var(--warn); }}
+    .attention-item strong, .event-item strong, .shortcut-card strong {{
+      display: block;
+      color: var(--text);
+      margin-bottom: 4px;
+    }}
+    .attention-item p, .event-item p, .shortcut-card p {{
+      margin: 0;
+      color: var(--text-secondary);
+      font-size: 13px;
+    }}
+    .marketplace-split {{
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }}
+    .marketplace-panel {{
+      background:
+        linear-gradient(180deg, #ffffff, #f8fafc);
+    }}
+    .marketplace-panel-head {{
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 14px;
+    }}
+    .marketplace-share {{
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }}
+    .mini-stat-grid {{
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }}
+    .mini-stat {{
+      border-radius: var(--radius);
+      background: white;
+      border: 1px solid var(--line);
+      padding: 10px;
+    }}
+    .mini-stat span {{
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 5px;
+    }}
+    .mini-stat strong {{
+      color: var(--text);
+      font-size: 16px;
+    }}
+    .event-item {{
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      background: white;
+    }}
+    .event-meta {{
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin-top: 6px;
+    }}
+    .shortcut-grid {{
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+    }}
+    .shortcut-card {{
+      display: block;
+      color: inherit;
+      text-decoration: none;
+      background: white;
+      transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+    }}
+    .shortcut-card:hover {{
+      transform: translateY(-2px);
+      border-color: #bfdbfe;
+      box-shadow: var(--shadow);
+    }}
+    .analytics-shell {{
+      display: grid;
+      gap: 20px;
+    }}
+    .analytics-control {{
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }}
+    .analytics-control .filters {{
+      margin: 0;
+    }}
     .dashboard-grid {{
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -767,6 +1052,10 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
       .shell {{ grid-template-columns: 230px minmax(0, 1fr); }}
       .filters {{ grid-template-columns: repeat(2, minmax(150px, 1fr)); }}
       .kpi-grid {{ grid-template-columns: repeat(2, minmax(160px, 1fr)); }}
+      .premium-hero {{ grid-template-columns: 1fr; }}
+      .premium-kpi-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      .premium-grid {{ grid-template-columns: 1fr; }}
+      .shortcut-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .dashboard-grid {{ grid-template-columns: 1fr; }}
       .detail-grid {{ grid-template-columns: 1fr; }}
     }}
@@ -797,6 +1086,11 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
     }}
     @media (max-width: 520px) {{
       .kpi-grid {{ grid-template-columns: 1fr; }}
+      .premium-kpi-grid, .marketplace-split, .mini-stat-grid, .shortcut-grid {{
+        grid-template-columns: 1fr;
+      }}
+      .premium-hero h2 {{ font-size: 24px; }}
+      .premium-hero, .premium-section {{ padding: 18px; }}
     }}
   </style>
 </head>

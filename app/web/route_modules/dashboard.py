@@ -46,6 +46,7 @@ def _facade() -> Any:
 
     return facade
 
+
 @router.get("/", response_class=HTMLResponse)
 async def dashboard(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
@@ -68,7 +69,7 @@ async def dashboard(
     )
     subscription = await WebCabinetService(session).subscription_page(user.id)
     accounts = await WebCabinetService(session).accounts_page(user.id)
-    content = _dashboard_welcome(user, subscription, accounts) + _dashboard_content(data)
+    content = _dashboard_welcome(user, subscription, accounts, data) + _dashboard_content(data)
     return page("Главная", _user_display_name(user), content)
 
 
@@ -97,4 +98,3 @@ async def dashboard_compat(
             date_to=date_to,
         ),
     )
-
