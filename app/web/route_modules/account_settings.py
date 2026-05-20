@@ -192,6 +192,11 @@ async def accounts_page_web(
     )
 
 
+@router.get("/sync/{sync_type}")
+async def request_web_sync_get() -> RedirectResponse:
+    return RedirectResponse(url="/web/accounts", status_code=302)
+
+
 @router.post("/sync/{sync_type}")
 async def request_web_sync(
     sync_type: str,
