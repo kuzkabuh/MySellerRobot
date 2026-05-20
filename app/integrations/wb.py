@@ -263,6 +263,30 @@ class WildberriesClient:
         report = data.get("report", []) if isinstance(data, dict) else []
         return list(report) if isinstance(report, list) else []
 
+    async def get_box_tariffs(self, *, date: str | None = None) -> list[dict[str, Any]]:
+        """Return WB box delivery logistics tariffs.
+
+        Official endpoint:
+        GET https://common-api.wildberries.ru/api/v1/tariffs/box
+
+        Response contains per-warehouse tariff data with fields:
+        - warehouseName, geoName
+        - boxDeliveryBase, boxDeliveryLiter, boxDeliveryCoefExpr (FBO)
+        - boxDeliveryMarketplaceBase, boxDeliveryMarketplaceLiter, boxDeliveryMarketplaceCoefExpr (FBS)
+        """
+
+        params: dict[str, str] = {}
+        if date:
+            params["date"] = date
+        data = await self.common.request(
+            "GET",
+            "/api/v1/tariffs/box",
+            headers=self.headers,
+            params=params,
+        )
+        tariffs = data.get("tariffs", []) if isinstance(data, dict) else []
+        return list(tariffs) if isinstance(tariffs, list) else []
+
     async def get_sales_report_details(
         self,
         date_from: str,

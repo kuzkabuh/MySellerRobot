@@ -27,6 +27,7 @@ from app.workers.tasks import (
     sync_wb_commissions,
     sync_wb_daily_financial_details,
     sync_wb_daily_sales_reports,
+    sync_wb_logistics_tariffs,
 )
 
 settings = get_settings()
@@ -56,6 +57,7 @@ class WorkerSettings:
         resend_unnotified_orders,
         sync_wb_commissions,
         check_ozon_commission_source,
+        sync_wb_logistics_tariffs,
     ]
     order_poll_minutes = {
         0,
@@ -101,6 +103,7 @@ class WorkerSettings:
         cron(sync_products, hour=1, minute=20),
         cron(sync_wb_commissions, hour=3, minute=10),
         cron(check_ozon_commission_source, hour=3, minute=30),
+        cron(sync_wb_logistics_tariffs, hour=3, minute=50),
     ]
     redis_settings = _redis_settings()
     max_jobs = 10

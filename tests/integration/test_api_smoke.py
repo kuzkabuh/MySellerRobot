@@ -1161,6 +1161,7 @@ def test_bot_dispatcher_factory_registers_routers_without_polling() -> None:
         "costs",
         "subscription",
         "commission_admin",
+        "wb_logistics_admin",
         "common",
     ]
 

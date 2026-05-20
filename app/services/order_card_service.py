@@ -549,9 +549,24 @@ class OrderCardService:
 
     @staticmethod
     def _logistics_label(order: Order, economics: PlannedEconomics) -> str:
+        from app.models.enums import EconomyConfidence, ExpenseSource
+
+        if economics.logistics_is_baseline:
+            prefix = order.sale_model.value if order.sale_model else "Логистика"
+            return f"🌐 Логистика: {prefix}: {rub(economics.logistics)} (предварительно)"
+        if economics.logistics == Decimal("0"):
+            return "🌐 Логистика: будет уточнена после финансового отчёта"
+        if (
+            order.marketplace == Marketplace.WB
+            and economics.logistics_source == ExpenseSource.WB_LOGISTICS_TARIFF_API
+        ):
+            if economics.confidence == EconomyConfidence.EXACT:
+                return f"🌐 Логистика WB: {rub(economics.logistics)}"
+            if economics.confidence == EconomyConfidence.ESTIMATED:
+                return f"🌐 Логистика WB: около {rub(economics.logistics)} — оценка"
+            return "🌐 Логистика WB: не определена — недостаточно данных для расчёта"
         prefix = order.sale_model.value if order.sale_model else "Логистика"
-        label = f"🌐 Логистика: {prefix}: {rub(economics.logistics)}"
-        return label + " (предварительно)" if economics.logistics_is_baseline else label
+        return f"🌐 Логистика: {prefix}: {rub(economics.logistics)}"
 
     @staticmethod
     def _stock_line(stock: StockSnapshot | None) -> str | None:

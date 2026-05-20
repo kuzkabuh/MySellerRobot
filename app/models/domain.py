@@ -357,6 +357,23 @@ class OrderItem(TimestampMixin, Base):
     ozon_commission_base_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     logistics_estimated: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     logistics_source: Mapped[str | None] = mapped_column(String(64))
+    wb_logistics_amount_planned: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    wb_logistics_base_tariff: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
+    wb_logistics_warehouse_coefficient_percent: Mapped[Decimal | None] = mapped_column(
+        Numeric(7, 4)
+    )
+    wb_logistics_localization_index: Mapped[Decimal | None] = mapped_column(Numeric(7, 4))
+    wb_logistics_distribution_index_percent: Mapped[Decimal | None] = mapped_column(Numeric(7, 4))
+    wb_logistics_distribution_surcharge_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    wb_logistics_tariff_version_id: Mapped[int | None] = mapped_column(
+        ForeignKey("wb_logistics_tariff_versions.id", ondelete="SET NULL")
+    )
+    wb_logistics_tariff_rate_id: Mapped[int | None] = mapped_column(
+        ForeignKey("wb_logistics_tariff_rates.id", ondelete="SET NULL")
+    )
+    wb_logistics_source: Mapped[str | None] = mapped_column(String(64))
+    wb_logistics_confidence: Mapped[str | None] = mapped_column(String(32))
+    wb_reverse_logistics_amount_planned: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     other_marketplace_expenses_estimated: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     cost_price_used: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     package_cost_used: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))

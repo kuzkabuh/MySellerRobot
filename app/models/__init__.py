@@ -41,6 +41,10 @@ from app.models.domain import (
     WbReportCheckState,
 )
 from app.models.subscriptions import Payment, SubscriptionTier, UserSubscription
+from app.models.wb_logistics_tariffs import (
+    WbLogisticsTariffRate,
+    WbLogisticsTariffVersion,
+)
 
 __all__ = [
     "AlertEvent",
@@ -78,5 +82,7 @@ __all__ = [
     "UserSubscription",
     "UserWebSession",
     "WbFinancialReport",
+    "WbLogisticsTariffRate",
+    "WbLogisticsTariffVersion",
     "WbReportCheckState",
 ]

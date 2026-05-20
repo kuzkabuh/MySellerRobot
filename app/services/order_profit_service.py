@@ -1,4 +1,4 @@
-"""version: 1.6.0
+"""version: 1.7.0
 description: Shared tariff-aware estimated order profit calculation with confidence tracking.
 updated: 2026-05-20
 """
@@ -16,7 +16,7 @@ from app.models.domain import (
     ProductCostHistory,
     ProfitSnapshot,
 )
-from app.models.enums import CalculationType, Marketplace
+from app.models.enums import CalculationType, EconomyConfidence, ExpenseSource, Marketplace
 from app.repositories.orders import OrderRepository
 from app.repositories.products import ProductRepository
 from app.schemas.orders import NormalizedOrder
@@ -28,6 +28,9 @@ from app.services.commission_tariffs.commission_resolver_service import (
 from app.services.cost_service import CostService
 from app.services.marketplace_estimates import estimate_marketplace_expenses
 from app.services.profit_calculator import ProfitCalculator
+from app.services.wb_logistics.wb_logistics_calculator_service import (
+    WbLogisticsCalculatorService,
+)
 
 
 class OrderProfitService:
@@ -39,6 +42,7 @@ class OrderProfitService:
         self.products = ProductRepository(session)
         self.costs = CostService(session)
         self.calculator = ProfitCalculator()
+        self.wb_logistics_calculator = WbLogisticsCalculatorService(session)
 
     async def calculate_estimated_profit(
         self,
@@ -73,6 +77,12 @@ class OrderProfitService:
 
             commission_rate = await self._resolve_commission_rate(
                 tariff_resolver=tariff_resolver,
+                order=order,
+                product=product,
+                item=item,
+            )
+
+            await self._resolve_wb_logistics(
                 order=order,
                 product=product,
                 item=item,
@@ -214,6 +224,50 @@ class OrderProfitService:
             self._store_commission_resolution(item, result)
 
         return None
+
+    async def _resolve_wb_logistics(
+        self,
+        *,
+        order: Order,
+        product: Product | None,
+        item: OrderItem,
+    ) -> None:
+        """Calculate planned WB logistics using tariff-based calculator."""
+        if order.marketplace != Marketplace.WB:
+            return
+
+        volume = product.volume_liters if product else None
+        warehouse = order.warehouse
+        sales_model = order.sale_model.value if order.sale_model else "FBS"
+        order_date = order.order_date
+
+        price_before_discount = None
+        if product and hasattr(product, "price_before_wb_discount"):
+            price_before_discount = getattr(product, "price_before_wb_discount", None)
+
+        result = await self.wb_logistics_calculator.calculate_planned_wb_logistics(
+            order_date=order_date,
+            sales_model=sales_model,
+            warehouse_name=warehouse,
+            product_volume_liters=volume,
+            product_price_before_wb_discount=price_before_discount,
+        )
+
+        item.wb_logistics_amount_planned = result.logistics_amount_planned
+        item.wb_logistics_base_tariff = result.base_volume_tariff
+        item.wb_logistics_warehouse_coefficient_percent = result.warehouse_coefficient_percent
+        item.wb_logistics_localization_index = result.localization_index
+        item.wb_logistics_distribution_index_percent = result.sales_distribution_index_percent
+        item.wb_logistics_distribution_surcharge_amount = result.sales_distribution_surcharge_amount
+        item.wb_logistics_tariff_version_id = result.tariff_version_id
+        item.wb_logistics_tariff_rate_id = result.tariff_rate_id
+        item.wb_logistics_source = result.source
+        item.wb_logistics_confidence = result.confidence
+
+        if result.logistics_amount_planned is not None:
+            if item.logistics_estimated is None or item.logistics_estimated == Decimal("0"):
+                item.logistics_estimated = result.logistics_amount_planned
+                item.logistics_source = result.source
 
     @staticmethod
     def _store_commission_resolution(

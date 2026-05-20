@@ -998,3 +998,53 @@ async def check_ozon_commission_source(ctx: dict[str, Any]) -> None:
             await notify_admins(bot, notification)
 
     await bot.session.close()
+
+
+async def sync_wb_logistics_tariffs(ctx: dict[str, Any]) -> None:
+    """Daily sync of WB box delivery logistics tariffs from /api/v1/tariffs/box."""
+    from app.core.config import get_settings
+    from app.services.commission_tariffs.admin_notifications import notify_admins
+    from app.services.wb_logistics.wb_logistics_tariff_sync_service import (
+        WbLogisticsTariffSyncService,
+    )
+
+    settings = get_settings()
+    bot = Bot(settings.bot_token.get_secret_value())
+
+    async with AsyncSessionFactory() as session:
+        account_refs = await _load_account_refs_wb(session)
+        if not account_refs:
+            logger.info("wb_logistics_sync_no_accounts")
+            await bot.session.close()
+            return
+
+        ref = account_refs[0]
+        account = await _load_account_by_id(session, ref.id)
+        if account is None:
+            await bot.session.close()
+            return
+
+        from app.core.security import TokenCipher
+
+        try:
+            api_key = TokenCipher().decrypt(account.encrypted_api_key)
+        except Exception:
+            logger.exception("wb_logistics_sync_decrypt_failed")
+            await bot.session.close()
+            return
+
+        from app.integrations.wb import WildberriesClient
+
+        wb_client = WildberriesClient(api_key=api_key)
+        service = WbLogisticsTariffSyncService(session, wb_client)
+        result = await service.sync()
+
+        status_emoji = {"new_version": "✅", "no_changes": "ℹ️", "error": "❌"}.get(
+            result["status"], "❓"
+        )
+        message = f"{status_emoji} Логистика WB: {result['message']}"
+
+        if result["status"] in ("new_version", "error"):
+            await notify_admins(bot, message)
+
+    await bot.session.close()

@@ -1024,10 +1024,18 @@ def _commission_source_detail_label(source) -> str:
 
 
 def _logistics_detail_label(economics: PlannedEconomics) -> str:
+    from app.models.enums import EconomyConfidence, ExpenseSource
+
     if economics.logistics_is_baseline:
         return f"🚚 Логистика: {rub(economics.logistics)} (предварительно)"
     if economics.logistics == Decimal("0"):
         return "🚚 Логистика: будет уточнена после финансового отчёта"
+    if economics.logistics_source == ExpenseSource.WB_LOGISTICS_TARIFF_API:
+        if economics.confidence == EconomyConfidence.EXACT:
+            return f"🚚 Логистика WB: {rub(economics.logistics)}"
+        if economics.confidence == EconomyConfidence.ESTIMATED:
+            return f"🚚 Логистика WB: около {rub(economics.logistics)} — оценка"
+        return "🚚 Логистика WB: не определена — недостаточно данных для расчёта"
     return f"🚚 Логистика: {rub(economics.logistics)}"
 
 

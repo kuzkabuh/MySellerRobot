@@ -22,6 +22,7 @@ from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.core.logging import configure_logging
 from app.web.route_modules.payment_public import router as payment_public_router
+from app.web.route_modules.wb_logistics_admin import router as wb_logistics_router
 from app.web.routes import router as web_router
 
 SESSION_DEPENDENCY = Depends(get_session)
@@ -76,6 +77,7 @@ def create_app() -> FastAPI:
     app.include_router(web_router)
     app.include_router(webhooks_router)
     app.include_router(payment_public_router)
+    app.include_router(wb_logistics_router)
 
     @app.get("/web/payment/success")
     async def redirect_payment_success(payment_id: str | None = None) -> RedirectResponse:
