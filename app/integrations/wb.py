@@ -1,12 +1,13 @@
-"""version: 1.6.0
+"""version: 2.0.0
 description: Wildberries official API client, seller stocks, daily sales, tariffs, and normalizers.
-updated: 2026-05-17
+updated: 2026-05-20
 """
 
 import logging
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, cast
+from zoneinfo import ZoneInfo
 
 from app.core.config import get_settings
 from app.core.exceptions import ValidationError
@@ -18,6 +19,8 @@ from app.schemas.sales import NormalizedSaleEvent
 from app.services.product_dimensions import calculate_volume_liters, decimal_or_none
 
 logger = logging.getLogger(__name__)
+
+WB_STATISTICS_TZ = ZoneInfo("Europe/Moscow")
 
 
 class WildberriesClient:
@@ -473,7 +476,7 @@ class WildberriesClient:
         )
 
     def normalize_statistics_order(self, payload: dict[str, Any]) -> NormalizedOrder:
-        order_date = self._parse_optional_date(payload.get("date")) or datetime.now(tz=UTC)
+        order_date = self._parse_wb_statistics_datetime(payload.get("date")) or datetime.now(tz=UTC)
         nm_id = str(payload.get("nmId") or payload.get("nmID") or "")
         revenue = Decimal(str(payload.get("finishedPrice") or payload.get("totalPrice") or 0))
         commission = self._extract_commission(payload, revenue)
@@ -534,7 +537,7 @@ class WildberriesClient:
         )
 
     def normalize_supplier_sale(self, payload: dict[str, Any]) -> NormalizedSaleEvent:
-        event_date = self._parse_optional_date(payload.get("date")) or datetime.now(tz=UTC)
+        event_date = self._parse_wb_statistics_datetime(payload.get("date")) or datetime.now(tz=UTC)
         nm_id = str(payload.get("nmId") or payload.get("nmID") or "")
         sale_id = str(
             payload.get("saleID")
@@ -560,7 +563,7 @@ class WildberriesClient:
         )
 
     def normalize_supplier_return(self, payload: dict[str, Any]) -> dict[str, Any]:
-        event_date = self._parse_optional_date(
+        event_date = self._parse_wb_statistics_datetime(
             payload.get("date") or payload.get("lastChangeDate")
         ) or datetime.now(tz=UTC)
         nm_id = str(payload.get("nmId") or payload.get("nmID") or "")
@@ -604,6 +607,34 @@ class WildberriesClient:
         except ValueError:
             try:
                 return datetime.strptime(text, "%d.%m.%Y").replace(tzinfo=UTC)
+            except ValueError:
+                return None
+
+    @staticmethod
+    def _parse_wb_statistics_datetime(value: object) -> datetime | None:
+        """Parse WB Statistics API datetime strings.
+
+        WB Statistics API returns naive datetime strings like
+        "2026-05-20T10:19:17" which represent Moscow time, not UTC.
+        This method treats naive strings as Europe/Moscow timezone.
+        """
+        if not value:
+            return None
+        if isinstance(value, datetime):
+            return value if value.tzinfo else value.replace(tzinfo=WB_STATISTICS_TZ)
+        text = str(value)
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            if parsed.tzinfo:
+                return parsed
+            logger.info(
+                "wb_statistics_datetime_normalized",
+                extra={"raw_value": text, "timezone": "Europe/Moscow"},
+            )
+            return parsed.replace(tzinfo=WB_STATISTICS_TZ)
+        except ValueError:
+            try:
+                return datetime.strptime(text, "%d.%m.%Y").replace(tzinfo=WB_STATISTICS_TZ)
             except ValueError:
                 return None
 

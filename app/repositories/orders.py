@@ -1,18 +1,21 @@
-"""version: 1.0.0
-description: Order persistence and idempotency helpers.
-updated: 2026-05-14
+"""version: 2.0.0
+description: Order persistence, idempotency helpers, and WB srid-based deduplication.
+updated: 2026-05-20
 """
 
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+import logging
 
 from sqlalchemy import Select, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.domain import FboDigestQueue, Order, OrderItem, ProfitSnapshot
-from app.models.enums import CalculationType, FboNotificationMode, Marketplace, SaleModel
+from app.models.enums import CalculationType, FboNotificationMode, Marketplace, SaleModel, SourceEventType
 from app.schemas.orders import NormalizedOrder
+
+logger = logging.getLogger(__name__)
 
 
 class OrderRepository:
@@ -22,14 +25,8 @@ class OrderRepository:
         self.session = session
 
     async def exists(self, account_id: int, normalized: NormalizedOrder) -> bool:
-        result = await self.session.execute(
-            select(Order.id).where(
-                Order.marketplace_account_id == account_id,
-                Order.marketplace == normalized.marketplace,
-                Order.order_external_id == normalized.order_external_id,
-            )
-        )
-        return result.scalar_one_or_none() is not None
+        existing = await self._get_existing(account_id, normalized)
+        return existing is not None
 
     async def create(
         self,
@@ -93,7 +90,26 @@ class OrderRepository:
         existing = await self._get_existing(account_id, normalized)
         if existing is None:
             return await self.create(user_id, account_id, normalized), True
-        self._apply_order(existing, normalized)
+
+        if (
+            existing.marketplace == Marketplace.WB
+            and existing.source_event_type == SourceEventType.LIVE_ORDER
+            and normalized.source_event_type == SourceEventType.STATISTICS_ORDER
+        ):
+            self._enrich_live_order_from_statistics(existing, normalized)
+            logger.info(
+                "wb_statistics_order_merged_into_live_order",
+                extra={
+                    "account_id": account_id,
+                    "live_order_id": existing.id,
+                    "public_order_number": existing.order_external_id,
+                    "srid": existing.srid,
+                    "article": (normalized.items[0].seller_article if normalized.items else None),
+                },
+            )
+        else:
+            self._apply_order(existing, normalized)
+
         await self.session.flush()
         if not existing.items:
             for item in normalized.items:
@@ -149,7 +165,41 @@ class OrderRepository:
                 Order.order_external_id == normalized.order_external_id,
             )
         )
-        return result.scalar_one_or_none()
+        existing = result.scalar_one_or_none()
+        if existing is not None:
+            return existing
+
+        if normalized.marketplace == Marketplace.WB and normalized.srid:
+            return await self._find_by_srid(account_id, normalized.srid)
+
+        return None
+
+    async def _find_by_srid(
+        self,
+        account_id: int,
+        srid: str,
+    ) -> Order | None:
+        result = await self.session.execute(
+            select(Order)
+            .options(selectinload(Order.items))
+            .where(
+                Order.marketplace_account_id == account_id,
+                Order.marketplace == Marketplace.WB,
+                Order.srid == srid,
+            )
+        )
+        order = result.scalar_one_or_none()
+        if order is not None:
+            logger.info(
+                "wb_order_matched_by_srid",
+                extra={
+                    "account_id": account_id,
+                    "live_order_id": order.id,
+                    "public_order_number": order.order_external_id,
+                    "srid": srid,
+                },
+            )
+        return order
 
     async def get_by_external(
         self,
@@ -169,7 +219,14 @@ class OrderRepository:
                 Order.order_external_id == order_external_id,
             )
         )
-        return result.scalar_one_or_none()
+        existing = result.scalar_one_or_none()
+        if existing is not None:
+            return existing
+
+        if marketplace == Marketplace.WB:
+            return await self._find_by_srid(account_id, order_external_id)
+
+        return None
 
     @staticmethod
     def _apply_order(order: Order, normalized: NormalizedOrder) -> None:
@@ -191,6 +248,43 @@ class OrderRepository:
         order.processing_deadline_at = normalized.processing_deadline_at
         order.requires_seller_action = normalized.requires_seller_action
         order.raw_payload = normalized.raw_payload
+
+    @staticmethod
+    def _enrich_live_order_from_statistics(
+        existing: Order,
+        normalized: NormalizedOrder,
+    ) -> None:
+        incoming = normalized
+        incoming_item = incoming.items[0] if incoming.items else None
+
+        if not existing.raw_payload:
+            existing.raw_payload = {}
+        payload = existing.raw_payload
+
+        enrichment = payload.get("_enrichment", {})
+        enrichment["wb_statistics_order"] = incoming.raw_payload or {}
+        payload["_enrichment"] = enrichment
+        existing.raw_payload = payload
+
+        if incoming.normalized_status == "cancelled":
+            existing.status = "cancelled"
+            existing.raw_status = "cancelled"
+            existing.normalized_status = "cancelled"
+
+        if not existing.warehouse or existing.warehouse.isdigit():
+            if incoming.warehouse:
+                existing.warehouse = incoming.warehouse
+        if not existing.warehouse_type and incoming.warehouse_type:
+            existing.warehouse_type = incoming.warehouse_type
+
+        if incoming_item and existing.items:
+            persisted_item = existing.items[0]
+            if not persisted_item.title and incoming_item.title:
+                persisted_item.title = incoming_item.title
+            if not persisted_item.seller_article and incoming_item.seller_article:
+                persisted_item.seller_article = incoming_item.seller_article
+            if not persisted_item.marketplace_article and incoming_item.marketplace_article:
+                persisted_item.marketplace_article = incoming_item.marketplace_article
 
     async def mark_notified(self, order_id: int, notified_at: datetime | None = None) -> None:
         timestamp = notified_at or datetime.now(tz=UTC)
