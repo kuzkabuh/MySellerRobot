@@ -74,7 +74,7 @@ class WbFinancialReportService:
 
     async def check_recent(self, account: MarketplaceAccount) -> list[WbReportCheckResult]:
         today = datetime.now(tz=UTC).date()
-        return [
+        results = [
             await self.check_account(
                 account,
                 period_type="daily",
@@ -88,6 +88,10 @@ class WbFinancialReportService:
                 date_to=today,
             ),
         ]
+        now = datetime.now(tz=UTC)
+        account.last_wb_reports_sync_at = now
+        account.last_success_sync_at = now
+        return results
 
     async def latest_reports(
         self,

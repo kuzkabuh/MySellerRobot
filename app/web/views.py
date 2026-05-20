@@ -67,6 +67,13 @@ from app.utils.datetime import format_datetime_for_user, get_user_timezone, user
 from app.web.rendering import page
 
 ZERO = Decimal("0")
+
+SYNC_FRESHNESS_ORDERS_MINUTES = 30
+SYNC_FRESHNESS_SALES_MINUTES = 60
+SYNC_FRESHNESS_STOCKS_HOURS = 24
+SYNC_FRESHNESS_PRODUCTS_HOURS = 48
+SYNC_FRESHNESS_PROFILE_HOURS = 48
+
 __all__ = [
     "_placeholder_page",
     "_orders_content",
@@ -88,6 +95,7 @@ __all__ = [
     "_costs_content",
     "_cost_edit_content",
     "_accounts_content",
+    "_sync_detail_cell",
     "_sync_actions",
     "_seller_name_hint",
     "_seller_profile_web",
@@ -151,6 +159,8 @@ __all__ = [
     "_query_param",
     "_optional_query_param",
     "_decimal_from_query",
+    "_last_sync_label",
+    "_sync_status",
 ]
 
 
@@ -1105,7 +1115,7 @@ def _accounts_content(data: AccountsPageData, timezone: str = "Europe/Moscow") -
         f"<td>{_account_status_badge(row.account.status.value, row.account.is_active)}</td>"
         f"<td>{_seller_profile_web(row.account, row.latest_balance)}</td>"
         f"<td>{_wb_reports_web(row.latest_daily_report, row.latest_weekly_report, row.report_states or [])}</td>"
-        f"<td>{_dt(row.account.last_success_sync_at, timezone)}</td>"
+        f"<td>{_sync_detail_cell(row.account, timezone)}</td>"
         f'<td>{_dt(row.account.last_error_at, timezone)}<div class="muted">{escape(row.account.last_error_message or row.latest_job_error or "")}</div></td>'
         f'<td class="num">{row.products_count}</td>'
         f'<td class="num">{row.orders_30d}</td>'
@@ -1131,7 +1141,7 @@ def _accounts_content(data: AccountsPageData, timezone: str = "Europe/Moscow") -
         <p class="muted">Подключение нового кабинета сейчас выполняется через Telegram-бота: откройте настройки и выберите подключение WB или Ozon.</p>
         <div class="table-wrap"><table class="table">
           <thead><tr><th>Кабинет</th><th>МП</th><th>Статус</th><th>Продавец и баланс</th>
-          <th>Отчёты WB</th><th>Успешная синхронизация</th>
+          <th>Отчёты WB</th><th>Синхронизации</th>
           <th>Последняя ошибка</th><th class="num">Товаров</th><th class="num">Заказов 30д</th><th>Последняя задача</th></tr></thead>
           <tbody>{rows}</tbody>
         </table></div>
@@ -1139,11 +1149,33 @@ def _accounts_content(data: AccountsPageData, timezone: str = "Europe/Moscow") -
     """
 
 
+def _sync_detail_cell(account: MarketplaceAccount, timezone: str) -> str:
+    items = [
+        ("Заказы", account.last_orders_sync_at),
+        ("Продажи", account.last_sales_sync_at),
+        ("Остатки", account.last_stocks_sync_at),
+        ("Товары", account.last_products_sync_at),
+        ("Профиль", account.last_profile_sync_at),
+    ]
+    if account.marketplace.value == "ozon":
+        items.append(("Ozon каталог", account.last_ozon_enrichment_sync_at))
+    if account.marketplace.value == "wb":
+        items.append(("Отчёты WB", account.last_wb_reports_sync_at))
+    parts = []
+    for label, ts in items:
+        if ts is None:
+            parts.append(f'<div class="muted">{escape(label)}: ещё не запускалась</div>')
+        else:
+            parts.append(f"<div>{escape(label)}: {_dt(ts, timezone)}</div>")
+    return "".join(parts)
+
+
 def _sync_actions() -> str:
     actions = [
         ("orders", "Заказы"),
         ("sales", "Продажи"),
         ("stocks", "Остатки"),
+        ("products", "Товары"),
         ("wb-reports", "Отчёты WB"),
         ("ozon-enrichment", "Ozon каталог"),
     ]
@@ -1761,7 +1793,7 @@ def _dashboard_welcome(
           </div>
         </div>
         <div class="hero-panel">
-          <div class="hero-stat"><span>Последняя синхронизация</span><strong>{escape(_last_sync_label(accounts, user.timezone))}</strong></div>
+          <div class="hero-stat"><span>Последняя активность синхронизаций</span><strong>{escape(_last_sync_label(accounts, user.timezone))}</strong></div>
           <div class="hero-stat"><span>Тариф</span><strong>{escape(subscription.tier.name)} до {escape(expires)}</strong></div>
           <div class="hero-stat"><span>Кабинеты МП</span><strong>{accounts.active_accounts} из {subscription.tier.max_marketplace_accounts}</strong></div>
           <div class="page-actions">
@@ -1850,11 +1882,20 @@ def _conversion_label(orders: KpiMetric | None, sales: KpiMetric | None) -> str:
 
 
 def _last_sync_label(accounts: AccountsPageData, timezone: str = "Europe/Moscow") -> str:
-    dates = [
-        row.account.last_success_sync_at
-        for row in accounts.rows
-        if row.account.last_success_sync_at is not None
-    ]
+    dates = []
+    for row in accounts.rows:
+        acc = row.account
+        for field in (
+            acc.last_orders_sync_at,
+            acc.last_sales_sync_at,
+            acc.last_stocks_sync_at,
+            acc.last_products_sync_at,
+            acc.last_profile_sync_at,
+            acc.last_ozon_enrichment_sync_at,
+            acc.last_wb_reports_sync_at,
+        ):
+            if field is not None:
+                dates.append(field)
     if not dates:
         return "ещё не было"
     return _dt(max(dates), timezone)
@@ -1865,17 +1906,30 @@ def _sync_status(accounts: AccountsPageData) -> str:
         return "нужна настройка"
     if any(row.account.last_error_message for row in accounts.rows if row.account.is_active):
         return "есть ошибки"
-    dates = [
-        row.account.last_success_sync_at
-        for row in accounts.rows
-        if row.account.is_active and row.account.last_success_sync_at is not None
-    ]
-    if not dates:
-        return "ожидает данных"
-    latest = max(dates)
-    if latest.tzinfo is None:
-        latest = latest.replace(tzinfo=UTC)
-    return "актуальна" if datetime.now(tz=UTC) - latest < timedelta(hours=24) else "нужно обновить"
+    now = datetime.now(tz=UTC)
+    orders_ok = False
+    sales_ok = False
+    for row in accounts.rows:
+        acc = row.account
+        if not acc.is_active:
+            continue
+        if acc.last_orders_sync_at is not None:
+            ts = acc.last_orders_sync_at
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=UTC)
+            if now - ts < timedelta(minutes=SYNC_FRESHNESS_ORDERS_MINUTES):
+                orders_ok = True
+        if acc.last_sales_sync_at is not None:
+            ts = acc.last_sales_sync_at
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=UTC)
+            if now - ts < timedelta(minutes=SYNC_FRESHNESS_SALES_MINUTES):
+                sales_ok = True
+    if orders_ok and sales_ok:
+        return "актуальна"
+    if orders_ok or sales_ok:
+        return "требует проверки"
+    return "ожидает данных"
 
 
 def _attention_list(data: DashboardData) -> str:

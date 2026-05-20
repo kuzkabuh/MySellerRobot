@@ -78,7 +78,9 @@ class ProductSyncService:
                 else:
                     count = await self._sync_ozon(account)
 
-                account.last_success_sync_at = datetime.now(tz=UTC)
+                now = datetime.now(tz=UTC)
+                account.last_success_sync_at = now
+                account.last_products_sync_at = now
                 account.last_error_at = None
                 account.last_error_message = None
                 await self.session.commit()

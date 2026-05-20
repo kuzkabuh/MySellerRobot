@@ -56,6 +56,9 @@ class AccountProfileService:
         )
         if force_balance or balance_is_stale:
             balance = await self._refresh_wb_balance(account, client)
+        now = datetime.now(tz=UTC)
+        account.last_profile_sync_at = now
+        account.last_success_sync_at = now
         await self.session.flush()
         return SellerCabinetSnapshot(account=account, balance=balance)
 
@@ -146,6 +149,9 @@ class AccountProfileService:
             account.seller_info_payload = payload
         except Exception:
             logger.exception("ozon_seller_info_refresh_failed", extra={"account_id": account.id})
+        now = datetime.now(tz=UTC)
+        account.last_profile_sync_at = now
+        account.last_success_sync_at = now
         await self.session.flush()
         return SellerCabinetSnapshot(
             account=account,

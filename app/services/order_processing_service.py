@@ -251,7 +251,10 @@ class OrderProcessingService:
                         },
                     )
                 else:
-                    account.last_order_poll_at = datetime.now(tz=UTC)
+                    now = datetime.now(tz=UTC)
+                    account.last_order_poll_at = now
+                    account.last_orders_sync_at = now
+                    account.last_success_sync_at = now
                 await self.session.commit()
 
                 logger.info(

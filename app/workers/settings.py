@@ -91,6 +91,7 @@ class WorkerSettings:
         cron(check_wb_financial_reports, hour=4, minute=10),
         cron(reconcile_pending_payments, minute={5, 25, 45}),
         cron(resend_unnotified_orders, minute={7, 22, 37, 52}),
+        cron(sync_products, hour=1, minute=20),
     ]
     redis_settings = _redis_settings()
     max_jobs = 10

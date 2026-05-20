@@ -746,7 +746,7 @@ async def sync_products(ctx: dict[str, Any]) -> None:
                 synced = await ProductSyncService(session).sync_account_products(account)
                 total += synced
                 logger.info(
-                    "manual_product_sync_finished",
+                    "product_sync_account_finished",
                     extra={
                         "account_id": ref.id,
                         "user_id": ref.user_id,
@@ -757,7 +757,7 @@ async def sync_products(ctx: dict[str, Any]) -> None:
         except Exception:
             failed += 1
             logger.exception(
-                "manual_product_sync_failed",
+                "product_sync_account_failed",
                 extra={
                     "account_id": ref.id,
                     "user_id": ref.user_id,
@@ -765,7 +765,7 @@ async def sync_products(ctx: dict[str, Any]) -> None:
                 },
             )
     logger.info(
-        "manual_product_sync_completed",
+        "product_sync_completed",
         extra={"accounts": len(account_refs), "products_synced": total, "failed": failed},
     )
 

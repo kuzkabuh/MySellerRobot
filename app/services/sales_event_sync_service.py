@@ -326,6 +326,9 @@ class SalesEventSyncService:
             )
             await self.session.rollback()
         await self.session.commit()
+        now = datetime.now(tz=UTC)
+        account.last_sales_sync_at = now
+        account.last_success_sync_at = now
         logger.info(
             "wb_sale_sync_completed",
             extra={
@@ -496,6 +499,9 @@ class SalesEventSyncService:
             )
             await self.session.rollback()
         await self.session.commit()
+        now = datetime.now(tz=UTC)
+        account.last_sales_sync_at = now
+        account.last_success_sync_at = now
         logger.info(
             "ozon_sale_sync_completed",
             extra={

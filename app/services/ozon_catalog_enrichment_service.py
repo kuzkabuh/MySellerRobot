@@ -77,6 +77,9 @@ class OzonCatalogEnrichmentService:
             stats.failed += 1
             logger.exception("ozon_promos_sync_failed", extra={"account_id": account.id})
             await self.session.rollback()
+        now = datetime.now(tz=UTC)
+        account.last_ozon_enrichment_sync_at = now
+        account.last_success_sync_at = now
         await self.session.commit()
         return stats
 

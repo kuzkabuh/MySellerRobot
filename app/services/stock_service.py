@@ -35,6 +35,9 @@ class StockService:
             count = await self._sync_wb(account)
         else:
             count = await self._sync_ozon(account)
+        now = datetime.now(tz=UTC)
+        account.last_stocks_sync_at = now
+        account.last_success_sync_at = now
         await self.session.commit()
         return count
 
