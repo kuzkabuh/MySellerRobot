@@ -36,6 +36,7 @@ from app.services.sales_event_sync_service import (
     SalesEventSyncService,
 )
 from app.services.stock_service import StockService
+from app.services.wb_daily_financial_detail_service import WbDailyFinancialDetailService
 from app.services.wb_report_service import WbFinancialReportService
 
 logger = logging.getLogger(__name__)
@@ -695,6 +696,44 @@ async def check_wb_financial_reports(ctx: dict[str, Any]) -> None:
                 logger.exception(
                     "wb_financial_reports_check_failed",
                     extra={"account_id": ref.id},
+                )
+                try:
+                    await session.rollback()
+                except Exception:
+                    pass
+
+
+async def sync_wb_daily_financial_details(ctx: dict[str, Any]) -> None:
+    moscow_yesterday = (datetime.now(tz=MOSCOW_TZ) - timedelta(days=1)).date()
+    async with AsyncSessionFactory() as session:
+        account_refs = await _load_account_refs_wb(session)
+        for ref in account_refs:
+            try:
+                account = await _load_account_by_id(session, ref.id)
+                if account is None:
+                    continue
+                service = WbDailyFinancialDetailService(session)
+                counters = await service.sync_account_for_date(account, moscow_yesterday)
+                await session.commit()
+                logger.info(
+                    "wb_daily_financial_detail_sync_finished",
+                    extra={
+                        "account_id": ref.id,
+                        "report_date": moscow_yesterday.isoformat(),
+                        "pages_fetched": counters.pages_fetched,
+                        "rows_fetched": counters.total_rows_fetched,
+                        "rows_upserted": counters.rows_upserted,
+                        "rows_matched": counters.rows_matched,
+                        "rows_unmatched": counters.rows_unmatched,
+                        "orders_reconciled": counters.orders_reconciled,
+                        "snapshots_upserted": counters.snapshots_upserted,
+                        "failed_rows": counters.failed_rows,
+                    },
+                )
+            except Exception:
+                logger.exception(
+                    "wb_daily_financial_detail_sync_account_failed",
+                    extra={"account_id": ref.id, "report_date": moscow_yesterday.isoformat()},
                 )
                 try:
                     await session.rollback()

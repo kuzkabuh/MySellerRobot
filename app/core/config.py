@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     daily_report_hour: int = 9
     backfill_default_days: int = 30
     backfill_chunk_days: int = 7
+    wb_report_detailed_limit: int = 1000
     web_base_url: str = "http://localhost:8000"
     web_app_base_url: str | None = None
     web_login_token_ttl_minutes: int = 10

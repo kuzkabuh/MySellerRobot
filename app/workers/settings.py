@@ -23,6 +23,7 @@ from app.workers.tasks import (
     sync_products,
     sync_sale_events,
     sync_wb_account_profiles,
+    sync_wb_daily_financial_details,
     sync_wb_daily_sales_reports,
 )
 
@@ -48,6 +49,7 @@ class WorkerSettings:
         sync_ozon_catalog_enrichment,
         sync_wb_account_profiles,
         check_wb_financial_reports,
+        sync_wb_daily_financial_details,
         reconcile_pending_payments,
         resend_unnotified_orders,
     ]
@@ -89,6 +91,7 @@ class WorkerSettings:
         cron(sync_ozon_catalog_enrichment, hour=3, minute=20),
         cron(sync_wb_account_profiles, hour={7, 19}, minute=40),
         cron(check_wb_financial_reports, hour=4, minute=10),
+        cron(sync_wb_daily_financial_details, hour=5, minute=0),
         cron(reconcile_pending_payments, minute={5, 25, 45}),
         cron(resend_unnotified_orders, minute={7, 22, 37, 52}),
         cron(sync_products, hour=1, minute=20),

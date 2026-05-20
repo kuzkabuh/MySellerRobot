@@ -234,9 +234,18 @@ class WildberriesClient:
         self,
         date_from: str,
         date_to: str,
+        period: str = "daily",
+        limit: int = 1000,
+        rrd_id: int = 0,
         fields: list[str] | None = None,
     ) -> dict[str, Any]:
-        payload: dict[str, Any] = {"dateFrom": date_from, "dateTo": date_to}
+        payload: dict[str, Any] = {
+            "dateFrom": date_from,
+            "dateTo": date_to,
+            "period": period,
+            "limit": limit,
+            "rrdId": rrd_id,
+        }
         if fields:
             payload["fields"] = fields
         return cast(

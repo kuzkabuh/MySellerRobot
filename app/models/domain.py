@@ -96,7 +96,12 @@ class MarketplaceAccount(TimestampMixin, Base):
     last_products_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_profile_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_ozon_enrichment_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    last_wb_reports_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_wb_reports_sync_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    last_wb_financial_detail_sync_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     last_error_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error_message: Mapped[str | None] = mapped_column(Text)
     seller_external_id: Mapped[str | None] = mapped_column(String(128), index=True)
