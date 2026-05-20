@@ -138,10 +138,10 @@ BOT_TOKEN=your_telegram_bot_token
 ADMIN_TELEGRAM_IDS=123456789
 
 # База данных
-POSTGRES_DB=seller_profit_bot
-POSTGRES_USER=seller_bot
+POSTGRES_DB=your_db_name
+POSTGRES_USER=your_user
 POSTGRES_PASSWORD=your_secure_password
-DATABASE_URL=postgresql+asyncpg://seller_bot:your_secure_password@postgres:5432/seller_profit_bot
+DATABASE_URL=postgresql+asyncpg://your_user:your_secure_password@postgres:5432/your_db_name
 
 # Redis
 REDIS_URL=redis://redis:6379/0
@@ -156,10 +156,10 @@ WB_BASE_STATISTICS_URL=https://statistics-api.wildberries.ru
 OZON_BASE_URL=https://api-seller.ozon.ru
 
 # Web-кабинет (нужен публичный HTTPS-адрес — Telegram не принимает localhost)
-WEB_BASE_URL=https://app.mpcontrol.online
-WEB_APP_BASE_URL=https://app.mpcontrol.online
-API_BASE_URL=https://api.mpcontrol.online
-PUBLIC_SITE_URL=https://mpcontrol.online
+WEB_BASE_URL=https://app.example.com
+WEB_APP_BASE_URL=https://app.example.com
+API_BASE_URL=https://api.example.com
+PUBLIC_SITE_URL=https://example.com
 WEB_LOGIN_TOKEN_TTL_MINUTES=10
 WEB_SESSION_TTL_HOURS=168
 
@@ -175,11 +175,12 @@ DEFAULT_PACKAGE_COST=0
 # ЮKassa
 YOOKASSA_SHOP_ID=your_shop_id
 YOOKASSA_SECRET_KEY=your_secret_key
-YOOKASSA_RETURN_URL=https://app.mpcontrol.online/web/payment/success
-YOOKASSA_WEBHOOK_URL=https://app.mpcontrol.online/webhooks/yookassa
+YOOKASSA_RETURN_URL=https://app.example.com/web/payment/success
+YOOKASSA_WEBHOOK_URL=https://app.example.com/webhooks/yookassa
 
 # Поддержка
-SUPPORT_TELEGRAM_USERNAME=mpcontrol_support
+SUPPORT_TELEGRAM_USERNAME=your_support_telegram_username
+
 
 # Deployment
 DEPLOY_PROJECT_DIR=/opt/mpcontrol
