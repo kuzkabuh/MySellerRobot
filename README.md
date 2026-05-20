@@ -659,7 +659,7 @@ python -c "from app.workers.settings import WorkerSettings; print(len(WorkerSett
 - Ubuntu 22.04/24.04
 - Docker Compose
 - Nginx + Certbot (SSL)
-- Домены: `mpcontrol.online`, `app.mpcontrol.online`, `api.mpcontrol.online`
+- Домены: `example.com`, `app.example.com`, `api.example.com`
 
 ### Первичная установка
 

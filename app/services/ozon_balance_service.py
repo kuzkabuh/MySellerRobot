@@ -131,33 +131,42 @@ class OzonBalanceService:
         date_to: date,
         fetched_at: datetime,
     ) -> AccountBalanceSnapshot:
-        result_list = payload.get("result")
-        if not isinstance(result_list, list) or not result_list:
+        if not isinstance(payload, dict):
             return _error_snapshot(
-                account, date_from, date_to, fetched_at, "Empty or missing result array"
+                account, date_from, date_to, fetched_at, "ozon_balance_invalid_response"
             )
 
-        first = result_list[0]
-        if not isinstance(first, dict):
+        result = payload.get("result")
+
+        if result is None:
             return _error_snapshot(
-                account, date_from, date_to, fetched_at, "Non-dict result entry"
+                account, date_from, date_to, fetched_at, "ozon_balance_invalid_response"
             )
 
-        closing = first.get("closing_balance")
+        if not isinstance(result, dict):
+            return _error_snapshot(
+                account,
+                date_from,
+                date_to,
+                fetched_at,
+                f"ozon_balance_invalid_response: expected dict, got {type(result).__name__}",
+            )
+
+        closing = result.get("closing_balance")
         if not isinstance(closing, dict):
             return _error_snapshot(
-                account, date_from, date_to, fetched_at, "Missing closing_balance"
+                account, date_from, date_to, fetched_at, "ozon_balance_invalid_response"
             )
 
         closing_value = _decimal_or_none(closing.get("value"))
         currency = str(closing.get("currency_code") or "RUB")
 
         opening_balance = _decimal_or_none(
-            _safe_nested_value(first, "opening_balance", "value")
+            _safe_nested_value(result, "opening_balance", "value")
         )
-        accrued = _decimal_or_none(_safe_nested_value(first, "accrued", "value"))
+        accrued = _decimal_or_none(_safe_nested_value(result, "accrued", "value"))
 
-        payments = first.get("payments")
+        payments = result.get("payments")
         payments_total = _sum_payments(payments)
 
         return AccountBalanceSnapshot(

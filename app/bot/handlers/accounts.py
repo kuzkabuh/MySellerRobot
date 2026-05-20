@@ -425,8 +425,21 @@ def _format_seller_profile(
                 ]
             )
             if error_msg:
-                lines.append(f"Ошибка: {_safe_text(error_msg[:200])}")
+                user_msg = _ozon_balance_user_message_telegram(str(error_msg))
+                lines.append(user_msg)
     return "\n".join(lines)
+
+
+def _ozon_balance_user_message_telegram(error_code: str) -> str:
+    if "auth" in error_code.lower() or "401" in error_code or "403" in error_code:
+        return "Проверьте ключи доступа Ozon"
+    if "rate" in error_code.lower() or "429" in error_code:
+        return "Слишком много запросов, повторим позже"
+    if "invalid_response" in error_code.lower():
+        return "Нет данных"
+    if "http" in error_code.lower():
+        return "Временно недоступен"
+    return "Ошибка синхронизации"
 
 
 def _format_wb_reports(

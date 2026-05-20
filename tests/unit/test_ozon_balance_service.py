@@ -28,17 +28,15 @@ def _make_ozon_account() -> MarketplaceAccount:
 class TestOzonBalanceServiceParseResponse:
     def test_parses_closing_balance_as_current(self) -> None:
         payload = {
-            "result": [
-                {
-                    "closing_balance": {"value": "12345.67", "currency_code": "RUB"},
-                    "opening_balance": {"value": "10000.00", "currency_code": "RUB"},
-                    "accrued": {"value": "3000.00", "currency_code": "RUB"},
-                    "payments": [
-                        {"date": "2026-05-10", "amount": {"value": "1500.00", "currency_code": "RUB"}},
-                        {"date": "2026-05-15", "amount": {"value": "2000.00", "currency_code": "RUB"}},
-                    ],
-                }
-            ]
+            "result": {
+                "closing_balance": {"value": "12345.67", "currency_code": "RUB"},
+                "opening_balance": {"value": "10000.00", "currency_code": "RUB"},
+                "accrued": {"value": "3000.00", "currency_code": "RUB"},
+                "payments": [
+                    {"date": "2026-05-10", "amount": {"value": "1500.00", "currency_code": "RUB"}},
+                    {"date": "2026-05-15", "amount": {"value": "2000.00", "currency_code": "RUB"}},
+                ],
+            }
         }
         account = _make_ozon_account()
         now = datetime.now(tz=UTC)
@@ -61,12 +59,10 @@ class TestOzonBalanceServiceParseResponse:
 
     def test_uses_closing_balance_not_accrued(self) -> None:
         payload = {
-            "result": [
-                {
-                    "closing_balance": {"value": "5000.00", "currency_code": "RUB"},
-                    "accrued": {"value": "99999.99", "currency_code": "RUB"},
-                }
-            ]
+            "result": {
+                "closing_balance": {"value": "5000.00", "currency_code": "RUB"},
+                "accrued": {"value": "99999.99", "currency_code": "RUB"},
+            }
         }
         account = _make_ozon_account()
         now = datetime.now(tz=UTC)
@@ -80,11 +76,9 @@ class TestOzonBalanceServiceParseResponse:
 
     def test_saves_currency_code(self) -> None:
         payload = {
-            "result": [
-                {
-                    "closing_balance": {"value": "100.00", "currency_code": "USD"},
-                }
-            ]
+            "result": {
+                "closing_balance": {"value": "100.00", "currency_code": "USD"},
+            }
         }
         account = _make_ozon_account()
         now = datetime.now(tz=UTC)
@@ -97,12 +91,10 @@ class TestOzonBalanceServiceParseResponse:
 
     def test_handles_empty_payments(self) -> None:
         payload = {
-            "result": [
-                {
-                    "closing_balance": {"value": "100.00", "currency_code": "RUB"},
-                    "payments": [],
-                }
-            ]
+            "result": {
+                "closing_balance": {"value": "100.00", "currency_code": "RUB"},
+                "payments": [],
+            }
         }
         account = _make_ozon_account()
         now = datetime.now(tz=UTC)
@@ -115,11 +107,9 @@ class TestOzonBalanceServiceParseResponse:
 
     def test_handles_missing_services(self) -> None:
         payload = {
-            "result": [
-                {
-                    "closing_balance": {"value": "100.00", "currency_code": "RUB"},
-                }
-            ]
+            "result": {
+                "closing_balance": {"value": "100.00", "currency_code": "RUB"},
+            }
         }
         account = _make_ozon_account()
         now = datetime.now(tz=UTC)
@@ -135,11 +125,9 @@ class TestOzonBalanceServiceParseResponse:
 
     def test_missing_closing_balance_returns_error(self) -> None:
         payload = {
-            "result": [
-                {
-                    "accrued": {"value": "100.00", "currency_code": "RUB"},
-                }
-            ]
+            "result": {
+                "accrued": {"value": "100.00", "currency_code": "RUB"},
+            }
         }
         account = _make_ozon_account()
         now = datetime.now(tz=UTC)
@@ -150,10 +138,10 @@ class TestOzonBalanceServiceParseResponse:
 
         assert snapshot.status == "PARSE_ERROR"
         assert snapshot.current is None
-        assert "closing_balance" in (snapshot.error_message or "")
+        assert "ozon_balance_invalid_response" in (snapshot.error_message or "")
 
-    def test_empty_result_array_returns_error(self) -> None:
-        payload = {"result": []}
+    def test_result_null_returns_error(self) -> None:
+        payload = {"result": None}
         account = _make_ozon_account()
         now = datetime.now(tz=UTC)
 
@@ -163,9 +151,22 @@ class TestOzonBalanceServiceParseResponse:
 
         assert snapshot.status == "PARSE_ERROR"
         assert snapshot.current is None
+        assert "ozon_balance_invalid_response" in (snapshot.error_message or "")
+
+    def test_result_not_dict_returns_error(self) -> None:
+        payload = {"result": "not a dict"}
+        account = _make_ozon_account()
+        now = datetime.now(tz=UTC)
+
+        snapshot = OzonBalanceService._parse_balance_response(
+            account, payload, date(2026, 4, 21), date(2026, 5, 20), now
+        )
+
+        assert snapshot.status == "PARSE_ERROR"
+        assert "ozon_balance_invalid_response" in (snapshot.error_message or "")
 
     def test_missing_result_key_returns_error(self) -> None:
-        payload = {"something_else": []}
+        payload = {"something_else": {}}
         account = _make_ozon_account()
         now = datetime.now(tz=UTC)
 
@@ -174,9 +175,10 @@ class TestOzonBalanceServiceParseResponse:
         )
 
         assert snapshot.status == "PARSE_ERROR"
+        assert "ozon_balance_invalid_response" in (snapshot.error_message or "")
 
     def test_malformed_payload_returns_error(self) -> None:
-        payload = {"result": "not a list"}
+        payload = {"result": []}
         account = _make_ozon_account()
         now = datetime.now(tz=UTC)
 
@@ -185,6 +187,18 @@ class TestOzonBalanceServiceParseResponse:
         )
 
         assert snapshot.status == "PARSE_ERROR"
+        assert "ozon_balance_invalid_response" in (snapshot.error_message or "")
+
+    def test_non_dict_payload_returns_error(self) -> None:
+        account = _make_ozon_account()
+        now = datetime.now(tz=UTC)
+
+        snapshot = OzonBalanceService._parse_balance_response(
+            account, "not a dict", date(2026, 4, 21), date(2026, 5, 20), now
+        )
+
+        assert snapshot.status == "PARSE_ERROR"
+        assert "ozon_balance_invalid_response" in (snapshot.error_message or "")
 
 
 class TestHelperFunctions:
