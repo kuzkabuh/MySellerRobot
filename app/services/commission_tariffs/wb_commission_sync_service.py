@@ -1,4 +1,4 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: Wildberries commission tariff sync service via official API.
 updated: 2026-05-20
 """
@@ -23,12 +23,25 @@ from app.models.enums import Marketplace
 
 logger = logging.getLogger(__name__)
 
-WB_SALES_MODEL_MAP: dict[str, str] = {
-    "fbo": "fbo",
-    "fbs": "fbs",
-    "dbs": "dbs",
-    "rfbs": "rfbs",
-    "kvv": "fbo",
+# Mapping of WB API commission fields to internal sales_model names.
+# Official WB API fields (from GET /api/v1/tariffs/commission):
+#   kgvpBooking        → комиссия «Бронирование»
+#   kgvpMarketplace    → комиссия FBS («Маркетплейс»)
+#   kgvpPickup         → комиссия «Самовывоз» (C&C)
+#   kgvpSupplier       → комиссия DBS/DBW («Витрина» / «Курьер WB»)
+#   kgvpSupplierExpress→ комиссия EDBS («Витрина экспресс»)
+#   paidStorageKgvp    → комиссия FBW / «Склад WB»
+#
+# Internal project uses "fbo" as the canonical name for the warehouse model.
+# WB officially calls it FBW / «Склад WB», but we map it to "fbo" internally
+# for consistency with SaleModel.FBO used throughout the codebase.
+WB_COMMISSION_FIELD_MAP: dict[str, str] = {
+    "kgvpBooking": "booking",
+    "kgvpMarketplace": "fbs",
+    "kgvpPickup": "pickup",
+    "kgvpSupplier": "dbs_dbw",
+    "kgvpSupplierExpress": "edbs",
+    "paidStorageKgvp": "fbo",
 }
 
 
@@ -37,40 +50,70 @@ def _compute_payload_hash(payload: list[dict[str, Any]]) -> str:
     return hashlib.sha256(normalised.encode("utf-8")).hexdigest()
 
 
+def _safe_decimal(value: Any) -> Decimal:
+    """Convert a value to Decimal, returning 0 on failure."""
+    if value is None:
+        return Decimal("0")
+    try:
+        return Decimal(str(value))
+    except Exception:
+        return Decimal("0")
+
+
 def _normalize_wb_tariff_entry(entry: dict[str, Any]) -> list[dict[str, Any]]:
-    """Normalize a single WB tariff API entry into rate records."""
+    """Normalize a single WB tariff API report entry into rate records.
+
+    The WB API returns a flat report array where each entry contains multiple
+    commission fields for different sales models:
+
+    {
+        "kgvpBooking": 14.5,
+        "kgvpMarketplace": 15.5,
+        "kgvpPickup": 14.5,
+        "kgvpSupplier": 12.5,
+        "kgvpSupplierExpress": 3,
+        "paidStorageKgvp": 15.5,
+        "parentID": 657,
+        "parentName": "Бытовая техника",
+        "subjectID": 6461,
+        "subjectName": "Оборудование зуботехническое"
+    }
+
+    Each non-null commission field becomes a separate MarketplaceCommissionRate.
+    """
     rates = []
-    subject = entry.get("subject", entry.get("subjectName", ""))
-    object_name = entry.get("objectName", "")
-    category = entry.get("categoryName", subject or "")
 
-    tariffs = entry.get("tariffs", [])
-    if not isinstance(tariffs, list):
-        tariffs = [tariffs] if tariffs else []
+    parent_name = entry.get("parentName", "")
+    parent_id = entry.get("parentID")
+    subject_name = entry.get("subjectName", "")
+    subject_id = entry.get("subjectID")
 
-    for tariff in tariffs:
-        sales_model_raw = (tariff.get("salesModel") or tariff.get("type") or "").lower()
-        sales_model = WB_SALES_MODEL_MAP.get(sales_model_raw, sales_model_raw)
-        if not sales_model:
-            sales_model = "fbo"
+    category = parent_name or subject_name or ""
 
-        percent_raw = tariff.get("commissionPercent", tariff.get("percent", 0))
-        try:
-            commission_percent = Decimal(str(percent_raw))
-        except Exception:
-            commission_percent = Decimal("0")
+    for api_field, internal_model in WB_COMMISSION_FIELD_MAP.items():
+        raw_value = entry.get(api_field)
+        if raw_value is None:
+            continue
+
+        commission_percent = _safe_decimal(raw_value)
 
         rates.append({
             "category_name": str(category)[:512],
-            "subject_name": str(subject)[:512] if subject else None,
-            "object_name": str(object_name)[:512] if object_name else None,
+            "subject_name": str(subject_name)[:512] if subject_name else None,
+            "object_name": None,
             "product_type_name": None,
-            "sales_model": sales_model,
+            "sales_model": internal_model,
             "price_from": Decimal("0"),
             "price_to": Decimal("0"),
             "price_to_inclusive": False,
             "commission_percent": commission_percent,
-            "raw_payload": tariff,
+            "raw_payload": {
+                api_field: raw_value,
+                "parentID": parent_id,
+                "parentName": parent_name,
+                "subjectID": subject_id,
+                "subjectName": subject_name,
+            },
         })
 
     return rates

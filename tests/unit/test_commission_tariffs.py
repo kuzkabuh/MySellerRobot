@@ -9,17 +9,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.models.enums import Marketplace
 from app.services.commission_tariffs.commission_resolver_service import (
-    CommissionResolutionResult,
     CommissionResolverService,
 )
 from app.services.commission_tariffs.ozon_commission_source_monitor_service import (
     OzonCommissionPageParser,
 )
 from app.services.commission_tariffs.ozon_commission_xlsx_importer import (
-    _normalize_commission_value,
     _extract_date_from_filename,
+    _normalize_commission_value,
 )
 from app.services.commission_tariffs.wb_commission_sync_service import (
     _compute_payload_hash,
@@ -30,37 +28,107 @@ from app.services.commission_tariffs.wb_commission_sync_service import (
 class TestWbTariffNormalization:
     def test_normalize_single_entry(self) -> None:
         entry = {
-            "subject": "Одежда",
-            "categoryName": "Одежда и обувь",
-            "tariffs": [
-                {"salesModel": "FBO", "commissionPercent": 19},
-                {"salesModel": "FBS", "commissionPercent": 25},
-            ],
+            "parentName": "Одежда и обувь",
+            "subjectName": "Одежда",
+            "parentID": 100,
+            "subjectID": 200,
+            "kgvpMarketplace": 25,
+            "paidStorageKgvp": 19,
         }
         rates = _normalize_wb_tariff_entry(entry)
         assert len(rates) == 2
-        assert rates[0]["sales_model"] == "fbo"
-        assert rates[0]["commission_percent"] == Decimal("19")
-        assert rates[1]["sales_model"] == "fbs"
-        assert rates[1]["commission_percent"] == Decimal("25")
+        fbs_rate = next(r for r in rates if r["sales_model"] == "fbs")
+        fbw_rate = next(r for r in rates if r["sales_model"] == "fbo")
+        assert fbs_rate["commission_percent"] == Decimal("25")
+        assert fbw_rate["commission_percent"] == Decimal("19")
 
-    def test_normalize_maps_kvv_to_fbo(self) -> None:
+    def test_normalize_all_six_models(self) -> None:
         entry = {
-            "subject": "Тест",
-            "tariffs": [{"salesModel": "KVV", "commissionPercent": 15}],
+            "parentName": "Бытовая техника",
+            "subjectName": "Тест",
+            "kgvpBooking": 14.5,
+            "kgvpMarketplace": 15.5,
+            "kgvpPickup": 14.5,
+            "kgvpSupplier": 12.5,
+            "kgvpSupplierExpress": 3,
+            "paidStorageKgvp": 15.5,
         }
         rates = _normalize_wb_tariff_entry(entry)
-        assert rates[0]["sales_model"] == "fbo"
+        assert len(rates) == 6
+        models = {r["sales_model"] for r in rates}
+        assert models == {"booking", "fbs", "pickup", "dbs_dbw", "edbs", "fbo"}
 
-    def test_normalize_empty_tariffs(self) -> None:
-        entry = {"subject": "Тест", "tariffs": []}
+    def test_normalize_skips_null_fields(self) -> None:
+        entry = {
+            "parentName": "Тест",
+            "kgvpMarketplace": 15,
+            "paidStorageKgvp": None,
+        }
+        rates = _normalize_wb_tariff_entry(entry)
+        assert len(rates) == 1
+        assert rates[0]["sales_model"] == "fbs"
+
+    def test_normalize_fbs_from_kgvp_marketplace(self) -> None:
+        entry = {
+            "parentName": "Электроника",
+            "subjectName": "Телефоны",
+            "kgvpMarketplace": 18,
+        }
+        rates = _normalize_wb_tariff_entry(entry)
+        fbs = next(r for r in rates if r["sales_model"] == "fbs")
+        assert fbs["commission_percent"] == Decimal("18")
+        assert fbs["category_name"] == "Электроника"
+        assert fbs["subject_name"] == "Телефоны"
+
+    def test_normalize_fbw_from_paid_storage_kgvp(self) -> None:
+        entry = {
+            "parentName": "Одежда",
+            "subjectName": "Платья",
+            "paidStorageKgvp": 19,
+        }
+        rates = _normalize_wb_tariff_entry(entry)
+        fbw = next(r for r in rates if r["sales_model"] == "fbo")
+        assert fbw["commission_percent"] == Decimal("19")
+        assert fbw["category_name"] == "Одежда"
+
+    def test_kgvp_supplier_not_used_for_fbw(self) -> None:
+        """kgvpSupplier maps to dbs_dbw, NOT to fbo/fbw."""
+        entry = {
+            "parentName": "Тест",
+            "kgvpSupplier": 12,
+            "paidStorageKgvp": 19,
+        }
+        rates = _normalize_wb_tariff_entry(entry)
+        supplier_rate = next(r for r in rates if r["sales_model"] == "dbs_dbw")
+        fbw_rate = next(r for r in rates if r["sales_model"] == "fbo")
+        assert supplier_rate["commission_percent"] == Decimal("12")
+        assert fbw_rate["commission_percent"] == Decimal("19")
+        assert supplier_rate["sales_model"] != fbw_rate["sales_model"]
+
+    def test_normalize_preserves_parent_and_subject_in_raw(self) -> None:
+        entry = {
+            "parentName": "Категория",
+            "subjectName": "Предмет",
+            "parentID": 657,
+            "subjectID": 6461,
+            "kgvpMarketplace": 15,
+        }
+        rates = _normalize_wb_tariff_entry(entry)
+        raw = rates[0]["raw_payload"]
+        assert raw["parentID"] == 657
+        assert raw["subjectID"] == 6461
+        assert raw["parentName"] == "Категория"
+        assert raw["subjectName"] == "Предмет"
+
+    def test_normalize_empty_entry(self) -> None:
+        entry = {"parentName": "Тест"}
         rates = _normalize_wb_tariff_entry(entry)
         assert rates == []
 
     def test_normalize_decimal_percent(self) -> None:
         entry = {
-            "subject": "Тест",
-            "tariffs": [{"salesModel": "FBO", "commissionPercent": 12.5}],
+            "parentName": "Тест",
+            "kgvpMarketplace": 12.5,
         }
         rates = _normalize_wb_tariff_entry(entry)
         assert rates[0]["commission_percent"] == Decimal("12.5")
@@ -187,10 +255,73 @@ class TestCommissionResolverService:
         assert result.match_status == "not_found"
 
 
+class TestWbCommissionResolver:
+    """Tests for WB commission resolution with correct field mapping."""
+
+    @pytest.mark.asyncio
+    async def test_resolves_fbs_from_kgvp_marketplace(self) -> None:
+        session = AsyncMock()
+        mock_version = MagicMock()
+        mock_version.id = 1
+
+        mock_fbs_rate = MagicMock()
+        mock_fbs_rate.id = 10
+        mock_fbs_rate.commission_percent = Decimal("15.5")
+
+        mock_found = MagicMock()
+        mock_found.scalar_one_or_none = MagicMock(return_value=mock_fbs_rate)
+
+        session.execute = AsyncMock(side_effect=[
+            MagicMock(scalar_one_or_none=MagicMock(return_value=mock_version)),
+            mock_found,
+        ])
+
+        resolver = CommissionResolverService(session)
+        result = await resolver.get_commission_rate(
+            marketplace="WB",
+            order_date=date(2026, 5, 20),
+            sales_model="fbs",
+            category_name="Бытовая техника",
+        )
+        assert result.match_status == "exact"
+        assert result.commission_percent == Decimal("15.5")
+
+    @pytest.mark.asyncio
+    async def test_resolves_fbw_from_paid_storage_kgvp(self) -> None:
+        """FBW (internal: fbo) resolves from paidStorageKgvp, not kgvpSupplier."""
+        session = AsyncMock()
+        mock_version = MagicMock()
+        mock_version.id = 1
+
+        mock_fbw_rate = MagicMock()
+        mock_fbw_rate.id = 20
+        mock_fbw_rate.commission_percent = Decimal("19")
+
+        mock_found = MagicMock()
+        mock_found.scalar_one_or_none = MagicMock(return_value=mock_fbw_rate)
+
+        session.execute = AsyncMock(side_effect=[
+            MagicMock(scalar_one_or_none=MagicMock(return_value=mock_version)),
+            mock_found,
+        ])
+
+        resolver = CommissionResolverService(session)
+        result = await resolver.get_commission_rate(
+            marketplace="WB",
+            order_date=date(2026, 5, 20),
+            sales_model="fbo",
+            category_name="Одежда",
+        )
+        assert result.match_status == "exact"
+        assert result.commission_percent == Decimal("19")
+
+
 class TestWbSyncNoChanges:
     @pytest.mark.asyncio
     async def test_sync_returns_no_changes_when_hash_matches(self) -> None:
-        from app.services.commission_tariffs.wb_commission_sync_service import WbCommissionSyncService
+        from app.services.commission_tariffs.wb_commission_sync_service import (
+            WbCommissionSyncService,
+        )
 
         session = AsyncMock()
         mock_version = MagicMock()
@@ -221,6 +352,43 @@ class TestWbSyncNoChanges:
 
         assert result["success"] is True
         assert result["changed"] is False
+
+    @pytest.mark.asyncio
+    async def test_sync_creates_rates_from_real_payload(self) -> None:
+        """Sync with real-structure payload must not create version with 0 rates."""
+        from app.services.commission_tariffs.wb_commission_sync_service import (
+            _normalize_wb_tariff_entry,
+        )
+
+        real_payload = [
+            {
+                "kgvpBooking": 14.5,
+                "kgvpMarketplace": 15.5,
+                "kgvpPickup": 14.5,
+                "kgvpSupplier": 12.5,
+                "kgvpSupplierExpress": 3,
+                "paidStorageKgvp": 15.5,
+                "parentID": 657,
+                "parentName": "Бытовая техника",
+                "subjectID": 6461,
+                "subjectName": "Оборудование",
+            }
+        ]
+
+        all_rates = []
+        for entry in real_payload:
+            all_rates.extend(_normalize_wb_tariff_entry(entry))
+
+        assert len(all_rates) == 6
+        models = {r["sales_model"] for r in all_rates}
+        assert "fbs" in models
+        assert "fbo" in models
+
+        fbs_rate = next(r for r in all_rates if r["sales_model"] == "fbs")
+        assert fbs_rate["commission_percent"] == Decimal("15.5")
+
+        fbw_rate = next(r for r in all_rates if r["sales_model"] == "fbo")
+        assert fbw_rate["commission_percent"] == Decimal("15.5")
 
 
 class TestOzonMonitorDetectsChanges:
