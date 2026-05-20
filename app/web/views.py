@@ -1178,6 +1178,7 @@ def _sync_actions() -> str:
         ("products", "Товары"),
         ("wb-reports", "Отчёты WB"),
         ("ozon-enrichment", "Ozon каталог"),
+        ("ozon-balance", "Баланс Ozon"),
     ]
     buttons = "".join(
         f'<form method="post" action="/web/sync/{key}">'
@@ -1206,12 +1207,45 @@ def _seller_profile_web(account: MarketplaceAccount, balance: object | None) -> 
     if balance is None:
         parts.append('<div class="muted">Баланс не загружен</div>')
     elif getattr(balance, "status", "") == "OK":
+        currency = getattr(balance, "currency", "RUB")
         current = getattr(balance, "current", None)
-        for_withdraw = getattr(balance, "for_withdraw", None)
-        parts.append(f'<div class="muted">Баланс: {_rub(current)}</div>')
-        parts.append(f'<div class="muted">К выводу: {_rub(for_withdraw)}</div>')
+        if account.marketplace == Marketplace.WB:
+            for_withdraw = getattr(balance, "for_withdraw", None)
+            parts.append(f'<div class="muted">Баланс: {_rub(current)} {escape(currency)}</div>')
+            parts.append(f'<div class="muted">К выводу: {_rub(for_withdraw)} {escape(currency)}</div>')
+        else:
+            parts.append(
+                f'<div class="muted">💰 Баланс Ozon: {_rub(current)} {escape(currency)}</div>'
+            )
+            period_from = getattr(balance, "period_from", None)
+            period_to = getattr(balance, "period_to", None)
+            if period_from and period_to:
+                parts.append(
+                    f'<div class="muted">Период: {escape(str(period_from))} — {escape(str(period_to))}</div>'
+                )
+            accrued = getattr(balance, "accrued", None)
+            if accrued is not None:
+                parts.append(
+                    f'<div class="muted">Начислено: {_rub(accrued)} {escape(currency)}</div>'
+                )
+            opening = getattr(balance, "opening_balance", None)
+            if opening is not None:
+                parts.append(
+                    f'<div class="muted">На начало периода: {_rub(opening)} {escape(currency)}</div>'
+                )
+            payments = getattr(balance, "payments_total", None)
+            if payments is not None:
+                parts.append(
+                    f'<div class="muted">Выплаты: {_rub(payments)} {escape(currency)}</div>'
+                )
     else:
-        parts.append('<div class="muted">Для баланса нужен Finance-доступ WB</div>')
+        error_msg = getattr(balance, "error_message", None)
+        if account.marketplace == Marketplace.WB:
+            parts.append('<div class="muted">Для баланса нужен Finance-доступ WB</div>')
+        else:
+            parts.append('<div class="muted">💰 Баланс Ozon: не удалось обновить</div>')
+            if error_msg:
+                parts.append(f'<div class="muted">{escape(str(error_msg)[:200])}</div>')
     return "".join(parts)
 
 

@@ -277,12 +277,14 @@ class TestSellerProfileWeb:
         assert "1 000" in result
 
     def test_seller_profile_web_with_valid_balance(self):
+        from app.models.enums import Marketplace
         from app.web.routes import _seller_profile_web
 
         account = MagicMock()
         account.seller_name = "Test Seller"
         account.seller_legal_name = "Test Legal"
         account.seller_info_payload = {"tin": "1234567890"}
+        account.marketplace = Marketplace.WB
 
         balance = MagicMock()
         balance.status = "OK"

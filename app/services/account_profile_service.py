@@ -15,6 +15,7 @@ from app.integrations.ozon import OzonClient
 from app.integrations.wb import WildberriesClient
 from app.models.domain import AccountBalanceSnapshot, MarketplaceAccount
 from app.models.enums import Marketplace
+from app.services.ozon_balance_service import OzonBalanceService
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ class AccountProfileService:
         if account.marketplace == Marketplace.WB:
             return await self.refresh_wb_account(account, force_balance=force_balance)
         if account.marketplace == Marketplace.OZON:
-            return await self._refresh_ozon_account(account)
+            return await self._refresh_ozon_account(account, force_balance=force_balance)
         return SellerCabinetSnapshot(account=account)
 
     async def latest_balance(self, account_id: int) -> AccountBalanceSnapshot | None:
@@ -128,9 +129,19 @@ class AccountProfileService:
         await self.session.flush()
         return snapshot
 
-    async def _refresh_ozon_account(self, account: MarketplaceAccount) -> SellerCabinetSnapshot:
+    async def _refresh_ozon_account(
+        self,
+        account: MarketplaceAccount,
+        *,
+        force_balance: bool = False,
+    ) -> SellerCabinetSnapshot:
         if not account.encrypted_client_id:
-            return SellerCabinetSnapshot(account=account, balance_error="Client ID не сохранён")
+            return SellerCabinetSnapshot(
+                account=account,
+                balance=await self.latest_balance(account.id),
+                balance_error="Client ID не сохранён",
+            )
+
         client = OzonClient(
             self.cipher.decrypt(account.encrypted_client_id),
             self.cipher.decrypt(account.encrypted_api_key),
@@ -149,17 +160,29 @@ class AccountProfileService:
             account.seller_info_payload = payload
         except Exception:
             logger.exception("ozon_seller_info_refresh_failed", extra={"account_id": account.id})
+
+        balance = await self.latest_balance(account.id)
+        balance_is_stale = (
+            balance is None or balance.fetched_at < datetime.now(tz=UTC) - self.balance_ttl
+        )
+        if force_balance or balance_is_stale:
+            balance = await OzonBalanceService(self.session, self.cipher).sync_balance(account)
+
         now = datetime.now(tz=UTC)
         account.last_profile_sync_at = now
         account.last_success_sync_at = now
         await self.session.flush()
+
+        balance_error = None
+        if balance is None:
+            balance_error = "Баланс пока не загружен"
+        elif getattr(balance, "status", "") != "OK":
+            balance_error = getattr(balance, "error_message", "Ошибка загрузки баланса")
+
         return SellerCabinetSnapshot(
             account=account,
-            balance=await self.latest_balance(account.id),
-            balance_error=(
-                "Ozon Seller API не возвращает единый баланс кабинета "
-                "в текущей интеграции."
-            ),
+            balance=balance,
+            balance_error=balance_error,
         )
 
 

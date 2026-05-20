@@ -19,6 +19,7 @@ class WebSyncType(StrEnum):
     WB_PROFILE = "wb-profile"
     WB_REPORTS = "wb-reports"
     OZON_ENRICHMENT = "ozon-enrichment"
+    OZON_BALANCE = "ozon-balance"
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +44,10 @@ SYNC_TASKS: dict[WebSyncType, tuple[str, str]] = {
     WebSyncType.OZON_ENRICHMENT: (
         "sync_ozon_catalog_enrichment",
         "Обновление каталога Ozon поставлено в очередь.",
+    ),
+    WebSyncType.OZON_BALANCE: (
+        "sync_ozon_balances",
+        "Обновление баланса Ozon поставлено в очередь.",
     ),
 }
 

@@ -28,6 +28,7 @@ from app.services.fbs_control_service import FbsControlService
 from app.services.history_backfill_service import BackfillCounters, HistoryBackfillService
 from app.services.notification_service import NotificationService
 from app.services.order_processing_service import NewOrderNotification, OrderProcessingService
+from app.services.ozon_balance_service import OzonBalanceService
 from app.services.ozon_catalog_enrichment_service import OzonCatalogEnrichmentService
 from app.services.product_sync_service import ProductSyncService
 from app.services.sales_event_sync_service import (
@@ -770,6 +771,63 @@ async def sync_ozon_catalog_enrichment(ctx: dict[str, Any]) -> None:
                     await session.rollback()
                 except Exception:
                     pass
+
+
+async def sync_ozon_balances(ctx: dict[str, Any]) -> None:
+    """Sync Ozon account balances via POST /v1/finance/balance."""
+    async with AsyncSessionFactory() as session:
+        account_refs = await _load_account_refs_ozon(session)
+        success = 0
+        failed = 0
+        for ref in account_refs:
+            try:
+                account = await _load_account_by_id(session, ref.id)
+                if account is None:
+                    continue
+                if not account.encrypted_client_id:
+                    logger.info(
+                        "ozon_balance_sync_skipped_no_client_id",
+                        extra={"account_id": ref.id},
+                    )
+                    continue
+                snapshot = await OzonBalanceService(session).sync_balance(account)
+                await session.commit()
+                if snapshot.current is not None:
+                    success += 1
+                else:
+                    failed += 1
+                logger.info(
+                    "ozon_balance_sync_account_finished",
+                    extra={
+                        "account_id": ref.id,
+                        "user_id": ref.user_id,
+                        "closing_balance": str(snapshot.current),
+                        "currency": snapshot.currency,
+                        "status": snapshot.status,
+                    },
+                )
+            except Exception:
+                failed += 1
+                logger.exception(
+                    "ozon_balance_sync_account_failed",
+                    extra={
+                        "account_id": ref.id,
+                        "marketplace": ref.marketplace,
+                        "user_id": ref.user_id,
+                    },
+                )
+                try:
+                    await session.rollback()
+                except Exception:
+                    pass
+        logger.info(
+            "ozon_balance_sync_completed",
+            extra={
+                "accounts_processed": len(account_refs),
+                "success": success,
+                "failed": failed,
+            },
+        )
 
 
 async def sync_products(ctx: dict[str, Any]) -> None:

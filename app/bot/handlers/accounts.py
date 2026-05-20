@@ -385,25 +385,47 @@ def _format_seller_profile(
     elif getattr(balance, "status", "") == "OK":
         currency = getattr(balance, "currency", "RUB")
         current = _safe_text(getattr(balance, "current", None))
-        for_withdraw = _safe_text(getattr(balance, "for_withdraw", None))
-        lines.extend(
-            [
-                "",
-                "💰 Баланс",
-                f"Текущий: {current} {currency}",
-                f"Доступно к выводу: {for_withdraw} {currency}",
-                f"Обновлено: {format_datetime_for_user(balance.fetched_at, timezone)}",
-            ]
-        )
+        if account.marketplace == Marketplace.WB:
+            for_withdraw = _safe_text(getattr(balance, "for_withdraw", None))
+            lines.extend(
+                [
+                    "",
+                    "💰 Баланс",
+                    f"Текущий: {current} {currency}",
+                    f"Доступно к выводу: {for_withdraw} {currency}",
+                    f"Обновлено: {format_datetime_for_user(balance.fetched_at, timezone)}",
+                ]
+            )
+        else:
+            parts = ["", f"💰 Баланс Ozon: {current} {currency}"]
+            period_from = getattr(balance, "period_from", None)
+            period_to = getattr(balance, "period_to", None)
+            if period_from and period_to:
+                parts.append(f"Период: {period_from} — {period_to}")
+            accrued = getattr(balance, "accrued", None)
+            if accrued is not None:
+                parts.append(f"Начислено за период: {_safe_text(accrued)} {currency}")
+            parts.append(f"Обновлено: {format_datetime_for_user(balance.fetched_at, timezone)}")
+            lines.extend(parts)
     else:
-        lines.extend(
-            [
-                "",
-                "💰 Баланс недоступен.",
-                "Для WB нужен ключ с категорией Finance. "
-                "Для Ozon показываются доступные данные профиля.",
-            ]
-        )
+        error_msg = getattr(balance, "error_message", None)
+        if account.marketplace == Marketplace.WB:
+            lines.extend(
+                [
+                    "",
+                    "💰 Баланс недоступен.",
+                    "Для WB нужен ключ с категорией Finance.",
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    "",
+                    "💰 Баланс Ozon: не удалось обновить",
+                ]
+            )
+            if error_msg:
+                lines.append(f"Ошибка: {_safe_text(error_msg[:200])}")
     return "\n".join(lines)
 
 

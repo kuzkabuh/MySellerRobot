@@ -4,7 +4,7 @@ updated: 2026-05-20
 """
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any, cast
 
@@ -161,6 +161,35 @@ class OzonClient:
                 "/v1/seller/info",
                 headers=self.headers,
                 json={},
+            ),
+        )
+
+    async def get_finance_balance(
+        self,
+        date_from: date | str,
+        date_to: date | str,
+    ) -> dict[str, Any]:
+        """Fetch Ozon finance balance for a period (max 30 days).
+
+        POST /v1/finance/balance
+        """
+        date_from_str = date_from.isoformat() if isinstance(date_from, date) else date_from
+        date_to_str = date_to.isoformat() if isinstance(date_to, date) else date_to
+        payload = {
+            "date_from": date_from_str,
+            "date_to": date_to_str,
+        }
+        logger.info(
+            "ozon_finance_balance_request",
+            extra={"date_from": date_from_str, "date_to": date_to_str},
+        )
+        return cast(
+            dict[str, Any],
+            await self.client.request(
+                "POST",
+                "/v1/finance/balance",
+                headers=self.headers,
+                json=payload,
             ),
         )
 
