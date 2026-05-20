@@ -72,7 +72,7 @@ def _sanitize_headers(headers: dict[str, str]) -> dict[str, str]:
 def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging(settings)
-    app = FastAPI(title="Seller Profit Bot API", version="1.7.0", debug=settings.app_debug)
+    app = FastAPI(title="Seller Profit Bot API", version="1.7.2", debug=settings.app_debug)
     app.include_router(web_router)
     app.include_router(webhooks_router)
     app.include_router(payment_public_router)

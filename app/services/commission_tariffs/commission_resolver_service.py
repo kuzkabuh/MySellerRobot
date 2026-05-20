@@ -1,4 +1,4 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: Unified commission rate resolver for WB and Ozon tariff lookups.
 updated: 2026-05-20
 """
@@ -28,6 +28,9 @@ class CommissionResolutionResult:
     match_status: str
     matched_rate_id: int | None
     diagnostics: str
+    commission_base_price: Decimal | None = None
+    commission_amount: Decimal | None = None
+    calculation_confidence: str = "not_available"
 
 
 class CommissionResolverService:
@@ -51,6 +54,7 @@ class CommissionResolverService:
         product_type_name: str | None = None,
         subject_name: str | None = None,
         product_price: Decimal | None = None,
+        ozon_commission_base_price: Decimal | None = None,
     ) -> CommissionResolutionResult:
         """Resolve the commission rate for a given order context.
 
@@ -62,6 +66,8 @@ class CommissionResolverService:
             product_type_name: product type (Ozon-specific)
             subject_name: WB subject name
             product_price: product price for Ozon price-range lookups
+            ozon_commission_base_price: official Ozon commission base price
+                (seller's set price per Ozon methodology)
 
         Returns:
             CommissionResolutionResult with the resolved rate or not_found.
@@ -78,7 +84,12 @@ class CommissionResolverService:
                 match_status="not_found",
                 matched_rate_id=None,
                 diagnostics="Нет активной версии тарифов",
+                commission_base_price=ozon_commission_base_price or product_price,
+                calculation_confidence="not_available",
             )
+
+        # For Ozon, prefer ozon_commission_base_price over product_price
+        effective_price = ozon_commission_base_price or product_price
 
         rate = await self._find_rate(
             version_id=version.id,
@@ -87,10 +98,27 @@ class CommissionResolverService:
             category_name=category_name,
             product_type_name=product_type_name,
             subject_name=subject_name,
-            product_price=product_price,
+            product_price=effective_price,
         )
 
         if rate is not None:
+            commission_amount = None
+            confidence = "exact"
+            base_price = effective_price
+
+            if mp == Marketplace.OZON:
+                if ozon_commission_base_price is not None:
+                    base_price = ozon_commission_base_price
+                    confidence = "exact"
+                elif product_price is not None:
+                    confidence = "estimated"
+                    base_price = product_price
+
+                if base_price is not None:
+                    commission_amount = (
+                        base_price * rate.commission_percent / Decimal("100")
+                    ).quantize(Decimal("0.01"))
+
             return CommissionResolutionResult(
                 commission_percent=rate.commission_percent,
                 version_id=version.id,
@@ -98,6 +126,9 @@ class CommissionResolverService:
                 match_status="exact",
                 matched_rate_id=rate.id,
                 diagnostics=f"Найдена ставка: {rate.commission_percent}%",
+                commission_base_price=base_price,
+                commission_amount=commission_amount,
+                calculation_confidence=confidence,
             )
 
         return CommissionResolutionResult(
@@ -107,6 +138,8 @@ class CommissionResolverService:
             match_status="not_found",
             matched_rate_id=None,
             diagnostics="Тариф для категории не найден",
+            commission_base_price=ozon_commission_base_price or product_price,
+            calculation_confidence="not_available",
         )
 
     async def _find_active_version(

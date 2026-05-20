@@ -1,4 +1,4 @@
-"""version: 1.7.0
+"""version: 1.7.2
 description: Order ingestion with resilient poll windows and retryable FBS notifications.
 updated: 2026-05-17
 """

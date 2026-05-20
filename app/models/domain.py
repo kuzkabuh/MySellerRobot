@@ -344,6 +344,17 @@ class OrderItem(TimestampMixin, Base):
     seller_payout_estimated: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     commission_estimated: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     commission_source: Mapped[str | None] = mapped_column(String(64))
+    commission_percent_planned: Mapped[Decimal | None] = mapped_column(Numeric(7, 4))
+    commission_amount_planned: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    commission_rate_version_id: Mapped[int | None] = mapped_column(
+        ForeignKey("marketplace_commission_versions.id", ondelete="SET NULL")
+    )
+    commission_rate_id: Mapped[int | None] = mapped_column(
+        ForeignKey("marketplace_commission_rates.id", ondelete="SET NULL")
+    )
+    commission_match_status: Mapped[str | None] = mapped_column(String(32))
+    commission_calculation_confidence: Mapped[str | None] = mapped_column(String(32))
+    ozon_commission_base_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     logistics_estimated: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     logistics_source: Mapped[str | None] = mapped_column(String(64))
     other_marketplace_expenses_estimated: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))

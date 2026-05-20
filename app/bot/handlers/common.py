@@ -1014,7 +1014,8 @@ def _commission_source_detail_label(source) -> str:
 
     labels = {
         ExpenseSource.WB_TARIFF_API: "Базовая комиссия WB",
-        ExpenseSource.OZON_FINANCIAL_DATA: "Базовая комиссия Ozon",
+        ExpenseSource.OZON_TARIFF_DB: "Базовая комиссия Ozon",
+        ExpenseSource.OZON_FINANCIAL_DATA: "Комиссия из данных Ozon",
         ExpenseSource.FINANCIAL_REPORT: "Комиссия из отчёта",
         ExpenseSource.FALLBACK_DEFAULT: "Предварительная комиссия",
         ExpenseSource.UNKNOWN: "Комиссия маркетплейса",

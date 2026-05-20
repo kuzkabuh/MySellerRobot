@@ -1,4 +1,4 @@
-"""version: 1.7.0
+"""version: 1.7.2
 description: Smoke tests for API, bot, worker, package startup, web login, and navigation.
 updated: 2026-05-17
 """
@@ -249,7 +249,7 @@ def test_create_app() -> None:
     app = create_app()
 
     assert app.title == "Seller Profit Bot API"
-    assert app.version == "1.7.0"
+    assert app.version == "1.7.2"
 
 
 def test_web_shell_contains_material_design_tokens() -> None:

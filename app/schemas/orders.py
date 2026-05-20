@@ -21,6 +21,7 @@ class NormalizedOrderItem(BaseModel):
     buyer_price: Decimal = Decimal("0")
     seller_price: Decimal = Decimal("0")
     discounted_price: Decimal = Decimal("0")
+    ozon_commission_base_price: Decimal | None = None
     payout_amount_estimated: Decimal | None = None
     seller_payout_estimated: Decimal | None = None
     commission_estimated: Decimal | None = None

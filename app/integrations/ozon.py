@@ -474,7 +474,13 @@ class OzonClient:
         for product in payload.get("products", []):
             key = str(product.get("sku") or product.get("offer_id") or product.get("product_id"))
             finance = financial_products.get(key, {})
-            price = Decimal(str(product.get("price") or finance.get("price") or 0))
+
+            # Ozon commission base: seller's set price (includes VAT, seller discounts,
+            # excludes Ozon Points discounts). This is the official Ozon methodology.
+            # product["price"] is the price the seller set for the product.
+            ozon_commission_base = Decimal(str(product.get("price") or 0))
+            price = ozon_commission_base
+
             commission = self._extract_commission(finance)
             logistics = self._extract_service_amount(finance, ("delivery", "logistic"))
             other_services = self._extract_service_amount(
@@ -503,6 +509,7 @@ class OzonClient:
                     buyer_price=price,
                     seller_price=price,
                     discounted_price=price,
+                    ozon_commission_base_price=ozon_commission_base,
                     payout_amount_estimated=payout if payout > 0 else price,
                     seller_payout_estimated=seller_payout,
                     commission_estimated=commission,

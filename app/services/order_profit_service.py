@@ -21,7 +21,10 @@ from app.repositories.orders import OrderRepository
 from app.repositories.products import ProductRepository
 from app.schemas.orders import NormalizedOrder
 from app.schemas.profit import CostInput, ProfitInput, ProfitResult
-from app.services.commission_tariffs.commission_resolver_service import CommissionResolverService
+from app.services.commission_tariffs.commission_resolver_service import (
+    CommissionResolutionResult,
+    CommissionResolverService,
+)
 from app.services.cost_service import CostService
 from app.services.marketplace_estimates import estimate_marketplace_expenses
 from app.services.profit_calculator import ProfitCalculator
@@ -174,31 +177,61 @@ class OrderProfitService:
             if product.marketplace_commission_rate is not None:
                 return product.marketplace_commission_rate
 
+        order_date = (
+            order.order_date.date()
+            if hasattr(order.order_date, "date")
+            else order.order_date
+        )
+
         if order.marketplace == Marketplace.OZON:
             price = item.discounted_price or item.seller_price or item.buyer_price
+            ozon_base = item.ozon_commission_base_price or price
             result = await tariff_resolver.get_commission_rate(
                 marketplace="OZON",
-                order_date=order.order_date.date() if hasattr(order.order_date, "date") else order.order_date,
+                order_date=order_date,
                 sales_model=order.sale_model.value.lower() if order.sale_model else "fbs",
                 category_name=product.category if product else None,
                 product_type_name=None,
                 product_price=price,
+                ozon_commission_base_price=ozon_base,
             )
             if result.match_status == "exact" and result.commission_percent is not None:
+                self._store_commission_resolution(item, result)
                 return result.commission_percent / Decimal("100")
+            self._store_commission_resolution(item, result)
 
         if order.marketplace == Marketplace.WB:
             result = await tariff_resolver.get_commission_rate(
                 marketplace="WB",
-                order_date=order.order_date.date() if hasattr(order.order_date, "date") else order.order_date,
+                order_date=order_date,
                 sales_model=order.sale_model.value.lower() if order.sale_model else "fbo",
                 category_name=product.category if product else None,
                 subject_name=None,
             )
             if result.match_status == "exact" and result.commission_percent is not None:
+                self._store_commission_resolution(item, result)
                 return result.commission_percent / Decimal("100")
+            self._store_commission_resolution(item, result)
 
         return None
+
+    @staticmethod
+    def _store_commission_resolution(
+        item: OrderItem,
+        result: CommissionResolutionResult,
+    ) -> None:
+        """Store commission resolution details on the order item."""
+        item.commission_rate_version_id = result.version_id
+        item.commission_rate_id = result.matched_rate_id
+        item.commission_match_status = result.match_status
+        item.commission_calculation_confidence = result.calculation_confidence
+
+        if result.commission_percent is not None:
+            item.commission_percent_planned = result.commission_percent
+        if result.commission_amount is not None:
+            item.commission_amount_planned = result.commission_amount
+        if result.commission_base_price is not None:
+            item.ozon_commission_base_price = result.commission_base_price
 
     @staticmethod
     def apply_profit_to_item(item: OrderItem, result: ProfitResult) -> None:

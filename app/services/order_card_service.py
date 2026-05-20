@@ -30,12 +30,23 @@ ZERO = Decimal("0")
 def _commission_source_label(source: ExpenseSource) -> str:
     labels = {
         ExpenseSource.WB_TARIFF_API: "тариф WB",
-        ExpenseSource.OZON_FINANCIAL_DATA: "тариф Ozon",
+        ExpenseSource.OZON_TARIFF_DB: "тариф Ozon",
+        ExpenseSource.OZON_FINANCIAL_DATA: "фин. данные Ozon",
         ExpenseSource.FINANCIAL_REPORT: "фин. отчёт",
         ExpenseSource.FALLBACK_DEFAULT: "предварительно",
         ExpenseSource.UNKNOWN: "не определена",
     }
     return labels.get(source, "не определена")
+
+
+def _commission_confidence_label(confidence: str | None) -> str:
+    """Return a user-friendly label for commission calculation confidence."""
+    labels = {
+        "exact": "",
+        "estimated": " (оценка)",
+        "not_available": "",
+    }
+    return labels.get(confidence or "", "")
 
 
 @dataclass(frozen=True, slots=True)
@@ -521,7 +532,12 @@ class OrderCardService:
             percent = f" ({percent_value}%"
             if economics.commission_is_baseline:
                 source_label = _commission_source_label(economics.commission_source)
-                percent += f", {source_label})"
+                confidence_suffix = _commission_confidence_label(
+                    economics.commission_source.value
+                    if hasattr(economics.commission_source, "value")
+                    else None
+                )
+                percent += f", {source_label}{confidence_suffix})"
             else:
                 percent += ")"
         suffix = (
