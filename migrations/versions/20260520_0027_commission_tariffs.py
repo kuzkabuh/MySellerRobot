@@ -9,6 +9,9 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
+
+marketplace_enum = postgresql.ENUM("WB", "OZON", name="marketplace", create_type=False)
 
 revision: str = "20260520_0027_commission_tariffs"
 down_revision: str | None = "0027"
@@ -22,7 +25,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer, primary_key=True),
         sa.Column(
             "marketplace",
-            sa.Enum("WB", "OZON", name="marketplace"),
+            marketplace_enum,
             nullable=False,
             index=True,
         ),
@@ -78,7 +81,7 @@ def upgrade() -> None:
         ),
         sa.Column(
             "marketplace",
-            sa.Enum("WB", "OZON", name="marketplace"),
+            marketplace_enum,
             nullable=False,
             index=True,
         ),
@@ -117,7 +120,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer, primary_key=True),
         sa.Column(
             "marketplace",
-            sa.Enum("WB", "OZON", name="marketplace"),
+            marketplace_enum,
             nullable=False,
             index=True,
         ),
@@ -155,7 +158,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer, primary_key=True),
         sa.Column(
             "marketplace",
-            sa.Enum("WB", "OZON", name="marketplace"),
+            marketplace_enum,
             nullable=False,
             index=True,
         ),
