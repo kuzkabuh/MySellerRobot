@@ -1,6 +1,6 @@
 """Add Ozon commission base price and commission tracking fields to order_items.
 
-Revision ID: 20260520_0028_ozon_commission_fields
+Revision ID: 20260520_0028_ozon_commission
 Revises: 20260520_0027_commission_tariffs
 Create Date: 2026-05-20
 """
@@ -10,7 +10,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "20260520_0028_ozon_commission_fields"
+revision: str = "20260520_0028_ozon_commission"
 down_revision: str | None = "20260520_0027_commission_tariffs"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
