@@ -67,6 +67,12 @@ class OrderProfitService:
                 order_with_items,
                 item,
                 product_commission_rate=product.marketplace_commission_rate if product else None,
+                commission_fbw=product.commission_fbw if product else None,
+                commission_fbs=product.commission_fbs if product else None,
+                commission_dbs=product.commission_dbs if product else None,
+                commission_edbs=product.commission_edbs if product else None,
+                commission_pickup=product.commission_pickup if product else None,
+                commission_booking=product.commission_booking if product else None,
             )
             if item.commission_estimated is None and estimates.commission_is_known:
                 item.commission_estimated = estimates.commission

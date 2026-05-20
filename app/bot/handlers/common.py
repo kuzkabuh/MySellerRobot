@@ -908,6 +908,12 @@ async def _format_order_details(
             order,
             item,
             product_commission_rate=product.marketplace_commission_rate if product else None,
+            commission_fbw=product.commission_fbw if product else None,
+            commission_fbs=product.commission_fbs if product else None,
+            commission_dbs=product.commission_dbs if product else None,
+            commission_edbs=product.commission_edbs if product else None,
+            commission_pickup=product.commission_pickup if product else None,
+            commission_booking=product.commission_booking if product else None,
         )
         commission_label = _commission_detail_label(economics)
         logistics_label = _logistics_detail_label(economics)
@@ -944,6 +950,12 @@ async def _format_order_profit(session: AsyncSession, order: Order) -> str:
             order,
             item,
             product_commission_rate=product.marketplace_commission_rate if product else None,
+            commission_fbw=product.commission_fbw if product else None,
+            commission_fbs=product.commission_fbs if product else None,
+            commission_dbs=product.commission_dbs if product else None,
+            commission_edbs=product.commission_edbs if product else None,
+            commission_pickup=product.commission_pickup if product else None,
+            commission_booking=product.commission_booking if product else None,
         )
         marketplace_costs = (
             economics.commission + economics.logistics + economics.other_marketplace_costs

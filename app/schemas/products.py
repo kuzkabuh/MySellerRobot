@@ -31,6 +31,12 @@ class ProductUpsert(BaseModel):
     dimensions_source: str | None = None
     marketplace_commission_rate: Decimal | None = None
     marketplace_commission_source: str | None = None
+    commission_fbw: Decimal | None = None
+    commission_fbs: Decimal | None = None
+    commission_dbs: Decimal | None = None
+    commission_edbs: Decimal | None = None
+    commission_pickup: Decimal | None = None
+    commission_booking: Decimal | None = None
     is_active: bool = True
 
 

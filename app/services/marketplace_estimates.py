@@ -1,16 +1,27 @@
-"""version: 1.2.0
-description: Marketplace expense estimates with source tracking and economy confidence.
-updated: 2026-05-15
+"""version: 1.3.0
+description: Per-model WB commission selection with source tracking and economy confidence.
+updated: 2026-05-20
 """
 
+import logging
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 
 from app.models.domain import Order, OrderItem
 from app.models.enums import EconomyConfidence, ExpenseSource, Marketplace, SaleModel
 
+logger = logging.getLogger(__name__)
+
 DEFAULT_WB_FBS_LOGISTICS = Decimal("92.00")
 ZERO = Decimal("0.00")
+
+SALE_MODEL_TO_COMMISSION_FIELD: dict[SaleModel, str] = {
+    SaleModel.FBO: "commission_fbw",
+    SaleModel.FBS: "commission_fbs",
+    SaleModel.RFBS: "commission_fbs",
+    SaleModel.DBS: "commission_dbs",
+    SaleModel.DBW: "commission_dbs",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,8 +69,19 @@ def estimate_marketplace_expenses(
     item: OrderItem,
     *,
     product_commission_rate: Decimal | None = None,
+    commission_fbw: Decimal | None = None,
+    commission_fbs: Decimal | None = None,
+    commission_dbs: Decimal | None = None,
+    commission_edbs: Decimal | None = None,
+    commission_pickup: Decimal | None = None,
+    commission_booking: Decimal | None = None,
 ) -> ExpenseEstimate:
-    """Return known or baseline marketplace expenses for planned calculations."""
+    """Return known or baseline marketplace expenses for planned calculations.
+
+    For WB orders, selects the commission rate matching the order's sale_model
+    from the per-model commission fields. Falls back to the legacy
+    product_commission_rate only when per-model fields are not available.
+    """
 
     revenue = quantize_money((item.discounted_price or ZERO) * Decimal(item.quantity or 1))
     commission = item.commission_estimated
@@ -67,7 +89,38 @@ def estimate_marketplace_expenses(
     commission_is_known = commission is not None
     commission_is_baseline = False
     commission_source = ExpenseSource.UNKNOWN
-    if commission is None and product_commission_rate is not None:
+
+    if commission is None and order.marketplace == Marketplace.WB:
+        resolved_rate, resolved_field = _resolve_wb_commission(
+            order=order,
+            commission_fbw=commission_fbw,
+            commission_fbs=commission_fbs,
+            commission_dbs=commission_dbs,
+            commission_edbs=commission_edbs,
+            commission_pickup=commission_pickup,
+            commission_booking=commission_booking,
+            fallback_rate=product_commission_rate,
+        )
+        if resolved_rate is not None:
+            commission_rate = resolved_rate
+            commission = quantize_money(revenue * commission_rate)
+            commission_is_known = True
+            commission_is_baseline = True
+            commission_source = ExpenseSource.WB_TARIFF_API
+            logger.debug(
+                "wb_commission_resolved",
+                extra={
+                    "order_id": order.id,
+                    "external_order_id": order.order_external_id,
+                    "nm_id": item.marketplace_article,
+                    "sales_model": order.sale_model.value if order.sale_model else None,
+                    "api_field": resolved_field,
+                    "commission_percent": (commission_rate * Decimal("100")).quantize(
+                        Decimal("0.01")
+                    ),
+                },
+            )
+    elif commission is None and product_commission_rate is not None:
         commission_rate = product_commission_rate
         commission = quantize_money(revenue * commission_rate)
         commission_is_known = True
@@ -120,11 +173,25 @@ def calculate_planned_economics(
     item: OrderItem,
     *,
     product_commission_rate: Decimal | None = None,
+    commission_fbw: Decimal | None = None,
+    commission_fbs: Decimal | None = None,
+    commission_dbs: Decimal | None = None,
+    commission_edbs: Decimal | None = None,
+    commission_pickup: Decimal | None = None,
+    commission_booking: Decimal | None = None,
 ) -> PlannedEconomics:
     """Calculate display-safe planned profit with baseline estimates when needed."""
 
     expenses = estimate_marketplace_expenses(
-        order, item, product_commission_rate=product_commission_rate
+        order,
+        item,
+        product_commission_rate=product_commission_rate,
+        commission_fbw=commission_fbw,
+        commission_fbs=commission_fbs,
+        commission_dbs=commission_dbs,
+        commission_edbs=commission_edbs,
+        commission_pickup=commission_pickup,
+        commission_booking=commission_booking,
     )
 
     # Цена покупателя (buyer price)
@@ -219,6 +286,85 @@ def confidence_notes(economics: PlannedEconomics) -> list[str]:
     elif economics.logistics_source == ExpenseSource.UNKNOWN:
         notes.append("Финальная логистика появится после получения фактических данных.")
     return notes
+
+
+def _resolve_wb_commission(
+    *,
+    order: Order,
+    commission_fbw: Decimal | None,
+    commission_fbs: Decimal | None,
+    commission_dbs: Decimal | None,
+    commission_edbs: Decimal | None,
+    commission_pickup: Decimal | None,
+    commission_booking: Decimal | None,
+    fallback_rate: Decimal | None,
+) -> tuple[Decimal | None, str | None]:
+    """Select the WB commission rate matching the order's sale_model.
+
+    Returns (rate, api_field_name) or (None, None) if no rate found.
+    Never silently falls back to a different model's commission.
+    """
+    sale_model = order.sale_model
+    if sale_model is None:
+        return (fallback_rate, None)
+
+    field_name = SALE_MODEL_TO_COMMISSION_FIELD.get(sale_model)
+    if field_name is None:
+        return (fallback_rate, None)
+
+    commission_map = {
+        "commission_fbw": commission_fbw,
+        "commission_fbs": commission_fbs,
+        "commission_dbs": commission_dbs,
+        "commission_edbs": commission_edbs,
+        "commission_pickup": commission_pickup,
+        "commission_booking": commission_booking,
+    }
+
+    rate = commission_map.get(field_name)
+    if rate is not None:
+        return (rate, field_name)
+
+    if sale_model in (SaleModel.FBS, SaleModel.RFBS) and commission_fbw is not None:
+        logger.warning(
+            "wb_commission_fbs_not_found_falling_back_to_fbw",
+            extra={
+                "order_id": order.id,
+                "sale_model": sale_model.value,
+            },
+        )
+        return (commission_fbw, "commission_fbw")
+
+    if sale_model == SaleModel.FBO and commission_fbs is not None:
+        logger.warning(
+            "wb_commission_fbw_not_found_falling_back_to_fbs",
+            extra={
+                "order_id": order.id,
+                "sale_model": sale_model.value,
+            },
+        )
+        return (commission_fbs, "commission_fbs")
+
+    if fallback_rate is not None:
+        logger.warning(
+            "wb_commission_not_found_for_model_using_legacy_fallback",
+            extra={
+                "order_id": order.id,
+                "sale_model": sale_model.value,
+                "field_name": field_name,
+            },
+        )
+        return (fallback_rate, None)
+
+    logger.warning(
+        "wb_commission_not_found_any_source",
+        extra={
+            "order_id": order.id,
+            "sale_model": sale_model.value,
+            "field_name": field_name,
+        },
+    )
+    return (None, None)
 
 
 def _known_commission_source(order: Order) -> ExpenseSource:

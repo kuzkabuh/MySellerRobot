@@ -1,16 +1,16 @@
-"""version: 1.1.0
+"""version: 1.2.0
 description: Unit tests for WB/Ozon marketplace commission and tariff normalization.
-updated: 2026-05-15
+updated: 2026-05-20
 """
 
 from decimal import Decimal
 
 from app.integrations.ozon import OzonClient
 from app.integrations.wb import WildberriesClient
-from app.models.domain import Order, OrderItem, Product
+from app.models.domain import Order, OrderItem
 from app.models.enums import EconomyConfidence, ExpenseSource, Marketplace, SaleModel
 from app.services.marketplace_estimates import calculate_planned_economics
-from app.services.product_sync_service import ProductSyncService
+from app.services.product_sync_service import ProductSyncService, WbTariffRow
 
 
 def test_wb_report_order_uses_commission_percent_when_amount_absent() -> None:
@@ -80,7 +80,7 @@ def test_ozon_order_uses_financial_commission_and_services() -> None:
     assert item.other_marketplace_expenses_estimated == Decimal("20")
 
 
-def test_product_sync_applies_official_wb_commission_tariff() -> None:
+def test_product_sync_applies_per_model_wb_commission_tariff() -> None:
     product = WildberriesClient("token").normalize_card_product(
         payload={
             "nmID": 303948126,
@@ -93,26 +93,183 @@ def test_product_sync_applies_official_wb_commission_tariff() -> None:
         account_id=10,
     )
 
+    tariffs = {
+        "99": WbTariffRow(
+            subject_id="99",
+            subject_name="Салфетки для уборки",
+            parent_id="10",
+            parent_name="Хозяйственные товары",
+            commission_fbw=Decimal("0.2450"),
+            commission_fbs=Decimal("0.2800"),
+            commission_dbs=Decimal("0.2500"),
+            commission_edbs=None,
+            commission_pickup=None,
+            commission_booking=None,
+        ),
+    }
+
     ProductSyncService._apply_wb_commission_tariff(
         product,
         {"subjectID": 99, "subjectName": "Салфетки для уборки"},
-        {"99": Decimal("0.1250")},
+        tariffs,
     )
 
     assert product.marketplace_category_id == "99"
-    assert product.marketplace_commission_rate == Decimal("0.1250")
+    assert product.commission_fbw == Decimal("0.2450")
+    assert product.commission_fbs == Decimal("0.2800")
+    assert product.commission_dbs == Decimal("0.2500")
+    assert product.marketplace_commission_rate == Decimal("0.2800")
     assert product.marketplace_commission_source == "WB tariffs /api/v1/tariffs/commission"
 
 
-def test_wb_planned_economics_uses_product_tariff_instead_of_fixed_guess() -> None:
+def test_wb_fbs_order_selects_fbs_commission_not_dbs() -> None:
+    """Test 1: FBS order for dish cloths must use FBS=28%, not DBS=25%."""
     order = Order(marketplace=Marketplace.WB, sale_model=SaleModel.FBS)
     item = OrderItem(discounted_price=Decimal("1000"), quantity=1)
-    product = Product(marketplace_commission_rate=Decimal("0.1250"))
 
     economics = calculate_planned_economics(
         order,
         item,
-        product_commission_rate=product.marketplace_commission_rate,
+        commission_fbw=Decimal("0.2450"),
+        commission_fbs=Decimal("0.2800"),
+        commission_dbs=Decimal("0.2500"),
+    )
+
+    assert economics.commission == Decimal("280.00")
+    assert economics.commission_rate == Decimal("0.2800")
+    assert economics.commission_is_baseline is True
+    assert economics.commission_source == ExpenseSource.WB_TARIFF_API
+
+
+def test_wb_dbs_order_selects_dbs_commission() -> None:
+    """Test 2: DBS order for the same product must use DBS=25%."""
+    order = Order(marketplace=Marketplace.WB, sale_model=SaleModel.DBS)
+    item = OrderItem(discounted_price=Decimal("1000"), quantity=1)
+
+    economics = calculate_planned_economics(
+        order,
+        item,
+        commission_fbw=Decimal("0.2450"),
+        commission_fbs=Decimal("0.2800"),
+        commission_dbs=Decimal("0.2500"),
+    )
+
+    assert economics.commission == Decimal("250.00")
+    assert economics.commission_rate == Decimal("0.2500")
+    assert economics.commission_is_baseline is True
+    assert economics.commission_source == ExpenseSource.WB_TARIFF_API
+
+
+def test_wb_fbw_order_selects_fbw_commission() -> None:
+    """Test 3: FBW/FBO order must use paidStorageKgvp / FBW commission."""
+    order = Order(marketplace=Marketplace.WB, sale_model=SaleModel.FBO)
+    item = OrderItem(discounted_price=Decimal("1000"), quantity=1)
+
+    economics = calculate_planned_economics(
+        order,
+        item,
+        commission_fbw=Decimal("0.2450"),
+        commission_fbs=Decimal("0.2800"),
+        commission_dbs=Decimal("0.2500"),
+    )
+
+    assert economics.commission == Decimal("245.00")
+    assert economics.commission_rate == Decimal("0.2450")
+    assert economics.commission_is_baseline is True
+    assert economics.commission_source == ExpenseSource.WB_TARIFF_API
+
+
+def test_wb_commission_not_found_marks_preliminary() -> None:
+    """Test 4: When commission for subjectID is not found, calculation is preliminary."""
+    order = Order(marketplace=Marketplace.WB, sale_model=SaleModel.FBS)
+    item = OrderItem(discounted_price=Decimal("1000"), quantity=1)
+
+    economics = calculate_planned_economics(
+        order,
+        item,
+        commission_fbw=None,
+        commission_fbs=None,
+        commission_dbs=None,
+    )
+
+    assert economics.commission == Decimal("0.00")
+    assert economics.commission_rate is None
+    assert economics.commission_is_known is False
+    assert economics.confidence == EconomyConfidence.PRELIMINARY
+
+
+def test_wb_fbs_order_does_not_silently_use_dbs_commission() -> None:
+    """Test 4b: FBS order must NOT fall back to DBS commission when FBS is missing."""
+    order = Order(marketplace=Marketplace.WB, sale_model=SaleModel.FBS)
+    item = OrderItem(discounted_price=Decimal("1000"), quantity=1)
+
+    economics = calculate_planned_economics(
+        order,
+        item,
+        commission_fbw=None,
+        commission_fbs=None,
+        commission_dbs=Decimal("0.2500"),
+    )
+
+    assert economics.commission == Decimal("0.00")
+    assert economics.commission_is_known is False
+
+
+def test_telegram_formatter_shows_correct_commission_percent() -> None:
+    """Test 5: Telegram formatter outputs correct percentage and commission amount."""
+    order = Order(marketplace=Marketplace.WB, sale_model=SaleModel.FBS)
+    item = OrderItem(discounted_price=Decimal("298"), quantity=1)
+
+    economics = calculate_planned_economics(
+        order,
+        item,
+        commission_fbs=Decimal("0.2800"),
+        commission_dbs=Decimal("0.2500"),
+    )
+
+    percent = (economics.commission_rate * Decimal("100")).quantize(Decimal("1"))
+    assert percent == Decimal("28")
+    assert economics.commission == Decimal("83.44")
+
+
+def test_wb_rfbs_order_uses_fbs_commission() -> None:
+    order = Order(marketplace=Marketplace.WB, sale_model=SaleModel.RFBS)
+    item = OrderItem(discounted_price=Decimal("1000"), quantity=1)
+
+    economics = calculate_planned_economics(
+        order,
+        item,
+        commission_fbs=Decimal("0.2800"),
+        commission_dbs=Decimal("0.2500"),
+    )
+
+    assert economics.commission == Decimal("280.00")
+    assert economics.commission_rate == Decimal("0.2800")
+
+
+def test_wb_dbw_order_uses_dbs_commission() -> None:
+    order = Order(marketplace=Marketplace.WB, sale_model=SaleModel.DBW)
+    item = OrderItem(discounted_price=Decimal("1000"), quantity=1)
+
+    economics = calculate_planned_economics(
+        order,
+        item,
+        commission_fbs=Decimal("0.2800"),
+        commission_dbs=Decimal("0.2500"),
+    )
+
+    assert economics.commission == Decimal("250.00")
+    assert economics.commission_rate == Decimal("0.2500")
+
+
+def test_wb_planned_economics_uses_legacy_fallback_when_no_per_model() -> None:
+    order = Order(marketplace=Marketplace.WB, sale_model=SaleModel.FBS)
+    item = OrderItem(discounted_price=Decimal("1000"), quantity=1)
+
+    economics = calculate_planned_economics(
+        order,
+        item,
+        product_commission_rate=Decimal("0.1250"),
     )
 
     assert economics.commission == Decimal("125.00")

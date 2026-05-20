@@ -1,9 +1,10 @@
-"""version: 1.5.0
-description: Product synchronization service with WB tariffs, Ozon details, logging, and caching.
-updated: 2026-05-17
+"""version: 1.6.0
+description: Product sync with WB per-model tariffs, Ozon details, logging, caching.
+updated: 2026-05-20
 """
 
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 
@@ -22,6 +23,29 @@ from app.schemas.products import ProductUpsert
 from app.services.master_product_service import MasterProductService
 
 logger = logging.getLogger(__name__)
+
+WB_COMMISSION_API_FIELDS: dict[str, str] = {
+    "paidStorageKgvp": "commission_fbw",
+    "kgvpMarketplace": "commission_fbs",
+    "kgvpSupplier": "commission_dbs",
+    "kgvpSupplierExpress": "commission_edbs",
+    "kgvpPickup": "commission_pickup",
+    "kgvpBooking": "commission_booking",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class WbTariffRow:
+    subject_id: str
+    subject_name: str
+    parent_id: str
+    parent_name: str
+    commission_fbw: Decimal | None
+    commission_fbs: Decimal | None
+    commission_dbs: Decimal | None
+    commission_edbs: Decimal | None
+    commission_pickup: Decimal | None
+    commission_booking: Decimal | None
 
 
 class ProductSyncService:
@@ -133,8 +157,8 @@ class ProductSyncService:
     async def _load_wb_commission_tariffs(
         self,
         client: WildberriesClient,
-    ) -> dict[str, Decimal]:
-        """Load official WB commission tariffs by subject id and subject name."""
+    ) -> dict[str, WbTariffRow]:
+        """Load official WB commission tariffs indexed by subject_id (lowercased)."""
 
         try:
             rows = await client.get_commission_tariffs(locale="ru")
@@ -142,31 +166,68 @@ class ProductSyncService:
             logger.exception("wb_commission_tariffs_load_failed")
             return {}
 
-        tariffs: dict[str, Decimal] = {}
+        tariffs: dict[str, WbTariffRow] = {}
         for row in rows:
             if not isinstance(row, dict):
                 continue
-            rate = _decimal_percent(row.get("kgvpSupplier"))
-            if rate is None:
+
+            subject_id = str(row.get("subjectID") or "").strip().lower()
+            subject_name = str(row.get("subjectName") or "").strip()
+            parent_id = str(row.get("parentID") or "").strip()
+            parent_name = str(row.get("parentName") or "").strip()
+
+            if not subject_id:
                 continue
-            for key in (row.get("subjectID"), row.get("subjectName")):
-                if key:
-                    tariffs[str(key).strip().lower()] = rate
+
+            commission_values: dict[str, Decimal | None] = {}
+            for api_field, schema_field in WB_COMMISSION_API_FIELDS.items():
+                commission_values[schema_field] = _decimal_percent(row.get(api_field))
+
+            tariff = WbTariffRow(
+                subject_id=subject_id,
+                subject_name=subject_name,
+                parent_id=parent_id,
+                parent_name=parent_name,
+                commission_fbw=commission_values["commission_fbw"],
+                commission_fbs=commission_values["commission_fbs"],
+                commission_dbs=commission_values["commission_dbs"],
+                commission_edbs=commission_values["commission_edbs"],
+                commission_pickup=commission_values["commission_pickup"],
+                commission_booking=commission_values["commission_booking"],
+            )
+            tariffs[subject_id] = tariff
+
+        logger.info(
+            "wb_commission_tariffs_loaded",
+            extra={"tariff_count": len(tariffs)},
+        )
         return tariffs
 
     @staticmethod
     def _apply_wb_commission_tariff(
         product: ProductUpsert,
         card: dict[str, object],
-        tariffs: dict[str, Decimal],
+        tariffs: dict[str, WbTariffRow],
     ) -> None:
         subject_id = str(card.get("subjectID") or card.get("subjectId") or "").strip().lower()
-        subject_name = str(card.get("subjectName") or card.get("object") or "").strip().lower()
-        rate = tariffs.get(subject_id) or tariffs.get(subject_name)
-        if rate is None:
+        tariff = tariffs.get(subject_id)
+        if tariff is None:
             return
-        product.marketplace_commission_rate = rate
+
+        product.commission_fbw = tariff.commission_fbw
+        product.commission_fbs = tariff.commission_fbs
+        product.commission_dbs = tariff.commission_dbs
+        product.commission_edbs = tariff.commission_edbs
+        product.commission_pickup = tariff.commission_pickup
+        product.commission_booking = tariff.commission_booking
         product.marketplace_commission_source = "WB tariffs /api/v1/tariffs/commission"
+
+        if tariff.commission_fbs is not None:
+            product.marketplace_commission_rate = tariff.commission_fbs
+        elif tariff.commission_fbw is not None:
+            product.marketplace_commission_rate = tariff.commission_fbw
+        elif tariff.commission_dbs is not None:
+            product.marketplace_commission_rate = tariff.commission_dbs
 
     async def _sync_ozon(self, account: MarketplaceAccount) -> int:
         """Sync Ozon products."""

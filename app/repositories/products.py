@@ -42,6 +42,12 @@ class ProductRepository:
                     in {
                         "marketplace_commission_rate",
                         "marketplace_commission_source",
+                        "commission_fbw",
+                        "commission_fbs",
+                        "commission_dbs",
+                        "commission_edbs",
+                        "commission_pickup",
+                        "commission_booking",
                         "length_cm",
                         "width_cm",
                         "height_cm",

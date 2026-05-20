@@ -175,6 +175,14 @@ class Product(TimestampMixin, Base):
     dimensions_source: Mapped[str | None] = mapped_column(String(64))
     marketplace_commission_rate: Mapped[Decimal | None] = mapped_column(Numeric(7, 4))
     marketplace_commission_source: Mapped[str | None] = mapped_column(String(128))
+    commission_fbw: Mapped[Decimal | None] = mapped_column("commission_fbw", Numeric(7, 4))
+    commission_fbs: Mapped[Decimal | None] = mapped_column("commission_fbs", Numeric(7, 4))
+    commission_dbs: Mapped[Decimal | None] = mapped_column("commission_dbs", Numeric(7, 4))
+    commission_edbs: Mapped[Decimal | None] = mapped_column("commission_edbs", Numeric(7, 4))
+    commission_pickup: Mapped[Decimal | None] = mapped_column("commission_pickup", Numeric(7, 4))
+    commission_booking: Mapped[Decimal | None] = mapped_column(
+        "commission_booking", Numeric(7, 4)
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     costs: Mapped[list["ProductCostHistory"]] = relationship(back_populates="product")

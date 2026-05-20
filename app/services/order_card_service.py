@@ -66,6 +66,12 @@ class OrderCardService:
             order,
             item,
             product_commission_rate=product.marketplace_commission_rate if product else None,
+            commission_fbw=product.commission_fbw if product else None,
+            commission_fbs=product.commission_fbs if product else None,
+            commission_dbs=product.commission_dbs if product else None,
+            commission_edbs=product.commission_edbs if product else None,
+            commission_pickup=product.commission_pickup if product else None,
+            commission_booking=product.commission_booking if product else None,
         )
         text = self._format_wb_fbs_order(
             order=order,
@@ -174,6 +180,12 @@ class OrderCardService:
                 order,
                 item,
                 product_commission_rate=product.marketplace_commission_rate if product else None,
+                commission_fbw=product.commission_fbw if product else None,
+                commission_fbs=product.commission_fbs if product else None,
+                commission_dbs=product.commission_dbs if product else None,
+                commission_edbs=product.commission_edbs if product else None,
+                commission_pickup=product.commission_pickup if product else None,
+                commission_booking=product.commission_booking if product else None,
             )
             lines.extend(
                 [
@@ -319,6 +331,12 @@ class OrderCardService:
             order,
             item,
             product_commission_rate=product.marketplace_commission_rate if product else None,
+            commission_fbw=product.commission_fbw if product else None,
+            commission_fbs=product.commission_fbs if product else None,
+            commission_dbs=product.commission_dbs if product else None,
+            commission_edbs=product.commission_edbs if product else None,
+            commission_pickup=product.commission_pickup if product else None,
+            commission_booking=product.commission_booking if product else None,
         )
         raw = order.raw_payload or {}
         base_price = self._raw_money(raw, "convertedPrice") or self._raw_money(raw, "price")
@@ -394,6 +412,12 @@ class OrderCardService:
             order,
             item,
             product_commission_rate=product.marketplace_commission_rate if product else None,
+            commission_fbw=product.commission_fbw if product else None,
+            commission_fbs=product.commission_fbs if product else None,
+            commission_dbs=product.commission_dbs if product else None,
+            commission_edbs=product.commission_edbs if product else None,
+            commission_pickup=product.commission_pickup if product else None,
+            commission_booking=product.commission_booking if product else None,
         )
         return "\n".join(
             [
