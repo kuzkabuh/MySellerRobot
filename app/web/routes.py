@@ -60,6 +60,12 @@ from app.web.route_modules.planning import (
     plan_fact_page,
     save_plan_fact_plan,
 )
+from app.web.route_modules.commissions_admin import (
+    check_ozon_commissions_web,
+    commissions_admin_page,
+    import_ozon_commissions_web,
+    sync_wb_commissions_web,
+)
 from app.web.views import *
 
 router = APIRouter(prefix="/web", tags=["web"])
@@ -71,7 +77,7 @@ for module_router in (
     operations.router,
     catalog.router,
     account_settings.router,
-    compatibility.router,
     commissions_admin.router,
+    compatibility.router,
 ):
     router.include_router(module_router)

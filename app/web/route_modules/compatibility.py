@@ -3,7 +3,7 @@
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, File, Form, Request
 from fastapi.responses import HTMLResponse, Response
 
 from app.models.domain import User
@@ -233,4 +233,46 @@ async def double_web_compat(
     if normalized == "settings":
         return HTMLResponse(await facade.settings_page(user=user))
 
+    if normalized == "admin/commissions":
+        return HTMLResponse(
+            await facade.commissions_admin_page(
+                user=user,
+                session=session,
+            )
+        )
+
     return HTMLResponse("<h1>Раздел не найден</h1>", status_code=404)
+
+
+@router.post("/web/admin/commissions/sync-wb", response_class=HTMLResponse, include_in_schema=False)
+async def double_web_sync_wb(
+    request: Request,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: Any = SESSION_DEPENDENCY,  # type: ignore[assignment]
+) -> Response:
+    facade = _facade()
+    return await facade.sync_wb_commissions_web(request=request, user=user, session=session)
+
+
+@router.post("/web/admin/commissions/check-ozon", response_class=HTMLResponse, include_in_schema=False)
+async def double_web_check_ozon(
+    request: Request,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: Any = SESSION_DEPENDENCY,  # type: ignore[assignment]
+) -> Response:
+    facade = _facade()
+    return await facade.check_ozon_commissions_web(request=request, user=user, session=session)
+
+
+@router.post("/web/admin/commissions/import-ozon", response_class=HTMLResponse, include_in_schema=False)
+async def double_web_import_ozon(
+    request: Request,
+    file: Any = File(...),
+    effective_from: Any = Form(...),
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: Any = SESSION_DEPENDENCY,  # type: ignore[assignment]
+) -> Response:
+    facade = _facade()
+    return await facade.import_ozon_commissions_web(
+        request=request, file=file, effective_from=effective_from, user=user, session=session,
+    )
