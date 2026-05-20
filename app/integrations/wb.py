@@ -112,7 +112,7 @@ class WildberriesClient:
         """Fetch FBS orders for a period with pagination.
 
         Wildberries GET /api/v3/orders supports:
-        - dateFrom / dateTo in ISO 8601 format (UTC with 'Z' suffix)
+        - dateFrom / dateTo in ISO 8601 format (UTC with '+00:00' suffix)
         - limit (max 1000)
         - next cursor for pagination
         """
@@ -121,13 +121,37 @@ class WildberriesClient:
         page_count = 0
 
         while True:
+            date_from_str = date_from.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+            date_to_str = date_to.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
             params: dict[str, Any] = {
-                "dateFrom": date_from.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "dateTo": date_to.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "dateFrom": date_from_str,
+                "dateTo": date_to_str,
                 "limit": limit,
             }
             if next_cursor is not None:
-                params["next"] = next_cursor
+                params["next"] = str(next_cursor)
+
+            logger.debug(
+                "wb_fbs_period_request_params",
+                extra={
+                    "date_from": date_from_str,
+                    "date_to": date_to_str,
+                    "limit": limit,
+                    "next_cursor_present": next_cursor is not None,
+                    "page": page_count + 1,
+                },
+            )
+
+            logger.info(
+                "wb_fbs_period_poll_started",
+                extra={
+                    "page": page_count + 1,
+                    "date_from": date_from_str,
+                    "date_to": date_to_str,
+                    "limit": limit,
+                },
+            )
 
             data = await self.marketplace.request(
                 "GET",
@@ -142,6 +166,15 @@ class WildberriesClient:
             logger.debug(
                 "wb_fbs_period_page_fetched",
                 extra={"page": page_count, "orders_on_page": len(orders)},
+            )
+
+            logger.info(
+                "wb_fbs_period_poll_finished",
+                extra={
+                    "page": page_count,
+                    "orders_on_page": len(orders),
+                    "total_orders": len(all_orders),
+                },
             )
 
             next_cursor = data.get("next")

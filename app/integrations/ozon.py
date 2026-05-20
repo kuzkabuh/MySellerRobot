@@ -1,8 +1,9 @@
 """version: 1.4.0
 description: Ozon Seller API client, catalog, stock, price, and order normalization helpers.
-updated: 2026-05-17
+updated: 2026-05-20
 """
 
+import logging
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, cast
@@ -14,6 +15,8 @@ from app.models.enums import Marketplace, SaleEventType, SaleModel, SourceEventT
 from app.schemas.orders import NormalizedOrder, NormalizedOrderItem
 from app.schemas.products import ProductUpsert
 from app.schemas.sales import NormalizedSaleEvent
+
+logger = logging.getLogger(__name__)
 
 
 class OzonClient:
@@ -366,7 +369,7 @@ class OzonClient:
             status=payload.get("status", "unknown"),
             raw_status=payload.get("status", "unknown"),
             normalized_status=self._normalize_status(payload.get("status")),
-            warehouse=payload.get("delivery_method", {}).get("warehouse"),
+            warehouse=_safe_get(payload.get("delivery_method"), "warehouse"),
             warehouse_type="seller",
             delivery_schema=sale_model.value,
             deadline_at=self._parse_dt(payload.get("shipment_date")),
@@ -400,7 +403,7 @@ class OzonClient:
             status=payload.get("status", "unknown"),
             raw_status=payload.get("status", "unknown"),
             normalized_status=self._normalize_status(payload.get("status")),
-            warehouse=payload.get("analytics_data", {}).get("warehouse_name"),
+            warehouse=_safe_get(payload.get("analytics_data"), "warehouse_name"),
             warehouse_type="marketplace",
             delivery_schema="FBO",
             requires_seller_action=False,
@@ -457,10 +460,17 @@ class OzonClient:
     def _normalize_products(self, payload: dict[str, Any]) -> list[NormalizedOrderItem]:
         items: list[NormalizedOrderItem] = []
         financial_products: dict[str, dict[str, Any]] = {}
-        for item in payload.get("financial_data", {}).get("products", []):
-            for field in ["product_id", "offer_id", "sku"]:
-                if item.get(field):
-                    financial_products[str(item[field])] = item
+        financial_data = payload.get("financial_data")
+        if financial_data is None:
+            logger.debug(
+                "ozon_posting_financial_data_missing",
+                extra={"posting_number": payload.get("posting_number")},
+            )
+        else:
+            for item in financial_data.get("products", []):
+                for field in ["product_id", "offer_id", "sku"]:
+                    if item.get(field):
+                        financial_products[str(item[field])] = item
         for product in payload.get("products", []):
             key = str(product.get("sku") or product.get("offer_id") or product.get("product_id"))
             finance = financial_products.get(key, {})
@@ -587,3 +597,12 @@ def _first_ozon_image(payload: dict[str, Any]) -> str | None:
         if isinstance(first, dict):
             return first.get("file_name") or first.get("url")
     return payload.get("primary_image") or payload.get("image")
+
+
+def _safe_get(obj: Any, key: str, default: Any = None) -> Any:
+    """Safely get a key from a dict-like object that may be None."""
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return default

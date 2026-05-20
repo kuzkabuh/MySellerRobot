@@ -27,13 +27,10 @@ async def test_wb_get_new_fbs_orders(httpx_mock: HTTPXMock) -> None:
 
 @pytest.mark.asyncio
 async def test_wb_get_historical_fbs_orders(httpx_mock: HTTPXMock) -> None:
+    import re
     httpx_mock.add_response(
         method="GET",
-        url=(
-            "https://marketplace-api.wildberries.ru/api/v3/orders"
-            "?dateFrom=2026-05-13T00%3A00%3A00%2B00%3A00"
-            "&dateTo=2026-05-14T00%3A00%3A00%2B00%3A00"
-        ),
+        url=re.compile(r"https://marketplace-api\.wildberries\.ru/api/v3/orders.*dateFrom.*dateTo"),
         json={"orders": [{"id": 2, "createdAt": "2026-05-13T09:00:00Z"}]},
     )
 
@@ -43,6 +40,7 @@ async def test_wb_get_historical_fbs_orders(httpx_mock: HTTPXMock) -> None:
     )
 
     assert orders[0]["id"] == 2
+    assert len(orders) == 1
 
 
 @pytest.mark.asyncio

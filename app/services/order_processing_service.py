@@ -240,21 +240,31 @@ class OrderProcessingService:
 
                 await self._append_saved_unnotified(account, policy, result)
 
+                now = datetime.now(tz=UTC)
+                account.last_order_poll_at = now
+                account.last_orders_sync_at = now
+
                 if recovery_failed:
                     logger.warning(
-                        "order_poll_partial_failure",
+                        "order_poll_completed_with_recovery_warning",
                         extra={
                             "account_id": account_id,
                             "user_id": user_id,
                             "marketplace": marketplace_value,
-                            "reason": "recovery_poll_failed_cursor_not_advanced",
+                            "reason": "recovery_poll_failed",
+                            "last_order_poll_at": now.isoformat(),
                         },
                     )
                 else:
-                    now = datetime.now(tz=UTC)
-                    account.last_order_poll_at = now
-                    account.last_orders_sync_at = now
                     account.last_success_sync_at = now
+                    logger.info(
+                        "order_poll_timestamp_updated",
+                        extra={
+                            "account_id": account_id,
+                            "marketplace": marketplace_value,
+                            "last_order_poll_at": now.isoformat(),
+                        },
+                    )
                 await self.session.commit()
 
                 logger.info(
@@ -311,6 +321,14 @@ class OrderProcessingService:
                 for item in raw_orders
             ]
             seen_order_ids = {order.order_external_id for order in normalized_orders}
+            logger.info(
+                "wb_live_orders_poll_completed",
+                extra={
+                    "account_id": account.id,
+                    "marketplace": account.marketplace.value,
+                    "live_orders_count": len(normalized_orders),
+                },
+            )
             recovery_failed = False
             try:
                 window_start = self._poll_window_start(account, now)
@@ -446,6 +464,14 @@ class OrderProcessingService:
                 "fbs_normalized": len(normalized_fbs),
                 "fbo_normalized": len(normalized_fbo),
                 "total": len(normalized_fbs) + len(normalized_fbo),
+            },
+        )
+        logger.info(
+            "ozon_order_poll_completed",
+            extra={
+                "account_id": account.id,
+                "marketplace": account.marketplace.value,
+                "total_orders": len(normalized_fbs) + len(normalized_fbo),
             },
         )
         return normalized_fbs + normalized_fbo, False
