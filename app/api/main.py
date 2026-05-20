@@ -117,6 +117,25 @@ def create_app() -> FastAPI:
         # Sanitize sensitive headers and mask tokens in URL-valued headers
         headers = _sanitize_headers(dict(request.headers))
 
+        # Diagnostic: log cookie count for web requests (never log cookie values).
+        if request.url.path.startswith("/web"):
+            cookie_header = request.headers.get("cookie", "")
+            cookie_count = len([c for c in cookie_header.split(";") if c.strip()])
+            session_cookie_count = sum(
+                1
+                for c in cookie_header.split(";")
+                if c.strip().startswith("seller_web_session=")
+            )
+            if session_cookie_count != 1 and session_cookie_count > 0:
+                logger.warning(
+                    "web_cookie_count_anomaly",
+                    extra={
+                        "path": request.url.path,
+                        "seller_web_session_count": session_cookie_count,
+                        "total_cookie_count": cookie_count,
+                    },
+                )
+
         logger.info(
             "incoming_request",
             extra={
@@ -149,6 +168,13 @@ def create_app() -> FastAPI:
                 "<p>Технические детали записаны в лог приложения.</p>",
                 status_code=500,
             )
+
+        # Prevent browser caching of web cabinet pages to avoid stale navigation state.
+        if request.url.path.startswith("/web"):
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+
         logger.info(
             "response",
             extra={"path": request.url.path, "status": response.status_code},

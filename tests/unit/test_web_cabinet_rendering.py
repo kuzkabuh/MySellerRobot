@@ -458,3 +458,62 @@ def test_profit_page_uses_render_page_not_shadowed_page() -> None:
                     assert child.func.id != "page", (
                         "profit_page must call render_page(), not bare page()"
                     )
+
+
+def test_nav_links_cover_all_required_sections() -> None:
+    """Navigation must contain hrefs for all key cabinet sections."""
+    html = page("Главная", "Артем", "<main></main>")
+    required_hrefs = [
+        "/web/products",
+        "/web/stocks",
+        "/web/product-matching",
+        "/web/plan-fact",
+        "/web/break-even",
+        "/web/costs",
+        "/web/orders",
+        "/web/sales",
+        "/web/returns",
+        "/web/profit",
+        "/web/alerts",
+        "/web/accounts",
+        "/web/subscription",
+        "/web/profile",
+        "/web/settings",
+    ]
+    for href in required_hrefs:
+        assert f'href="{href}"' in html, f"Missing nav link: {href}"
+
+
+def test_nav_links_are_real_anchor_tags() -> None:
+    """Every nav item must be a real <a href=...> tag, not a JS-driven element."""
+    html = page("Главная", "Артем", "<main></main>")
+    for _group_title, items in NAV_GROUPS:
+        for _label, href in items:
+            assert f'<a href="{href}"' in html or f'<a class="active" href="{href}"' in html, (
+                f"Nav item {_label!r} is not a real <a> tag with href={href!r}"
+            )
+
+
+def test_page_html_contains_no_javascript_click_handlers() -> None:
+    """Server-rendered pages must not contain JS click handlers that could block navigation."""
+    html = page("Главная", "Артем", "<main></main>")
+    assert "onclick" not in html
+    assert "preventDefault" not in html
+    assert "stopPropagation" not in html
+    assert "data-href" not in html
+
+
+def test_page_html_contains_no_blocking_overlays() -> None:
+    """Server-rendered pages must not contain overlay/loader elements that block clicks."""
+    html = page("Главная", "Артем", "<main></main>")
+    assert "loading-overlay" not in html
+    assert "page-loader" not in html
+    assert "sidebar-overlay" not in html
+    assert "modal-backdrop" not in html
+    assert "drawer-backdrop" not in html
+
+
+def test_nav_logout_link_is_real_anchor() -> None:
+    """Logout link must be a real <a> tag, not a button with JS."""
+    html = page("Главная", "Артем", "<main></main>")
+    assert 'href="/web/logout"' in html

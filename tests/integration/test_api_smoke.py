@@ -1296,3 +1296,124 @@ def test_yookassa_webhook_compat_ignores_unknown_event() -> None:
     assert response.json() == {"status": "ok"}
     assert "called" not in monkeypatch_ctx
 
+
+def test_web_logout_deletes_all_cookie_paths() -> None:
+    """Logout must delete seller_web_session from all historical cookie paths."""
+    app = create_app()
+
+    async def fake_get_session():
+        yield FakeAsyncSession()
+
+    async def fake_current_web_user():
+        return SimpleNamespace(
+            id=1, telegram_id=123, username="test", first_name="Test",
+            timezone="Europe/Moscow", language="ru", status=UserStatus.ACTIVE,
+            notifications_enabled=True, low_margin_threshold_percent=Decimal("10"),
+            created_at=datetime(2026, 5, 17, tzinfo=UTC),
+        )
+
+    app.dependency_overrides[get_session] = fake_get_session
+    app.dependency_overrides[current_web_user] = fake_current_web_user
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get(
+            "/web/logout",
+            cookies={WEB_SESSION_COOKIE: "test-session-token"},
+            follow_redirects=False,
+        )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 303
+    set_cookie_headers = response.headers.get_list("set-cookie")
+    cookie_paths = []
+    for header in set_cookie_headers:
+        if WEB_SESSION_COOKIE in header:
+            if "Path=/" in header and "Path=/web" not in header:
+                cookie_paths.append("/")
+            elif "Path=/web/" in header:
+                cookie_paths.append("/web/")
+            elif "Path=/web" in header:
+                cookie_paths.append("/web")
+    assert "/" in cookie_paths, f"Logout must delete cookie with path=/, got: {set_cookie_headers}"
+    assert "/web" in cookie_paths, f"Logout must delete cookie with path=/web, got: {set_cookie_headers}"
+    assert "/web/" in cookie_paths, f"Logout must delete cookie with path=/web/, got: {set_cookie_headers}"
+
+
+def test_web_responses_have_no_cache_headers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Web cabinet responses must have Cache-Control: no-store to prevent stale navigation."""
+    app = create_app()
+
+    user = SimpleNamespace(
+        id=1, telegram_id=123, username="test", first_name="Test",
+        timezone="Europe/Moscow", language="ru", status=UserStatus.ACTIVE,
+        notifications_enabled=True, low_margin_threshold_percent=Decimal("10"),
+        created_at=datetime(2026, 5, 17, tzinfo=UTC),
+    )
+
+    async def fake_get_session():
+        yield FakeAsyncSession()
+
+    async def fake_current_web_user():
+        return user
+
+    # Mock the dashboard service to avoid DB queries.
+    monkeypatch.setattr(
+        "app.services.web_dashboard_service.WebDashboardService.dashboard",
+        lambda self, **kwargs: SimpleNamespace(
+            kpis=[], events=[], daily=[], previous_daily=[],
+            filters=SimpleNamespace(),
+        ),
+    )
+
+    app.dependency_overrides[get_session] = fake_get_session
+    app.dependency_overrides[current_web_user] = fake_current_web_user
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        for path in ("/web/settings", "/web/login-required"):
+            response = client.get(path)
+            assert response.status_code == 200, f"GET {path} should return 200"
+            assert response.headers.get("cache-control", "").startswith("no-store"), (
+                f"GET {path} must have Cache-Control: no-store, got: {response.headers.get('cache-control')}"
+            )
+            assert response.headers.get("pragma") == "no-cache", (
+                f"GET {path} must have Pragma: no-cache"
+            )
+
+    app.dependency_overrides.clear()
+
+
+def test_web_placeholder_html_no_double_web(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Placeholder page HTML must not contain /web/web/ in any href or action."""
+    app = create_app()
+
+    user = SimpleNamespace(
+        id=1, telegram_id=123, username="test", first_name="Test",
+        timezone="Europe/Moscow", language="ru", status=UserStatus.ACTIVE,
+        notifications_enabled=True, low_margin_threshold_percent=Decimal("10"),
+        created_at=datetime(2026, 5, 17, tzinfo=UTC),
+    )
+
+    async def fake_get_session():
+        yield FakeAsyncSession()
+
+    async def fake_current_web_user():
+        return user
+
+    app.dependency_overrides[get_session] = fake_get_session
+    app.dependency_overrides[current_web_user] = fake_current_web_user
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/web/settings")
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert 'href="/web/web/' not in response.text
+    assert 'action="/web/web/' not in response.text
+    assert "/web/web/" not in response.text
+

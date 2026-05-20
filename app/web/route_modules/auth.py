@@ -95,8 +95,9 @@ async def logout(
     await WebAuthService(session).revoke_session(request.cookies.get(WEB_SESSION_COOKIE))
     await session.commit()
     response = RedirectResponse(url=WEB_LOGIN_REQUIRED_PATH, status_code=303)
-    response.delete_cookie(WEB_SESSION_COOKIE, path=WEB_SESSION_COOKIE_PATH)
-    response.delete_cookie(WEB_SESSION_COOKIE, path="/web")
+    # Clear cookie from all paths that may have been used historically.
+    for cookie_path in ("/", "/web", "/web/"):
+        response.delete_cookie(WEB_SESSION_COOKIE, path=cookie_path)
     return response
 
 
