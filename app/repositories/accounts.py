@@ -72,3 +72,18 @@ class MarketplaceAccountRepository:
         account.status = AccountStatus.DISABLED
         account.last_error_message = error_message
         await self.session.flush()
+
+    async def list_active_accounts(
+        self,
+        marketplace: Marketplace | None = None,
+    ) -> list[MarketplaceAccount]:
+        """Return active marketplace accounts, optionally filtered by marketplace."""
+        query = select(MarketplaceAccount).where(
+            MarketplaceAccount.is_active.is_(True),
+            MarketplaceAccount.status == AccountStatus.ACTIVE,
+        )
+        if marketplace is not None:
+            query = query.where(MarketplaceAccount.marketplace == marketplace)
+        query = query.order_by(MarketplaceAccount.created_at.desc())
+        result = await self.session.execute(query)
+        return list(result.scalars().all())

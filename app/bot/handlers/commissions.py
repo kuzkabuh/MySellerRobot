@@ -84,36 +84,43 @@ async def sync_wb_commissions_handler(callback: CallbackQuery) -> None:
 
     await message.edit_text("⏳ Синхронизация комиссий WB...")
 
-    async with AsyncSessionFactory() as session:
-        repo = MarketplaceAccountRepository(session)
-        accounts = await repo.list_active_accounts(marketplace=Marketplace.WB)
-        if not accounts:
-            await message.edit_text("Нет активных WB-кабинетов для синхронизации.")
-            await callback.answer()
-            return
+    try:
+        async with AsyncSessionFactory() as session:
+            repo = MarketplaceAccountRepository(session)
+            accounts = await repo.list_active_accounts(marketplace=Marketplace.WB)
+            if not accounts:
+                await message.edit_text("Нет активных WB-кабинетов для синхронизации.")
+                await callback.answer()
+                return
 
-        account = accounts[0]
-        try:
-            api_key = TokenCipher().decrypt(account.encrypted_api_key)
-        except Exception:
-            await message.edit_text("Не удалось расшифровать API-ключ WB.")
-            await callback.answer()
-            return
+            account = accounts[0]
+            try:
+                api_key = TokenCipher().decrypt(account.encrypted_api_key)
+            except Exception:
+                await message.edit_text("Не удалось расшифровать API-ключ WB.")
+                await callback.answer()
+                return
 
-        service = WbCommissionSyncService(session)
-        result = await service.sync(api_key)
-        await session.commit()
+            service = WbCommissionSyncService(session)
+            result = await service.sync(api_key)
+            await session.commit()
 
-    notification = format_wb_sync_notification(result)
-    await message.edit_text(notification)
+        notification = format_wb_sync_notification(result)
+        await message.edit_text(notification)
 
-    from aiogram import Bot
+        from aiogram import Bot
 
-    settings = get_settings()
-    bot = Bot(settings.bot_token.get_secret_value())
-    if result.get("changed") or not result.get("success"):
-        await notify_admins(bot, notification)
-    await bot.session.close()
+        settings = get_settings()
+        bot = Bot(settings.bot_token.get_secret_value())
+        if result.get("changed") or not result.get("success"):
+            await notify_admins(bot, notification)
+        await bot.session.close()
+    except Exception:
+        logger.exception("commission_wb_manual_sync_failed")
+        await message.edit_text(
+            "⚠️ Не удалось синхронизировать комиссии WB. "
+            "Ошибка зафиксирована в логах."
+        )
 
     await callback.answer()
 
