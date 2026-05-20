@@ -133,6 +133,11 @@ class WbCommissionSyncService:
         logger.info("wb_commission_sync_started")
         client = WildberriesClient(api_key)
 
+        # Deactivate any empty versions from previous buggy syncs
+        cleaned = await self.cleanup_empty_versions()
+        if cleaned:
+            logger.info("wb_commission_cleanup_deactivated", extra={"count": cleaned})
+
         try:
             raw_tariffs = await client.get_commission_tariffs()
         except Exception as exc:
@@ -158,10 +163,32 @@ class WbCommissionSyncService:
                 "version_id": active_version.id,
             }
 
+        if not raw_tariffs:
+            logger.error("wb_commission_sync_empty_report")
+            return {
+                "success": False,
+                "error_type": "WBCommissionEmptyReportError",
+                "error": "WB API вернул пустой report — тарифы не получены",
+            }
+
         normalized_rates = []
         for entry in raw_tariffs:
             if isinstance(entry, dict):
                 normalized_rates.extend(_normalize_wb_tariff_entry(entry))
+
+        if not normalized_rates:
+            logger.error(
+                "wb_commission_sync_parse_failed",
+                extra={"entries_count": len(raw_tariffs)},
+            )
+            return {
+                "success": False,
+                "error_type": "WBCommissionParseError",
+                "error": (
+                    f"WB API вернул {len(raw_tariffs)} записей, "
+                    "но ни одна комиссия не была распознана"
+                ),
+            }
 
         if active_version:
             active_version.is_active = False
@@ -225,3 +252,31 @@ class WbCommissionSyncService:
             .limit(1)
         )
         return result.scalar_one_or_none()
+
+    async def cleanup_empty_versions(self) -> int:
+        """Deactivate any active WB versions that have 0 rates.
+
+        This handles the case where a previous buggy sync created an empty version.
+        Returns the number of versions deactivated.
+        """
+        result = await self.session.execute(
+            select(MarketplaceCommissionVersion)
+            .where(MarketplaceCommissionVersion.marketplace == Marketplace.WB)
+            .where(MarketplaceCommissionVersion.is_active.is_(True))
+        )
+        empty_count = 0
+        for version in result.scalars().all():
+            rates_result = await self.session.execute(
+                select(MarketplaceCommissionRate).where(
+                    MarketplaceCommissionRate.version_id == version.id
+                ).limit(1)
+            )
+            if rates_result.scalar_one_or_none() is None:
+                version.is_active = False
+                version.effective_to = date.today()
+                empty_count += 1
+                logger.warning(
+                    "wb_commission_cleanup_empty_version",
+                    extra={"version_id": version.id},
+                )
+        return empty_count

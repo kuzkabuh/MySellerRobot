@@ -54,10 +54,17 @@ def format_wb_sync_notification(result: dict[str, Any]) -> str:
     if result.get("success"):
         if not result.get("changed"):
             return "✅ Комиссии Wildberries проверены — изменений нет."
+        rates_count = result.get("rates_count", 0)
+        if rates_count == 0:
+            return (
+                "⚠️ <b>Синхронизация WB: 0 ставок</b>\n\n"
+                "Версия создана, но ставки не распознаны. "
+                "Проверьте формат ответа WB API."
+            )
         return (
             "🔄 <b>Обновлены комиссии Wildberries</b>\n\n"
             f"Версия: {result.get('version_label', 'н/д')}\n"
-            f"Ставок: {result.get('rates_count', 0)}\n"
+            f"Ставок: {rates_count}\n"
             f"ID версии: {result.get('version_id', 'н/д')}"
         )
     error = result.get("error", "Неизвестная ошибка")

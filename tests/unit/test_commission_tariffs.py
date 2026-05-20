@@ -9,6 +9,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.services.commission_tariffs.admin_notifications import (
+    format_ozon_import_notification,
+    format_ozon_monitor_notification,
+    format_wb_sync_notification,
+)
 from app.services.commission_tariffs.commission_resolver_service import (
     CommissionResolverService,
 )
@@ -390,6 +395,109 @@ class TestWbSyncNoChanges:
         fbw_rate = next(r for r in all_rates if r["sales_model"] == "fbo")
         assert fbw_rate["commission_percent"] == Decimal("15.5")
 
+    @pytest.mark.asyncio
+    async def test_sync_empty_report_returns_error(self) -> None:
+        """Sync with empty report must not create a version."""
+        from app.services.commission_tariffs.wb_commission_sync_service import (
+            WbCommissionSyncService,
+        )
+
+        session = AsyncMock()
+        session.execute = AsyncMock(
+            return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None))
+        )
+
+        service = WbCommissionSyncService(session)
+
+        with patch.object(
+            service, "_get_active_version", return_value=None
+        ):
+            with patch(
+                "app.services.commission_tariffs.wb_commission_sync_service.WildberriesClient"
+            ) as mock_client_cls:
+                mock_client = AsyncMock()
+                mock_client.get_commission_tariffs = AsyncMock(return_value=[])
+                mock_client_cls.return_value = mock_client
+
+                result = await service.sync("test-api-key")
+
+        assert result["success"] is False
+        assert result["error_type"] == "WBCommissionEmptyReportError"
+
+    @pytest.mark.asyncio
+    async def test_sync_unparseable_report_returns_error(self) -> None:
+        """Sync with report that cannot be parsed must not create a version."""
+        from app.services.commission_tariffs.wb_commission_sync_service import (
+            WbCommissionSyncService,
+        )
+
+        session = AsyncMock()
+        session.execute = AsyncMock(
+            return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None))
+        )
+
+        service = WbCommissionSyncService(session)
+
+        with patch.object(
+            service, "_get_active_version", return_value=None
+        ):
+            with patch(
+                "app.services.commission_tariffs.wb_commission_sync_service.WildberriesClient"
+            ) as mock_client_cls:
+                mock_client = AsyncMock()
+                mock_client.get_commission_tariffs = AsyncMock(
+                    return_value=[{"unknown_field": "no_commission_data"}]
+                )
+                mock_client_cls.return_value = mock_client
+
+                result = await service.sync("test-api-key")
+
+        assert result["success"] is False
+        assert result["error_type"] == "WBCommissionParseError"
+
+    @pytest.mark.asyncio
+    async def test_cleanup_empty_versions_deactivates_them(self) -> None:
+        """Cleanup must deactivate active versions with 0 rates."""
+        from app.services.commission_tariffs.wb_commission_sync_service import (
+            WbCommissionSyncService,
+        )
+
+        session = AsyncMock()
+        empty_version = MagicMock()
+        empty_version.id = 99
+        empty_version.is_active = True
+
+        valid_version = MagicMock()
+        valid_version.id = 100
+        valid_version.is_active = True
+
+        call_count = {"count": 0}
+
+        def mock_execute(query):
+            call_count["count"] += 1
+            result = MagicMock()
+            if call_count["count"] == 1:
+                result.scalars = MagicMock(
+                    return_value=MagicMock(
+                        all=MagicMock(return_value=[empty_version, valid_version])
+                    )
+                )
+            else:
+                if call_count["count"] == 2:
+                    result.scalar_one_or_none = MagicMock(return_value=None)
+                else:
+                    result.scalar_one_or_none = MagicMock(return_value=MagicMock())
+            return result
+
+        session.execute = AsyncMock(side_effect=mock_execute)
+
+        service = WbCommissionSyncService(session)
+        cleaned = await service.cleanup_empty_versions()
+
+        assert cleaned == 1
+        assert empty_version.is_active is False
+        assert valid_version.is_active is True
+
 
 class TestOzonMonitorDetectsChanges:
     def test_detects_new_period(self) -> None:
@@ -448,3 +556,46 @@ class TestOzonMonitorDetectsChanges:
         change_type, has_changes = OzonCommissionSourceMonitorService._detect_changes(last_check, parsed)
         assert has_changes is True
         assert change_type == "file_url_changed"
+
+
+class TestWbSyncNotificationFormatter:
+    def test_success_with_rates(self) -> None:
+        result = {
+            "success": True,
+            "changed": True,
+            "version_label": "WB tariffs sync 2026-05-20",
+            "rates_count": 1200,
+            "version_id": 3,
+        }
+        msg = format_wb_sync_notification(result)
+        assert "Обновлены комиссии Wildberries" in msg
+        assert "Ставок: 1200" in msg
+        assert "⚠️" not in msg
+
+    def test_success_with_zero_rates_shows_warning(self) -> None:
+        result = {
+            "success": True,
+            "changed": True,
+            "version_label": "WB tariffs sync 2026-05-20",
+            "rates_count": 0,
+            "version_id": 2,
+        }
+        msg = format_wb_sync_notification(result)
+        assert "0 ставок" in msg
+        assert "Обновлены комиссии Wildberries" not in msg
+        assert "⚠️" in msg
+
+    def test_no_changes(self) -> None:
+        result = {"success": True, "changed": False}
+        msg = format_wb_sync_notification(result)
+        assert "изменений нет" in msg
+
+    def test_error_shows_details(self) -> None:
+        result = {
+            "success": False,
+            "error_type": "WBCommissionParseError",
+            "error": "Тестовая ошибка",
+        }
+        msg = format_wb_sync_notification(result)
+        assert "Ошибка синхронизации" in msg
+        assert "WBCommissionParseError" in msg
