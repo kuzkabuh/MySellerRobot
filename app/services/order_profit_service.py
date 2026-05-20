@@ -1,6 +1,6 @@
-"""version: 1.5.0
+"""version: 1.6.0
 description: Shared tariff-aware estimated order profit calculation with confidence tracking.
-updated: 2026-05-15
+updated: 2026-05-20
 """
 
 from datetime import UTC, datetime
@@ -12,14 +12,16 @@ from app.models.domain import (
     MarketplaceAccount,
     Order,
     OrderItem,
+    Product,
     ProductCostHistory,
     ProfitSnapshot,
 )
-from app.models.enums import CalculationType
+from app.models.enums import CalculationType, Marketplace
 from app.repositories.orders import OrderRepository
 from app.repositories.products import ProductRepository
 from app.schemas.orders import NormalizedOrder
 from app.schemas.profit import CostInput, ProfitInput, ProfitResult
+from app.services.commission_tariffs.commission_resolver_service import CommissionResolverService
 from app.services.cost_service import CostService
 from app.services.marketplace_estimates import estimate_marketplace_expenses
 from app.services.profit_calculator import ProfitCalculator
@@ -47,6 +49,8 @@ class OrderProfitService:
         if order_with_items is None:
             return
         normalized_by_index = list(normalized.items)
+        tariff_resolver = CommissionResolverService(self.session)
+
         for index, item in enumerate(order_with_items.items):
             source = normalized_by_index[index] if index < len(normalized_by_index) else None
             product = await self.products.find_for_order_item(
@@ -63,10 +67,18 @@ class OrderProfitService:
             cost = (
                 await self.costs.get_actual_cost(product.id, order.order_date) if product else None
             )
+
+            commission_rate = await self._resolve_commission_rate(
+                tariff_resolver=tariff_resolver,
+                order=order,
+                product=product,
+                item=item,
+            )
+
             estimates = estimate_marketplace_expenses(
                 order_with_items,
                 item,
-                product_commission_rate=product.marketplace_commission_rate if product else None,
+                product_commission_rate=commission_rate,
                 commission_fbw=product.commission_fbw if product else None,
                 commission_fbs=product.commission_fbs if product else None,
                 commission_dbs=product.commission_dbs if product else None,
@@ -136,6 +148,57 @@ class OrderProfitService:
                 cost=cost_input,
             )
         )
+
+    async def _resolve_commission_rate(
+        self,
+        *,
+        tariff_resolver: CommissionResolverService,
+        order: Order,
+        product: Product | None,
+        item: OrderItem,
+    ) -> Decimal | None:
+        """Resolve commission rate: product fields first, then tariff DB fallback."""
+        if product:
+            sale_model = order.sale_model
+            if sale_model:
+                model_field_map = {
+                    "FBO": product.commission_fbw,
+                    "FBS": product.commission_fbs,
+                    "rFBS": product.commission_fbs,
+                    "DBS": product.commission_dbs,
+                    "DBW": product.commission_dbs,
+                }
+                rate = model_field_map.get(sale_model.value)
+                if rate is not None:
+                    return rate
+            if product.marketplace_commission_rate is not None:
+                return product.marketplace_commission_rate
+
+        if order.marketplace == Marketplace.OZON:
+            price = item.discounted_price or item.seller_price or item.buyer_price
+            result = await tariff_resolver.get_commission_rate(
+                marketplace="OZON",
+                order_date=order.order_date.date() if hasattr(order.order_date, "date") else order.order_date,
+                sales_model=order.sale_model.value.lower() if order.sale_model else "fbs",
+                category_name=product.category if product else None,
+                product_type_name=None,
+                product_price=price,
+            )
+            if result.match_status == "exact" and result.commission_percent is not None:
+                return result.commission_percent / Decimal("100")
+
+        if order.marketplace == Marketplace.WB:
+            result = await tariff_resolver.get_commission_rate(
+                marketplace="WB",
+                order_date=order.order_date.date() if hasattr(order.order_date, "date") else order.order_date,
+                sales_model=order.sale_model.value.lower() if order.sale_model else "fbo",
+                category_name=product.category if product else None,
+                subject_name=None,
+            )
+            if result.match_status == "exact" and result.commission_percent is not None:
+                return result.commission_percent / Decimal("100")
+
+        return None
 
     @staticmethod
     def apply_profit_to_item(item: OrderItem, result: ProfitResult) -> None:

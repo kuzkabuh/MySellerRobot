@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import Order, OrderItem, Product, ReturnsEvent, SalesEvent, StockSnapshot
-from app.models.enums import Marketplace, SaleModel
+from app.models.enums import ExpenseSource, Marketplace, SaleModel
 from app.repositories.products import ProductRepository
 from app.services.marketplace_estimates import (
     PlannedEconomics,
@@ -25,6 +25,17 @@ from app.services.message_formatter import rub
 from app.utils.datetime import format_datetime_for_user, get_user_timezone, user_day_bounds_utc
 
 ZERO = Decimal("0")
+
+
+def _commission_source_label(source: ExpenseSource) -> str:
+    labels = {
+        ExpenseSource.WB_TARIFF_API: "тариф WB",
+        ExpenseSource.OZON_FINANCIAL_DATA: "тариф Ozon",
+        ExpenseSource.FINANCIAL_REPORT: "фин. отчёт",
+        ExpenseSource.FALLBACK_DEFAULT: "предварительно",
+        ExpenseSource.UNKNOWN: "не определена",
+    }
+    return labels.get(source, "не определена")
 
 
 @dataclass(frozen=True, slots=True)
@@ -503,14 +514,20 @@ class OrderCardService:
     @staticmethod
     def _commission_label(economics: PlannedEconomics) -> str:
         if not economics.commission_is_known:
-            return "💼 Комиссия маркетплейса: ожидает тарифа WB или финансового отчёта"
+            return "💼 Комиссия маркетплейса: не определена — тариф не найден"
         percent = ""
         if economics.commission_rate is not None:
             percent_value = (economics.commission_rate * Decimal("100")).quantize(Decimal("1"))
             percent = f" ({percent_value}%"
-            percent += ", тариф WB)" if economics.commission_is_baseline else ")"
+            if economics.commission_is_baseline:
+                source_label = _commission_source_label(economics.commission_source)
+                percent += f", {source_label})"
+            else:
+                percent += ")"
         suffix = (
-            "Базовая комиссия WB" if economics.commission_is_baseline else "Комиссия маркетплейса"
+            _commission_source_label(economics.commission_source)
+            if economics.commission_is_baseline
+            else "Комиссия маркетплейса"
         )
         return f"💼 {suffix}: {rub(economics.commission)}{percent}"
 

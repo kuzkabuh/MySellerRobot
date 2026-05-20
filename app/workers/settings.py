@@ -11,6 +11,7 @@ from app.core.redis import redis_settings_from_url
 from app.workers.tasks import (
     check_fbs_deadlines,
     check_low_stocks,
+    check_ozon_commission_source,
     check_wb_financial_reports,
     poll_new_orders,
     process_history_backfills,
@@ -23,6 +24,7 @@ from app.workers.tasks import (
     sync_products,
     sync_sale_events,
     sync_wb_account_profiles,
+    sync_wb_commissions,
     sync_wb_daily_financial_details,
     sync_wb_daily_sales_reports,
 )
@@ -52,6 +54,8 @@ class WorkerSettings:
         sync_wb_daily_financial_details,
         reconcile_pending_payments,
         resend_unnotified_orders,
+        sync_wb_commissions,
+        check_ozon_commission_source,
     ]
     order_poll_minutes = {
         0,
@@ -95,6 +99,8 @@ class WorkerSettings:
         cron(reconcile_pending_payments, minute={5, 25, 45}),
         cron(resend_unnotified_orders, minute={7, 22, 37, 52}),
         cron(sync_products, hour=1, minute=20),
+        cron(sync_wb_commissions, hour=3, minute=10),
+        cron(check_ozon_commission_source, hour=3, minute=30),
     ]
     redis_settings = _redis_settings()
     max_jobs = 10

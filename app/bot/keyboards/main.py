@@ -144,6 +144,12 @@ def admin_menu() -> InlineKeyboardMarkup:
                     callback_data="admin_tariff_menu",
                 )
             ],
+            [
+                InlineKeyboardButton(
+                    text="📊 Комиссии маркетплейсов",
+                    callback_data="admin:commissions",
+                )
+            ],
             [InlineKeyboardButton(text="🔄 Синхронизации", callback_data="admin:sync")],
             [InlineKeyboardButton(text="📊 Системная статистика", callback_data="admin:system")],
             [InlineKeyboardButton(text="🧪 Диагностика заказов", callback_data="admin:orders")],

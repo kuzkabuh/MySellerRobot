@@ -4,6 +4,12 @@ updated: 2026-05-16
 """
 
 from app.models.base import Base
+from app.models.commission_tariffs import (
+    MarketplaceCommissionImportLog,
+    MarketplaceCommissionRate,
+    MarketplaceCommissionVersion,
+    MarketplaceTariffSourceCheck,
+)
 from app.models.domain import (
     AccountBalanceSnapshot,
     AlertEvent,
@@ -46,6 +52,10 @@ __all__ = [
     "FinancialReportRow",
     "FboDigestQueue",
     "MarketplaceAccount",
+    "MarketplaceCommissionImportLog",
+    "MarketplaceCommissionRate",
+    "MarketplaceCommissionVersion",
+    "MarketplaceTariffSourceCheck",
     "MasterProduct",
     "MasterProductLink",
     "NotificationSetting",

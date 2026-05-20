@@ -999,13 +999,27 @@ def _format_order_product(order: Order) -> str:
 
 def _commission_detail_label(economics: PlannedEconomics) -> str:
     if not economics.commission_is_known:
-        return "🏷 Комиссия маркетплейса: будет уточнена после финансового отчёта"
+        return "🏷 Комиссия маркетплейса: не определена — тариф не найден"
     if economics.commission_rate is not None:
         percent = (economics.commission_rate * Decimal("100")).quantize(Decimal("1"))
         if economics.commission_is_baseline:
-            return f"🏷 Базовая комиссия WB: {rub(economics.commission)} ({percent}%, тариф WB)"
+            source = _commission_source_detail_label(economics.commission_source)
+            return f"🏷 {source}: {rub(economics.commission)} ({percent}%)"
         return f"🏷 Комиссия маркетплейса: {rub(economics.commission)} ({percent}%)"
     return f"🏷 Комиссия маркетплейса: {rub(economics.commission)}"
+
+
+def _commission_source_detail_label(source) -> str:
+    from app.models.enums import ExpenseSource
+
+    labels = {
+        ExpenseSource.WB_TARIFF_API: "Базовая комиссия WB",
+        ExpenseSource.OZON_FINANCIAL_DATA: "Базовая комиссия Ozon",
+        ExpenseSource.FINANCIAL_REPORT: "Комиссия из отчёта",
+        ExpenseSource.FALLBACK_DEFAULT: "Предварительная комиссия",
+        ExpenseSource.UNKNOWN: "Комиссия маркетплейса",
+    }
+    return labels.get(source, "Комиссия маркетплейса")
 
 
 def _logistics_detail_label(economics: PlannedEconomics) -> str:
@@ -1074,6 +1088,8 @@ async def _handle_admin_callback(callback: CallbackQuery, message: Message, data
         return
     if data.startswith("admin_deploy:"):
         await _handle_admin_deploy_callback(callback, message, data)
+        return
+    if data == "admin:commissions" or data.startswith("admin_commission:"):
         return
     async with AsyncSessionFactory() as session:
         service = AdminService(session)

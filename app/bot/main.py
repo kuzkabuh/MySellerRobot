@@ -12,6 +12,7 @@ from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.types import BotCommand
 
 from app.bot.handlers.accounts import router as accounts_router
+from app.bot.handlers.commissions import router as commissions_router
 from app.bot.handlers.common import router as common_router
 from app.bot.handlers.costs import router as costs_router
 from app.bot.handlers.navigation import router as navigation_router
@@ -63,6 +64,7 @@ def create_dispatcher(storage: RedisStorage | None = None) -> Dispatcher:
         accounts_router,
         costs_router,
         subscription_router,
+        commissions_router,
         common_router,
     ):
         _include_router(dispatcher, router)

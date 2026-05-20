@@ -12,6 +12,7 @@ from app.web.route_modules import (
     account_settings,
     auth,
     catalog,
+    commissions_admin,
     compatibility,
     operations,
     orders_profit,
@@ -71,5 +72,6 @@ for module_router in (
     catalog.router,
     account_settings.router,
     compatibility.router,
+    commissions_admin.router,
 ):
     router.include_router(module_router)
