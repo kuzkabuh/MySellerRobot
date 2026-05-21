@@ -1,6 +1,6 @@
-# version: 1.3.0
+# version: 1.4.0
 # description: Production deployment guide for MP Control on Ubuntu VPS.
-# updated: 2026-05-15
+# updated: 2026-05-21
 
 # Production-развёртывание MP Control
 
@@ -182,6 +182,7 @@ sudo bash deploy/update.sh
 - защищается от параллельных запусков через `runtime/update.lock`;
 - сохраняет статус последнего deploy в `runtime/last_update_status.json`;
 - пересобирает Docker images;
+- **перед миграциями расширяет `alembic_version.version_num` до VARCHAR(128)** (идемпотентно);
 - применяет миграции;
 - перезапускает сервисы;
 - проверяет healthcheck.
@@ -429,6 +430,20 @@ sudo tail -f /var/log/letsencrypt/letsencrypt.log
 cd /opt/mpcontrol
 docker compose -f docker-compose.prod.yml run --rm api alembic current
 docker compose -f docker-compose.prod.yml run --rm api alembic upgrade head
+```
+
+Начиная с версии 1.7.3, `update.sh` автоматически расширяет колонку
+`alembic_version.version_num` до `VARCHAR(128)` перед запуском миграций.
+Это предотвращает ошибку `StringDataRightTruncationError` при длинных revision id.
+
+Если нужно исправить вручную до обновления:
+
+```bash
+cd /opt/mpcontrol
+source .env
+docker compose -f docker-compose.prod.yml exec -T postgres \
+  psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -c "ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(128);"
 ```
 
 ### Бот не отвечает

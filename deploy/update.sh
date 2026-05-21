@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# version: 1.2.0
+# version: 1.3.0
 # description: Safe production updater for MP Control with CI/CD modes, lock, backup, and status JSON.
-# updated: 2026-05-15
+# updated: 2026-05-21
 
 set -Eeuo pipefail
 
@@ -379,12 +379,68 @@ build_images() {
   docker compose -f "$COMPOSE_FILE" build
 }
 
+ensure_alembic_version_capacity() {
+  log_info "Checking alembic_version.version_num column capacity."
+  local pg_user pg_db
+  pg_user="$(env_value "POSTGRES_USER")"
+  pg_db="$(env_value "POSTGRES_DB")"
+
+  if [[ -z "$pg_user" || -z "$pg_db" ]]; then
+    log_warn "POSTGRES_USER or POSTGRES_DB not found in .env; skipping alembic_version check."
+    return 0
+  fi
+
+  local sql_check_type
+  sql_check_type="
+SELECT data_type, character_maximum_length
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name = 'alembic_version'
+  AND column_name = 'version_num';
+"
+
+  local sql_ensure_capacity="
+DO \$\$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = 'alembic_version'
+    ) THEN
+        ALTER TABLE public.alembic_version
+        ALTER COLUMN version_num TYPE VARCHAR(128);
+    END IF;
+END \$\$;
+"
+
+  local col_type
+  col_type="$(docker compose -f "$COMPOSE_FILE" exec -T postgres \
+    psql -U "$pg_user" -d "$pg_db" -t -A -c "$sql_check_type" 2>/dev/null || echo "")"
+
+  if [[ -z "$col_type" ]]; then
+    log_info "Table alembic_version does not exist yet; Alembic will create it with correct type."
+    return 0
+  fi
+
+  log_info "Current alembic_version.version_num type: ${col_type}"
+
+  docker compose -f "$COMPOSE_FILE" exec -T postgres \
+    psql -U "$pg_user" -d "$pg_db" -c "$sql_ensure_capacity" || {
+    log_warn "Failed to alter alembic_version.version_num; migration may fail."
+    return 0
+  }
+
+  log_info "alembic_version.version_num capacity ensured: VARCHAR(128)."
+}
+
 run_migrations() {
   cd "$PROJECT_DIR"
   log_info "Starting PostgreSQL and Redis before migrations."
   docker compose -f "$COMPOSE_FILE" up -d postgres redis
   log_info "Waiting for PostgreSQL to be ready..."
   sleep 3
+  ensure_alembic_version_capacity
   log_info "=== STARTING ALEMBIC MIGRATIONS ==="
   if docker compose -f "$COMPOSE_FILE" run --rm api alembic upgrade head; then
     log_info "=== ALEMBIC MIGRATIONS COMPLETED SUCCESSFULLY ==="

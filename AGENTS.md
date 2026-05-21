@@ -376,6 +376,12 @@ Deployment checklist:
 - View history: `alembic history`
 - If multiple heads, merge: `alembic merge -m "merge heads" <rev1> <rev2>`
 
+### Alembic version_num too short
+- PostgreSQL `alembic_version.version_num` may be VARCHAR(32) by default
+- `deploy/update.sh` automatically expands it to VARCHAR(128) before migrations
+- Manual fix: `ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(128);`
+- Keep revision IDs under 40 characters to avoid future issues
+
 ### Web cabinet login fails
 - Verify `WEB_BASE_URL` is publicly accessible HTTPS URL (not localhost)
 - Check token hasn't expired (`WEB_LOGIN_TOKEN_TTL_MINUTES`)
