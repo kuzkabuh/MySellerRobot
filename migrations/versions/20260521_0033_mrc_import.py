@@ -20,9 +20,10 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     conn = op.get_bind()
     inspector = inspect(conn)
+    existing_tables = inspector.get_table_names()
 
     # Create mrc_imports table if it doesn't exist
-    if "mrc_imports" not in inspector.get_table_names():
+    if "mrc_imports" not in existing_tables:
         op.create_table(
             "mrc_imports",
             sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
@@ -39,13 +40,21 @@ def upgrade() -> None:
             sa.Column("warning_rows", sa.Integer(), nullable=False, server_default="0"),
             sa.Column("error_rows", sa.Integer(), nullable=False, server_default="0"),
             sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
             sa.Column("applied_at", sa.DateTime(timezone=True), nullable=True),
             sa.Column("error_text", sa.Text(), nullable=True),
             sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True),
         )
+    else:
+        # Table exists but may be missing columns from partial run
+        mrc_imports_cols = {col["name"] for col in inspector.get_columns("mrc_imports")}
+        if "updated_at" not in mrc_imports_cols:
+            op.execute(
+                "ALTER TABLE mrc_imports ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()"
+            )
 
     # Create mrc_import_rows table if it doesn't exist
-    if "mrc_import_rows" not in inspector.get_table_names():
+    if "mrc_import_rows" not in existing_tables:
         op.create_table(
             "mrc_import_rows",
             sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
@@ -60,7 +69,15 @@ def upgrade() -> None:
             sa.Column("status", sa.String(64), nullable=False),
             sa.Column("message", sa.Text(), nullable=True),
             sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         )
+    else:
+        # Table exists but may be missing columns from partial run
+        mrc_import_rows_cols = {col["name"] for col in inspector.get_columns("mrc_import_rows")}
+        if "updated_at" not in mrc_import_rows_cols:
+            op.execute(
+                "ALTER TABLE mrc_import_rows ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()"
+            )
 
     # Create indexes explicitly (only if they don't exist)
     existing_indexes = {idx["name"] for idx in inspector.get_indexes("mrc_imports")} | \

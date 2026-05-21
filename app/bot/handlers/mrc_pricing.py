@@ -15,7 +15,7 @@ from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State
-from aiogram.types import CallbackQuery, ContentType, Message
+from aiogram.types import CallbackQuery, ContentType, FSInputFile, Message
 from sqlalchemy import or_, select
 
 from app.bot.keyboards.main import (
@@ -844,8 +844,18 @@ async def mrc_template_download_handler(callback: CallbackQuery) -> None:
             service = MrcImportService(session)
             file_path = await service.generate_mrc_template(user_id)
 
+        if not file_path.exists():
+            await safe_edit_text(
+                callback.message,
+                "❌ Не удалось создать файл шаблона. Попробуйте позже.",
+                reply_markup=mrc_back_menu(),
+                parse_mode="HTML",
+            )
+            return
+
+        input_file = FSInputFile(path=file_path, filename=file_path.name)
         await callback.message.answer_document(
-            document=file_path.as_posix(),
+            document=input_file,
             caption=(
                 "📥 <b>Файл-шаблон МРЦ готов</b>\n\n"
                 "Заполните колонку <b>new_mrc_price</b> и загрузите файл обратно "

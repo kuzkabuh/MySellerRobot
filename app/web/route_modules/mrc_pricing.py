@@ -397,37 +397,39 @@ async def import_mrc_file(
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> str:
     """Upload Excel file and show preview."""
+    from app.services.pricing.mrc_import_service import MrcImportService
+
+    access = await FeatureAccessService(session).can_use_feature(user.id, FeatureCode.MRC_PRICING)
+    if not access.allowed:
+        return render_page(
+            "Ошибка — МРЦ WB",
+            user.first_name or user.username or str(user.telegram_id),
+            _feature_locked_content(access),
+            active_path="/web/mrc-pricing",
+        )
+
+    if not file.filename or not file.filename.endswith(".xlsx"):
+        return render_page(
+            "Ошибка — МРЦ WB",
+            user.first_name or user.username or str(user.telegram_id),
+            '<div class="card"><h2>Неверный формат</h2>'
+            '<p>Загрузите файл <b>.xlsx</b>.</p>'
+            '<p><a href="/web/mrc-pricing" class="button primary">Вернуться</a></p></div>',
+            active_path="/web/mrc-pricing",
+        )
+
+    user_id = user.id
+
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp_path = Path(tmp.name)
+
     try:
-        from app.services.pricing.mrc_import_service import MrcImportService
-
-        access = await FeatureAccessService(session).can_use_feature(user.id, FeatureCode.MRC_PRICING)
-        if not access.allowed:
-            return render_page(
-                "Ошибка — МРЦ WB",
-                user.first_name or user.username or str(user.telegram_id),
-                _feature_locked_content(access),
-                active_path="/web/mrc-pricing",
-            )
-
-        if not file.filename or not file.filename.endswith(".xlsx"):
-            return render_page(
-                "Ошибка — МРЦ WB",
-                user.first_name or user.username or str(user.telegram_id),
-                '<div class="card"><h2>Неверный формат</h2>'
-                '<p>Загрузите файл <b>.xlsx</b>.</p>'
-                '<p><a href="/web/mrc-pricing" class="button primary">Вернуться</a></p></div>',
-                active_path="/web/mrc-pricing",
-            )
-
-        import tempfile
-        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
-            content = await file.read()
-            tmp.write(content)
-            tmp_path = Path(tmp.name)
-
         service = MrcImportService(session)
-        preview = await service.create_preview(tmp_path, user.id, source="web", original_file_name=file.filename)
-        rows = await service.get_import_rows(preview.import_id, user.id)
+        preview = await service.create_preview(tmp_path, user_id, source="web", original_file_name=file.filename)
+        rows = await service.get_import_rows(preview.import_id, user_id)
 
         return render_page(
             "Проверка импорта МРЦ",
@@ -435,8 +437,22 @@ async def import_mrc_file(
             _import_preview_content(preview, rows, user.timezone),
             active_path="/web/mrc-pricing",
         )
+    except ValueError as exc:
+        logger.warning(
+            "mrc_import_preview_validation_error",
+            extra={"user_id": user_id, "error": str(exc)},
+        )
+        return render_page(
+            "Ошибка — МРЦ WB",
+            user.first_name or user.username or str(user.telegram_id),
+            f'<div class="card"><h2>Не удалось обработать файл</h2>'
+            f'<p>{escape(str(exc))}</p>'
+            f'<p><a href="/web/mrc-pricing" class="button primary">Вернуться</a></p></div>',
+            active_path="/web/mrc-pricing",
+        )
     except Exception:
-        logger.exception("mrc_import_preview_failed", extra={"user_id": user.id})
+        await session.rollback()
+        logger.exception("mrc_import_preview_failed", extra={"user_id": user_id})
         return render_page(
             "Ошибка — МРЦ WB",
             user.first_name or user.username or str(user.telegram_id),
@@ -454,6 +470,7 @@ async def confirm_mrc_import(
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
     """Confirm and apply MRC import."""
+    user_id = user.id
     try:
         from app.services.pricing.mrc_import_service import MrcImportService
 
@@ -461,7 +478,7 @@ async def confirm_mrc_import(
         import_id = form_data.get("import_id", "")
 
         service = MrcImportService(session)
-        result = await service.apply_mrc_import(int(import_id), user.id, source="web")
+        result = await service.apply_mrc_import(int(import_id), user_id, source="web")
 
         return RedirectResponse(
             url=f"/web/mrc-pricing?import_done=1&updated={result.updated_count}&cleared={result.cleared_count}&errors={result.error_count}",
@@ -470,11 +487,12 @@ async def confirm_mrc_import(
     except ValueError as exc:
         logger.warning(
             "mrc_import_confirm_validation_error",
-            extra={"user_id": user.id, "error": str(exc)},
+            extra={"user_id": user_id, "error": str(exc)},
         )
         return RedirectResponse(url=f"/web/mrc-pricing?import_error=1&error_msg={str(exc)}", status_code=303)
     except Exception:
-        logger.exception("mrc_import_confirm_failed", extra={"user_id": user.id})
+        await session.rollback()
+        logger.exception("mrc_import_confirm_failed", extra={"user_id": user_id})
         return RedirectResponse(url="/web/mrc-pricing?import_error=1", status_code=303)
 
 
@@ -485,6 +503,7 @@ async def cancel_mrc_import(
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
     """Cancel MRC import."""
+    user_id = user.id
     try:
         from app.services.pricing.mrc_import_service import MrcImportService
 
@@ -492,9 +511,10 @@ async def cancel_mrc_import(
         import_id = form_data.get("import_id", "")
 
         service = MrcImportService(session)
-        await service.cancel_import(int(import_id), user.id)
+        await service.cancel_import(int(import_id), user_id)
     except Exception:
-        logger.exception("mrc_import_cancel_failed", extra={"user_id": user.id})
+        await session.rollback()
+        logger.exception("mrc_import_cancel_failed", extra={"user_id": user_id})
 
     return RedirectResponse(url="/web/mrc-pricing?import_cancelled=1", status_code=303)
 
