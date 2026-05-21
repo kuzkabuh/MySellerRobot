@@ -98,22 +98,48 @@ async def mrc_pricing_page(
     search: str = Query(""),
 ) -> str:
     """MRC pricing management page."""
-    access = await FeatureAccessService(session).can_use_feature(user.id, FeatureCode.MRC_PRICING)
-    if not access.allowed:
+    try:
+        access = await FeatureAccessService(session).can_use_feature(user.id, FeatureCode.MRC_PRICING)
+        if not access.allowed:
+            return render_page(
+                "МРЦ WB — Управление ценами",
+                user.first_name or user.username or str(user.telegram_id),
+                _feature_locked_content(access),
+                active_path="/web/mrc-pricing",
+            )
+
+        data = await _load_mrc_page_data(session, user.id, page_number, filter_type, search)
+
+        logger.info(
+            "mrc_pricing_page_opened",
+            extra={
+                "user_id": user.id,
+                "tier_code": access.current_tier or "unknown",
+                "products_count": data.total_products,
+                "products_with_mrc_count": data.products_with_mrc,
+                "active_promotions_count": data.products_with_promo,
+                "last_promotions_sync_at": data.last_sync_time,
+                "render_mode": "server",
+                "source": "web",
+            },
+        )
+
         return render_page(
             "МРЦ WB — Управление ценами",
             user.first_name or user.username or str(user.telegram_id),
-            _feature_locked_content(access),
+            _mrc_pricing_content(data, user.timezone),
             active_path="/web/mrc-pricing",
         )
-
-    data = await _load_mrc_page_data(session, user.id, page_number, filter_type, search)
-    return render_page(
-        "МРЦ WB — Управление ценами",
-        user.first_name or user.username or str(user.telegram_id),
-        _mrc_pricing_content(data, user.timezone),
-        active_path="/web/mrc-pricing",
-    )
+    except Exception:
+        logger.exception("mrc_pricing_page_failed", extra={"user_id": user.id})
+        return render_page(
+            "Ошибка — МРЦ WB",
+            user.first_name or user.username or str(user.telegram_id),
+            '<div class="card"><h2>Не удалось загрузить раздел МРЦ</h2>'
+            '<p>Ошибка уже записана в лог. Попробуйте обновить страницу позже.</p>'
+            '<p><a href="/web/" class="button primary">Вернуться на главную</a></p></div>',
+            active_path="/web/mrc-pricing",
+        )
 
 
 @router.post("/mrc-pricing/products/{product_id}")
@@ -266,6 +292,15 @@ async def trigger_promotions_sync(
         return RedirectResponse(url="/web/mrc-pricing?sync_error=1", status_code=303)
 
 
+@router.get("/mrc-pricing/export")
+async def export_mrc_report(
+    user=CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    """Export MRC report (placeholder — redirects back with notice)."""
+    return RedirectResponse(url="/web/mrc-pricing?export_coming_soon=1", status_code=303)
+
+
 @router.get("/wb-promotions", response_class=HTMLResponse)
 async def wb_promotions_page(
     user=CURRENT_WEB_USER_DEPENDENCY,
@@ -327,7 +362,10 @@ async def _load_mrc_page_data(
     filter_type: str,
     search: str,
 ) -> MrcPageData:
-    """Load MRC pricing page data with filters and pagination."""
+    """Load MRC pricing page data with filters and pagination.
+
+    Uses batch queries for promo lookups to avoid N+1 problem.
+    """
     from datetime import UTC, datetime
 
     now_utc = datetime.now(tz=UTC)
@@ -373,6 +411,54 @@ async def _load_mrc_page_data(
     result = await session.execute(query)
     product_rows = result.all()
 
+    # Batch promo lookup: collect all (account_id, nm_id) pairs
+    nm_ids_to_lookup: list[tuple[int, int]] = []
+    product_nm_map: dict[int, tuple[int, int]] = {}
+    for product, _ in product_rows:
+        if product.mrc_price and product.mrc_price > 0:
+            wb_nm_id = _extract_nm_id(product)
+            if wb_nm_id:
+                key = (product.marketplace_account_id, wb_nm_id)
+                product_nm_map[product.id] = key
+                if key not in nm_ids_to_lookup:
+                    nm_ids_to_lookup.append(key)
+
+    # Single batch query for all promo nomenclatures
+    promo_map: dict[tuple[int, int], WbPromotionNomenclature] = {}
+    if nm_ids_to_lookup:
+        conditions = [
+            (WbPromotionNomenclature.marketplace_account_id == acct_id)
+            & (WbPromotionNomenclature.wb_nm_id == nm_id)
+            for acct_id, nm_id in nm_ids_to_lookup
+        ]
+        nomenclature_query = (
+            select(WbPromotionNomenclature, WbPromotion.name, WbPromotion.end_datetime)
+            .join(
+                WbPromotion,
+                (WbPromotion.wb_promotion_id == WbPromotionNomenclature.wb_promotion_id)
+                & (WbPromotion.marketplace_account_id == WbPromotionNomenclature.marketplace_account_id),
+            )
+            .where(
+                or_(*conditions),
+                WbPromotion.is_active_today.is_(True),
+                WbPromotion.start_datetime <= now_utc,
+                WbPromotion.end_datetime >= now_utc,
+                WbPromotionNomenclature.plan_price.isnot(None),
+                WbPromotionNomenclature.plan_price > 0,
+            )
+            .order_by(
+                WbPromotionNomenclature.marketplace_account_id,
+                WbPromotionNomenclature.wb_nm_id,
+                WbPromotionNomenclature.plan_price.asc(),
+                WbPromotion.end_datetime.asc(),
+            )
+        )
+        nomenclature_result = await session.execute(nomenclature_query)
+        for nom, promo_name, promo_end in nomenclature_result.all():
+            key = (nom.marketplace_account_id, nom.wb_nm_id)
+            if key not in promo_map:
+                promo_map[key] = (nom, promo_name, promo_end)
+
     # Enrich with MRC calculation and promo data
     rows = []
     products_with_promo = 0
@@ -388,10 +474,10 @@ async def _load_mrc_page_data(
         promo_in_action = None
 
         if product.mrc_price and product.mrc_price > 0:
-            wb_nm_id = _extract_nm_id(product)
+            promo_data = product_nm_map.get(product.id)
             promo_nomenclature = None
-            if wb_nm_id:
-                promo_nomenclature = await _get_actual_promo(session, product.marketplace_account_id, wb_nm_id)
+            if promo_data and promo_data in promo_map:
+                promo_nomenclature, promo_name, promo_end_dt = promo_map[promo_data]
 
             promo_required_price = None
             if promo_nomenclature and promo_nomenclature.plan_price:
@@ -400,18 +486,8 @@ async def _load_mrc_page_data(
                 promo_plan_price = promo_nomenclature.plan_price
                 promo_in_action = promo_nomenclature.in_action
                 products_with_promo += 1
-
-                promo_result = await session.execute(
-                    select(WbPromotion.name, WbPromotion.end_datetime).where(
-                        WbPromotion.marketplace_account_id == product.marketplace_account_id,
-                        WbPromotion.wb_promotion_id == promo_nomenclature.wb_promotion_id,
-                    )
-                )
-                promo_row = promo_result.one_or_none()
-                if promo_row:
-                    promo_name = promo_row[0]
-                    if promo_row[1]:
-                        promo_end_date = promo_row[1].strftime("%d.%m.%Y")
+                if promo_end_dt:
+                    promo_end_date = promo_end_dt.strftime("%d.%m.%Y")
 
             try:
                 mrc_result = mrc_service.calculate(
@@ -1029,6 +1105,7 @@ def _flash_messages() -> str:
         if (params.get('sync_error') === '1') msg = '❌ Ошибка синхронизации акций';
         if (params.get('error') === 'invalid_mrc') msg = '❌ МРЦ должна быть положительным числом';
         if (params.get('error') === 'no_products_selected') msg = '❌ Выберите товары для массового редактирования';
+        if (params.get('export_coming_soon') === '1') msg = '📥 Выгрузка отчёта скоро будет доступна';
         if (msg) {
             const div = document.createElement('div');
             div.style.cssText = 'padding:12px 16px;margin-bottom:16px;border-radius:8px;font-size:14px;' +
