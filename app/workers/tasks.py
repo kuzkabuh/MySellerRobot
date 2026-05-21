@@ -9,6 +9,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
