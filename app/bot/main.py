@@ -15,6 +15,7 @@ from app.bot.handlers.accounts import router as accounts_router
 from app.bot.handlers.commissions import router as commissions_router
 from app.bot.handlers.common import router as common_router
 from app.bot.handlers.costs import router as costs_router
+from app.bot.handlers.mrc_pricing import router as mrc_router
 from app.bot.handlers.navigation import router as navigation_router
 from app.bot.handlers.subscription import router as subscription_router
 from app.bot.handlers.wb_logistics_admin import router as wb_logistics_router
@@ -64,6 +65,7 @@ def create_dispatcher(storage: RedisStorage | None = None) -> Dispatcher:
         navigation_router,
         accounts_router,
         costs_router,
+        mrc_router,
         subscription_router,
         commissions_router,
         wb_logistics_router,

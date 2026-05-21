@@ -54,6 +54,7 @@ class SubscriptionTier(TimestampMixin, Base):
     feature_alerts: Mapped[bool] = mapped_column(Boolean, default=False)
     feature_api_access: Mapped[bool] = mapped_column(Boolean, default=False)
     feature_priority_support: Mapped[bool] = mapped_column(Boolean, default=False)
+    feature_mrc_pricing: Mapped[bool] = mapped_column(Boolean, default=False)
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)

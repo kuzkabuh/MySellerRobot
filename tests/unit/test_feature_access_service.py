@@ -48,6 +48,7 @@ def _make_tier(**kwargs):
         "feature_alerts": False,
         "feature_priority_support": False,
         "feature_api_access": False,
+        "feature_mrc_pricing": False,
         "max_marketplace_accounts": 1,
         "max_orders_per_month": 100,
         "max_products": 100,
@@ -85,6 +86,7 @@ async def test_free_tier_denies_paid_features() -> None:
         FeatureCode.EXPORTS,
         FeatureCode.AI_ANALYST,
         FeatureCode.LONG_HISTORY,
+        FeatureCode.MRC_PRICING,
     ]:
         result = await FeatureAccessService(FakeSession(tier)).can_use_feature(1, feature)
         assert result.allowed is False, f"Feature {feature.value} should be denied on FREE tier"
@@ -142,6 +144,7 @@ async def test_pro_tier_allows_all_features() -> None:
         feature_break_even=True,
         feature_stock_forecast=True,
         feature_alerts=True,
+        feature_mrc_pricing=True,
     )
 
     for feature in [
@@ -153,6 +156,7 @@ async def test_pro_tier_allows_all_features() -> None:
         FeatureCode.AI_ANALYST,
         FeatureCode.LONG_HISTORY,
         FeatureCode.MULTI_ACCOUNT,
+        FeatureCode.MRC_PRICING,
     ]:
         result = await FeatureAccessService(FakeSession(tier)).can_use_feature(1, feature)
         assert result.allowed is True, f"Feature {feature.value} should be allowed on PRO tier"

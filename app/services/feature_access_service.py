@@ -37,6 +37,7 @@ _PRO_FEATURES: set[FeatureCode] = {
     FeatureCode.EXPORTS,
     FeatureCode.AI_ANALYST,
     FeatureCode.LONG_HISTORY,
+    FeatureCode.MRC_PRICING,
 }
 
 
@@ -64,6 +65,7 @@ class FeatureAccessService:
             FeatureCode.AI_ANALYST: tier.feature_analytics,
             FeatureCode.MULTI_ACCOUNT: True,
             FeatureCode.LONG_HISTORY: tier.feature_analytics,
+            FeatureCode.MRC_PRICING: tier.feature_mrc_pricing,
         }
         allowed = feature_attr.get(feature, False)
         if not allowed:

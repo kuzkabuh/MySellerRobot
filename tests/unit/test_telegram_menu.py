@@ -9,19 +9,26 @@ from aiogram.types import InlineKeyboardMarkup
 
 from app.bot.handlers.common import SUPPORTED_TIMEZONES, _is_public_web_url, _timezone_text
 from app.bot.keyboards.main import (
+    accounts_list_menu,
+    accounts_menu,
     admin_deploy_menu,
     admin_menu,
-    admin_tariff_select_menu,
+    confirm_delete_account,
+    confirm_deploy_update,
     control_menu,
     costs_menu,
     low_margin_threshold_menu,
     main_menu,
+    mrc_menu,
     notification_settings_menu,
     orders_menu,
-    profile_menu,
     profit_menu,
     sale_notification_settings_menu,
     settings_menu,
+    subscription_current_menu_v2,
+    subscription_menu,
+    subscription_pricing_menu_v2,
+    subscription_tier_detail_menu_v2,
     summary_menu,
     sync_menu,
     timezone_menu,
@@ -42,6 +49,12 @@ def test_main_menu_contains_admin_button_for_admin() -> None:
     texts = [button.text for row in main_menu(is_admin=True).inline_keyboard for button in row]
 
     assert "🛠 Администрирование" in texts
+
+
+def test_main_menu_contains_mrc_button() -> None:
+    texts = [button.text for row in main_menu().inline_keyboard for button in row]
+
+    assert "💰 МРЦ и акции WB" in texts
 
 
 def test_admin_menu_contains_deploy_section() -> None:
@@ -149,6 +162,7 @@ def test_known_callback_buttons_have_common_handler_contract() -> None:
         low_margin_threshold_menu(Decimal("10")),
         timezone_menu("Europe/Moscow"),
         web_cabinet_link("https://app.mpcontrol.online/web/login?token=abc"),
+        mrc_menu(),
     ]
     callbacks = {callback for keyboard in keyboards for callback in _callbacks(keyboard)}
     known_exact = {
@@ -185,6 +199,7 @@ def test_known_callback_buttons_have_common_handler_contract() -> None:
         "cost_upload",
         "subscription_menu",
         "admin_tariff_menu",
+        "mrc_menu",
     }
     known_prefixes = (
         "summary:",
@@ -198,6 +213,7 @@ def test_known_callback_buttons_have_common_handler_contract() -> None:
         "subscription:",
         "admin_tariff:",
         "sync:",
+        "mrc:",
     )
 
     unknown = {

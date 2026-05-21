@@ -80,6 +80,7 @@ class FeatureCode(StrEnum):
     AI_ANALYST = "AI_ANALYST"
     MULTI_ACCOUNT = "MULTI_ACCOUNT"
     LONG_HISTORY = "LONG_HISTORY"
+    MRC_PRICING = "MRC_PRICING"
 
 
 class AlertType(StrEnum):

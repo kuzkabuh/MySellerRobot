@@ -30,3 +30,8 @@ class PaymentStates(StatesGroup):
     waiting_for_email = State()
     pending_tier_code = State()
     pending_period = State()
+
+
+class MrcStates(StatesGroup):
+    waiting_for_article = State()
+    waiting_for_mrc_price = State()
