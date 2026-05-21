@@ -14,6 +14,7 @@ from app.web.route_modules import (
     catalog,
     commissions_admin,
     compatibility,
+    mrc_pricing,
     operations,
     orders_profit,
     planning,
@@ -78,6 +79,7 @@ for module_router in (
     catalog.router,
     account_settings.router,
     commissions_admin.router,
+    mrc_pricing.router,
     compatibility.router,
 ):
     router.include_router(module_router)

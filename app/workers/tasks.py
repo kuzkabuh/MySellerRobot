@@ -1070,3 +1070,45 @@ async def sync_wb_logistics_tariffs(ctx: dict[str, Any]) -> None:
 
             if result["status"] in ("new_version", "error"):
                 await notify_admins(bot, message)
+
+
+async def sync_wb_daily_promotions(ctx: dict[str, Any]) -> None:
+    """Daily sync of WB calendar promotions and product nomenclatures.
+
+    Runs at configured time (default 00:15 Moscow time).
+    Fetches promotions active today, then fetches product lists for
+    regular (non-auto) promotions.
+    """
+    from app.core.config import get_settings
+    from app.core.security import TokenCipher
+    from app.services.wb.wb_promotions_sync_service import WbPromotionsSyncService
+
+    settings = get_settings()
+    if not settings.wb_promotions_sync_enabled:
+        logger.info("wb_promotions_sync_disabled_by_config")
+        return
+
+    async with AsyncSessionFactory() as session:
+        service = WbPromotionsSyncService(session, cipher=TokenCipher())
+        try:
+            stats = await service.sync_all_accounts()
+            await session.commit()
+            logger.info(
+                "wb_promotions_sync_task_completed",
+                extra={
+                    "accounts_processed": stats.accounts_processed,
+                    "accounts_failed": stats.accounts_failed,
+                    "promotions_fetched": stats.promotions_fetched,
+                    "promotions_upserted": stats.promotions_upserted,
+                    "nomenclatures_fetched": stats.nomenclatures_fetched,
+                    "nomenclatures_upserted": stats.nomenclatures_upserted,
+                    "products_matched": stats.products_matched,
+                    "errors_count": len(stats.errors),
+                },
+            )
+        except Exception:
+            logger.exception("wb_promotions_sync_task_failed")
+            try:
+                await session.rollback()
+            except Exception:
+                pass

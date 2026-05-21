@@ -37,6 +37,9 @@ class WildberriesClient:
         self.analytics = AsyncApiClient(settings.wb_base_analytics_url, marketplace="Wildberries")
         self.finance = AsyncApiClient(settings.wb_base_finance_url, marketplace="Wildberries")
         self.statistics = AsyncApiClient(settings.wb_base_statistics_url, marketplace="Wildberries")
+        self.calendar = AsyncApiClient(
+            settings.wb_base_calendar_url, marketplace="Wildberries"
+        )
 
     @property
     def headers(self) -> dict[str, str]:
@@ -381,6 +384,64 @@ class WildberriesClient:
             params={"dateFrom": report_date.isoformat(), "flag": 1},
         )
         return list(data) if isinstance(data, list) else []
+
+    async def get_calendar_promotions(
+        self,
+        *,
+        start_datetime: str,
+        end_datetime: str,
+        all_promo: bool = False,
+        limit: int = 1000,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """Get list of WB calendar promotions for a date range.
+
+        GET https://dp-calendar-api.wildberries.ru/api/v1/calendar/promotions
+        """
+        params: dict[str, Any] = {
+            "startDateTime": start_datetime,
+            "endDateTime": end_datetime,
+            "allPromo": str(all_promo).lower(),
+            "limit": limit,
+            "offset": offset,
+        }
+        return cast(
+            dict[str, Any],
+            await self.calendar.request(
+                "GET",
+                "/api/v1/calendar/promotions",
+                headers=self.headers,
+                params=params,
+            ),
+        )
+
+    async def get_promotion_nomenclatures(
+        self,
+        *,
+        promotion_id: int,
+        in_action: bool,
+        limit: int = 1000,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """Get list of products for a WB promotion.
+
+        GET https://dp-calendar-api.wildberries.ru/api/v1/calendar/promotions/nomenclatures
+        """
+        params: dict[str, Any] = {
+            "promotionID": promotion_id,
+            "inAction": str(in_action).lower(),
+            "limit": limit,
+            "offset": offset,
+        }
+        return cast(
+            dict[str, Any],
+            await self.calendar.request(
+                "GET",
+                "/api/v1/calendar/promotions/nomenclatures",
+                headers=self.headers,
+                params=params,
+            ),
+        )
 
     def normalize_fbs_order(self, payload: dict[str, Any]) -> NormalizedOrder:
         """Normalize WB FBS order to internal format."""

@@ -38,6 +38,8 @@ from app.models.domain import (
     User,
     UserWebSession,
     WbFinancialReport,
+    WbPromotion,
+    WbPromotionNomenclature,
     WbReportCheckState,
 )
 from app.models.subscriptions import Payment, SubscriptionTier, UserSubscription
@@ -84,5 +86,7 @@ __all__ = [
     "WbFinancialReport",
     "WbLogisticsTariffRate",
     "WbLogisticsTariffVersion",
+    "WbPromotion",
+    "WbPromotionNomenclature",
     "WbReportCheckState",
 ]

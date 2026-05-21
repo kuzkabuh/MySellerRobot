@@ -195,6 +195,7 @@ class Product(TimestampMixin, Base):
     commission_booking: Mapped[Decimal | None] = mapped_column(
         "commission_booking", Numeric(7, 4)
     )
+    mrc_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     costs: Mapped[list["ProductCostHistory"]] = relationship(back_populates="product")
@@ -688,6 +689,65 @@ class WbReportCheckState(TimestampMixin, Base):
     last_error_message: Mapped[str | None] = mapped_column(Text)
     reports_found: Mapped[int] = mapped_column(Integer, default=0)
     payload: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
+
+
+class WbPromotion(TimestampMixin, Base):
+    __tablename__ = "wb_promotions"
+    __table_args__ = (
+        UniqueConstraint(
+            "marketplace_account_id",
+            "wb_promotion_id",
+            name="uq_wb_promotions_account_promo",
+        ),
+        Index("ix_wb_promotions_account_active", "marketplace_account_id", "is_active_today"),
+        Index("ix_wb_promotions_dates", "start_datetime", "end_datetime"),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    marketplace_account_id: Mapped[int] = mapped_column(
+        ForeignKey("marketplace_accounts.id", ondelete="CASCADE"), index=True
+    )
+    wb_promotion_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    name: Mapped[str | None] = mapped_column(String(512))
+    promotion_type: Mapped[str | None] = mapped_column(String(64))
+    start_datetime: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    end_datetime: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_active_today: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JsonType)
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class WbPromotionNomenclature(TimestampMixin, Base):
+    __tablename__ = "wb_promotion_nomenclatures"
+    __table_args__ = (
+        UniqueConstraint(
+            "marketplace_account_id",
+            "wb_promotion_id",
+            "wb_nm_id",
+            "in_action",
+            name="uq_wb_promo_nomenclatures_account_promo_nm_action",
+        ),
+        Index("ix_wb_promo_nomenclatures_nm", "marketplace_account_id", "wb_nm_id"),
+        Index("ix_wb_promo_nomenclatures_promo", "marketplace_account_id", "wb_promotion_id"),
+        Index("ix_wb_promo_nomenclatures_synced", "marketplace_account_id", "synced_at"),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    marketplace_account_id: Mapped[int] = mapped_column(
+        ForeignKey("marketplace_accounts.id", ondelete="CASCADE"), index=True
+    )
+    wb_promotion_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    wb_nm_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    in_action: Mapped[bool] = mapped_column(Boolean, default=False)
+    current_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    currency_code: Mapped[str | None] = mapped_column(String(16))
+    plan_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    current_discount: Mapped[Decimal | None] = mapped_column(Numeric(7, 4))
+    plan_discount: Mapped[Decimal | None] = mapped_column(Numeric(7, 4))
+    raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JsonType)
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
 
 
 class PlanFactTarget(TimestampMixin, Base):

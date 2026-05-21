@@ -73,6 +73,18 @@ class Settings(BaseSettings):
     deploy_update_command: str = "bash deploy/update.sh --non-interactive"
     deploy_update_trigger_file: str = "/opt/mpcontrol/runtime/telegram_update_request.json"
     deploy_metadata_file: str = "/opt/mpcontrol/runtime/deploy_metadata.json"
+    # Wildberries MRC (recommended retail price) pricing
+    wb_mrc_promo_max_discount_percent: int = 10
+    wb_price_before_discount_multiplier: int = 4
+
+    # Wildberries promotions sync
+    wb_promotions_sync_enabled: bool = True
+    wb_promotions_sync_time: str = "00:15"
+    wb_promotions_sync_timezone: str = "Europe/Moscow"
+    wb_promotions_history_retention_days: int = 90
+    wb_promotions_page_limit: int = 1000
+    wb_base_calendar_url: str = "https://dp-calendar-api.wildberries.ru"
+
     log_level: str = "INFO"
 
     @model_validator(mode="before")
