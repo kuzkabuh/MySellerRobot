@@ -11,10 +11,12 @@ Full-featured MRC pricing management with:
 """
 
 import logging
+import tempfile
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from html import escape
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, Form
@@ -424,12 +426,13 @@ async def import_mrc_file(
             tmp_path = Path(tmp.name)
 
         service = MrcImportService(session)
-        preview = await service.parse_mrc_import_file(tmp_path, user.id)
+        preview = await service.create_preview(tmp_path, user.id, source="web", original_file_name=file.filename)
+        rows = await service.get_import_rows(preview.import_id, user.id)
 
         return render_page(
             "Проверка импорта МРЦ",
             user.first_name or user.username or str(user.telegram_id),
-            _import_preview_content(preview, user.timezone),
+            _import_preview_content(preview, rows, user.timezone),
             active_path="/web/mrc-pricing",
         )
     except Exception:
@@ -455,15 +458,21 @@ async def confirm_mrc_import(
         from app.services.pricing.mrc_import_service import MrcImportService
 
         form_data = await request.form()
-        preview_id = form_data.get("preview_id", "")
+        import_id = form_data.get("import_id", "")
 
         service = MrcImportService(session)
-        result = await service.apply_mrc_import(str(preview_id), user.id)
+        result = await service.apply_mrc_import(int(import_id), user.id, source="web")
 
         return RedirectResponse(
             url=f"/web/mrc-pricing?import_done=1&updated={result.updated_count}&cleared={result.cleared_count}&errors={result.error_count}",
             status_code=303,
         )
+    except ValueError as exc:
+        logger.warning(
+            "mrc_import_confirm_validation_error",
+            extra={"user_id": user.id, "error": str(exc)},
+        )
+        return RedirectResponse(url=f"/web/mrc-pricing?import_error=1&error_msg={str(exc)}", status_code=303)
     except Exception:
         logger.exception("mrc_import_confirm_failed", extra={"user_id": user.id})
         return RedirectResponse(url="/web/mrc-pricing?import_error=1", status_code=303)
@@ -476,6 +485,17 @@ async def cancel_mrc_import(
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
     """Cancel MRC import."""
+    try:
+        from app.services.pricing.mrc_import_service import MrcImportService
+
+        form_data = await request.form()
+        import_id = form_data.get("import_id", "")
+
+        service = MrcImportService(session)
+        await service.cancel_import(int(import_id), user.id)
+    except Exception:
+        logger.exception("mrc_import_cancel_failed", extra={"user_id": user.id})
+
     return RedirectResponse(url="/web/mrc-pricing?import_cancelled=1", status_code=303)
 
 
@@ -1344,18 +1364,19 @@ def _flash_messages() -> str:
     """
 
 
-def _import_preview_content(preview, timezone: str = "Europe/Moscow") -> str:
+def _import_preview_content(preview, rows, timezone: str = "Europe/Moscow") -> str:
     """Render MRC import preview page."""
+    from app.models.domain import MrcImportRow
+
     parts = []
     parts.append('<div class="card">')
     parts.append("<h2>📤 Проверка файла МРЦ</h2>")
 
-    valid_count = len(preview.valid_rows)
-    cleared_count = sum(1 for r in preview.valid_rows if r.status == "valid_clear")
-    updated_count = valid_count - cleared_count
-    skipped_count = len(preview.skipped_rows)
-    warning_count = len(preview.warning_rows)
-    error_count = len(preview.error_rows)
+    updated_count = sum(1 for r in rows if r.status in ("valid", "warning"))
+    cleared_count = sum(1 for r in rows if r.status == "valid_clear")
+    skipped_count = sum(1 for r in rows if r.status.startswith("skipped"))
+    warning_count = sum(1 for r in rows if r.status == "warning")
+    error_count = sum(1 for r in rows if r.status == "error")
 
     parts.append(
         f'<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">'
@@ -1374,29 +1395,31 @@ def _import_preview_content(preview, timezone: str = "Europe/Moscow") -> str:
         "</div>"
     )
 
-    if error_count > 0:
+    error_rows = [r for r in rows if r.status == "error"]
+    if error_rows:
         parts.append('<div class="card" style="background:#fee2e2;margin-bottom:16px">')
         parts.append("<h3>⚠️ Ошибки</h3>")
         parts.append("<ul>")
-        for row in preview.error_rows[:20]:
-            parts.append(f"<li>Строка {row.row_number}: {escape(row.message)}</li>")
+        for row in error_rows[:20]:
+            parts.append(f"<li>Строка {row.row_number}: {escape(row.message or '')}</li>")
         if error_count > 20:
             parts.append(f"<li>... и ещё {error_count - 20} ошибок</li>")
         parts.append("</ul></div>")
 
-    if warning_count > 0:
+    warning_rows = [r for r in rows if r.status == "warning"]
+    if warning_rows:
         parts.append('<div class="card" style="background:#fef3c7;margin-bottom:16px">')
         parts.append("<h3>⚡ Предупреждения</h3>")
         parts.append("<ul>")
-        for row in preview.warning_rows[:10]:
-            parts.append(f"<li>Строка {row.row_number}: {escape(row.message)}</li>")
+        for row in warning_rows[:10]:
+            parts.append(f"<li>Строка {row.row_number}: {escape(row.message or '')}</li>")
         if warning_count > 10:
             parts.append(f"<li>... и ещё {warning_count - 10} предупреждений</li>")
         parts.append("</ul></div>")
 
     parts.append(
         '<form method="post" action="/web/mrc-pricing/import/confirm" style="display:inline">'
-        f'<input type="hidden" name="preview_id" value="{escape(preview.preview_id)}">'
+        f'<input type="hidden" name="import_id" value="{preview.import_id}">'
     )
     if error_count == 0 or updated_count > 0 or cleared_count > 0:
         parts.append(
@@ -1406,7 +1429,8 @@ def _import_preview_content(preview, timezone: str = "Europe/Moscow") -> str:
     parts.append("</form>")
 
     parts.append(
-        ' <form method="post" action="/web/mrc-pricing/import/cancel" style="display:inline">'
+        f' <form method="post" action="/web/mrc-pricing/import/cancel" style="display:inline">'
+        f'<input type="hidden" name="import_id" value="{preview.import_id}">'
         '<button type="submit" class="button">❌ Отмена</button>'
         "</form>"
     )

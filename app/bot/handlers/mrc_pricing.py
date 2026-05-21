@@ -930,20 +930,21 @@ async def mrc_import_file_handler(message: Message, state: FSMContext) -> None:
 
         async with AsyncSessionFactory() as session:
             service = MrcImportService(session)
-            preview = await service.parse_mrc_import_file(tmp_path, user_id)
+            preview = await service.create_preview(tmp_path, user_id, source="bot", original_file_name=doc.file_name)
+            rows = await service.get_import_rows(preview.import_id, user_id)
 
-        await state.update_data(preview_id=preview.preview_id)
+        await state.update_data(import_id=preview.import_id)
         await state.set_state(MrcStates.waiting_for_import_confirm)
 
-        valid_count = len(preview.valid_rows)
-        cleared_count = sum(1 for r in preview.valid_rows if r.status == "valid_clear")
-        updated_count = valid_count - cleared_count
-        skipped_count = len(preview.skipped_rows)
-        warning_count = len(preview.warning_rows)
-        error_count = len(preview.error_rows)
+        updated_count = sum(1 for r in rows if r.status in ("valid", "warning"))
+        cleared_count = sum(1 for r in rows if r.status == "valid_clear")
+        skipped_count = sum(1 for r in rows if r.status.startswith("skipped"))
+        warning_count = sum(1 for r in rows if r.status == "warning")
+        error_count = sum(1 for r in rows if r.status == "error")
 
+        error_rows = [r for r in rows if r.status == "error"]
         error_lines = []
-        for row in preview.error_rows[:5]:
+        for row in error_rows[:5]:
             error_lines.append(f"• Строка {row.row_number}: {row.message}")
 
         errors_text = "\n\n".join(error_lines) if error_lines else ""
@@ -963,10 +964,20 @@ async def mrc_import_file_handler(message: Message, state: FSMContext) -> None:
             text += f"\n\n⚠️ Ошибки:\n{errors_text}{errors_footer}"
 
         await message.answer(text, reply_markup=mrc_import_confirm_keyboard(), parse_mode="HTML")
-    except Exception:
-        logger.exception("mrc_import_file_handler_failed")
+    except ValueError as exc:
+        logger.warning(
+            "mrc_import_file_validation_error",
+            extra={"user_id": message.from_user.id, "error": str(exc)},
+        )
         await message.answer(
-            "❌ Не удалось обработать файл. Проверьте формат и попробуйте снова.",
+            f"❌ {str(exc)}",
+            reply_markup=mrc_back_menu(),
+            parse_mode="HTML",
+        )
+    except Exception:
+        logger.exception("mrc_import_file_handler_failed", extra={"user_id": message.from_user.id})
+        await message.answer(
+            "❌ Не удалось прочитать Excel-файл. Скачайте новый шаблон и заполните колонку new_mrc_price.",
             reply_markup=mrc_back_menu(),
         )
 
@@ -980,8 +991,8 @@ async def mrc_import_confirm_handler(callback: CallbackQuery, state: FSMContext)
             return
 
         data = await state.get_data()
-        preview_id = data.get("preview_id")
-        if not preview_id:
+        import_id = data.get("import_id")
+        if not import_id:
             await callback.answer("Ошибка: данные импорта не найдены.", show_alert=True)
             return
 
@@ -994,7 +1005,7 @@ async def mrc_import_confirm_handler(callback: CallbackQuery, state: FSMContext)
 
         async with AsyncSessionFactory() as session:
             service = MrcImportService(session)
-            result = await service.apply_mrc_import(preview_id, user_id)
+            result = await service.apply_mrc_import(int(import_id), user_id, source="bot")
 
         text = (
             f"✅ <b>МРЦ успешно импортированы</b>\n\n"
@@ -1006,13 +1017,28 @@ async def mrc_import_confirm_handler(callback: CallbackQuery, state: FSMContext)
         )
 
         await safe_edit_text(callback.message, text, reply_markup=mrc_menu(), parse_mode="HTML")
-    except Exception:
-        logger.exception("mrc_import_confirm_failed")
+        await state.clear()
+    except ValueError as exc:
+        error_msg = str(exc)
+        logger.warning(
+            "mrc_import_confirm_validation_error",
+            extra={"user_id": callback.from_user.id, "import_id": import_id, "error": error_msg},
+        )
         await safe_edit_text(
             callback.message,
-            "❌ Не удалось сохранить МРЦ. Попробуйте позже.",
+            f"❌ {error_msg}",
+            reply_markup=mrc_back_menu(),
+            parse_mode="HTML",
+        )
+        await state.clear()
+    except Exception:
+        logger.exception("mrc_import_confirm_failed", extra={"user_id": callback.from_user.id, "import_id": import_id})
+        await safe_edit_text(
+            callback.message,
+            "❌ Не удалось сохранить МРЦ из-за ошибки базы данных. Ошибка записана в лог.",
             reply_markup=mrc_back_menu(),
         )
+        await state.clear()
     finally:
         await callback.answer()
 
@@ -1021,6 +1047,18 @@ async def mrc_import_confirm_handler(callback: CallbackQuery, state: FSMContext)
 async def mrc_import_cancel_handler(callback: CallbackQuery, state: FSMContext) -> None:
     """Отменить импорт МРЦ."""
     try:
+        user_id = await _get_user_id_from_callback(callback)
+        if user_id is None:
+            return
+
+        data = await state.get_data()
+        import_id = data.get("import_id")
+
+        if import_id:
+            async with AsyncSessionFactory() as session:
+                service = MrcImportService(session)
+                await service.cancel_import(int(import_id), user_id)
+
         await state.clear()
         await safe_edit_text(
             callback.message,

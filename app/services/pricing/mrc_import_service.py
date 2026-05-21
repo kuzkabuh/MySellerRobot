@@ -1,14 +1,14 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: MRC bulk import/export service for Excel files.
     Shared between Telegram bot and WEB.
+    Preview stored in DB (mrc_imports / mrc_import_rows).
 updated: 2026-05-21
 """
 
 import logging
 import math
-import uuid
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models.domain import MarketplaceAccount, Product, WbPromotion, WbPromotionNomenclature
+from app.models.domain import MarketplaceAccount, MrcImport, MrcImportRow, Product, WbPromotion, WbPromotionNomenclature
 from app.models.enums import Marketplace
 
 logger = logging.getLogger(__name__)
@@ -53,49 +53,36 @@ HEADER_FONT = Font(bold=True, color="FFFFFF")
 SERVICE_FILL = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
 INPUT_FILL = PatternFill(start_color="FFFFCC", end_color="FFFFCC", fill_type="solid")
 
-
-@dataclass(slots=True)
-class MrcImportRow:
-    """Single row from import file."""
-
-    row_number: int
-    product_id: int | None
-    wb_nm_id: int | None
-    seller_sku: str | None
-    product_name: str | None
-    new_mrc_price_raw: str | None
-    old_mrc_price: Decimal | None
-    status: str = "pending"
-    message: str = ""
+PREVIEW_TTL_MINUTES = 30
 
 
 @dataclass(slots=True)
 class MrcImportPreview:
     """Preview result after parsing import file."""
 
-    preview_id: str
+    import_id: int
     user_id: int
     file_name: str
     total_rows: int
-    valid_rows: list[MrcImportRow] = field(default_factory=list)
-    skipped_rows: list[MrcImportRow] = field(default_factory=list)
-    warning_rows: list[MrcImportRow] = field(default_factory=list)
-    error_rows: list[MrcImportRow] = field(default_factory=list)
-    created_at: datetime = field(default_factory=lambda: datetime.now(tz=UTC))
+    valid_rows: int
+    skipped_rows: int
+    warning_rows: int
+    error_rows: int
+    created_at: datetime
 
 
 @dataclass(slots=True)
 class MrcImportResult:
     """Final result after applying import."""
 
-    preview_id: str
+    import_id: int
     user_id: int
     updated_count: int
     cleared_count: int
     skipped_count: int
     error_count: int
-    warnings: list[str] = field(default_factory=list)
-    errors: list[str] = field(default_factory=list)
+    warnings: list[str]
+    errors: list[str]
 
 
 class MrcImportService:
@@ -104,7 +91,6 @@ class MrcImportService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
         self.settings = get_settings()
-        self._previews: dict[str, MrcImportPreview] = {}
 
     def _max_file_size(self) -> int:
         return self.settings.mrc_import_max_file_size_mb * 1024 * 1024
@@ -128,9 +114,8 @@ class MrcImportService:
         ws = wb.active
         ws.title = "МРЦ WB"
 
-        # Headers
-        service_cols = {0, 1, 2, 3}  # product_id, wb_nm_id, seller_sku, barcode
-        input_col = 8  # new_mrc_price
+        service_cols = {0, 1, 2, 3}
+        input_col = 8
 
         for col_idx, header in enumerate(TEMPLATE_COLUMNS, 1):
             cell = ws.cell(row=1, column=col_idx, value=header)
@@ -143,7 +128,6 @@ class MrcImportService:
             elif col_idx - 1 == input_col:
                 cell.fill = INPUT_FILL
 
-        # Fetch products
         query = (
             select(Product)
             .join(MarketplaceAccount, MarketplaceAccount.id == Product.marketplace_account_id)
@@ -158,7 +142,6 @@ class MrcImportService:
         result = await self.session.execute(query)
         products = list(result.scalars().all())
 
-        # Fetch promo data for products
         promo_map = await self._build_promo_map(user_id, products)
 
         for row_idx, product in enumerate(products, 2):
@@ -180,16 +163,13 @@ class MrcImportService:
                 ws.cell(row=row_idx, column=11, value=promo_info["name"])
                 ws.cell(row=row_idx, column=12, value=float(promo_info["plan_price"]) if promo_info["plan_price"] else "")
 
-        # Auto-filter and freeze panes
         ws.auto_filter.ref = f"A1:{_col_letter(len(TEMPLATE_COLUMNS))}{len(products) + 1}"
         ws.freeze_panes = "A2"
 
-        # Column widths
         widths = [12, 14, 18, 18, 16, 40, 14, 14, 14, 14, 24, 16, 18, 30]
         for i, w in enumerate(widths, 1):
             ws.column_dimensions[_col_letter(i)].width = w
 
-        # Instructions sheet
         ws_instr = wb.create_sheet("Инструкция")
         instructions = [
             "Инструкция по заполнению МРЦ",
@@ -206,44 +186,63 @@ class MrcImportService:
         for i, line in enumerate(instructions, 1):
             ws_instr.cell(row=i, column=1, value=line)
 
-        # Save
         output_dir = Path("/tmp")
         output_dir.mkdir(exist_ok=True)
         file_path = output_dir / f"mrc_prices_wb_{datetime.now(tz=UTC).strftime('%Y-%m-%d')}.xlsx"
         wb.save(str(file_path))
         return file_path
 
-    async def parse_mrc_import_file(
+    async def create_preview(
         self,
         file_path: Path,
         user_id: int,
+        source: str,
+        account_id: int | None = None,
+        original_file_name: str | None = None,
     ) -> MrcImportPreview:
-        """Parse import file and validate rows."""
+        """Parse import file, validate rows, and store preview in DB."""
         if not HAS_OPENPYXL:
             raise RuntimeError("openpyxl not installed")
+
+        logger.info(
+            "mrc_import_preview_started",
+            extra={"user_id": user_id, "source": source, "file_name": original_file_name or file_path.name},
+        )
 
         wb = openpyxl.load_workbook(file_path, data_only=True)
         ws = wb.active
 
-        # Check headers
         headers = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)]
         headers = [str(h).strip() if h else "" for h in headers]
 
         missing = REQUIRED_COLUMNS - set(headers)
         if missing:
-            raise ValueError(f"Отсутствуют обязательные колонки: {', '.join(missing)}")
+            raise ValueError(f"Отсутствуют обязательные колонки: {', '.join(sorted(missing))}")
 
         col_map = {h: i for i, h in enumerate(headers, 1)}
 
-        preview = MrcImportPreview(
-            preview_id=str(uuid.uuid4()),
+        expires_at = datetime.now(tz=UTC).replace(second=0, microsecond=0)
+        from datetime import timedelta
+        expires_at = expires_at + timedelta(minutes=PREVIEW_TTL_MINUTES)
+
+        mrc_import = MrcImport(
             user_id=user_id,
-            file_name=file_path.name,
-            total_rows=0,
+            account_id=account_id,
+            source=source,
+            original_file_name=original_file_name or file_path.name,
+            status="preview",
+            expires_at=expires_at,
         )
+        self.session.add(mrc_import)
+        await self.session.flush()
 
         seen_product_ids: set[int] = set()
         seen_wb_nm_ids: set[int] = set()
+        total_rows = 0
+        valid_rows = 0
+        skipped_rows = 0
+        warning_rows = 0
+        error_rows = 0
 
         for row_idx in range(2, ws.max_row + 1):
             row_data = {}
@@ -254,168 +253,318 @@ class MrcImportService:
             wb_nm_id = _safe_int(row_data.get("wb_nm_id"))
             new_mrc_raw = _safe_str(row_data.get("new_mrc_price"))
 
-            row = MrcImportRow(
+            total_rows += 1
+
+            if total_rows > self._max_rows():
+                self.session.add(MrcImportRow(
+                    import_id=mrc_import.id,
+                    row_number=row_idx,
+                    product_id=product_id,
+                    wb_nm_id=wb_nm_id,
+                    seller_sku=_safe_str(row_data.get("seller_sku")),
+                    product_name=_safe_str(row_data.get("product_name")),
+                    status="error",
+                    message=f"Превышен лимит строк (макс. {self._max_rows()}).",
+                ))
+                error_rows += 1
+                continue
+
+            if not new_mrc_raw or new_mrc_raw.strip() == "":
+                self.session.add(MrcImportRow(
+                    import_id=mrc_import.id,
+                    row_number=row_idx,
+                    product_id=product_id,
+                    wb_nm_id=wb_nm_id,
+                    seller_sku=_safe_str(row_data.get("seller_sku")),
+                    product_name=_safe_str(row_data.get("product_name")),
+                    old_mrc_price=None,
+                    new_mrc_price=None,
+                    status="skipped_empty",
+                    message="Пустое значение, МРЦ не изменится.",
+                ))
+                skipped_rows += 1
+                continue
+
+            if new_mrc_raw.strip().upper() == "CLEAR":
+                if not self._allow_clear():
+                    self.session.add(MrcImportRow(
+                        import_id=mrc_import.id,
+                        row_number=row_idx,
+                        product_id=product_id,
+                        wb_nm_id=wb_nm_id,
+                        status="error",
+                        message="Очистка МРЦ запрещена настройкой.",
+                    ))
+                    error_rows += 1
+                    continue
+                self.session.add(MrcImportRow(
+                    import_id=mrc_import.id,
+                    row_number=row_idx,
+                    product_id=product_id,
+                    wb_nm_id=wb_nm_id,
+                    seller_sku=_safe_str(row_data.get("seller_sku")),
+                    product_name=_safe_str(row_data.get("product_name")),
+                    status="valid_clear",
+                ))
+                valid_rows += 1
+                continue
+
+            try:
+                mrc_val = Decimal(new_mrc_raw.replace(",", "."))
+            except (InvalidOperation, ValueError):
+                self.session.add(MrcImportRow(
+                    import_id=mrc_import.id,
+                    row_number=row_idx,
+                    product_id=product_id,
+                    wb_nm_id=wb_nm_id,
+                    status="error",
+                    message="МРЦ должна быть числом.",
+                ))
+                error_rows += 1
+                continue
+
+            if mrc_val <= 0:
+                self.session.add(MrcImportRow(
+                    import_id=mrc_import.id,
+                    row_number=row_idx,
+                    product_id=product_id,
+                    wb_nm_id=wb_nm_id,
+                    status="error",
+                    message="МРЦ должна быть больше 0.",
+                ))
+                error_rows += 1
+                continue
+
+            if not product_id:
+                self.session.add(MrcImportRow(
+                    import_id=mrc_import.id,
+                    row_number=row_idx,
+                    product_id=product_id,
+                    wb_nm_id=wb_nm_id,
+                    status="error",
+                    message="product_id должен быть числом.",
+                ))
+                error_rows += 1
+                continue
+
+            if product_id in seen_product_ids:
+                self.session.add(MrcImportRow(
+                    import_id=mrc_import.id,
+                    row_number=row_idx,
+                    product_id=product_id,
+                    wb_nm_id=wb_nm_id,
+                    status="error",
+                    message="Дубликат product_id в файле.",
+                ))
+                error_rows += 1
+                continue
+            seen_product_ids.add(product_id)
+
+            if wb_nm_id and wb_nm_id in seen_wb_nm_ids:
+                self.session.add(MrcImportRow(
+                    import_id=mrc_import.id,
+                    row_number=row_idx,
+                    product_id=product_id,
+                    wb_nm_id=wb_nm_id,
+                    status="error",
+                    message="Дубликат wb_nm_id в файле.",
+                ))
+                error_rows += 1
+                continue
+            if wb_nm_id:
+                seen_wb_nm_ids.add(wb_nm_id)
+
+            product = await self.session.get(Product, product_id)
+            if product is None:
+                self.session.add(MrcImportRow(
+                    import_id=mrc_import.id,
+                    row_number=row_idx,
+                    product_id=product_id,
+                    wb_nm_id=wb_nm_id,
+                    status="error",
+                    message="Товар не найден в базе.",
+                ))
+                error_rows += 1
+                continue
+
+            if product.user_id != user_id:
+                self.session.add(MrcImportRow(
+                    import_id=mrc_import.id,
+                    row_number=row_idx,
+                    product_id=product_id,
+                    wb_nm_id=wb_nm_id,
+                    status="error",
+                    message="Товар принадлежит другому пользователю.",
+                ))
+                error_rows += 1
+                continue
+
+            if product.marketplace != Marketplace.WB:
+                self.session.add(MrcImportRow(
+                    import_id=mrc_import.id,
+                    row_number=row_idx,
+                    product_id=product_id,
+                    wb_nm_id=wb_nm_id,
+                    status="error",
+                    message="Товар не относится к Wildberries.",
+                ))
+                error_rows += 1
+                continue
+
+            product_nm_id = _extract_nm_id(product)
+            if wb_nm_id and product_nm_id and wb_nm_id != product_nm_id:
+                self.session.add(MrcImportRow(
+                    import_id=mrc_import.id,
+                    row_number=row_idx,
+                    product_id=product_id,
+                    wb_nm_id=wb_nm_id,
+                    seller_sku=_safe_str(row_data.get("seller_sku")),
+                    product_name=_safe_str(row_data.get("product_name")),
+                    old_mrc_price=product.mrc_price,
+                    new_mrc_price=mrc_val.quantize(Decimal("0.01")),
+                    status="warning",
+                    message=f"wb_nm_id в файле ({wb_nm_id}) не совпадает с товаром ({product_nm_id}).",
+                ))
+                warning_rows += 1
+                continue
+
+            if product.mrc_price and mrc_val == product.mrc_price:
+                self.session.add(MrcImportRow(
+                    import_id=mrc_import.id,
+                    row_number=row_idx,
+                    product_id=product_id,
+                    wb_nm_id=wb_nm_id,
+                    seller_sku=_safe_str(row_data.get("seller_sku")),
+                    product_name=_safe_str(row_data.get("product_name")),
+                    old_mrc_price=product.mrc_price,
+                    new_mrc_price=mrc_val.quantize(Decimal("0.01")),
+                    status="skipped_no_change",
+                    message="МРЦ не изменилась.",
+                ))
+                skipped_rows += 1
+                continue
+
+            self.session.add(MrcImportRow(
+                import_id=mrc_import.id,
                 row_number=row_idx,
                 product_id=product_id,
                 wb_nm_id=wb_nm_id,
                 seller_sku=_safe_str(row_data.get("seller_sku")),
                 product_name=_safe_str(row_data.get("product_name")),
-                new_mrc_price_raw=new_mrc_raw,
-                old_mrc_price=None,
-            )
+                old_mrc_price=product.mrc_price,
+                new_mrc_price=mrc_val.quantize(Decimal("0.01")),
+                status="valid",
+            ))
+            valid_rows += 1
 
-            preview.total_rows += 1
+        mrc_import.total_rows = total_rows
+        mrc_import.valid_rows = valid_rows
+        mrc_import.skipped_rows = skipped_rows
+        mrc_import.warning_rows = warning_rows
+        mrc_import.error_rows = error_rows
 
-            if preview.total_rows > self._max_rows():
-                row.status = "error"
-                row.message = f"Превышен лимит строк (макс. {self._max_rows()})."
-                preview.error_rows.append(row)
-                continue
+        await self.session.flush()
 
-            # Empty new_mrc_price → skip
-            if not new_mrc_raw or new_mrc_raw.strip() == "":
-                row.status = "skipped_empty"
-                row.message = "Пустое значение, МРЦ не изменится."
-                preview.skipped_rows.append(row)
-                continue
+        logger.info(
+            "mrc_import_preview_created",
+            extra={
+                "user_id": user_id,
+                "source": source,
+                "import_id": mrc_import.id,
+                "file_name": original_file_name or file_path.name,
+                "total_rows": total_rows,
+                "valid_rows": valid_rows,
+                "error_rows": error_rows,
+            },
+        )
 
-            # CLEAR
-            if new_mrc_raw.strip().upper() == "CLEAR":
-                if not self._allow_clear():
-                    row.status = "error"
-                    row.message = "Очистка МРЦ запрещена настройкой."
-                    preview.error_rows.append(row)
-                    continue
-                row.status = "valid_clear"
-                preview.valid_rows.append(row)
-                continue
-
-            # Validate number
-            try:
-                mrc_val = Decimal(new_mrc_raw.replace(",", "."))
-            except (InvalidOperation, ValueError):
-                row.status = "error"
-                row.message = "МРЦ должна быть числом."
-                preview.error_rows.append(row)
-                continue
-
-            if mrc_val <= 0:
-                row.status = "error"
-                row.message = "МРЦ должна быть больше 0."
-                preview.error_rows.append(row)
-                continue
-
-            # Validate product_id
-            if not product_id:
-                row.status = "error"
-                row.message = "product_id должен быть числом."
-                preview.error_rows.append(row)
-                continue
-
-            # Check duplicates
-            if product_id in seen_product_ids:
-                row.status = "error"
-                row.message = "Дубликат product_id в файле."
-                preview.error_rows.append(row)
-                continue
-            seen_product_ids.add(product_id)
-
-            if wb_nm_id and wb_nm_id in seen_wb_nm_ids:
-                row.status = "error"
-                row.message = "Дубликат wb_nm_id в файле."
-                preview.error_rows.append(row)
-                continue
-            if wb_nm_id:
-                seen_wb_nm_ids.add(wb_nm_id)
-
-            # Verify product exists and belongs to user
-            product = await self.session.get(Product, product_id)
-            if product is None:
-                row.status = "error"
-                row.message = "Товар не найден в базе."
-                preview.error_rows.append(row)
-                continue
-
-            if product.user_id != user_id:
-                row.status = "error"
-                row.message = "Товар принадлежит другому пользователю."
-                preview.error_rows.append(row)
-                continue
-
-            if product.marketplace != Marketplace.WB:
-                row.status = "error"
-                row.message = "Товар не относится к Wildberries."
-                preview.error_rows.append(row)
-                continue
-
-            # Verify wb_nm_id matches
-            product_nm_id = _extract_nm_id(product)
-            if wb_nm_id and product_nm_id and wb_nm_id != product_nm_id:
-                row.status = "warning"
-                row.message = f"wb_nm_id в файле ({wb_nm_id}) не совпадает с товаром ({product_nm_id})."
-                preview.warning_rows.append(row)
-                continue
-
-            row.old_mrc_price = product.mrc_price
-
-            # Check if value changed
-            if product.mrc_price and mrc_val == product.mrc_price:
-                row.status = "skipped_no_change"
-                row.message = "МРЦ не изменилась."
-                preview.skipped_rows.append(row)
-                continue
-
-            row.status = "valid"
-            preview.valid_rows.append(row)
-
-        self._previews[preview.preview_id] = preview
-        return preview
+        return MrcImportPreview(
+            import_id=mrc_import.id,
+            user_id=user_id,
+            file_name=original_file_name or file_path.name,
+            total_rows=total_rows,
+            valid_rows=valid_rows,
+            skipped_rows=skipped_rows,
+            warning_rows=warning_rows,
+            error_rows=error_rows,
+            created_at=mrc_import.created_at or datetime.now(tz=UTC),
+        )
 
     async def apply_mrc_import(
         self,
-        preview_id: str,
+        import_id: int,
         user_id: int,
+        source: str = "unknown",
     ) -> MrcImportResult:
         """Apply validated MRC import to database."""
-        preview = self._previews.get(preview_id)
-        if preview is None:
-            raise ValueError("Предварительный просмотр не найден или истёк.")
-
-        if preview.user_id != user_id:
-            raise ValueError("Доступ запрещён.")
-
-        result = MrcImportResult(
-            preview_id=preview_id,
-            user_id=user_id,
-            updated_count=0,
-            cleared_count=0,
-            skipped_count=0,
-            error_count=0,
+        logger.info(
+            "mrc_import_apply_started",
+            extra={"user_id": user_id, "source": source, "import_id": import_id},
         )
 
-        for row in preview.valid_rows:
+        result = await self.session.execute(select(MrcImport).where(MrcImport.id == import_id))
+        mrc_import = result.scalar_one_or_none()
+
+        if mrc_import is None:
+            logger.warning(
+                "mrc_import_confirm_not_found",
+                extra={"user_id": user_id, "source": source, "import_id": import_id},
+            )
+            raise ValueError("Предварительная проверка файла устарела или не найдена. Загрузите файл заново.")
+
+        if mrc_import.user_id != user_id:
+            raise ValueError("Доступ запрещён.")
+
+        if mrc_import.status == "applied":
+            raise ValueError("Этот файл уже был сохранён ранее.")
+
+        if mrc_import.status in ("cancelled", "failed"):
+            raise ValueError(f"Импорт имеет статус '{mrc_import.status}' и не может быть применён.")
+
+        if mrc_import.expires_at and mrc_import.expires_at < datetime.now(tz=UTC):
+            raise ValueError("Предварительная проверка файла истекла. Загрузите файл заново.")
+
+        if mrc_import.valid_rows == 0:
+            raise ValueError("В файле нет строк для сохранения. Заполните колонку new_mrc_price и загрузите файл заново.")
+
+        rows_result = await self.session.execute(
+            select(MrcImportRow)
+            .where(MrcImportRow.import_id == import_id)
+            .where(MrcImportRow.status.in_(("valid", "valid_clear", "warning")))
+            .order_by(MrcImportRow.row_number)
+        )
+        rows = list(rows_result.scalars().all())
+
+        updated_count = 0
+        cleared_count = 0
+        error_count = 0
+        warnings: list[str] = []
+        errors: list[str] = []
+
+        for row in rows:
             if not row.product_id:
-                result.error_count += 1
+                error_count += 1
                 continue
 
-            product = await self.session.get(Product, product_id=row.product_id)
+            product = await self.session.get(Product, row.product_id)
             if product is None or product.user_id != user_id:
-                result.error_count += 1
+                error_count += 1
                 continue
 
             old_mrc = product.mrc_price
 
             if row.status == "valid_clear":
                 product.mrc_price = None
-                result.cleared_count += 1
+                cleared_count += 1
             else:
-                try:
-                    mrc_val = Decimal(row.new_mrc_price_raw.replace(",", "."))
-                    product.mrc_price = mrc_val.quantize(Decimal("0.01"))
-                    result.updated_count += 1
-                except (InvalidOperation, ValueError):
-                    result.error_count += 1
+                if row.new_mrc_price is None:
+                    error_count += 1
                     continue
+                product.mrc_price = row.new_mrc_price
+                updated_count += 1
+
+                if row.status == "warning" and row.message:
+                    warnings.append(f"Строка {row.row_number}: {row.message}")
 
             logger.info(
                 "mrc_price_updated_import",
@@ -429,18 +578,81 @@ class MrcImportService:
                 },
             )
 
-        for row in preview.skipped_rows:
-            result.skipped_count += 1
+        try:
+            mrc_import.status = "applied"
+            mrc_import.updated_rows = updated_count
+            mrc_import.cleared_rows = cleared_count
+            mrc_import.applied_at = datetime.now(tz=UTC)
+            await self.session.commit()
 
-        for row in preview.error_rows:
-            result.error_count += 1
+            logger.info(
+                "mrc_import_apply_completed",
+                extra={
+                    "user_id": user_id,
+                    "source": source,
+                    "import_id": import_id,
+                    "updated_rows": updated_count,
+                    "cleared_rows": cleared_count,
+                    "error_rows": error_count,
+                },
+            )
+        except Exception:
+            await self.session.rollback()
+            mrc_import.status = "failed"
+            mrc_import.error_text = "Database error during apply"
+            await self.session.commit()
+            logger.exception(
+                "mrc_import_apply_failed",
+                extra={"user_id": user_id, "source": source, "import_id": import_id},
+            )
+            raise ValueError("Не удалось сохранить МРЦ из-за ошибки базы данных. Ошибка записана в лог.")
 
-        await self.session.commit()
+        return MrcImportResult(
+            import_id=import_id,
+            user_id=user_id,
+            updated_count=updated_count,
+            cleared_count=cleared_count,
+            skipped_count=mrc_import.skipped_rows,
+            error_count=error_count + mrc_import.error_rows,
+            warnings=warnings,
+            errors=errors,
+        )
 
-        # Clean up preview
-        self._previews.pop(preview_id, None)
+    async def cancel_import(
+        self,
+        import_id: int,
+        user_id: int,
+    ) -> None:
+        """Cancel a pending import."""
+        result = await self.session.execute(select(MrcImport).where(MrcImport.id == import_id))
+        mrc_import = result.scalar_one_or_none()
 
-        return result
+        if mrc_import is None or mrc_import.user_id != user_id:
+            return
+
+        if mrc_import.status == "preview":
+            mrc_import.status = "cancelled"
+            await self.session.commit()
+
+    async def get_import(self, import_id: int, user_id: int) -> MrcImport | None:
+        """Get import record by ID, checking ownership."""
+        result = await self.session.execute(
+            select(MrcImport).where(MrcImport.id == import_id, MrcImport.user_id == user_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_import_rows(self, import_id: int, user_id: int) -> list[MrcImportRow]:
+        """Get rows for an import, checking ownership."""
+        import_record = await self.get_import(import_id, user_id)
+        if import_record is None:
+            return []
+
+        result = await self.session.execute(
+            select(MrcImportRow)
+            .where(MrcImportRow.import_id == import_id)
+            .order_by(MrcImportRow.row_number)
+        )
+        return list(result.scalars().all())
 
     async def _build_promo_map(
         self,
@@ -448,11 +660,8 @@ class MrcImportService:
         products: list[Product],
     ) -> dict[tuple[int, int | None], dict[str, Any]]:
         """Build map of (account_id, wb_nm_id) → promo info for template."""
-        from datetime import UTC, datetime
-
         now_utc = datetime.now(tz=UTC)
 
-        # Get active promotions for user's accounts
         account_ids = {p.marketplace_account_id for p in products}
         result = await self.session.execute(
             select(WbPromotionNomenclature, WbPromotion.name)
@@ -479,14 +688,10 @@ class MrcImportService:
 
         return promo_map
 
-    def generate_import_report(self, result: MrcImportResult) -> Path:
+    def generate_import_report(self, rows: list[MrcImportRow]) -> Path:
         """Generate Excel report of import results."""
         if not HAS_OPENPYXL:
             raise RuntimeError("openpyxl not installed")
-
-        preview = self._previews.get(result.preview_id)
-        if not preview:
-            raise ValueError("Preview not found")
 
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -502,22 +707,14 @@ class MrcImportService:
             cell.font = HEADER_FONT
             cell.fill = HEADER_FILL
 
-        all_rows = (
-            preview.valid_rows
-            + preview.skipped_rows
-            + preview.warning_rows
-            + preview.error_rows
-        )
-        all_rows.sort(key=lambda r: r.row_number)
-
-        for row_idx, row in enumerate(all_rows, 2):
+        for row_idx, row in enumerate(rows, 2):
             ws.cell(row=row_idx, column=1, value=row.row_number)
             ws.cell(row=row_idx, column=2, value=row.product_id)
             ws.cell(row=row_idx, column=3, value=row.wb_nm_id)
             ws.cell(row=row_idx, column=4, value=row.seller_sku)
             ws.cell(row=row_idx, column=5, value=row.product_name)
             ws.cell(row=row_idx, column=6, value=float(row.old_mrc_price) if row.old_mrc_price else "")
-            ws.cell(row=row_idx, column=7, value=row.new_mrc_price_raw)
+            ws.cell(row=row_idx, column=7, value=float(row.new_mrc_price) if row.new_mrc_price else "")
             ws.cell(row=row_idx, column=8, value=row.status)
             ws.cell(row=row_idx, column=9, value=row.message)
 
