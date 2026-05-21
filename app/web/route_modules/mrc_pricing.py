@@ -19,7 +19,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import func, or_, select
+from sqlalchemy import Integer, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import MarketplaceAccount, Product, WbPromotion, WbPromotionNomenclature
@@ -215,7 +215,7 @@ async def save_mrc_price(
     )
 
     await session.commit()
-    return RedirectResponse(url="/web/mrc-pricing?saved=1", status_code=303)
+    return RedirectResponse(url=f"/web/mrc-pricing?mrc_saved=1&product_id={product_id}", status_code=303)
 
 
 @router.post("/mrc-pricing/products/{product_id}/clear")
@@ -1027,7 +1027,7 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
             # MRC edit form
             mrc_value = str(product.mrc_price) if product.mrc_price else ""
             parts.append(
-                f'<td><form method="post" action="/web/mrc-pricing/{product.id}" '
+                f'<td><form method="post" action="/web/mrc-pricing/products/{product.id}" '
                 'style="display:flex;gap:4px;align-items:center">'
                 f'<input type="text" name="mrc_price" value="{mrc_value}" '
                 'placeholder="—" style="width:80px;padding:4px 8px;border:1px solid var(--color-border);border-radius:6px">'
@@ -1084,7 +1084,7 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
 
             # Clear button
             parts.append(
-                f'<td><form method="post" action="/web/mrc-pricing/{product.id}/clear" style="display:inline">'
+                f'<td><form method="post" action="/web/mrc-pricing/products/{product.id}/clear" style="display:inline">'
                 '<button type="submit" class="button" style="padding:2px 6px;font-size:11px" '
                 'onclick="return confirm(\'Очистить МРЦ?\')">✕</button>'
                 "</form></td>"
@@ -1155,11 +1155,15 @@ def _flash_messages() -> str:
     (function() {
         const params = new URLSearchParams(window.location.search);
         let msg = '';
+        if (params.get('mrc_saved') === '1') {
+            const productId = params.get('product_id');
+            msg = '✅ МРЦ сохранена' + (productId ? ' (товар #' + productId + ')' : '');
+        }
         if (params.get('saved') === '1') {
             const bulk = params.get('bulk');
             if (bulk === 'cleared') msg = '✅ МРЦ очищена у выбранных товаров';
             else if (bulk) msg = '✅ МРЦ обновлена для ' + bulk + ' товаров';
-            else msg = '✅ МРЦ сохранена';
+            else if (!msg) msg = '✅ МРЦ сохранена';
         }
         if (params.get('sync_done') === '1') {
             const allPromo = params.get('all_promo') || 'false';
@@ -1234,7 +1238,8 @@ def _wb_promotions_content(data: dict, timezone: str = "Europe/Moscow") -> str:
             promo = pd["promotion"]
             start_str = format_datetime_for_user(promo.start_datetime, "Europe/Moscow", "%d.%m.%Y") if promo.start_datetime else "—"
             end_str = format_datetime_for_user(promo.end_datetime, "Europe/Moscow", "%d.%m.%Y") if promo.end_datetime else "—"
-            promo_type = "Авто" if promo.promotion_type and promo.promotion_type.lower() == "auto" else "Обычная"
+            is_auto = promo.promotion_type and promo.promotion_type.lower() == "auto"
+            promo_type = "Авто" if is_auto else "Обычная"
 
             parts.append("<tr>")
             parts.append(f"<td><b>{escape(promo.name or 'Без названия')}</b></td>")
@@ -1242,10 +1247,17 @@ def _wb_promotions_content(data: dict, timezone: str = "Europe/Moscow") -> str:
             parts.append(f"<td>{promo_type}</td>")
             parts.append(f"<td>{start_str}</td>")
             parts.append(f"<td>{end_str}</td>")
-            parts.append(f"<td>{pd['total_items']}</td>")
-            parts.append(f"<td>{pd['items_in_action']}</td>")
-            parts.append(f"<td>{pd['items_not_in_action']}</td>")
-            parts.append(f"<td>{pd['matched_products']}</td>")
+
+            if is_auto:
+                parts.append(
+                    '<td colspan="4"><small style="color:#64748b">Автоакция. Список товаров через WB API не запрашивается.</small></td>'
+                )
+            else:
+                parts.append(f"<td>{pd['total_items']}</td>")
+                parts.append(f"<td>{pd['items_in_action']}</td>")
+                parts.append(f"<td>{pd['items_not_in_action']}</td>")
+                parts.append(f"<td>{pd['matched_products']}</td>")
+
             parts.append(
                 f'<td><a href="/web/wb-promotions/{promo.wb_promotion_id}" class="button" style="padding:2px 8px;font-size:12px">Открыть</a></td>'
             )
