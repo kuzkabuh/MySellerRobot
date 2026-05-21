@@ -832,6 +832,8 @@ def mrc_menu() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🔍 Расширенная проверка акций", callback_data="mrc:sync_promos_all")],
             [InlineKeyboardButton(text="🔍 Найти товар", callback_data="mrc:search")],
             [InlineKeyboardButton(text="✏️ Изменить МРЦ", callback_data="mrc:set")],
+            [InlineKeyboardButton(text="📥 Скачать шаблон МРЦ", callback_data="mrc:template_download")],
+            [InlineKeyboardButton(text="📤 Загрузить МРЦ из файла", callback_data="mrc:import_upload")],
             [InlineKeyboardButton(text="📊 Отчёт по ограничениям", callback_data="mrc:limits_report")],
             [InlineKeyboardButton(text="🌐 Открыть в web-кабинете", callback_data="web_cabinet")],
             [InlineKeyboardButton(text="◀️ Назад", callback_data="back_main")],
@@ -859,3 +861,13 @@ def mrc_product_card_keyboard(product_id: int, wb_nm_id: int | None, web_url: st
         buttons.append([InlineKeyboardButton(text="🌐 Открыть в web", url=web_url)])
     buttons.append([InlineKeyboardButton(text="◀️ К МРЦ", callback_data="mrc_menu")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def mrc_import_confirm_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура подтверждения импорта МРЦ."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Сохранить МРЦ", callback_data="mrc:import_confirm")],
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="mrc:import_cancel")],
+        ]
+    )

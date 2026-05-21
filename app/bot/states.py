@@ -35,3 +35,5 @@ class PaymentStates(StatesGroup):
 class MrcStates(StatesGroup):
     waiting_for_article = State()
     waiting_for_mrc_price = State()
+    waiting_for_import_file = State()
+    waiting_for_import_confirm = State()

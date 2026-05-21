@@ -17,8 +17,8 @@ from decimal import Decimal, InvalidOperation
 from html import escape
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, Form
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 from sqlalchemy import Integer, String, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -349,13 +349,134 @@ async def trigger_promotions_sync_all(
         return RedirectResponse(url="/web/mrc-pricing?sync_error=1", status_code=303)
 
 
-@router.get("/mrc-pricing/export")
-async def export_mrc_report(
+@router.get("/mrc-pricing/export-template", response_model=None)
+async def export_mrc_template(
+    user=CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+):
+    """Download Excel template for MRC bulk import."""
+    try:
+        from app.services.pricing.mrc_import_service import MrcImportService
+        from fastapi.responses import FileResponse
+
+        access = await FeatureAccessService(session).can_use_feature(user.id, FeatureCode.MRC_PRICING)
+        if not access.allowed:
+            return render_page(
+                "Ошибка — МРЦ WB",
+                user.first_name or user.username or str(user.telegram_id),
+                _feature_locked_content(access),
+                active_path="/web/mrc-pricing",
+            )
+
+        service = MrcImportService(session)
+        file_path = await service.generate_mrc_template(user.id)
+
+        return FileResponse(
+            path=str(file_path),
+            filename=file_path.name,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    except Exception:
+        logger.exception("mrc_export_template_failed", extra={"user_id": user.id})
+        return render_page(
+            "Ошибка — МРЦ WB",
+            user.first_name or user.username or str(user.telegram_id),
+            '<div class="card"><h2>Не удалось сформировать шаблон</h2>'
+            '<p>Ошибка записана в лог. Попробуйте позже.</p>'
+            '<p><a href="/web/mrc-pricing" class="button primary">Вернуться</a></p></div>',
+            active_path="/web/mrc-pricing",
+        )
+
+
+@router.post("/mrc-pricing/import")
+async def import_mrc_file(
+    file: UploadFile,
+    user=CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    """Upload Excel file and show preview."""
+    try:
+        from app.services.pricing.mrc_import_service import MrcImportService
+
+        access = await FeatureAccessService(session).can_use_feature(user.id, FeatureCode.MRC_PRICING)
+        if not access.allowed:
+            return render_page(
+                "Ошибка — МРЦ WB",
+                user.first_name or user.username or str(user.telegram_id),
+                _feature_locked_content(access),
+                active_path="/web/mrc-pricing",
+            )
+
+        if not file.filename or not file.filename.endswith(".xlsx"):
+            return render_page(
+                "Ошибка — МРЦ WB",
+                user.first_name or user.username or str(user.telegram_id),
+                '<div class="card"><h2>Неверный формат</h2>'
+                '<p>Загрузите файл <b>.xlsx</b>.</p>'
+                '<p><a href="/web/mrc-pricing" class="button primary">Вернуться</a></p></div>',
+                active_path="/web/mrc-pricing",
+            )
+
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+            content = await file.read()
+            tmp.write(content)
+            tmp_path = Path(tmp.name)
+
+        service = MrcImportService(session)
+        preview = await service.parse_mrc_import_file(tmp_path, user.id)
+
+        return render_page(
+            "Проверка импорта МРЦ",
+            user.first_name or user.username or str(user.telegram_id),
+            _import_preview_content(preview, user.timezone),
+            active_path="/web/mrc-pricing",
+        )
+    except Exception:
+        logger.exception("mrc_import_preview_failed", extra={"user_id": user.id})
+        return render_page(
+            "Ошибка — МРЦ WB",
+            user.first_name or user.username or str(user.telegram_id),
+            '<div class="card"><h2>Не удалось обработать файл</h2>'
+            '<p>Ошибка записана в лог.</p>'
+            '<p><a href="/web/mrc-pricing" class="button primary">Вернуться</a></p></div>',
+            active_path="/web/mrc-pricing",
+        )
+
+
+@router.post("/mrc-pricing/import/confirm")
+async def confirm_mrc_import(
+    request: Request,
     user=CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
-    """Export MRC report (placeholder — redirects back with notice)."""
-    return RedirectResponse(url="/web/mrc-pricing?export_coming_soon=1", status_code=303)
+    """Confirm and apply MRC import."""
+    try:
+        from app.services.pricing.mrc_import_service import MrcImportService
+
+        form_data = await request.form()
+        preview_id = form_data.get("preview_id", "")
+
+        service = MrcImportService(session)
+        result = await service.apply_mrc_import(str(preview_id), user.id)
+
+        return RedirectResponse(
+            url=f"/web/mrc-pricing?import_done=1&updated={result.updated_count}&cleared={result.cleared_count}&errors={result.error_count}",
+            status_code=303,
+        )
+    except Exception:
+        logger.exception("mrc_import_confirm_failed", extra={"user_id": user.id})
+        return RedirectResponse(url="/web/mrc-pricing?import_error=1", status_code=303)
+
+
+@router.post("/mrc-pricing/import/cancel")
+async def cancel_mrc_import(
+    request: Request,
+    user=CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    """Cancel MRC import."""
+    return RedirectResponse(url="/web/mrc-pricing?import_cancelled=1", status_code=303)
 
 
 @router.get("/wb-promotions", response_class=HTMLResponse)
@@ -943,6 +1064,27 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
     )
     parts.append("</div>")
 
+    # Mass import block
+    parts.append('<div class="card" style="margin-bottom:16px;background:#f8fafc">')
+    parts.append("<h3>📦 Массовая загрузка МРЦ</h3>")
+    parts.append(
+        '<p class="text-muted" style="margin-bottom:12px">'
+        "Чтобы не заполнять МРЦ вручную по одному товару, скачайте Excel-шаблон, "
+        "заполните колонку <b>new_mrc_price</b> и загрузите файл обратно."
+        "</p>"
+    )
+    parts.append('<div style="display:flex;gap:8px;flex-wrap:wrap">')
+    parts.append(
+        '<a href="/web/mrc-pricing/export-template" class="button primary">📥 Скачать шаблон МРЦ</a>'
+    )
+    parts.append(
+        '<form method="post" action="/web/mrc-pricing/import" enctype="multipart/form-data" style="display:inline">'
+        '<input type="file" name="file" accept=".xlsx" style="padding:6px">'
+        '<button type="submit" class="button">📤 Загрузить МРЦ из файла</button>'
+        "</form>"
+    )
+    parts.append("</div></div>")
+
     # Filters
     parts.append('<form method="get" action="/web/mrc-pricing" class="filters" style="margin-bottom:16px">')
     parts.append(
@@ -1182,6 +1324,14 @@ def _flash_messages() -> str:
         if (params.get('error') === 'invalid_mrc') msg = '❌ МРЦ должна быть положительным числом';
         if (params.get('error') === 'no_products_selected') msg = '❌ Выберите товары для массового редактирования';
         if (params.get('export_coming_soon') === '1') msg = '📥 Выгрузка отчёта скоро будет доступна';
+        if (params.get('import_done') === '1') {
+            const updated = params.get('updated') || '0';
+            const cleared = params.get('cleared') || '0';
+            const errors = params.get('errors') || '0';
+            msg = '✅ МРЦ импортированы\\nОбновлено: ' + updated + ' | Очищено: ' + cleared + ' | Ошибок: ' + errors;
+        }
+        if (params.get('import_error') === '1') msg = '❌ Ошибка импорта МРЦ';
+        if (params.get('import_cancelled') === '1') msg = '❌ Импорт отменён';
         if (msg) {
             const div = document.createElement('div');
             div.style.cssText = 'padding:12px 16px;margin-bottom:16px;border-radius:8px;font-size:14px;white-space:pre-line;' +
@@ -1192,6 +1342,81 @@ def _flash_messages() -> str:
     })();
     </script>
     """
+
+
+def _import_preview_content(preview, timezone: str = "Europe/Moscow") -> str:
+    """Render MRC import preview page."""
+    parts = []
+    parts.append('<div class="card">')
+    parts.append("<h2>📤 Проверка файла МРЦ</h2>")
+
+    valid_count = len(preview.valid_rows)
+    cleared_count = sum(1 for r in preview.valid_rows if r.status == "valid_clear")
+    updated_count = valid_count - cleared_count
+    skipped_count = len(preview.skipped_rows)
+    warning_count = len(preview.warning_rows)
+    error_count = len(preview.error_rows)
+
+    parts.append(
+        f'<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">'
+        f'<div class="kpi-card"><div class="kpi-value">{preview.total_rows}</div>'
+        '<div class="kpi-label">Всего строк</div></div>'
+        f'<div class="kpi-card"><div class="kpi-value" style="color:#10b981">{updated_count}</div>'
+        '<div class="kpi-label">Будет обновлено</div></div>'
+        f'<div class="kpi-card"><div class="kpi-value" style="color:#f59e0b">{cleared_count}</div>'
+        '<div class="kpi-label">Будет очищено</div></div>'
+        f'<div class="kpi-card"><div class="kpi-value" style="color:#6b7280">{skipped_count}</div>'
+        '<div class="kpi-label">Пропущено</div></div>'
+        f'<div class="kpi-card"><div class="kpi-value" style="color:#ef4444">{error_count}</div>'
+        '<div class="kpi-label">Ошибок</div></div>'
+        f'<div class="kpi-card"><div class="kpi-value" style="color:#f97316">{warning_count}</div>'
+        '<div class="kpi-label">Предупреждений</div></div>'
+        "</div>"
+    )
+
+    if error_count > 0:
+        parts.append('<div class="card" style="background:#fee2e2;margin-bottom:16px">')
+        parts.append("<h3>⚠️ Ошибки</h3>")
+        parts.append("<ul>")
+        for row in preview.error_rows[:20]:
+            parts.append(f"<li>Строка {row.row_number}: {escape(row.message)}</li>")
+        if error_count > 20:
+            parts.append(f"<li>... и ещё {error_count - 20} ошибок</li>")
+        parts.append("</ul></div>")
+
+    if warning_count > 0:
+        parts.append('<div class="card" style="background:#fef3c7;margin-bottom:16px">')
+        parts.append("<h3>⚡ Предупреждения</h3>")
+        parts.append("<ul>")
+        for row in preview.warning_rows[:10]:
+            parts.append(f"<li>Строка {row.row_number}: {escape(row.message)}</li>")
+        if warning_count > 10:
+            parts.append(f"<li>... и ещё {warning_count - 10} предупреждений</li>")
+        parts.append("</ul></div>")
+
+    parts.append(
+        '<form method="post" action="/web/mrc-pricing/import/confirm" style="display:inline">'
+        f'<input type="hidden" name="preview_id" value="{escape(preview.preview_id)}">'
+    )
+    if error_count == 0 or updated_count > 0 or cleared_count > 0:
+        parts.append(
+            '<button type="submit" class="button primary" '
+            'onclick="return confirm(\'Сохранить МРЦ для выбранных товаров?\')">✅ Подтвердить импорт</button>'
+        )
+    parts.append("</form>")
+
+    parts.append(
+        ' <form method="post" action="/web/mrc-pricing/import/cancel" style="display:inline">'
+        '<button type="submit" class="button">❌ Отмена</button>'
+        "</form>"
+    )
+
+    parts.append(
+        ' <a href="/web/mrc-pricing" class="button">⬅️ Вернуться</a>'
+    )
+
+    parts.append("</div>")
+    return "\n".join(parts)
 
 
 def _wb_promotions_content(data: dict, timezone: str = "Europe/Moscow") -> str:

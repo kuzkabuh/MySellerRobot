@@ -1,23 +1,26 @@
-"""version: 1.2.0
+"""version: 1.3.0
 description: Telegram bot handlers for MRC pricing and WB promotions management.
     Includes safe_edit_text helper to handle "message is not modified" errors gracefully.
     All handlers have try/except and always call callback.answer().
+    Includes MRC bulk import/export via Excel files.
 updated: 2026-05-21
 """
 
 import logging
 from decimal import Decimal, InvalidOperation
 from html import escape
+from pathlib import Path
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, ContentType, Message
 from sqlalchemy import or_, select
 
 from app.bot.keyboards.main import (
     mrc_back_menu,
+    mrc_import_confirm_keyboard,
     mrc_menu,
     mrc_product_card_keyboard,
     web_cabinet_link,
@@ -30,6 +33,7 @@ from app.models.domain import MarketplaceAccount, Product, WbPromotion, WbPromot
 from app.models.enums import Marketplace
 from app.repositories.users import UserRepository
 from app.services.feature_access_service import FeatureAccessService, FeatureCode
+from app.services.pricing.mrc_import_service import MrcImportService
 from app.services.pricing.wb_mrc_price_service import WbMrcPriceService
 from app.services.wb.wb_promotions_sync_service import WbPromotionsSyncService
 from app.utils.datetime import format_datetime_for_user
@@ -818,3 +822,218 @@ def _extract_nm_id(product: Product) -> int | None:
     if product.external_product_id and product.external_product_id.isdigit():
         return int(product.external_product_id)
     return None
+
+
+@router.callback_query(F.data == "mrc:template_download")
+async def mrc_template_download_handler(callback: CallbackQuery) -> None:
+    """Скачать шаблон МРЦ в Excel."""
+    try:
+        user_id = await _get_user_id_from_callback(callback)
+        if user_id is None:
+            return
+
+        await callback.answer()
+        await safe_edit_text(
+            callback.message,
+            "⏳ <b>Формирую шаблон МРЦ...</b>\n\nПодождите немного.",
+            reply_markup=mrc_back_menu(),
+            parse_mode="HTML",
+        )
+
+        async with AsyncSessionFactory() as session:
+            service = MrcImportService(session)
+            file_path = await service.generate_mrc_template(user_id)
+
+        await callback.message.answer_document(
+            document=file_path.as_posix(),
+            caption=(
+                "📥 <b>Файл-шаблон МРЦ готов</b>\n\n"
+                "Заполните колонку <b>new_mrc_price</b> и загрузите файл обратно "
+                "через кнопку «Загрузить МРЦ из файла»."
+            ),
+            parse_mode="HTML",
+        )
+
+        await safe_edit_text(
+            callback.message,
+            "💰 <b>МРЦ и акции Wildberries</b>\n\nВыберите действие:",
+            reply_markup=mrc_menu(),
+            parse_mode="HTML",
+        )
+    except Exception:
+        logger.exception("mrc_template_download_failed")
+        await safe_edit_text(
+            callback.message,
+            "Не удалось сформировать шаблон МРЦ. Попробуйте позже.",
+            reply_markup=mrc_back_menu(),
+        )
+    finally:
+        await callback.answer()
+
+
+@router.callback_query(F.data == "mrc:import_upload")
+async def mrc_import_upload_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Начать загрузку файла МРЦ."""
+    try:
+        await state.set_state(MrcStates.waiting_for_import_file)
+        await safe_edit_text(
+            callback.message,
+            "📤 <b>Загрузка МРЦ из файла</b>\n\n"
+            "Загрузите заполненный Excel-файл .xlsx. "
+            "Используйте шаблон, который был сформирован ботом. "
+            "Заполняйте только колонку <b>new_mrc_price</b>.",
+            reply_markup=mrc_back_menu(),
+            parse_mode="HTML",
+        )
+    except Exception:
+        logger.exception("mrc_import_upload_failed")
+        await safe_edit_text(
+            callback.message,
+            "Не удалось начать загрузку. Попробуйте позже.",
+            reply_markup=mrc_back_menu(),
+        )
+    finally:
+        await callback.answer()
+
+
+@router.message(MrcStates.waiting_for_import_file, F.document)
+async def mrc_import_file_handler(message: Message, state: FSMContext) -> None:
+    """Обработка загруженного файла МРЦ."""
+    try:
+        doc = message.document
+        if not doc.file_name or not doc.file_name.endswith(".xlsx"):
+            await message.answer(
+                "❌ Неверный формат файла. Загрузите файл <b>.xlsx</b>.",
+                reply_markup=mrc_back_menu(),
+                parse_mode="HTML",
+            )
+            return
+
+        max_size = get_settings().mrc_import_max_file_size_mb * 1024 * 1024
+        if doc.file_size and doc.file_size > max_size:
+            await message.answer(
+                f"❌ Файл слишком большой. Максимум: {get_settings().mrc_import_max_file_size_mb} МБ.",
+                reply_markup=mrc_back_menu(),
+                parse_mode="HTML",
+            )
+            return
+
+        user_id = await _get_user_id_from_message(message)
+        if user_id is None:
+            return
+
+        await message.answer("⏳ <b>Проверяю файл...</b>", parse_mode="HTML")
+
+        file_info = await message.bot.get_file(doc.file_id)
+        tmp_path = Path(f"/tmp/mrc_import_{message.from_user.id}_{doc.file_name}")
+        await message.bot.download_file(file_info.file_path, tmp_path)
+
+        async with AsyncSessionFactory() as session:
+            service = MrcImportService(session)
+            preview = await service.parse_mrc_import_file(tmp_path, user_id)
+
+        await state.update_data(preview_id=preview.preview_id)
+        await state.set_state(MrcStates.waiting_for_import_confirm)
+
+        valid_count = len(preview.valid_rows)
+        cleared_count = sum(1 for r in preview.valid_rows if r.status == "valid_clear")
+        updated_count = valid_count - cleared_count
+        skipped_count = len(preview.skipped_rows)
+        warning_count = len(preview.warning_rows)
+        error_count = len(preview.error_rows)
+
+        error_lines = []
+        for row in preview.error_rows[:5]:
+            error_lines.append(f"• Строка {row.row_number}: {row.message}")
+
+        errors_text = "\n\n".join(error_lines) if error_lines else ""
+        errors_footer = f"\n\nПоказаны первые 5 ошибок из {error_count}." if error_count > 5 else ""
+
+        text = (
+            f"📤 <b>Проверка файла МРЦ завершена</b>\n\n"
+            f"Всего строк: <b>{preview.total_rows}</b>\n"
+            f"Будет обновлено: <b>{updated_count}</b>\n"
+            f"Будет очищено: <b>{cleared_count}</b>\n"
+            f"Без изменений: <b>{skipped_count}</b>\n"
+            f"Ошибок: <b>{error_count}</b>\n"
+            f"Предупреждений: <b>{warning_count}</b>"
+        )
+
+        if errors_text:
+            text += f"\n\n⚠️ Ошибки:\n{errors_text}{errors_footer}"
+
+        await message.answer(text, reply_markup=mrc_import_confirm_keyboard(), parse_mode="HTML")
+    except Exception:
+        logger.exception("mrc_import_file_handler_failed")
+        await message.answer(
+            "❌ Не удалось обработать файл. Проверьте формат и попробуйте снова.",
+            reply_markup=mrc_back_menu(),
+        )
+
+
+@router.callback_query(F.data == "mrc:import_confirm", MrcStates.waiting_for_import_confirm)
+async def mrc_import_confirm_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Подтвердить и сохранить импорт МРЦ."""
+    try:
+        user_id = await _get_user_id_from_callback(callback)
+        if user_id is None:
+            return
+
+        data = await state.get_data()
+        preview_id = data.get("preview_id")
+        if not preview_id:
+            await callback.answer("Ошибка: данные импорта не найдены.", show_alert=True)
+            return
+
+        await callback.answer()
+        await safe_edit_text(
+            callback.message,
+            "⏳ <b>Сохраняю МРЦ...</b>",
+            reply_markup=mrc_back_menu(),
+        )
+
+        async with AsyncSessionFactory() as session:
+            service = MrcImportService(session)
+            result = await service.apply_mrc_import(preview_id, user_id)
+
+        text = (
+            f"✅ <b>МРЦ успешно импортированы</b>\n\n"
+            f"Обновлено товаров: <b>{result.updated_count}</b>\n"
+            f"Очищено МРЦ: <b>{result.cleared_count}</b>\n"
+            f"Пропущено: <b>{result.skipped_count}</b>\n"
+            f"Ошибок: <b>{result.error_count}</b>\n\n"
+            "Теперь можно перейти в раздел «МРЦ и акции WB» и проверить расчёт цен."
+        )
+
+        await safe_edit_text(callback.message, text, reply_markup=mrc_menu(), parse_mode="HTML")
+    except Exception:
+        logger.exception("mrc_import_confirm_failed")
+        await safe_edit_text(
+            callback.message,
+            "❌ Не удалось сохранить МРЦ. Попробуйте позже.",
+            reply_markup=mrc_back_menu(),
+        )
+    finally:
+        await callback.answer()
+
+
+@router.callback_query(F.data == "mrc:import_cancel", MrcStates.waiting_for_import_confirm)
+async def mrc_import_cancel_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Отменить импорт МРЦ."""
+    try:
+        await state.clear()
+        await safe_edit_text(
+            callback.message,
+            "❌ <b>Импорт отменён</b>",
+            reply_markup=mrc_menu(),
+            parse_mode="HTML",
+        )
+    except Exception:
+        logger.exception("mrc_import_cancel_failed")
+        await safe_edit_text(
+            callback.message,
+            "Импорт отменён.",
+            reply_markup=mrc_menu(),
+        )
+    finally:
+        await callback.answer()
