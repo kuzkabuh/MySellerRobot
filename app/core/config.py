@@ -84,6 +84,12 @@ class Settings(BaseSettings):
     wb_promotions_history_retention_days: int = 90
     wb_promotions_page_limit: int = 1000
     wb_base_calendar_url: str = "https://dp-calendar-api.wildberries.ru"
+    wb_base_discounts_prices_url: str = "https://discounts-prices-api.wildberries.ru"
+
+    # MRC import settings
+    mrc_import_max_file_size_mb: int = 10
+    mrc_import_max_rows: int = 5000
+    mrc_import_allow_clear: bool = True
 
     log_level: str = "INFO"
 

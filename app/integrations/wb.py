@@ -40,6 +40,9 @@ class WildberriesClient:
         self.calendar = AsyncApiClient(
             settings.wb_base_calendar_url, marketplace="Wildberries"
         )
+        self.discounts_prices = AsyncApiClient(
+            settings.wb_base_discounts_prices_url, marketplace="Wildberries"
+        )
 
     @property
     def headers(self) -> dict[str, str]:
@@ -440,6 +443,76 @@ class WildberriesClient:
                 "/api/v1/calendar/promotions/nomenclatures",
                 headers=self.headers,
                 params=params,
+            ),
+        )
+
+    async def upload_prices_discounts(
+        self,
+        items: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Upload prices and discounts for products.
+
+        POST https://discounts-prices-api.wildberries.ru/api/v2/upload
+
+        Items format: [{"id": nmId, "price": price_before_discount, "discount": discount_percent}]
+        """
+        payload = {"data": {"items": items}}
+        return cast(
+            dict[str, Any],
+            await self.discounts_prices.request(
+                "POST",
+                "/api/v2/upload",
+                headers=self.headers,
+                json=payload,
+            ),
+        )
+
+    async def get_price_upload_status(
+        self,
+        upload_id: int,
+    ) -> dict[str, Any]:
+        """Check status of a price/discount upload.
+
+        GET https://discounts-prices-api.wildberries.ru/api/v2/history/tasks
+        """
+        params = {"uploadID": upload_id}
+        return cast(
+            dict[str, Any],
+            await self.discounts_prices.request(
+                "GET",
+                "/api/v2/history/tasks",
+                headers=self.headers,
+                params=params,
+            ),
+        )
+
+    async def add_products_to_promotion(
+        self,
+        *,
+        promotion_id: int,
+        nm_ids: list[int],
+        upload_now: bool = True,
+    ) -> dict[str, Any]:
+        """Add products to a WB promotion.
+
+        POST https://dp-calendar-api.wildberries.ru/api/v1/calendar/promotions/upload
+
+        Not applicable for auto-promotions.
+        """
+        payload = {
+            "data": {
+                "promotionID": promotion_id,
+                "uploadNow": upload_now,
+                "nomenclatures": nm_ids,
+            }
+        }
+        return cast(
+            dict[str, Any],
+            await self.calendar.request(
+                "POST",
+                "/api/v1/calendar/promotions/upload",
+                headers=self.headers,
+                json=payload,
             ),
         )
 
