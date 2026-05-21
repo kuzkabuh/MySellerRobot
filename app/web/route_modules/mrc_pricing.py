@@ -32,7 +32,7 @@ from app.web.dependencies import (
     CURRENT_WEB_USER_DEPENDENCY,
     SESSION_DEPENDENCY,
 )
-from app.web.rendering import page
+from app.web.rendering import page as render_page
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -93,22 +93,22 @@ class PromoDetailData:
 async def mrc_pricing_page(
     user=CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
-    page: int = Query(1, ge=1),
+    page_number: int = Query(1, ge=1),
     filter_type: str = Query("all"),
     search: str = Query(""),
 ) -> str:
     """MRC pricing management page."""
     access = await FeatureAccessService(session).can_use_feature(user.id, FeatureCode.MRC_PRICING)
     if not access.allowed:
-        return page(
+        return render_page(
             "МРЦ WB — Управление ценами",
             user.first_name or user.username or str(user.telegram_id),
             _feature_locked_content(access),
             active_path="/web/mrc-pricing",
         )
 
-    data = await _load_mrc_page_data(session, user.id, page, filter_type, search)
-    return page(
+    data = await _load_mrc_page_data(session, user.id, page_number, filter_type, search)
+    return render_page(
         "МРЦ WB — Управление ценами",
         user.first_name or user.username or str(user.telegram_id),
         _mrc_pricing_content(data, user.timezone),
@@ -274,7 +274,7 @@ async def wb_promotions_page(
     """List of WB promotions for today."""
     access = await FeatureAccessService(session).can_use_feature(user.id, FeatureCode.MRC_PRICING)
     if not access.allowed:
-        return page(
+        return render_page(
             "Акции WB",
             user.first_name or user.username or str(user.telegram_id),
             _feature_locked_content(access),
@@ -282,7 +282,7 @@ async def wb_promotions_page(
         )
 
     data = await _load_promotions_page_data(session, user.id)
-    return page(
+    return render_page(
         "Акции Wildberries",
         user.first_name or user.username or str(user.telegram_id),
         _wb_promotions_content(data, user.timezone),
@@ -295,24 +295,24 @@ async def wb_promotion_detail_page(
     promotion_id: int,
     user=CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
-    page: int = Query(1, ge=1),
+    page_number: int = Query(1, ge=1),
     filter_type: str = Query("all"),
 ) -> str:
     """Detail page for a WB promotion with products."""
     access = await FeatureAccessService(session).can_use_feature(user.id, FeatureCode.MRC_PRICING)
     if not access.allowed:
-        return page(
+        return render_page(
             "Акция WB",
             user.first_name or user.username or str(user.telegram_id),
             _feature_locked_content(access),
             active_path="/web/wb-promotions",
         )
 
-    data = await _load_promotion_detail_data(session, user.id, promotion_id, page, filter_type)
+    data = await _load_promotion_detail_data(session, user.id, promotion_id, page_number, filter_type)
     if data is None:
         raise HTTPException(status_code=404, detail="Акция не найдена")
 
-    return page(
+    return render_page(
         f"Акция: {data.promotion.name or 'Без названия'}",
         user.first_name or user.username or str(user.telegram_id),
         _wb_promotion_detail_content(data, user.timezone),

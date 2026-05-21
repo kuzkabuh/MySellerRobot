@@ -64,7 +64,7 @@ async def test_feature_denied_without_subscription_default_deny() -> None:
 
     assert result.allowed is False
     assert result.required_plan == "Pro"
-    assert "PLAN_FACT" in (result.reason or "")
+    assert "План/факт" in (result.reason or "")
 
 
 @pytest.mark.asyncio
@@ -174,7 +174,7 @@ async def test_feature_denied_by_tier_flag() -> None:
 
     assert result.allowed is False
     assert result.required_plan == "Pro"
-    assert "EXPORTS" in (result.reason or "")
+    assert "Экспорт данных" in (result.reason or "")
 
 
 @pytest.mark.asyncio

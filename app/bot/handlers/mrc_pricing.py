@@ -1,5 +1,6 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: Telegram bot handlers for MRC pricing and WB promotions management.
+    Includes safe_edit_text helper to handle "message is not modified" errors gracefully.
 updated: 2026-05-21
 """
 
@@ -8,6 +9,7 @@ from decimal import Decimal, InvalidOperation
 from html import escape
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State
 from aiogram.types import CallbackQuery, Message
@@ -34,6 +36,22 @@ logger = logging.getLogger(__name__)
 router = Router(name="mrc_pricing")
 
 settings = get_settings()
+
+
+async def safe_edit_text(
+    message,
+    text: str,
+    reply_markup=None,
+    parse_mode: str | None = "HTML",
+) -> None:
+    """Edit message text, ignoring 'message is not modified' errors."""
+    try:
+        await message.edit_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    except TelegramBadRequest as e:
+        if "message is not modified" in str(e).lower():
+            logger.debug("message_not_modified: %s", e)
+        else:
+            raise
 
 
 async def _get_user_id_from_message(message: Message) -> int | None:
@@ -84,7 +102,7 @@ async def mrc_menu_handler(callback: CallbackQuery) -> None:
 
     allowed, error_msg = await _check_mrc_access(user_id)
     if not allowed:
-        await callback.message.edit_text(error_msg, reply_markup=mrc_back_menu())
+        await safe_edit_text(callback.message, error_msg, reply_markup=mrc_back_menu())
         return
 
     async with AsyncSessionFactory() as session:
@@ -110,7 +128,7 @@ async def mrc_menu_handler(callback: CallbackQuery) -> None:
         f"⚠️ Без МРЦ: <b>{without_mrc}</b>\n\n"
         "Выберите действие:"
     )
-    await callback.message.edit_text(text, reply_markup=mrc_menu(), parse_mode="HTML")
+    await safe_edit_text(callback.message, text, reply_markup=mrc_menu(), parse_mode="HTML")
     await callback.answer()
 
 
@@ -137,7 +155,7 @@ async def mrc_with_mrc_handler(callback: CallbackQuery) -> None:
 
     if not products:
         text = "📦 <b>Товары с МРЦ</b>\n\nУ вас пока нет товаров с заполненной МРЦ."
-        await callback.message.edit_text(text, reply_markup=mrc_back_menu(), parse_mode="HTML")
+        await safe_edit_text(callback.message, text, reply_markup=mrc_back_menu(), parse_mode="HTML")
         await callback.answer()
         return
 
@@ -154,7 +172,7 @@ async def mrc_with_mrc_handler(callback: CallbackQuery) -> None:
         )
 
     text = "\n\n".join(lines)
-    await callback.message.edit_text(text, reply_markup=mrc_back_menu(), parse_mode="HTML")
+    await safe_edit_text(callback.message, text, reply_markup=mrc_back_menu(), parse_mode="HTML")
     await callback.answer()
 
 
@@ -183,7 +201,7 @@ async def mrc_without_mrc_handler(callback: CallbackQuery) -> None:
 
     if not products:
         text = "✅ <b>Отлично!</b>\n\nУ вас все товары WB имеют заполненную МРЦ."
-        await callback.message.edit_text(text, reply_markup=mrc_back_menu(), parse_mode="HTML")
+        await safe_edit_text(callback.message, text, reply_markup=mrc_back_menu(), parse_mode="HTML")
         await callback.answer()
         return
 
@@ -198,7 +216,7 @@ async def mrc_without_mrc_handler(callback: CallbackQuery) -> None:
         )
 
     text = "\n\n".join(lines)
-    await callback.message.edit_text(text, reply_markup=mrc_back_menu(), parse_mode="HTML")
+    await safe_edit_text(callback.message, text, reply_markup=mrc_back_menu(), parse_mode="HTML")
     await callback.answer()
 
 
@@ -247,7 +265,7 @@ async def mrc_promos_today_handler(callback: CallbackQuery) -> None:
             f"{last_sync_text}\n\n"
             "Нажмите «Синхронизировать акции», чтобы обновить данные."
         )
-        await callback.message.edit_text(text, reply_markup=mrc_back_menu(), parse_mode="HTML")
+        await safe_edit_text(callback.message, text, reply_markup=mrc_back_menu(), parse_mode="HTML")
         await callback.answer()
         return
 
@@ -267,7 +285,7 @@ async def mrc_promos_today_handler(callback: CallbackQuery) -> None:
         )
 
     text = "\n\n".join(lines)
-    await callback.message.edit_text(text, reply_markup=mrc_back_menu(), parse_mode="HTML")
+    await safe_edit_text(callback.message, text, reply_markup=mrc_back_menu(), parse_mode="HTML")
     await callback.answer()
 
 
@@ -278,7 +296,8 @@ async def mrc_sync_promos_handler(callback: CallbackQuery) -> None:
     if user_id is None:
         return
 
-    await callback.message.edit_text(
+    await safe_edit_text(
+        callback.message,
         "🔄 <b>Синхронизация акций WB...</b>\n\nЭто может занять несколько минут.",
         reply_markup=mrc_back_menu(),
         parse_mode="HTML",
@@ -303,10 +322,11 @@ async def mrc_sync_promos_handler(callback: CallbackQuery) -> None:
         if stats.errors:
             text += f"\n\n⚠️ Ошибки: {len(stats.errors)}"
 
-        await callback.message.edit_text(text, reply_markup=mrc_back_menu(), parse_mode="HTML")
+        await safe_edit_text(callback.message, text, reply_markup=mrc_back_menu(), parse_mode="HTML")
     except Exception:
         logger.exception("mrc_sync_promos_failed")
-        await callback.message.edit_text(
+        await safe_edit_text(
+            callback.message,
             "❌ <b>Ошибка синхронизации</b>\n\nПопробуйте позже.",
             reply_markup=mrc_back_menu(),
             parse_mode="HTML",
@@ -507,7 +527,8 @@ async def mrc_edit_handler(callback: CallbackQuery, state: FSMContext) -> None:
     title = product.title or "Без названия"
     mrc_val = f"{product.mrc_price:.0f} ₽" if product.mrc_price and product.mrc_price > 0 else "не задана"
 
-    await callback.message.edit_text(
+    await safe_edit_text(
+        callback.message,
         f"✏️ <b>{escape(title)}</b>\n\n"
         f"Артикул: {escape(article)} | nmID: {nm_id}\n"
         f"Текущая МРЦ: <b>{mrc_val}</b>\n\n"
@@ -605,7 +626,7 @@ async def mrc_limits_report_handler(callback: CallbackQuery) -> None:
             )
 
     text = "\n".join(lines)
-    await callback.message.edit_text(text, reply_markup=mrc_back_menu(), parse_mode="HTML")
+    await safe_edit_text(callback.message, text, reply_markup=mrc_back_menu(), parse_mode="HTML")
     await callback.answer()
 
 
@@ -654,7 +675,8 @@ async def mrc_recalc_handler(callback: CallbackQuery) -> None:
     )
 
     web_url = f"{settings.get_web_base_url()}/web/mrc-pricing"
-    await callback.message.edit_text(
+    await safe_edit_text(
+        callback.message,
         text,
         reply_markup=mrc_product_card_keyboard(product.id, wb_nm_id, web_url),
         parse_mode="HTML",
