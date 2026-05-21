@@ -829,6 +829,7 @@ def mrc_menu() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="⚠️ Без МРЦ", callback_data="mrc:without_mrc")],
             [InlineKeyboardButton(text="🎯 Акции WB сегодня", callback_data="mrc:promos_today")],
             [InlineKeyboardButton(text="🔄 Синхронизировать акции", callback_data="mrc:sync_promos")],
+            [InlineKeyboardButton(text="🔍 Расширенная проверка акций", callback_data="mrc:sync_promos_all")],
             [InlineKeyboardButton(text="🔍 Найти товар", callback_data="mrc:search")],
             [InlineKeyboardButton(text="✏️ Изменить МРЦ", callback_data="mrc:set")],
             [InlineKeyboardButton(text="📊 Отчёт по ограничениям", callback_data="mrc:limits_report")],

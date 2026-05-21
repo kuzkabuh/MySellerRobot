@@ -8,9 +8,12 @@ import pytest
 
 from app.services.wb.wb_promotions_sync_service import (
     WbPromotionsSyncService,
+    _extract_nomenclatures_list,
+    _extract_promotions_list,
     _is_active_today,
     _money,
     _parse_datetime,
+    _safe_response_preview,
 )
 
 
@@ -202,3 +205,125 @@ class TestPromotionsSyncServicePagination:
         assert total == 1300
         assert len(page1) == limit
         assert len(page2) < limit
+
+
+class TestPromotionsListExtraction:
+    """Test _extract_promotions_list for various WB API response formats."""
+
+    def test_official_format_data_promotions(self) -> None:
+        """Official WB format: {data: {promotions: [...]}}."""
+        response = {
+            "data": {
+                "promotions": [
+                    {"id": 123, "name": "Test Promo"},
+                    {"id": 456, "name": "Another"},
+                ]
+            }
+        }
+        result = _extract_promotions_list(response)
+        assert len(result) == 2
+        assert result[0]["id"] == 123
+
+    def test_fallback_top_level_promotions(self) -> None:
+        """Fallback: {promotions: [...]}."""
+        response = {"promotions": [{"id": 1}]}
+        result = _extract_promotions_list(response)
+        assert len(result) == 1
+
+    def test_fallback_data_as_list(self) -> None:
+        """Fallback: {data: [...]}."""
+        response = {"data": [{"id": 1}]}
+        result = _extract_promotions_list(response)
+        assert len(result) == 1
+
+    def test_fallback_response_as_list(self) -> None:
+        """Fallback: response is a list."""
+        response = [{"id": 1}, {"id": 2}]
+        result = _extract_promotions_list(response)
+        assert len(result) == 2
+
+    def test_empty_response(self) -> None:
+        """Empty dict returns empty list."""
+        result = _extract_promotions_list({})
+        assert result == []
+
+    def test_none_response(self) -> None:
+        """None returns empty list."""
+        result = _extract_promotions_list({})
+        assert result == []
+
+
+class TestNomenclaturesListExtraction:
+    """Test _extract_nomenclatures_list for various WB API response formats."""
+
+    def test_official_format_data_nomenclatures(self) -> None:
+        """Official WB format: {data: {nomenclatures: [...]}}."""
+        response = {
+            "data": {
+                "nomenclatures": [
+                    {"id": 12345, "planPrice": "647"},
+                ]
+            }
+        }
+        result = _extract_nomenclatures_list(response)
+        assert len(result) == 1
+        assert result[0]["id"] == 12345
+
+    def test_fallback_top_level_nomenclatures(self) -> None:
+        """Fallback: {nomenclatures: [...]}."""
+        response = {"nomenclatures": [{"id": 1}]}
+        result = _extract_nomenclatures_list(response)
+        assert len(result) == 1
+
+    def test_fallback_data_as_list(self) -> None:
+        """Fallback: {data: [...]}."""
+        response = {"data": [{"id": 1}]}
+        result = _extract_nomenclatures_list(response)
+        assert len(result) == 1
+
+    def test_response_as_list(self) -> None:
+        """Response is a list."""
+        response = [{"id": 1}]
+        result = _extract_nomenclatures_list(response)
+        assert len(result) == 1
+
+    def test_empty_response(self) -> None:
+        """Empty dict returns empty list."""
+        result = _extract_nomenclatures_list({})
+        assert result == []
+
+
+class TestSafeResponsePreview:
+    """Test _safe_response_preview for safe logging."""
+
+    def test_removes_token_keys(self) -> None:
+        """Token and key fields are removed from preview."""
+        response = {"data": {"promotions": []}, "token": "secret", "apiKey": "hidden"}
+        preview = _safe_response_preview(response)
+        assert "secret" not in preview
+        assert "hidden" not in preview
+
+    def test_truncates_long_response(self) -> None:
+        """Long responses are truncated."""
+        response = {"data": "x" * 2000}
+        preview = _safe_response_preview(response, max_len=100)
+        assert len(preview) <= 115  # max_len + "...(truncated)"
+        assert "(truncated)" in preview
+
+
+class TestSyncAllPromoMode:
+    """Test allPromo mode support."""
+
+    @pytest.mark.asyncio
+    async def test_sync_all_accounts_accepts_all_promo(self) -> None:
+        """sync_all_accounts should accept all_promo parameter."""
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(
+            return_value=MagicMock(scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[]))))
+        )
+
+        service = WbPromotionsSyncService(mock_session)
+        stats = await service.sync_all_accounts(all_promo=True)
+
+        assert stats.all_promo_mode is True
+        assert stats.accounts_processed == 0

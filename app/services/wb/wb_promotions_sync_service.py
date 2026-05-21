@@ -1,9 +1,13 @@
-"""version: 1.0.0
+"""version: 2.0.0
 description: Wildberries daily promotions synchronization service.
+    Supports allPromo=true mode, proper data.promotions/data.nomenclatures parsing,
+    rate limiting, and detailed diagnostics.
 updated: 2026-05-21
 """
 
+import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -38,6 +42,9 @@ class WbPromotionsSyncStats:
     nomenclatures_fetched: int = 0
     nomenclatures_upserted: int = 0
     products_matched: int = 0
+    all_promo_mode: bool = False
+    sync_period_start: str = ""
+    sync_period_end: str = ""
     errors: list[str] = field(default_factory=list)
 
 
@@ -54,9 +61,13 @@ class WbPromotionsSyncService:
         self.cipher = cipher or TokenCipher()
         self.settings = get_settings()
 
-    async def sync_all_accounts(self) -> WbPromotionsSyncStats:
+    async def sync_all_accounts(
+        self,
+        all_promo: bool = False,
+    ) -> WbPromotionsSyncStats:
         """Run promotions sync for all active WB accounts."""
         stats = WbPromotionsSyncStats()
+        stats.all_promo_mode = all_promo
 
         result = await self.session.execute(
             select(MarketplaceAccount).where(
@@ -86,12 +97,16 @@ class WbPromotionsSyncService:
         start_datetime = today_start.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         end_datetime = today_end.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+        stats.sync_period_start = start_datetime
+        stats.sync_period_end = end_datetime
+
         logger.info(
             "wb_promotions_sync_period",
             extra={
                 "start_datetime": start_datetime,
                 "end_datetime": end_datetime,
                 "accounts_count": len(accounts),
+                "all_promo": all_promo,
             },
         )
 
@@ -101,6 +116,7 @@ class WbPromotionsSyncService:
                     account=account,
                     start_datetime=start_datetime,
                     end_datetime=end_datetime,
+                    all_promo=all_promo,
                 )
                 stats.accounts_processed += 1
                 stats.promotions_fetched += account_stats.promotions_fetched
@@ -131,6 +147,7 @@ class WbPromotionsSyncService:
                 "nomenclatures_upserted": stats.nomenclatures_upserted,
                 "products_matched": stats.products_matched,
                 "errors_count": len(stats.errors),
+                "all_promo": all_promo,
             },
         )
 
@@ -141,6 +158,7 @@ class WbPromotionsSyncService:
         account: MarketplaceAccount,
         start_datetime: str,
         end_datetime: str,
+        all_promo: bool = False,
     ) -> WbPromotionsSyncStats:
         """Sync promotions for a single WB account."""
         stats = WbPromotionsSyncStats()
@@ -153,13 +171,19 @@ class WbPromotionsSyncService:
             client=client,
             start_datetime=start_datetime,
             end_datetime=end_datetime,
+            all_promo=all_promo,
         )
         stats.promotions_fetched = len(all_promotions)
 
         if not all_promotions:
             logger.info(
                 "wb_promotions_no_promotions_for_account",
-                extra={"account_id": account.id},
+                extra={
+                    "account_id": account.id,
+                    "all_promo": all_promo,
+                    "start_datetime": start_datetime,
+                    "end_datetime": end_datetime,
+                },
             )
             return stats
 
@@ -217,32 +241,67 @@ class WbPromotionsSyncService:
         client: WildberriesClient,
         start_datetime: str,
         end_datetime: str,
+        all_promo: bool = False,
     ) -> list[dict[str, Any]]:
-        """Fetch all promotions for the date range with pagination."""
+        """Fetch all promotions for the date range with pagination.
+
+        Official WB API response format: {"data": {"promotions": [...]}}
+        """
         all_promotions: list[dict[str, Any]] = []
         offset = 0
         limit = self.settings.wb_promotions_page_limit
+        last_request_time = 0.0
 
         while True:
+            # Rate limiting: 600ms between requests
+            elapsed = time.monotonic() - last_request_time
+            if elapsed < 0.6:
+                await asyncio.sleep(0.6 - elapsed)
+            last_request_time = time.monotonic()
+
             try:
                 response = await client.get_calendar_promotions(
                     start_datetime=start_datetime,
                     end_datetime=end_datetime,
-                    all_promo=False,
+                    all_promo=all_promo,
                     limit=limit,
                     offset=offset,
                 )
             except Exception:
-                logger.exception("wb_promotions_fetch_failed", extra={"offset": offset})
+                logger.exception("wb_promotions_fetch_failed", extra={"offset": offset, "all_promo": all_promo})
                 break
 
-            promotions = response.get("promotions") or response.get("data") or []
-            if not isinstance(promotions, list):
-                promotions = []
+            # Parse official format: {"data": {"promotions": [...]}}
+            promotions = _extract_promotions_list(response)
+
+            raw_count = len(promotions)
+
+            # Diagnostic logging
+            log_extra = {
+                "offset": offset,
+                "limit": limit,
+                "all_promo": all_promo,
+                "start_datetime": start_datetime,
+                "end_datetime": end_datetime,
+                "http_status": response.get("_http_status", "unknown"),
+                "response_type": type(response.get("data", response)).__name__,
+                "raw_promotions_count_before_filter": raw_count,
+            }
+
+            if raw_count == 0:
+                response_keys = list(response.keys()) if isinstance(response, dict) else []
+                data_keys = list(response.get("data", {}).keys()) if isinstance(response.get("data"), dict) else []
+                log_extra["response_keys"] = response_keys
+                log_extra["data_keys"] = data_keys
+                log_extra["response_preview"] = _safe_response_preview(response)
+
+                if response.get("_http_status") == 200:
+                    logger.info("wb_promotions_empty_response", extra=log_extra)
+                break
 
             all_promotions.extend(promotions)
 
-            if len(promotions) < limit:
+            if raw_count < limit:
                 break
 
             offset += limit
@@ -306,16 +365,25 @@ class WbPromotionsSyncService:
         client: WildberriesClient,
         now_utc: datetime,
     ) -> int:
-        """Fetch and upsert nomenclatures for a promotion."""
+        """Fetch and upsert nomenclatures for a promotion.
+
+        Official WB API response format: {"data": {"nomenclatures": [...]}}
+        """
         total_fetched = 0
-        offset = 0
         limit = self.settings.wb_promotions_page_limit
         wb_promotion_id = promotion.wb_promotion_id
+        last_request_time = 0.0
 
         # Fetch both inAction=false and inAction=true
         for in_action in (False, True):
             offset = 0
             while True:
+                # Rate limiting
+                elapsed = time.monotonic() - last_request_time
+                if elapsed < 0.6:
+                    await asyncio.sleep(0.6 - elapsed)
+                last_request_time = time.monotonic()
+
                 try:
                     response = await client.get_promotion_nomenclatures(
                         promotion_id=wb_promotion_id,
@@ -334,9 +402,8 @@ class WbPromotionsSyncService:
                     )
                     break
 
-                items = response.get("nomenclatures") or response.get("data") or []
-                if not isinstance(items, list):
-                    items = []
+                # Parse official format: {"data": {"nomenclatures": [...]}}
+                items = _extract_nomenclatures_list(response)
 
                 for item in items:
                     await self._upsert_nomenclature(
@@ -515,3 +582,99 @@ def _decimal_optional(value: Any) -> Decimal | None:
         return Decimal(str(value).replace(",", "."))
     except (InvalidOperation, ValueError, TypeError):
         return None
+
+
+def _extract_promotions_list(response: dict[str, Any]) -> list[dict[str, Any]]:
+    """Extract promotions list from WB API response.
+
+    Official format: {"data": {"promotions": [...]}}
+    Fallback formats: {"promotions": [...]}, {"data": [...]}, [...]
+    """
+    if isinstance(response, list):
+        return response
+
+    if not isinstance(response, dict):
+        return []
+
+    # Official: data.promotions
+    data = response.get("data")
+    if isinstance(data, dict):
+        promotions = data.get("promotions")
+        if isinstance(promotions, list):
+            return promotions
+
+    # Fallback: top-level promotions
+    promotions = response.get("promotions")
+    if isinstance(promotions, list):
+        return promotions
+
+    # Fallback: data as list
+    if isinstance(data, list):
+        return data
+
+    # Unknown format — log warning
+    response_keys = list(response.keys())
+    data_keys = list(data.keys()) if isinstance(data, dict) else []
+    logger.warning(
+        "wb_promotions_unknown_response_format",
+        extra={
+            "response_keys": response_keys,
+            "data_keys": data_keys,
+            "response_preview": _safe_response_preview(response),
+        },
+    )
+    return []
+
+
+def _extract_nomenclatures_list(response: dict[str, Any]) -> list[dict[str, Any]]:
+    """Extract nomenclatures list from WB API response.
+
+    Official format: {"data": {"nomenclatures": [...]}}
+    Fallback formats: {"nomenclatures": [...]}, {"data": [...]}, [...]
+    """
+    if isinstance(response, list):
+        return response
+
+    if not isinstance(response, dict):
+        return []
+
+    # Official: data.nomenclatures
+    data = response.get("data")
+    if isinstance(data, dict):
+        nomenclatures = data.get("nomenclatures")
+        if isinstance(nomenclatures, list):
+            return nomenclatures
+
+    # Fallback: top-level nomenclatures
+    nomenclatures = response.get("nomenclatures")
+    if isinstance(nomenclatures, list):
+        return nomenclatures
+
+    # Fallback: data as list
+    if isinstance(data, list):
+        return data
+
+    # Unknown format
+    response_keys = list(response.keys())
+    data_keys = list(data.keys()) if isinstance(data, dict) else []
+    logger.warning(
+        "wb_promotions_nomenclatures_unknown_response_format",
+        extra={
+            "response_keys": response_keys,
+            "data_keys": data_keys,
+            "response_preview": _safe_response_preview(response),
+        },
+    )
+    return []
+
+
+def _safe_response_preview(response: Any, max_len: int = 1000) -> str:
+    """Create a safe preview of response without tokens."""
+    if isinstance(response, dict):
+        safe = {k: v for k, v in response.items() if "token" not in k.lower() and "key" not in k.lower()}
+        preview = str(safe)
+    else:
+        preview = str(response)
+    if len(preview) > max_len:
+        preview = preview[:max_len] + "...(truncated)"
+    return preview

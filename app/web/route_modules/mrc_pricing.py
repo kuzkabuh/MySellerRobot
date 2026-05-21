@@ -110,11 +110,16 @@ async def mrc_pricing_page(
 
         data = await _load_mrc_page_data(session, user.id, page_number, filter_type, search)
 
+        # Resolve actual tier code for logging
+        tier_code = access.current_tier
+        if not tier_code:
+            tier_code = await _resolve_user_tier_code(session, user.id)
+
         logger.info(
             "mrc_pricing_page_opened",
             extra={
                 "user_id": user.id,
-                "tier_code": access.current_tier or "unknown",
+                "tier_code": tier_code,
                 "products_count": data.total_products,
                 "products_with_mrc_count": data.products_with_mrc,
                 "active_promotions_count": data.products_with_promo,
@@ -140,6 +145,28 @@ async def mrc_pricing_page(
             '<p><a href="/web/" class="button primary">Вернуться на главную</a></p></div>',
             active_path="/web/mrc-pricing",
         )
+
+
+async def _resolve_user_tier_code(session: AsyncSession, user_id: int) -> str:
+    """Resolve the actual tier code for a user for logging purposes."""
+    from datetime import UTC, datetime
+    from app.models.subscriptions import SubscriptionTier, UserSubscription
+
+    now = datetime.now(tz=UTC)
+    result = await session.execute(
+        select(SubscriptionTier.code)
+        .join(UserSubscription, UserSubscription.tier_id == SubscriptionTier.id)
+        .where(UserSubscription.user_id == user_id)
+        .where(UserSubscription.status.in_(["ACTIVE", "TRIAL"]))
+        .where((UserSubscription.expires_at.is_(None)) | (UserSubscription.expires_at > now))
+        .where(SubscriptionTier.is_active.is_(True))
+        .order_by(UserSubscription.started_at.desc())
+        .limit(1)
+    )
+    code = result.scalar_one_or_none()
+    if code:
+        return str(code).strip().lower()
+    return "free"
 
 
 @router.post("/mrc-pricing/products/{product_id}")
@@ -277,17 +304,47 @@ async def trigger_promotions_sync(
     user=CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
-    """Manually trigger WB promotions sync."""
+    """Manually trigger WB promotions sync (allPromo=false)."""
     service = WbPromotionsSyncService(session)
     try:
-        stats = await service.sync_all_accounts()
+        stats = await service.sync_all_accounts(all_promo=False)
         await session.commit()
         return RedirectResponse(
-            url=f"/web/mrc-pricing?sync_done=1&promos={stats.promotions_upserted}&nomenclatures={stats.nomenclatures_upserted}",
+            url=(
+                f"/web/mrc-pricing?sync_done=1&promos={stats.promotions_upserted}"
+                f"&nomenclatures={stats.nomenclatures_upserted}"
+                f"&raw_promos={stats.promotions_fetched}&all_promo=false"
+                f"&auto_skipped={stats.promotions_skipped_auto}"
+            ),
             status_code=303,
         )
     except Exception:
         logger.exception("wb_promotions_manual_sync_failed")
+        await session.rollback()
+        return RedirectResponse(url="/web/mrc-pricing?sync_error=1", status_code=303)
+
+
+@router.post("/mrc-pricing/sync-promotions-all")
+async def trigger_promotions_sync_all(
+    user=CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    """Manually trigger WB promotions sync (allPromo=true)."""
+    service = WbPromotionsSyncService(session)
+    try:
+        stats = await service.sync_all_accounts(all_promo=True)
+        await session.commit()
+        return RedirectResponse(
+            url=(
+                f"/web/mrc-pricing?sync_done=1&promos={stats.promotions_upserted}"
+                f"&nomenclatures={stats.nomenclatures_upserted}"
+                f"&raw_promos={stats.promotions_fetched}&all_promo=true"
+                f"&auto_skipped={stats.promotions_skipped_auto}"
+            ),
+            status_code=303,
+        )
+    except Exception:
+        logger.exception("wb_promotions_manual_sync_all_failed")
         await session.rollback()
         return RedirectResponse(url="/web/mrc-pricing?sync_error=1", status_code=303)
 
@@ -876,6 +933,11 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
         "</form>"
     )
     parts.append(
+        '<form method="post" action="/web/mrc-pricing/sync-promotions-all" style="display:inline">'
+        '<button type="submit" class="button" title="allPromo=true — показать все акции">🔍 Расширенная проверка</button>'
+        "</form>"
+    )
+    parts.append(
         '<a href="/web/wb-promotions" class="button">🎯 Акции WB</a>'
     )
     parts.append(
@@ -1100,7 +1162,19 @@ def _flash_messages() -> str:
             else msg = '✅ МРЦ сохранена';
         }
         if (params.get('sync_done') === '1') {
-            msg = '✅ Синхронизация акций завершена. Акции: ' + (params.get('promos') || 0) + ', Товары: ' + (params.get('nomenclatures') || 0);
+            const allPromo = params.get('all_promo') || 'false';
+            const rawPromos = params.get('raw_promos') || '0';
+            const promos = params.get('promos') || '0';
+            const noms = params.get('nomenclatures') || '0';
+            const autoSkipped = params.get('auto_skipped') || '0';
+            msg = '✅ Синхронизация акций завершена (allPromo=' + allPromo + ')\\n'
+                + 'WB вернул акций: ' + rawPromos
+                + ' | Сохранено: ' + promos
+                + ' | Автоакций пропущено: ' + autoSkipped
+                + ' | Товаров в акциях: ' + noms;
+            if (rawPromos === '0' && allPromo === 'false') {
+                msg += '\\n💡 WB вернул 0 доступных акций. Попробуйте расширенную проверку allPromo=true.';
+            }
         }
         if (params.get('sync_error') === '1') msg = '❌ Ошибка синхронизации акций';
         if (params.get('error') === 'invalid_mrc') msg = '❌ МРЦ должна быть положительным числом';
@@ -1108,7 +1182,7 @@ def _flash_messages() -> str:
         if (params.get('export_coming_soon') === '1') msg = '📥 Выгрузка отчёта скоро будет доступна';
         if (msg) {
             const div = document.createElement('div');
-            div.style.cssText = 'padding:12px 16px;margin-bottom:16px;border-radius:8px;font-size:14px;' +
+            div.style.cssText = 'padding:12px 16px;margin-bottom:16px;border-radius:8px;font-size:14px;white-space:pre-line;' +
                 (msg.startsWith('✅') ? 'background:#d1fae5;color:#065f46' : 'background:#fee2e2;color:#991b1b');
             div.textContent = msg;
             document.querySelector('.card')?.before(div);

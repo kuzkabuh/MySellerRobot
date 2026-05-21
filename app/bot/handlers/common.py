@@ -392,6 +392,15 @@ async def callback_handler(callback: CallbackQuery, state: FSMContext) -> None:
             _help_text(),
             reply_markup=main_menu(is_admin=_is_admin_telegram(callback.from_user.id)),
         )
+    elif data.startswith("mrc:"):
+        logger.warning(
+            "unknown_mrc_callback",
+            extra={"callback_data": data, "telegram_id": callback.from_user.id},
+        )
+        await message.answer(
+            "Действие раздела МРЦ пока не обработано. "
+            "Обновите меню и попробуйте ещё раз."
+        )
     else:
         logger.warning(
             "unknown_callback",

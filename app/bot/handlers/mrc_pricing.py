@@ -337,14 +337,26 @@ async def mrc_promos_today_handler(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "mrc:sync_promos")
 async def mrc_sync_promos_handler(callback: CallbackQuery) -> None:
-    """Ручная синхронизация акций WB."""
+    """Ручная синхронизация акций WB (обычный режим allPromo=false)."""
+    await _run_promotions_sync(callback, all_promo=False)
+
+
+@router.callback_query(F.data == "mrc:sync_promos_all")
+async def mrc_sync_promos_all_handler(callback: CallbackQuery) -> None:
+    """Расширенная синхронизация акций WB (allPromo=true)."""
+    await _run_promotions_sync(callback, all_promo=True)
+
+
+async def _run_promotions_sync(callback: CallbackQuery, all_promo: bool) -> None:
+    """Run WB promotions sync with detailed reporting."""
     user_id = await _get_user_id_from_callback(callback)
     if user_id is None:
         return
 
+    mode_text = "Расширенная проверка (allPromo=true)" if all_promo else "Синхронизация акций WB"
     await safe_edit_text(
         callback.message,
-        "🔄 <b>Синхронизация акций WB...</b>\n\nЭто может занять несколько минут.",
+        f"🔄 <b>{mode_text}...</b>\n\nЭто может занять несколько минут.",
         reply_markup=mrc_back_menu(),
         parse_mode="HTML",
     )
@@ -353,18 +365,29 @@ async def mrc_sync_promos_handler(callback: CallbackQuery) -> None:
     try:
         async with AsyncSessionFactory() as session:
             service = WbPromotionsSyncService(session, cipher=TokenCipher())
-            stats = await service.sync_all_accounts()
+            stats = await service.sync_all_accounts(all_promo=all_promo)
             await session.commit()
 
+        all_promo_str = "true" if all_promo else "false"
         text = (
-            "✅ <b>Синхронизация акций WB завершена</b>\n\n"
+            f"✅ <b>Синхронизация акций WB завершена</b>\n\n"
+            f"Режим: allPromo={all_promo_str}\n"
+            f"Период запроса (UTC): {stats.sync_period_start} — {stats.sync_period_end}\n\n"
             f"Кабинетов обработано: {stats.accounts_processed}\n"
             f"Ошибок: {stats.accounts_failed}\n"
-            f"Акции найдены: {stats.promotions_fetched}\n"
+            f"WB вернул акций: {stats.promotions_fetched}\n"
             f"Акции сохранены: {stats.promotions_upserted}\n"
+            f"Автоакций (пропущено): {stats.promotions_skipped_auto}\n"
             f"Товаров в акциях: {stats.nomenclatures_fetched}\n"
             f"Товаров сопоставлено: {stats.products_matched}"
         )
+
+        if stats.promotions_fetched == 0 and not all_promo:
+            text += (
+                "\n\n💡 WB вернул 0 доступных для участия акций. "
+                "Попробуйте расширенную проверку allPromo=true, чтобы получить все акции."
+            )
+
         if stats.errors:
             text += f"\n\n⚠️ Ошибки: {len(stats.errors)}"
 
@@ -373,7 +396,7 @@ async def mrc_sync_promos_handler(callback: CallbackQuery) -> None:
         logger.exception("mrc_sync_promos_failed")
         await safe_edit_text(
             callback.message,
-            "❌ <b>Ошибка синхронизации</b>\n\nПопробуйте позже.",
+            "❌ <b>Ошибка синхronизации</b>\n\nПопробуйте позже.",
             reply_markup=mrc_back_menu(),
             parse_mode="HTML",
         )
@@ -396,6 +419,30 @@ async def mrc_search_handler(callback: CallbackQuery, state: FSMContext) -> None
         await safe_edit_text(
             callback.message,
             "Не удалось начать поиск. Попробуйте позже.",
+            reply_markup=mrc_back_menu(),
+        )
+    finally:
+        await callback.answer()
+
+
+@router.callback_query(F.data == "mrc:set")
+async def mrc_set_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Изменить МРЦ — запуск FSM-сценария (алиас для mrc:search)."""
+    try:
+        await state.set_state(MrcStates.waiting_for_article)
+        await safe_edit_text(
+            callback.message,
+            "✏️ <b>Изменение МРЦ</b>\n\n"
+            "Введите артикул продавца или WB nmID товара, "
+            "для которого нужно изменить МРЦ:",
+            reply_markup=mrc_back_menu(),
+            parse_mode="HTML",
+        )
+    except Exception:
+        logger.exception("mrc_set_failed")
+        await safe_edit_text(
+            callback.message,
+            "Не удалось начать изменение МРЦ. Попробуйте позже.",
             reply_markup=mrc_back_menu(),
         )
     finally:
