@@ -1,13 +1,19 @@
-"""version: 1.2.0
+"""version: 2.0.0
 description: Pydantic settings for application configuration.
-updated: 2026-05-15
+updated: 2026-05-21
 """
 
+import logging
 from functools import lru_cache
 from typing import Any
+from urllib.parse import urlparse
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
+
+_LOCALHOST_HOSTS = {"127.0.0.1", "localhost", "0.0.0.0"}
 
 
 class Settings(BaseSettings):
@@ -87,6 +93,84 @@ class Settings(BaseSettings):
             for item in self.admin_telegram_ids.split(",")
             if item.strip().isdigit()
         }
+
+    @property
+    def is_production(self) -> bool:
+        return self.app_env in ("production", "prod", "staging")
+
+    def is_safe_web_url(self, url: str) -> bool:
+        """Check if a URL is safe for production use.
+
+        In production, requires HTTPS and a non-localhost hostname.
+        In development, allows HTTP and localhost.
+        """
+        if not url:
+            return False
+        try:
+            parsed = urlparse(url)
+        except Exception:
+            return False
+
+        if parsed.scheme not in ("https", "http"):
+            return False
+
+        is_localhost = parsed.hostname in _LOCALHOST_HOSTS if parsed.hostname else True
+
+        if self.is_production:
+            if parsed.scheme != "https":
+                logger.warning(
+                    "production_url_not_https",
+                    extra={"url": url, "scheme": parsed.scheme},
+                )
+                return False
+            if is_localhost:
+                logger.warning(
+                    "production_url_localhost",
+                    extra={"url": url, "hostname": parsed.hostname},
+                )
+                return False
+            return True
+
+        return True
+
+    def get_web_base_url(self) -> str:
+        """Return web_base_url with production safety check."""
+        url = self.web_base_url.rstrip("/")
+        if self.is_production and not self.is_safe_web_url(url):
+            raise ValueError(
+                f"WEB_BASE_URL '{url}' is not safe for production. "
+                f"Must be a public HTTPS URL (not localhost or HTTP)."
+            )
+        return url
+
+    def get_yookassa_return_url(self) -> str:
+        """Return YooKassa return URL with validation."""
+        if self.yookassa_return_url:
+            url = self.yookassa_return_url
+        else:
+            web_url = self.get_web_base_url()
+            if web_url.endswith("/web"):
+                web_url = web_url[:-4]
+            url = f"{web_url}/payment/success"
+
+        if self.is_production and not self.is_safe_web_url(url):
+            raise ValueError(
+                f"YooKassa return_url '{url}' is not safe for production. "
+                f"Set YOOKASSA_RETURN_URL to a public HTTPS URL."
+            )
+        return url
+
+    def get_yookassa_webhook_url(self) -> str | None:
+        """Return YooKassa webhook URL with validation."""
+        url = self.yookassa_webhook_url
+        if not url:
+            return None
+        if self.is_production and not self.is_safe_web_url(url):
+            raise ValueError(
+                f"YooKassa webhook_url '{url}' is not safe for production. "
+                f"Set YOOKASSA_WEBHOOK_URL to a public HTTPS URL."
+            )
+        return url
 
 
 @lru_cache

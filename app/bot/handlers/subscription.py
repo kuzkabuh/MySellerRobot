@@ -380,13 +380,15 @@ async def _process_payment(
 ) -> None:
     """Execute payment creation after email is confirmed."""
     settings = get_settings()
-    if settings.yookassa_return_url:
-        base_return_url = settings.yookassa_return_url
-    else:
-        web_url = settings.web_base_url.rstrip("/")
-        if web_url.endswith("/web"):
-            web_url = web_url[:-4]
-        base_return_url = f"{web_url}/payment/success"
+    try:
+        base_return_url = settings.get_yookassa_return_url()
+    except ValueError as exc:
+        logger.error("yookassa_return_url_invalid", extra={"error": str(exc)})
+        await message.answer(
+            "Не удалось создать платёж: некорректно настроен адрес возврата. "
+            "Обратитесь в поддержку."
+        )
+        return
 
     try:
         async with AsyncSessionFactory() as session:

@@ -1,7 +1,7 @@
-"""version: 5.0.0
+"""version: 5.1.0
 description: Payment service with YooKassa webhooks, subscription periods, receipt generation,
     reconciliation, and post-payment notifications.
-updated: 2026-05-19
+updated: 2026-05-21
 """
 
 import logging
@@ -9,7 +9,6 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from html import escape as html_escape
 from typing import Any
-from uuid import uuid4
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -90,7 +89,16 @@ class PaymentService:
     def _generate_idempotence_key(
         self, *, user_id: int, tier_code: str, period: str
     ) -> str:
-        return str(uuid4())
+        """Generate a deterministic idempotence key for payment creation.
+
+        Uses a stable hash of user_id + tier_code + period so that
+        retrying the same payment request reuses the original YooKassa
+        payment instead of creating a duplicate.
+        """
+        import hashlib
+
+        raw = f"yk-sub-{user_id}-{tier_code}-{period}"
+        return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
     async def create_subscription_payment(
         self,
@@ -613,7 +621,7 @@ class PaymentService:
 
         Idempotent: checks success_notification_sent_at to avoid duplicates.
         """
-        from app.bot.main import create_bot
+        from app.bot.bot_provider import bot_session
         from app.utils.datetime import format_datetime_for_user
 
         if payment.success_notification_sent_at is not None:
@@ -688,8 +696,8 @@ class PaymentService:
 
             keyboard = self._build_payment_success_keyboard(payment.id)
 
-            bot = create_bot()
-            await bot.send_message(user.telegram_id, text, parse_mode="HTML", reply_markup=keyboard)
+            async with bot_session() as bot:
+                await bot.send_message(user.telegram_id, text, parse_mode="HTML", reply_markup=keyboard)
 
             payment.success_notification_sent_at = datetime.now(tz=UTC)
             await self.session.flush()
@@ -752,10 +760,10 @@ class PaymentService:
 
         New code should use _send_payment_success_notification instead.
         """
-        try:
-            from app.bot.main import create_bot
-            from app.utils.datetime import format_datetime_for_user
+        from app.bot.bot_provider import bot_session
+        from app.utils.datetime import format_datetime_for_user
 
+        try:
             tier = await self._get_tier_by_code(tier_code)
             tier_name = tier.name if tier else tier_code
             period_label = _PERIOD_LABELS.get(period, period)
@@ -775,8 +783,8 @@ class PaymentService:
                 f"Действует до: {expires_str}"
             )
 
-            bot = create_bot()
-            await bot.send_message(user.telegram_id, text, parse_mode="HTML")
+            async with bot_session() as bot:
+                await bot.send_message(user.telegram_id, text, parse_mode="HTML")
             logger.info(
                 "subscription_notification_sent",
                 extra={"user_id": user_id, "telegram_id": user.telegram_id},

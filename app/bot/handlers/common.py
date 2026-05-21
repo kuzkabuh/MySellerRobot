@@ -8,7 +8,6 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from html import escape
 from types import SimpleNamespace
-from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from aiogram import F, Router
@@ -1077,12 +1076,11 @@ async def _send_web_cabinet_link(message: Message, user_id: int) -> None:
 
 
 def _is_public_web_url(url: str) -> bool:
-    parsed = urlparse(url)
-    if parsed.scheme not in {"https", "http"}:
-        return False
-    if parsed.scheme == "http" and parsed.hostname not in {"127.0.0.1", "localhost"}:
-        return False
-    return parsed.hostname not in {"127.0.0.1", "localhost"}
+    """Check if URL is safe for public use.
+
+    Delegates to settings.is_safe_web_url for consistent validation.
+    """
+    return get_settings().is_safe_web_url(url)
 
 
 async def _handle_admin_callback(callback: CallbackQuery, message: Message, data: str) -> None:
