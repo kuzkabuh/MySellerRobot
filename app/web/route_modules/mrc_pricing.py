@@ -19,7 +19,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import Integer, cast, func, or_, select
+from sqlalchemy import Integer, String, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import MarketplaceAccount, Product, WbPromotion, WbPromotionNomenclature
@@ -648,6 +648,14 @@ async def _load_promotions_page_data(
         total_items, in_action_count = items_result.one()
         in_action_count = in_action_count or 0
 
+        nm_id_subquery = (
+            select(cast(WbPromotionNomenclature.wb_nm_id, String))
+            .where(
+                WbPromotionNomenclature.marketplace_account_id == promo.marketplace_account_id,
+                WbPromotionNomenclature.wb_promotion_id == promo.wb_promotion_id,
+            )
+        )
+
         matched_result = await session.execute(
             select(func.count(Product.id)).where(
                 Product.user_id == user_id,
@@ -655,18 +663,8 @@ async def _load_promotions_page_data(
                 Product.is_active.is_(True),
                 Product.marketplace_account_id == promo.marketplace_account_id,
                 or_(
-                    Product.marketplace_article.in_(
-                        select(WbPromotionNomenclature.wb_nm_id).where(
-                            WbPromotionNomenclature.marketplace_account_id == promo.marketplace_account_id,
-                            WbPromotionNomenclature.wb_promotion_id == promo.wb_promotion_id,
-                        )
-                    ),
-                    Product.external_product_id.in_(
-                        select(WbPromotionNomenclature.wb_nm_id).where(
-                            WbPromotionNomenclature.marketplace_account_id == promo.marketplace_account_id,
-                            WbPromotionNomenclature.wb_promotion_id == promo.wb_promotion_id,
-                        )
-                    ),
+                    Product.marketplace_article.in_(nm_id_subquery),
+                    Product.external_product_id.in_(nm_id_subquery),
                 ),
             )
         )
