@@ -119,6 +119,51 @@ class OzonCommissionSourceMonitorService:
                 response = await client.get(url)
                 response.raise_for_status()
                 html = response.text
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            if status in (403, 404):
+                logger.warning(
+                    "ozon_commission_source_unavailable",
+                    extra={"status": status, "url": url, "error": str(exc)[:300]},
+                )
+                return await self._record_check(
+                    url=url,
+                    html_content=None,
+                    change_type="unavailable",
+                    error=f"HTTP {status}: {exc.response.reason_phrase or 'Forbidden/Not Found'}",
+                )
+            elif status == 429:
+                logger.warning(
+                    "ozon_commission_source_rate_limited",
+                    extra={"status": status, "url": url},
+                )
+                return await self._record_check(
+                    url=url,
+                    html_content=None,
+                    change_type="rate_limited",
+                    error=f"HTTP 429: rate limited",
+                )
+            logger.error(
+                "ozon_commission_source_http_error",
+                extra={"status": status, "url": url, "error": str(exc)[:300]},
+            )
+            return await self._record_check(
+                url=url,
+                html_content=None,
+                change_type="parse_error",
+                error=f"HTTP {status}: {str(exc)[:200]}",
+            )
+        except httpx.TimeoutException as exc:
+            logger.error(
+                "ozon_commission_source_timeout",
+                extra={"url": url, "error": str(exc)[:300]},
+            )
+            return await self._record_check(
+                url=url,
+                html_content=None,
+                change_type="unavailable",
+                error=f"Timeout: {str(exc)[:200]}",
+            )
         except Exception as exc:
             logger.exception(
                 "ozon_commission_source_check_failed",

@@ -7,6 +7,7 @@ updated: 2026-05-17
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from html import escape
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
@@ -127,14 +128,24 @@ def create_app() -> FastAPI:
                 if c.strip().startswith("seller_web_session=")
             )
             if session_cookie_count != 1 and session_cookie_count > 0:
-                logger.warning(
-                    "web_cookie_count_anomaly",
-                    extra={
-                        "path": request.url.path,
-                        "seller_web_session_count": session_cookie_count,
-                        "total_cookie_count": cookie_count,
-                    },
-                )
+                if session_cookie_count > 1:
+                    logger.warning(
+                        "web_cookie_count_anomaly",
+                        extra={
+                            "path": request.url.path,
+                            "seller_web_session_count": session_cookie_count,
+                            "total_cookie_count": cookie_count,
+                        },
+                    )
+                else:
+                    logger.debug(
+                        "web_cookie_count_anomaly",
+                        extra={
+                            "path": request.url.path,
+                            "seller_web_session_count": session_cookie_count,
+                            "total_cookie_count": cookie_count,
+                        },
+                    )
 
         logger.info(
             "incoming_request",
@@ -183,19 +194,55 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> Response:
-        if request.url.path.startswith("/web") and exc.status_code in {401, 404}:
+        if request.url.path.startswith("/web"):
             if exc.status_code == 401:
                 return HTMLResponse(
-                    "<h1>Вход в web-кабинет</h1>"
-                    "<p>Сессия отсутствует или истекла. Получите новую ссылку в Telegram-боте.</p>",
+                    "<!doctype html><html lang='ru'><head><meta charset='utf-8'>"
+                    "<title>Вход — MP Control</title>"
+                    "<style>body{font-family:system-ui,sans-serif;display:grid;"
+                    "place-items:center;min-height:80vh;margin:0;background:#f6f7f9;color:#111827}"
+                    ".card{max-width:440px;padding:36px;background:#fff;border-radius:16px;"
+                    "box-shadow:0 18px 45px rgb(17 24 39 / .12);text-align:center}"
+                    "h1{font-size:26px;margin:0 0 12px}a{display:inline-block;margin-top:16px;"
+                    "padding:10px 18px;background:#2563eb;color:#fff;border-radius:8px;"
+                    "text-decoration:none;font-weight:700}"
+                    "</style></head><body>"
+                    "<div class='card'><h1>🔐 Вход в web-кабинет</h1>"
+                    "<p>Сессия отсутствует или истекла.</p>"
+                    "<p>Напишите боту <b>@mpcontrolrobot</b> и нажмите "
+                    "«<b>🌐 Web-кабинет</b>», чтобы получить новую ссылку.</p>"
+                    '<a href="https://t.me/mpcontrolrobot">Открыть бота</a>'
+                    "</div></body></html>",
                     status_code=401,
                 )
-            return HTMLResponse(
-                "<h1>Раздел не найден</h1>"
-                "<p>Проверьте ссылку или откройте кабинет из Telegram.</p>",
-                status_code=404,
-            )
+            if exc.status_code == 404:
+                return HTMLResponse(
+                    "<!doctype html><html lang='ru'><head><meta charset='utf-8'>"
+                    "<title>404 — MP Control</title>"
+                    "<style>body{font-family:system-ui,sans-serif;display:grid;"
+                    "place-items:center;min-height:80vh;margin:0;background:#f6f7f9;color:#111827}"
+                    ".card{max-width:440px;padding:36px;background:#fff;border-radius:16px;"
+                    "box-shadow:0 18px 45px rgb(17 24 39 / .12);text-align:center}"
+                    "h1{font-size:26px;margin:0 0 12px}a{color:#2563eb;text-decoration:none;font-weight:600}"
+                    "</style></head><body>"
+                    "<div class='card'><h1>404 — Раздел не найден</h1>"
+                    f"<p>Страница <code>{escape(str(request.url.path))}</code> не существует.</p>"
+                    '<p><a href="/web/">Вернуться на главную</a></p>'
+                    "</div></body></html>",
+                    status_code=404,
+                )
         return await fastapi_http_exception_handler(request, exc)
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon() -> FileResponse:
+        path = Path("logo.png")
+        if path.exists():
+            return FileResponse(path, media_type="image/x-icon")
+        return Response(status_code=204)
+
+    @app.get("/robots.txt", response_class=HTMLResponse, include_in_schema=False)
+    async def robots_txt() -> str:
+        return "User-agent: *\nDisallow: /web/\nDisallow: /admin/\n"
 
     @app.get("/health")
     async def health(session: AsyncSession = SESSION_DEPENDENCY) -> dict[str, str]:

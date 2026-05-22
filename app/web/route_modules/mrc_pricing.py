@@ -420,13 +420,13 @@ async def import_mrc_file(
 
     user_id = user.id
 
-    import tempfile
-    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
-        content = await file.read()
-        tmp.write(content)
-        tmp_path = Path(tmp.name)
-
+    tmp_path = None
     try:
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+            content = await file.read()
+            tmp.write(content)
+            tmp_path = Path(tmp.name)
+
         service = MrcImportService(session)
         preview = await service.create_preview(tmp_path, user_id, source="web", original_file_name=file.filename)
         rows = await service.get_import_rows(preview.import_id, user_id)
@@ -461,6 +461,12 @@ async def import_mrc_file(
             '<p><a href="/web/mrc-pricing" class="button primary">Вернуться</a></p></div>',
             active_path="/web/mrc-pricing",
         )
+    finally:
+        if tmp_path is not None and tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except Exception:
+                pass
 
 
 @router.post("/mrc-pricing/import/confirm")

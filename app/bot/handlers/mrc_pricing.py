@@ -870,6 +870,17 @@ async def mrc_template_download_handler(callback: CallbackQuery) -> None:
             reply_markup=mrc_menu(),
             parse_mode="HTML",
         )
+    except TelegramBadRequest as exc:
+        logger.warning(
+            "mrc_template_download_telegram_error",
+            extra={"user_id": callback.from_user.id, "error": str(exc)},
+        )
+        await safe_edit_text(
+            callback.message,
+            "❌ Не удалось отправить файл шаблона в Telegram. "
+            "Скачайте шаблон через WEB-кабинет: /web/mrc-pricing",
+            reply_markup=mrc_back_menu(),
+        )
     except Exception:
         logger.exception("mrc_template_download_failed")
         await safe_edit_text(
