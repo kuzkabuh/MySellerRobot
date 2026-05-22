@@ -426,11 +426,13 @@ class WildberriesClient:
         """Get details of WB calendar promotions.
 
         GET https://dp-calendar-api.wildberries.ru/api/v1/calendar/promotions/details
-        Parameter: promotionIDs as comma-separated string.
+        Parameter: promotionIDs as repeated query params.
+
+        WB API requires repeated params: promotionIDs=2450&promotionIDs=2448
+        httpx encodes list values as repeated params automatically.
         """
-        ids_str = ",".join(str(pid) for pid in promotion_ids)
         params: dict[str, Any] = {
-            "promotionIDs": ids_str,
+            "promotionIDs": [str(pid) for pid in promotion_ids],
         }
         return cast(
             dict[str, Any],

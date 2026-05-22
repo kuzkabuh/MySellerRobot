@@ -988,6 +988,23 @@ def _auto_promo_prices_content(
     return "\n".join(parts)
 
 
+@router.get(
+    "/mrc-pricing/auto-promotions/conditions",
+    response_class=HTMLResponse,
+)
+async def auto_promo_conditions_page(
+    user=CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+    marketplace_account_id: int | None = Query(None),
+) -> str:
+    """Auto promotion conditions import page (alias)."""
+    return await auto_promo_import_page(
+        user=user,
+        session=session,
+        marketplace_account_id=marketplace_account_id,
+    )
+
+
 @router.get("/auto-promo-import", response_class=HTMLResponse)
 async def auto_promo_import_page(
     user=CURRENT_WEB_USER_DEPENDENCY,
@@ -2104,7 +2121,14 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
     )
     if data.has_active_auto_promotions:
         parts.append(
-            '<a href="/web/auto-promo-prices" class="button" style="background:#dbeafe;color:#1e40af">🤖 Цены для автоакций</a>'
+            '<a href="/web/mrc-pricing/auto-promotions/conditions" '
+            'class="button" style="background:#fef3c7;color:#92400e">'
+            "📥 Условия автоакций</a>"
+        )
+        parts.append(
+            '<a href="/web/mrc-pricing/auto-promotions/recommendations" '
+            'class="button" style="background:#dbeafe;color:#1e40af">'
+            "🤖 Рекомендации</a>"
         )
     parts.append(
         '<a href="/web/mrc-pricing/settings" class="button">⚙️ Настройки МРЦ</a>'
@@ -3244,8 +3268,8 @@ def _auto_promo_recommendations_content(
         "<th style='width:30px'>"
         "<input type='checkbox' id='select-all'></th>"
     )
-    for th in ["Товар", "nmID", "МРЦ", "Границы МРЦ", "minPrice",
-               "Текущая", "Цена входа", "Рекоменд.", "Статус"]:
+    for th in ["Товар", "nmID", "Автоакция", "МРЦ", "Границы МРЦ",
+               "minPrice", "Текущая", "Цена входа", "Рекоменд.", "Статус"]:
         parts.append(f"<th>{th}</th>")
     parts.append("</tr></thead>")
     parts.append("<tbody>")
@@ -3264,6 +3288,8 @@ def _auto_promo_recommendations_content(
             f"<td>{title}<br><small class='text-muted'>{art}</small></td>"
         )
         parts.append(f"<td>{p['wb_nm_id']}</td>")
+        promo_name = escape(p.get("promotion_name") or "—")
+        parts.append(f"<td><small>{promo_name}</small></td>")
         parts.append(f"<td>{p['mrc_price']:.0f} ₽</td>")
         parts.append(
             f"<td><small>{p['mrc_lower_bound']:.0f} — "
@@ -3273,8 +3299,12 @@ def _auto_promo_recommendations_content(
         parts.append(f"<td>{mp:.0f} ₽</td>" if mp else "<td>—</td>")
         cp = p.get("current_wb_price")
         parts.append(f"<td>{cp:.0f} ₽</td>" if cp else "<td>—</td>")
-        parts.append(f"<td>{p['recommended_price']:.0f} ₽</td>")
-        parts.append(f"<td><b>{p['recommended_price']:.0f} ₽</b></td>")
+        rp = p.get("required_price") or p.get("recommended_price")
+        parts.append(f"<td>{rp:.0f} ₽</td>" if rp else "<td>—</td>")
+        rec_p = p.get("recommended_price")
+        parts.append(
+            f"<td><b>{rec_p:.0f} ₽</b></td>" if rec_p else "<td>—</td>"
+        )
 
         if p.get("can_change"):
             parts.append(

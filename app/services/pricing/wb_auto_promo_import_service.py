@@ -261,7 +261,7 @@ class WbAutoPromoImportService:
                     WbAutoPromotionCondition.marketplace_account_id
                     == marketplace_account_id,
                     WbAutoPromotionCondition.wb_nm_id == wb_nm_id,
-                    WbAutoPromotionCondition.source == "manual",
+                    WbAutoPromotionCondition.source == "file_import",
                     WbAutoPromotionCondition.promotion_name
                     == (row_data.get("promotion_name") or ""),
                 )
@@ -273,7 +273,7 @@ class WbAutoPromoImportService:
                     user_id=user_id,
                     marketplace_account_id=marketplace_account_id,
                     wb_nm_id=wb_nm_id,
-                    source="manual",
+                    source="file_import",
                 )
                 self.session.add(condition)
 

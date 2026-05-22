@@ -821,11 +821,23 @@ class WbPromotionsSyncService:
                         )
                         await asyncio.sleep(2)
                         continue
+                    if "422" in error_text or "Unprocessable" in error_text:
+                        logger.warning(
+                            "wb_promotion_nomenclatures_unavailable",
+                            extra={
+                                "account_id": account.id,
+                                "promotion_id": wb_promotion_id,
+                                "in_action": in_action,
+                                "error": error_text,
+                            },
+                        )
+                        break
                     error_msg = (
-                        f"Failed to fetch nomenclatures for promotion {wb_promotion_id}, "
-                        f"in_action={in_action}, offset={offset}"
+                        f"Failed to fetch nomenclatures for promotion "
+                        f"{wb_promotion_id}, in_action={in_action}, "
+                        f"offset={offset}"
                     )
-                    logger.exception(
+                    logger.warning(
                         "wb_promotions_nomenclatures_fetch_failed",
                         extra={
                             "account_id": account.id,
@@ -833,6 +845,7 @@ class WbPromotionsSyncService:
                             "in_action": in_action,
                             "offset": offset,
                             "page": page,
+                            "error": error_text,
                         },
                     )
                     break
