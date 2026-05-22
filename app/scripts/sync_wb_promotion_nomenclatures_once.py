@@ -3,6 +3,7 @@
 
 Usage:
     python -m app.scripts.sync_wb_promotion_nomenclatures_once --account-id 2
+    python -m app.scripts.sync_wb_promotion_nomenclatures_once --account-id 2 --all-promo true
     python -m app.scripts.sync_wb_promotion_nomenclatures_once --account-id 2 --limit 10
     python -m app.scripts.sync_wb_promotion_nomenclatures_once --account-id 2 --promotion-id 12345
 """
@@ -24,6 +25,7 @@ from app.core.security import TokenCipher
 from app.integrations.wb import WildberriesClient
 from app.models.domain import MarketplaceAccount, WbPromotion, WbPromotionNomenclature
 from app.models.enums import Marketplace
+from app.services.wb.wb_promotions_sync_service import WbPromotionsSyncService
 from sqlalchemy import select
 
 logging.basicConfig(
@@ -37,6 +39,7 @@ async def sync_nomenclatures_once(
     account_id: int,
     promotion_id: int | None = None,
     limit: int = 100,
+    all_promo: bool = True,
 ) -> dict:
     """Sync nomenclatures for a specific account."""
     settings = get_settings()
@@ -59,6 +62,26 @@ async def sync_nomenclatures_once(
 
         logger.info(f"Account loaded: {account.name} (id={account.id})")
 
+        # If all_promo=True, use the full sync service
+        if all_promo and promotion_id is None:
+            logger.info(f"Using full sync service with allPromo={all_promo}")
+            service = WbPromotionsSyncService(session, cipher)
+            stats = await service.sync_all_accounts(all_promo=True)
+            await session.commit()
+
+            return {
+                "promotions_fetched": stats.promotions_fetched,
+                "regular_promotions": stats.promotions_upserted - stats.promotions_skipped_auto,
+                "auto_promotions": stats.promotions_skipped_auto,
+                "nomenclatures_fetched": stats.nomenclatures_fetched,
+                "nomenclatures_upserted": stats.nomenclatures_upserted,
+                "products_matched": stats.products_matched,
+                "errors_count": len(stats.errors),
+                "all_promo": stats.all_promo_mode,
+                "errors": stats.errors,
+            }
+
+        # Otherwise, use the legacy per-promotion approach
         # Decrypt API key and create client
         api_key = cipher.decrypt(account.encrypted_api_key)
         client = WildberriesClient(api_key)
@@ -243,16 +266,21 @@ async def main():
     parser.add_argument("--account-id", type=int, required=True, help="Marketplace account ID")
     parser.add_argument("--promotion-id", type=int, default=None, help="Specific promotion ID (optional)")
     parser.add_argument("--limit", type=int, default=100, help="Page size for API requests")
+    parser.add_argument("--all-promo", type=str, default="true", help="Use allPromo=true for full sync (default: true)")
     args = parser.parse_args()
+
+    all_promo = args.all_promo.lower() in ("true", "1", "yes")
 
     logger.info("=" * 60)
     logger.info("WB Promotion Nomenclatures Sync - Manual Run")
+    logger.info(f"allPromo={all_promo}")
     logger.info("=" * 60)
 
     stats = await sync_nomenclatures_once(
         account_id=args.account_id,
         promotion_id=args.promotion_id,
         limit=args.limit,
+        all_promo=all_promo,
     )
 
     logger.info("=" * 60)

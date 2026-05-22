@@ -260,6 +260,15 @@ class WbPromotionsSyncService:
             regular_promotion_count += 1
 
             # Step 3: Fetch nomenclatures for regular promotions only
+            logger.info(
+                "wb_promotion_nomenclatures_sync_promotion_started",
+                extra={
+                    "account_id": account.id,
+                    "promotion_id": promo.wb_promotion_id,
+                    "promotion_name": promo.name,
+                    "promotion_type": promo.promotion_type,
+                },
+            )
             try:
                 nomenclature_count = await self._sync_promotion_nomenclatures(
                     account=account,
@@ -291,6 +300,18 @@ class WbPromotionsSyncService:
                 "nomenclatures_fetched": stats.nomenclatures_fetched,
             },
         )
+
+        # Log skipped auto promotions summary
+        if auto_promotion_ids:
+            logger.info(
+                "wb_promotion_nomenclatures_sync_skipped_auto",
+                extra={
+                    "account_id": account.id,
+                    "auto_promotion_ids": auto_promotion_ids,
+                    "auto_promotions_count": len(auto_promotion_ids),
+                    "reason": "Auto promotions do not support nomenclatures upload endpoint",
+                },
+            )
 
         # Step 4: Fetch auto promotion details and extract product participation
         if auto_promotion_ids:
@@ -339,7 +360,26 @@ class WbPromotionsSyncService:
 
             try:
                 details_response = await client.get_promotion_details(promotion_ids=batch_ids)
-            except Exception:
+            except Exception as exc:
+                error_text = str(exc)
+                if "400" in error_text or "Invalid query params" in error_text:
+                    logger.warning(
+                        "wb_promotion_details_query_invalid",
+                        extra={
+                            "account_id": account.id,
+                            "promotion_ids": batch_ids,
+                            "error": error_text,
+                        },
+                    )
+                    logger.info(
+                        "wb_auto_promotions_details_unavailable",
+                        extra={
+                            "account_id": account.id,
+                            "promotion_ids": batch_ids,
+                            "reason": "WB API does not support details for these auto promotions",
+                        },
+                    )
+                    continue
                 error_msg = f"Failed to fetch details for auto promotions {batch_ids}"
                 stats.errors.append(error_msg)
                 logger.exception(
@@ -724,6 +764,15 @@ class WbPromotionsSyncService:
                 "promotion_id": wb_promotion_id,
                 "fetched_count": total_fetched,
                 "saved_count": total_saved,
+            },
+        )
+
+        logger.info(
+            "wb_promotion_nomenclatures_sync_saved",
+            extra={
+                "account_id": account.id,
+                "promotion_id": wb_promotion_id,
+                "nomenclatures_upserted": total_saved,
             },
         )
 

@@ -75,6 +75,13 @@ class MrcPageData:
     last_sync_error: str | None
     nomenclatures_synced: bool
     has_active_auto_promotions: bool
+    active_promotions_count: int
+    active_regular_promotions_count: int
+    active_auto_promotions_count: int
+    nomenclatures_count: int
+    last_promotions_sync_at: str | None
+    last_nomenclatures_sync_at: str | None
+    has_sync_errors: bool
 
 
 @dataclass(slots=True)
@@ -129,8 +136,12 @@ async def mrc_pricing_page(
                 "tier_code": tier_code,
                 "products_count": data.total_products,
                 "products_with_mrc_count": data.products_with_mrc,
-                "active_promotions_count": data.products_with_promo,
-                "last_promotions_sync_at": data.last_sync_time,
+                "active_promotions_count": data.active_promotions_count,
+                "active_regular_promotions_count": data.active_regular_promotions_count,
+                "active_auto_promotions_count": data.active_auto_promotions_count,
+                "nomenclatures_count": data.nomenclatures_count,
+                "last_promotions_sync_at": data.last_promotions_sync_at,
+                "last_nomenclatures_sync_at": data.last_nomenclatures_sync_at,
                 "render_mode": "server",
                 "source": "web",
             },
@@ -311,31 +322,6 @@ async def trigger_promotions_sync(
     user=CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
-    """Manually trigger WB promotions sync (allPromo=false)."""
-    service = WbPromotionsSyncService(session)
-    try:
-        stats = await service.sync_all_accounts(all_promo=False)
-        await session.commit()
-        return RedirectResponse(
-            url=(
-                f"/web/mrc-pricing?sync_done=1&promos={stats.promotions_upserted}"
-                f"&nomenclatures={stats.nomenclatures_upserted}"
-                f"&raw_promos={stats.promotions_fetched}&all_promo=false"
-                f"&auto_skipped={stats.promotions_skipped_auto}"
-            ),
-            status_code=303,
-        )
-    except Exception:
-        logger.exception("wb_promotions_manual_sync_failed")
-        await session.rollback()
-        return RedirectResponse(url="/web/mrc-pricing?sync_error=1", status_code=303)
-
-
-@router.post("/mrc-pricing/sync-promotions-all")
-async def trigger_promotions_sync_all(
-    user=CURRENT_WEB_USER_DEPENDENCY,
-    session: AsyncSession = SESSION_DEPENDENCY,
-) -> RedirectResponse:
     """Manually trigger WB promotions sync (allPromo=true)."""
     service = WbPromotionsSyncService(session)
     try:
@@ -351,7 +337,32 @@ async def trigger_promotions_sync_all(
             status_code=303,
         )
     except Exception:
-        logger.exception("wb_promotions_manual_sync_all_failed")
+        logger.exception("wb_promotions_manual_sync_failed")
+        await session.rollback()
+        return RedirectResponse(url="/web/mrc-pricing?sync_error=1", status_code=303)
+
+
+@router.post("/mrc-pricing/sync-promotions-all")
+async def trigger_promotions_sync_limited(
+    user=CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    """Manually trigger WB promotions sync (allPromo=false — only joinable promos)."""
+    service = WbPromotionsSyncService(session)
+    try:
+        stats = await service.sync_all_accounts(all_promo=False)
+        await session.commit()
+        return RedirectResponse(
+            url=(
+                f"/web/mrc-pricing?sync_done=1&promos={stats.promotions_upserted}"
+                f"&nomenclatures={stats.nomenclatures_upserted}"
+                f"&raw_promos={stats.promotions_fetched}&all_promo=false"
+                f"&auto_skipped={stats.promotions_skipped_auto}"
+            ),
+            status_code=303,
+        )
+    except Exception:
+        logger.exception("wb_promotions_manual_sync_limited_failed")
         await session.rollback()
         return RedirectResponse(url="/web/mrc-pricing?sync_error=1", status_code=303)
 
@@ -890,7 +901,47 @@ async def _load_mrc_page_data(
         .where(WbPromotion.start_datetime <= now_utc)
         .where(WbPromotion.end_datetime >= now_utc)
     )
-    has_active_auto_promotions = int(auto_promos_result.scalar_one() or 0) > 0
+    active_auto_promotions_count = int(auto_promos_result.scalar_one() or 0)
+    has_active_auto_promotions = active_auto_promotions_count > 0
+
+    # Count active regular promotions
+    regular_promos_result = await session.execute(
+        select(func.count(WbPromotion.id))
+        .join(MarketplaceAccount, MarketplaceAccount.id == WbPromotion.marketplace_account_id)
+        .where(MarketplaceAccount.user_id == user_id)
+        .where(WbPromotion.promotion_type != "auto")
+        .where(WbPromotion.promotion_type != "")
+        .where(WbPromotion.start_datetime <= now_utc)
+        .where(WbPromotion.end_datetime >= now_utc)
+    )
+    active_regular_promotions_count = int(regular_promos_result.scalar_one() or 0)
+
+    # Total active promotions
+    active_promotions_count = active_auto_promotions_count + active_regular_promotions_count
+
+    # Last promotions sync time
+    last_promo_sync_result = await session.execute(
+        select(func.max(WbPromotion.synced_at))
+        .join(MarketplaceAccount, MarketplaceAccount.id == WbPromotion.marketplace_account_id)
+        .where(MarketplaceAccount.user_id == user_id)
+    )
+    last_promo_sync = last_promo_sync_result.scalar_one_or_none()
+    last_promotions_sync_at = format_datetime_for_user(last_promo_sync, "Europe/Moscow") if last_promo_sync else None
+
+    # Last nomenclatures sync time
+    last_nom_sync_result = await session.execute(
+        select(func.max(WbPromotionNomenclature.synced_at))
+        .join(MarketplaceAccount, MarketplaceAccount.id == WbPromotionNomenclature.marketplace_account_id)
+        .where(MarketplaceAccount.user_id == user_id)
+    )
+    last_nom_sync = last_nom_sync_result.scalar_one_or_none()
+    last_nomenclatures_sync_at = format_datetime_for_user(last_nom_sync, "Europe/Moscow") if last_nom_sync else None
+
+    # Check for recent sync errors (promotions synced but no nomenclatures for regular promos)
+    has_sync_errors = (
+        active_regular_promotions_count > 0
+        and nomenclatures_count == 0
+    )
 
     total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
 
@@ -911,6 +962,13 @@ async def _load_mrc_page_data(
         last_sync_error=None,
         nomenclatures_synced=nomenclatures_synced,
         has_active_auto_promotions=has_active_auto_promotions,
+        active_promotions_count=active_promotions_count,
+        active_regular_promotions_count=active_regular_promotions_count,
+        active_auto_promotions_count=active_auto_promotions_count,
+        nomenclatures_count=nomenclatures_count,
+        last_promotions_sync_at=last_promotions_sync_at,
+        last_nomenclatures_sync_at=last_nomenclatures_sync_at,
+        has_sync_errors=has_sync_errors,
     )
 
 
@@ -1188,8 +1246,12 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
         parts.append(
             f'<p style="margin-bottom:12px;font-size:13px;color:#64748b">'
             f"📡 Последняя синхронизация акций: <b>{data.last_sync_time}</b>"
-            f"</p>"
         )
+        if data.last_nomenclatures_sync_at:
+            parts.append(
+                f" | Товары акций: <b>{data.last_nomenclatures_sync_at}</b>"
+            )
+        parts.append("</p>")
     else:
         parts.append(
             '<p style="margin-bottom:12px;font-size:13px;color:#f59e0b">'
@@ -1199,13 +1261,22 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
 
     # Warning if nomenclatures not synced
     if not data.nomenclatures_synced:
-        if data.has_active_auto_promotions:
+        if data.active_auto_promotions_count > 0 and data.active_regular_promotions_count == 0:
+            parts.append(
+                '<div style="padding:12px 16px;margin-bottom:16px;border-radius:8px;font-size:14px;'
+                'background:#dbeafe;color:#1e40af">'
+                f"ℹ️ <b>Автоакции WB найдены ({data.active_auto_promotions_count})</b><br>"
+                "Товары автоматических акций загружаются. Если товары не отображаются, "
+                "нажмите «Обновить акции WB» для обновления."
+                "</div>"
+            )
+        elif data.active_promotions_count > 0:
             parts.append(
                 '<div style="padding:12px 16px;margin-bottom:16px;border-radius:8px;font-size:14px;'
                 'background:#fef3c7;color:#92400e">'
-                "⚠️ <b>Автоакции WB найдены, участие уточняется</b><br>"
-                "Товары автоматических акций загружаются. Если товары не отображаются, "
-                "нажмите «Синхронизировать акции WB» для обновления."
+                f"⚠️ <b>Активных акций: {data.active_promotions_count}</b><br>"
+                "Акции WB найдены, но список товаров внутри акций ещё не загружен. "
+                "Нажмите «Обновить акции WB» для загрузки товаров."
                 "</div>"
             )
         else:
@@ -1213,8 +1284,7 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
                 '<div style="padding:12px 16px;margin-bottom:16px;border-radius:8px;font-size:14px;'
                 'background:#fee2e2;color:#991b1b">'
                 "⚠️ <b>Товары акций не синхронизированы</b><br>"
-                "Акции WB найдены, но список товаров внутри акций ещё не загружен. "
-                "Нажмите «Синхронизировать акции WB» для загрузки товаров."
+                "Нажмите «Обновить акции WB» для загрузки акций и товаров."
                 "</div>"
             )
 
@@ -1237,6 +1307,10 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
         '<div class="kpi-label">С акцией WB</div></div>'
     )
     parts.append(
+        f'<div class="kpi-card"><div class="kpi-value" style="color:#8b5cf6">{data.active_promotions_count}</div>'
+        '<div class="kpi-label">Активных акций</div></div>'
+    )
+    parts.append(
         f'<div class="kpi-card"><div class="kpi-value" style="color:#ef4444">{data.products_limited_by_mrc + data.products_limited_by_min}</div>'
         '<div class="kpi-label">С ограничениями</div></div>'
     )
@@ -1246,12 +1320,12 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
     parts.append('<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">')
     parts.append(
         '<form method="post" action="/web/mrc-pricing/sync-promotions" style="display:inline">'
-        '<button type="submit" class="button">🔄 Синхронизировать акции WB</button>'
+        '<button type="submit" class="button primary" title="allPromo=true — все акции включая уже участвующие">🔄 Обновить акции WB</button>'
         "</form>"
     )
     parts.append(
         '<form method="post" action="/web/mrc-pricing/sync-promotions-all" style="display:inline">'
-        '<button type="submit" class="button" title="allPromo=true — показать все акции">🔍 Расширенная проверка</button>'
+        '<button type="submit" class="button" title="allPromo=false — только доступные для участия">🔍 Только доступные акции</button>'
         "</form>"
     )
     parts.append(
@@ -1400,17 +1474,41 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
                         f"<td><small>{promo_name}<br>{promo_price} ₽ ({in_action_text})</small></td>"
                     )
             else:
-                # No promo found for this product - check if nomenclatures are synced
-                if not data.nomenclatures_synced and data.has_active_auto_promotions:
+                # No promo nomenclature found for this product
+                has_any_active_promo = data.active_promotions_count > 0
+                has_regular_promo = data.active_regular_promotions_count > 0
+                has_auto_promo = data.active_auto_promotions_count > 0
+                noms_synced = data.nomenclatures_count > 0
+
+                if not has_any_active_promo:
+                    # No active promotions at all
+                    parts.append("<td><small class='text-muted'>Нет акции</small></td>")
+                elif has_auto_promo and not noms_synced:
+                    # Auto promotions exist but nomenclatures not synced yet
                     parts.append(
                         "<td><small class='text-muted'>Автоакции WB найдены,<br>участие уточняется</small></td>"
                     )
-                elif not data.nomenclatures_synced:
+                elif has_auto_promo and noms_synced and not has_regular_promo:
+                    # Only auto promotions active, nomenclatures synced but product not found
+                    parts.append(
+                        "<td><small class='text-muted'>Автоакция WB:<br>требуется проверка цены</small></td>"
+                    )
+                elif has_regular_promo and not noms_synced:
+                    # Regular promotions exist but nomenclatures not synced
                     parts.append(
                         "<td><small class='text-muted'>Товары акций не<br>синхронизированы</small></td>"
                     )
+                elif has_regular_promo and noms_synced:
+                    # Regular promotions synced, product confirmed not in any
+                    if has_auto_promo:
+                        parts.append(
+                            "<td><small class='text-muted'>Нет в регулярных;<br>автоакция уточняется</small></td>"
+                        )
+                    else:
+                        parts.append("<td><small class='text-muted'>Нет акции</small></td>")
                 else:
-                    parts.append("<td><small class='text-muted'>Нет акции</small></td>")
+                    # Fallback
+                    parts.append("<td><small class='text-muted'>Статус акции уточняется</small></td>")
 
             # Status badge
             is_auto_promo = row.promo_type and row.promo_type.lower() == "auto"
@@ -1535,18 +1633,19 @@ def _flash_messages() -> str:
             else if (!msg) msg = '✅ МРЦ сохранена';
         }
         if (params.get('sync_done') === '1') {
-            const allPromo = params.get('all_promo') || 'false';
+            const allPromo = params.get('all_promo') || 'true';
             const rawPromos = params.get('raw_promos') || '0';
             const promos = params.get('promos') || '0';
             const noms = params.get('nomenclatures') || '0';
             const autoSkipped = params.get('auto_skipped') || '0';
-            msg = '✅ Синхронизация акций завершена (allPromo=' + allPromo + ')\\n'
+            const modeText = allPromo === 'true' ? 'все акции (allPromo=true)' : 'только доступные (allPromo=false)';
+            msg = '✅ Синхронизация акций завершена (' + modeText + ')\\n'
                 + 'WB вернул акций: ' + rawPromos
                 + ' | Сохранено: ' + promos
                 + ' | Автоакций пропущено: ' + autoSkipped
                 + ' | Товаров в акциях: ' + noms;
             if (rawPromos === '0' && allPromo === 'false') {
-                msg += '\\n💡 WB вернул 0 доступных акций. Попробуйте расширенную проверку allPromo=true.';
+                msg += '\\n💡 WB вернул 0 доступных акций. Попробуйте основную синхронизацию allPromo=true.';
             }
         }
         if (params.get('sync_error') === '1') msg = '❌ Ошибка синхронизации акций';
