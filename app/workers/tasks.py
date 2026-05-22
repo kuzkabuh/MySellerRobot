@@ -1125,9 +1125,12 @@ async def check_auto_promo_prices(ctx: dict[str, Any]) -> None:
     from app.models.domain import MrcPricingSettings
     from app.services.pricing.wb_auto_promo_price_service import (
         WbAutoPromoPriceService,
-        STATUS_AUTO_PROMO_SET_PRICE,
+        STATUS_AUTO_SET_PRICE,
     )
-    from app.services.pricing.wb_price_update_service import WbPriceUpdateService
+    from app.services.pricing.wb_price_update_service import (
+        WbPriceUpdateService,
+        SOURCE_AUTO,
+    )
 
     async with AsyncSessionFactory() as session:
         try:
@@ -1180,6 +1183,7 @@ async def check_auto_promo_prices(ctx: dict[str, Any]) -> None:
                                 marketplace_account_id=settings.marketplace_account_id,
                                 wb_api_key=api_key,
                                 dry_run=False,
+                                source=SOURCE_AUTO,
                             )
                             for r in results:
                                 if r["status"] == "applied":

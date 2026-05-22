@@ -996,18 +996,29 @@ class MrcPricingSettings(TimestampMixin, Base):
 class WbAutoPromotionCondition(TimestampMixin, Base):
     __tablename__ = "wb_auto_promotion_conditions"
     __table_args__ = (
-        Index("ix_auto_promo_conditions_account_promo_nm", "marketplace_account_id", "wb_promotion_id", "wb_nm_id"),
+        sa.UniqueConstraint(
+            "marketplace_account_id", "wb_promotion_id", "wb_nm_id", "source",
+            name="uq_auto_promo_cond_acct_promo_nm_src",
+        ),
+        sa.UniqueConstraint(
+            "marketplace_account_id", "wb_nm_id", "promotion_name", "source",
+            name="uq_auto_promo_cond_acct_nm_pname_src",
+        ),
+        Index("ix_auto_promo_cond_account_nm", "marketplace_account_id", "wb_nm_id"),
     )
 
     id: Mapped[int_pk]
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     marketplace_account_id: Mapped[int] = mapped_column(ForeignKey("marketplace_accounts.id", ondelete="CASCADE"), nullable=False, index=True)
-    wb_promotion_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
-    wb_nm_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
-    seller_article: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    wb_promotion_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    wb_nm_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    seller_article: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    title: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    promotion_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
     required_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     current_wb_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
-    source: Mapped[str] = mapped_column(String(64), nullable=False, default="api")
+    is_participating: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    source: Mapped[str] = mapped_column(String(64), nullable=False, default="manual")
     raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -1015,8 +1026,7 @@ class WbAutoPromotionCondition(TimestampMixin, Base):
 class WbAutoPromoPriceRecommendation(TimestampMixin, Base):
     __tablename__ = "wb_auto_promo_price_recommendations"
     __table_args__ = (
-        Index("ix_auto_promo_recs_account_status", "marketplace_account_id", "status"),
-        Index("ix_auto_promo_recs_product", "product_id"),
+        Index("ix_auto_promo_recs_acct_nm_status", "marketplace_account_id", "wb_nm_id", "status"),
     )
 
     id: Mapped[int_pk]
@@ -1025,6 +1035,7 @@ class WbAutoPromoPriceRecommendation(TimestampMixin, Base):
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True)
     wb_nm_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     wb_promotion_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    promotion_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
     mrc_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     current_wb_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     required_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
@@ -1040,7 +1051,7 @@ class WbAutoPromoPriceRecommendation(TimestampMixin, Base):
 class WbPriceChangeHistory(Base):
     __tablename__ = "wb_price_change_history"
     __table_args__ = (
-        Index("ix_price_change_history_nm", "wb_nm_id"),
+        Index("ix_price_change_hist_nm", "wb_nm_id"),
     )
 
     id: Mapped[int_pk]
@@ -1051,7 +1062,8 @@ class WbPriceChangeHistory(Base):
     old_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     new_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     reason: Mapped[str] = mapped_column(String(64), nullable=False, default="auto_promotion")
+    source: Mapped[str] = mapped_column(String(64), nullable=False, default="manual")
+    dry_run: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    dry_run: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=sa.func.now())

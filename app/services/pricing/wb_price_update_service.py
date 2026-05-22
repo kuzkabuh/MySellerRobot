@@ -1,6 +1,6 @@
 """version: 1.0.0
 description: WB price update service for auto promotions.
-    Safely changes product prices with MRC/minPrice validation and dry_run support.
+    Safely changes product prices with MRC/minPrice validation and dry_run.
 updated: 2026-05-22
 """
 
@@ -21,6 +21,8 @@ from app.models.domain import (
 logger = logging.getLogger(__name__)
 
 REASON_AUTO_PROMOTION = "auto_promotion"
+SOURCE_MANUAL = "manual"
+SOURCE_AUTO = "auto"
 STATUS_PENDING = "pending"
 STATUS_APPLIED = "applied"
 STATUS_FAILED = "failed"
@@ -40,13 +42,19 @@ class WbPriceUpdateService:
         self,
         user_id: int,
         marketplace_account_id: int,
-        status_filter: str = "AUTO_PROMO_SET_PRICE",
+        status_filter: str = "AUTO_PROMOTION_SET_PRICE",
     ) -> list[dict]:
-        """Prepare a preview of price changes without applying them.
+        """Prepare a preview of price changes without applying them."""
+        logger.info(
+            "wb_auto_promo_price_update_preview_created",
+            extra={
+                "user_id": user_id,
+                "marketplace_account_id": marketplace_account_id,
+                "status_filter": status_filter,
+            },
+        )
 
-        Returns list of dicts with product info, old price, new price, and validation status.
-        """
-        recommendations_result = await self.session.execute(
+        recs_result = await self.session.execute(
             select(WbAutoPromoPriceRecommendation).where(
                 WbAutoPromoPriceRecommendation.user_id == user_id,
                 WbAutoPromoPriceRecommendation.marketplace_account_id == marketplace_account_id,
@@ -54,7 +62,7 @@ class WbPriceUpdateService:
                 WbAutoPromoPriceRecommendation.recommended_price.isnot(None),
             )
         )
-        recommendations = list(recommendations_result.scalars().all())
+        recommendations = list(recs_result.scalars().all())
 
         preview: list[dict] = []
         for rec in recommendations:
@@ -97,26 +105,26 @@ class WbPriceUpdateService:
         wb_api_key: str,
         product_ids: list[int] | None = None,
         dry_run: bool = True,
+        source: str = SOURCE_MANUAL,
     ) -> list[dict]:
-        """Apply price changes for selected products.
-
-        If dry_run=True, only records history without sending to WB.
-        If product_ids is provided, only apply to those products.
-        """
+        """Apply price changes for selected products."""
         query = (
             select(WbAutoPromoPriceRecommendation)
             .where(
                 WbAutoPromoPriceRecommendation.user_id == user_id,
-                WbAutoPromoPriceRecommendation.marketplace_account_id == marketplace_account_id,
-                WbAutoPromoPriceRecommendation.status == "AUTO_PROMO_SET_PRICE",
+                WbAutoPromoPriceRecommendation.marketplace_account_id
+                == marketplace_account_id,
+                WbAutoPromoPriceRecommendation.status == "AUTO_PROMOTION_SET_PRICE",
                 WbAutoPromoPriceRecommendation.recommended_price.isnot(None),
             )
         )
         if product_ids:
-            query = query.where(WbAutoPromoPriceRecommendation.product_id.in_(product_ids))
+            query = query.where(
+                WbAutoPromoPriceRecommendation.product_id.in_(product_ids)
+            )
 
-        recommendations_result = await self.session.execute(query)
-        recommendations = list(recommendations_result.scalars().all())
+        recs_result = await self.session.execute(query)
+        recommendations = list(recs_result.scalars().all())
 
         results: list[dict] = []
 
@@ -145,6 +153,15 @@ class WbPriceUpdateService:
                     status=STATUS_SKIPPED,
                     error=skip_reason,
                     dry_run=dry_run,
+                    source=source,
+                )
+                logger.info(
+                    "wb_auto_promo_price_update_skipped",
+                    extra={
+                        "product_id": product.id,
+                        "wb_nm_id": rec.wb_nm_id,
+                        "reason": skip_reason,
+                    },
                 )
                 results.append({
                     "product_id": product.id,
@@ -166,6 +183,7 @@ class WbPriceUpdateService:
                     new_price=rec.recommended_price,
                     status=STATUS_DRY_RUN,
                     dry_run=True,
+                    source=source,
                 )
                 results.append({
                     "product_id": product.id,
@@ -193,6 +211,16 @@ class WbPriceUpdateService:
                     new_price=rec.recommended_price,
                     status=STATUS_APPLIED,
                     dry_run=False,
+                    source=source,
+                )
+                logger.info(
+                    "wb_auto_promo_price_update_applied",
+                    extra={
+                        "product_id": product.id,
+                        "wb_nm_id": rec.wb_nm_id,
+                        "old_price": str(current_price),
+                        "new_price": str(rec.recommended_price),
+                    },
                 )
                 results.append({
                     "product_id": product.id,
@@ -201,15 +229,6 @@ class WbPriceUpdateService:
                     "old_price": current_price,
                     "new_price": rec.recommended_price,
                 })
-                logger.info(
-                    "wb_price_changed_for_auto_promo",
-                    extra={
-                        "product_id": product.id,
-                        "wb_nm_id": rec.wb_nm_id,
-                        "old_price": str(current_price),
-                        "new_price": str(rec.recommended_price),
-                    },
-                )
             except Exception as exc:
                 await self._record_history(
                     user_id=user_id,
@@ -221,6 +240,14 @@ class WbPriceUpdateService:
                     status=STATUS_FAILED,
                     error=str(exc),
                     dry_run=False,
+                    source=source,
+                )
+                logger.exception(
+                    "wb_auto_promo_price_update_failed",
+                    extra={
+                        "product_id": product.id,
+                        "wb_nm_id": rec.wb_nm_id,
+                    },
                 )
                 results.append({
                     "product_id": product.id,
@@ -228,13 +255,6 @@ class WbPriceUpdateService:
                     "status": STATUS_FAILED,
                     "error": str(exc),
                 })
-                logger.exception(
-                    "wb_price_change_failed",
-                    extra={
-                        "product_id": product.id,
-                        "wb_nm_id": rec.wb_nm_id,
-                    },
-                )
 
         return results
 
@@ -244,18 +264,21 @@ class WbPriceUpdateService:
         new_price: Decimal,
         rec: WbAutoPromoPriceRecommendation,
     ) -> tuple[bool, str | None]:
-        """Check if price can be changed safely.
-
-        Returns (can_change, skip_reason).
-        """
+        """Check if price can be changed safely."""
         if new_price <= 0:
             return False, "Цена должна быть больше 0"
 
         if rec.mrc_lower_bound and new_price < rec.mrc_lower_bound:
-            return False, f"Цена {new_price} ниже нижней границы МРЦ ({rec.mrc_lower_bound})"
+            return False, (
+                f"Цена {new_price} ниже нижней границы МРЦ "
+                f"({rec.mrc_lower_bound})"
+            )
 
         if rec.mrc_upper_bound and new_price > rec.mrc_upper_bound:
-            return False, f"Цена {new_price} выше верхней границы МРЦ ({rec.mrc_upper_bound})"
+            return False, (
+                f"Цена {new_price} выше верхней границы МРЦ "
+                f"({rec.mrc_upper_bound})"
+            )
 
         if rec.min_price and new_price < rec.min_price:
             return False, f"Цена {new_price} ниже minPrice ({rec.min_price})"
@@ -289,7 +312,8 @@ class WbPriceUpdateService:
         result = await self.session.execute(
             select(WbPriceChangeHistory.created_at)
             .where(
-                WbPriceChangeHistory.marketplace_account_id == marketplace_account_id,
+                WbPriceChangeHistory.marketplace_account_id
+                == marketplace_account_id,
                 WbPriceChangeHistory.wb_nm_id == wb_nm_id,
                 WbPriceChangeHistory.status.in_([STATUS_APPLIED, STATUS_DRY_RUN]),
             )
@@ -309,6 +333,7 @@ class WbPriceUpdateService:
         status: str,
         error: str | None = None,
         dry_run: bool = True,
+        source: str = SOURCE_MANUAL,
     ) -> None:
         """Record a price change in history."""
         record = WbPriceChangeHistory(
@@ -319,6 +344,7 @@ class WbPriceUpdateService:
             old_price=old_price,
             new_price=new_price,
             reason=REASON_AUTO_PROMOTION,
+            source=source,
             status=status,
             error=error,
             dry_run=dry_run,

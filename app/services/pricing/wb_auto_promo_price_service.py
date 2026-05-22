@@ -18,16 +18,21 @@ from app.models.domain import (
     WbAutoPromotionCondition,
     WbPromotion,
 )
-from app.services.pricing.mrc_pricing_settings_service import MrcPricingSettingsService
+from app.services.pricing.mrc_pricing_settings_service import (
+    MrcPricingSettingsService,
+)
 
 logger = logging.getLogger(__name__)
 
-STATUS_AUTO_PROMO_PRICE_OK = "AUTO_PROMO_PRICE_OK"
-STATUS_AUTO_PROMO_SET_PRICE = "AUTO_PROMO_SET_PRICE"
-STATUS_AUTO_PROMO_PRICE_VIOLATION = "AUTO_PROMO_PRICE_VIOLATION"
-STATUS_AUTO_PROMO_REQUIRED_PRICE_UNKNOWN = "AUTO_PROMO_REQUIRED_PRICE_UNKNOWN"
-STATUS_AUTO_PROMO_MIN_PRICE_VIOLATION = "AUTO_PROMO_MIN_PRICE_VIOLATION"
-STATUS_AUTO_PROMO_WAITING_WB_SYNC = "AUTO_PROMO_WAITING_WB_SYNC"
+STATUS_NO_PROMOTION = "NO_PROMOTION"
+STATUS_REGULAR_PROMOTION_ACTIVE = "REGULAR_PROMOTION_ACTIVE"
+STATUS_REGULAR_PROMOTION_AVAILABLE = "REGULAR_PROMOTION_AVAILABLE"
+STATUS_AUTO_REQUIRED_PRICE_UNKNOWN = "AUTO_PROMOTION_REQUIRED_PRICE_UNKNOWN"
+STATUS_AUTO_PRICE_OK = "AUTO_PROMOTION_PRICE_OK"
+STATUS_AUTO_SET_PRICE = "AUTO_PROMOTION_SET_PRICE"
+STATUS_AUTO_PRICE_VIOLATION = "AUTO_PROMOTION_PRICE_VIOLATION"
+STATUS_AUTO_MIN_PRICE_VIOLATION = "AUTO_PROMOTION_MIN_PRICE_VIOLATION"
+STATUS_AUTO_WAITING_WB_SYNC = "AUTO_PROMOTION_WAITING_WB_SYNC"
 
 
 @dataclass(slots=True)
@@ -35,6 +40,7 @@ class AutoPromoPriceRecommendation:
     product_id: int
     wb_nm_id: int
     wb_promotion_id: int | None
+    promotion_name: str | None
     mrc_price: Decimal
     current_wb_price: Decimal | None
     required_price: Decimal | None
@@ -56,21 +62,17 @@ class WbAutoPromoPriceService:
     async def build_recommendation(
         self,
         product: Product,
-        current_wb_price: Decimal | None,
-        required_price: Decimal | None,
+        condition: WbAutoPromotionCondition | None = None,
+        current_wb_price: Decimal | None = None,
         min_price: Decimal | None = None,
+        required_price: Decimal | None = None,
     ) -> AutoPromoPriceRecommendation:
         """Build a price recommendation for a product in an auto promotion.
 
-        Rules:
-        1. If required_price is None: AUTO_PROMO_REQUIRED_PRICE_UNKNOWN
-        2. If current_wb_price <= required_price: AUTO_PROMO_PRICE_OK
-        3. If current_wb_price > required_price: check if candidate_price passes MRC bounds
-        4. candidate_price = required_price
-           - candidate_price >= lower_bound
-           - candidate_price <= upper_bound
-           - candidate_price >= min_price (if set)
-           - candidate_price > 0
+        Priority for required_price:
+        1. Explicit required_price parameter
+        2. condition.required_price
+        3. None -> AUTO_PROMOTION_REQUIRED_PRICE_UNKNOWN
         """
         mrc_price = product.mrc_price or Decimal("0")
         wb_nm_id = _extract_nm_id(product)
@@ -79,6 +81,7 @@ class WbAutoPromoPriceService:
                 product_id=product.id,
                 wb_nm_id=0,
                 wb_promotion_id=None,
+                promotion_name=None,
                 mrc_price=mrc_price,
                 current_wb_price=current_wb_price,
                 required_price=None,
@@ -86,7 +89,7 @@ class WbAutoPromoPriceService:
                 min_price=min_price,
                 mrc_lower_bound=Decimal("0"),
                 mrc_upper_bound=Decimal("0"),
-                status=STATUS_AUTO_PROMO_WAITING_WB_SYNC,
+                status=STATUS_AUTO_WAITING_WB_SYNC,
                 reason="Нет nmID WB",
             )
 
@@ -99,53 +102,70 @@ class WbAutoPromoPriceService:
         lower_bound = mrc_price * (Decimal("1") - deviation / Decimal("100"))
         upper_bound = mrc_price * (Decimal("1") + deviation / Decimal("100"))
 
-        if required_price is None:
+        eff_required = required_price
+        if eff_required is None and condition is not None:
+            eff_required = condition.required_price
+
+        promotion_name = None
+        wb_promotion_id = None
+        if condition is not None:
+            promotion_name = condition.promotion_name
+            wb_promotion_id = condition.wb_promotion_id
+
+        eff_current = current_wb_price
+        if eff_current is None and condition is not None:
+            eff_current = condition.current_wb_price
+
+        if eff_required is None:
             return AutoPromoPriceRecommendation(
                 product_id=product.id,
                 wb_nm_id=wb_nm_id,
-                wb_promotion_id=None,
+                wb_promotion_id=wb_promotion_id,
+                promotion_name=promotion_name,
                 mrc_price=mrc_price,
-                current_wb_price=current_wb_price,
+                current_wb_price=eff_current,
                 required_price=None,
                 recommended_price=None,
                 min_price=min_price,
                 mrc_lower_bound=lower_bound,
                 mrc_upper_bound=upper_bound,
-                status=STATUS_AUTO_PROMO_REQUIRED_PRICE_UNKNOWN,
-                reason="Автоакции WB найдены, требуется цена входа",
+                status=STATUS_AUTO_REQUIRED_PRICE_UNKNOWN,
+                reason="Автоакции WB найдены, нужна цена входа",
             )
 
-        if current_wb_price is not None and current_wb_price <= required_price:
+        if eff_current is not None and eff_current <= eff_required:
             return AutoPromoPriceRecommendation(
                 product_id=product.id,
                 wb_nm_id=wb_nm_id,
-                wb_promotion_id=None,
+                wb_promotion_id=wb_promotion_id,
+                promotion_name=promotion_name,
                 mrc_price=mrc_price,
-                current_wb_price=current_wb_price,
-                required_price=required_price,
+                current_wb_price=eff_current,
+                required_price=eff_required,
                 recommended_price=None,
                 min_price=min_price,
                 mrc_lower_bound=lower_bound,
                 mrc_upper_bound=upper_bound,
-                status=STATUS_AUTO_PROMO_PRICE_OK,
+                status=STATUS_AUTO_PRICE_OK,
                 reason="Цена подходит для автоакции",
             )
 
-        candidate_price = required_price
+        candidate_price = eff_required
 
         if candidate_price <= 0:
             return AutoPromoPriceRecommendation(
                 product_id=product.id,
                 wb_nm_id=wb_nm_id,
-                wb_promotion_id=None,
+                wb_promotion_id=wb_promotion_id,
+                promotion_name=promotion_name,
                 mrc_price=mrc_price,
-                current_wb_price=current_wb_price,
-                required_price=required_price,
+                current_wb_price=eff_current,
+                required_price=eff_required,
                 recommended_price=None,
                 min_price=min_price,
                 mrc_lower_bound=lower_bound,
                 mrc_upper_bound=upper_bound,
-                status=STATUS_AUTO_PROMO_PRICE_VIOLATION,
+                status=STATUS_AUTO_PRICE_VIOLATION,
                 reason="Цена автоакции некорректна (<=0)",
             )
 
@@ -153,31 +173,33 @@ class WbAutoPromoPriceService:
             return AutoPromoPriceRecommendation(
                 product_id=product.id,
                 wb_nm_id=wb_nm_id,
-                wb_promotion_id=None,
+                wb_promotion_id=wb_promotion_id,
+                promotion_name=promotion_name,
                 mrc_price=mrc_price,
-                current_wb_price=current_wb_price,
-                required_price=required_price,
+                current_wb_price=eff_current,
+                required_price=eff_required,
                 recommended_price=None,
                 min_price=min_price,
                 mrc_lower_bound=lower_bound,
                 mrc_upper_bound=upper_bound,
-                status=STATUS_AUTO_PROMO_PRICE_VIOLATION,
-                reason="Цена автоакции ниже допустимой МРЦ",
+                status=STATUS_AUTO_PRICE_VIOLATION,
+                reason="Цена входа ниже допустимой цены по МРЦ",
             )
 
         if candidate_price > upper_bound:
             return AutoPromoPriceRecommendation(
                 product_id=product.id,
                 wb_nm_id=wb_nm_id,
-                wb_promotion_id=None,
+                wb_promotion_id=wb_promotion_id,
+                promotion_name=promotion_name,
                 mrc_price=mrc_price,
-                current_wb_price=current_wb_price,
-                required_price=required_price,
+                current_wb_price=eff_current,
+                required_price=eff_required,
                 recommended_price=None,
                 min_price=min_price,
                 mrc_lower_bound=lower_bound,
                 mrc_upper_bound=upper_bound,
-                status=STATUS_AUTO_PROMO_PRICE_VIOLATION,
+                status=STATUS_AUTO_PRICE_VIOLATION,
                 reason="Цена автоакции выше допустимого отклонения от МРЦ",
             )
 
@@ -185,30 +207,32 @@ class WbAutoPromoPriceService:
             return AutoPromoPriceRecommendation(
                 product_id=product.id,
                 wb_nm_id=wb_nm_id,
-                wb_promotion_id=None,
+                wb_promotion_id=wb_promotion_id,
+                promotion_name=promotion_name,
                 mrc_price=mrc_price,
-                current_wb_price=current_wb_price,
-                required_price=required_price,
+                current_wb_price=eff_current,
+                required_price=eff_required,
                 recommended_price=None,
                 min_price=min_price,
                 mrc_lower_bound=lower_bound,
                 mrc_upper_bound=upper_bound,
-                status=STATUS_AUTO_PROMO_MIN_PRICE_VIOLATION,
-                reason=f"Цена автоакции ниже minPrice ({min_price})",
+                status=STATUS_AUTO_MIN_PRICE_VIOLATION,
+                reason=f"Цена входа ниже minPrice ({min_price})",
             )
 
         return AutoPromoPriceRecommendation(
             product_id=product.id,
             wb_nm_id=wb_nm_id,
-            wb_promotion_id=None,
+            wb_promotion_id=wb_promotion_id,
+            promotion_name=promotion_name,
             mrc_price=mrc_price,
-            current_wb_price=current_wb_price,
-            required_price=required_price,
+            current_wb_price=eff_current,
+            required_price=eff_required,
             recommended_price=candidate_price,
             min_price=min_price,
             mrc_lower_bound=lower_bound,
             mrc_upper_bound=upper_bound,
-            status=STATUS_AUTO_PROMO_SET_PRICE,
+            status=STATUS_AUTO_SET_PRICE,
             reason=f"Можно изменить цену до {candidate_price:.0f} ₽ для входа в автоакцию",
         )
 
@@ -237,6 +261,7 @@ class WbAutoPromoPriceService:
             self.session.add(record)
 
         record.wb_promotion_id = rec.wb_promotion_id
+        record.promotion_name = rec.promotion_name
         record.mrc_price = rec.mrc_price
         record.current_wb_price = rec.current_wb_price
         record.required_price = rec.required_price
@@ -250,33 +275,63 @@ class WbAutoPromoPriceService:
         await self.session.flush()
         return record
 
-    async def get_recommendations_for_account(
+    async def build_recommendations_for_conditions(
         self,
         user_id: int,
         marketplace_account_id: int,
-        status_filter: str | None = None,
-    ) -> list[WbAutoPromoPriceRecommendation]:
-        """Get latest recommendations for an account."""
-        query = (
-            select(WbAutoPromoPriceRecommendation)
-            .where(
-                WbAutoPromoPriceRecommendation.user_id == user_id,
-                WbAutoPromoPriceRecommendation.marketplace_account_id == marketplace_account_id,
+    ) -> list[AutoPromoPriceRecommendation]:
+        """Build recommendations for products matching imported conditions."""
+        conditions_result = await self.session.execute(
+            select(WbAutoPromotionCondition).where(
+                WbAutoPromotionCondition.marketplace_account_id == marketplace_account_id,
+                WbAutoPromotionCondition.required_price.isnot(None),
             )
-            .order_by(WbAutoPromoPriceRecommendation.updated_at.desc())
         )
-        if status_filter:
-            query = query.where(WbAutoPromoPriceRecommendation.status == status_filter)
+        conditions = list(conditions_result.scalars().all())
 
-        result = await self.session.execute(query)
-        return list(result.scalars().all())
+        if not conditions:
+            return []
+
+        recommendations: list[AutoPromoPriceRecommendation] = []
+
+        for condition in conditions:
+            product_result = await self.session.execute(
+                select(Product).where(
+                    Product.marketplace_account_id == marketplace_account_id,
+                    Product.marketplace == "wb",
+                    (Product.external_product_id == str(condition.wb_nm_id))
+                    | (Product.marketplace_article == str(condition.wb_nm_id)),
+                ).limit(1)
+            )
+            product = product_result.scalar_one_or_none()
+            if product is None or product.mrc_price is None:
+                continue
+
+            rec = await self.build_recommendation(
+                product=product,
+                condition=condition,
+            )
+            recommendations.append(rec)
+
+            logger.info(
+                "wb_auto_promo_recommendation_created",
+                extra={
+                    "product_id": product.id,
+                    "wb_nm_id": condition.wb_nm_id,
+                    "status": rec.status,
+                    "required_price": str(rec.required_price),
+                    "recommended_price": str(rec.recommended_price),
+                },
+            )
+
+        return recommendations
 
     async def build_recommendations_for_active_auto_promos(
         self,
         user_id: int,
         marketplace_account_id: int,
     ) -> list[AutoPromoPriceRecommendation]:
-        """Build recommendations for all products with MRC when auto promotions are active."""
+        """Build recommendations for all products with MRC when auto promos active."""
         now_utc = datetime.now(tz=UTC)
 
         active_auto_promos_result = await self.session.execute(
@@ -309,10 +364,9 @@ class WbAutoPromoPriceService:
             if wb_nm_id is None:
                 continue
 
-            required_price = await self._find_required_price_for_product(
+            required_price = await self._find_required_price(
                 marketplace_account_id=marketplace_account_id,
                 wb_nm_id=wb_nm_id,
-                active_promos=active_auto_promos,
             )
 
             rec = await self.build_recommendation(
@@ -326,26 +380,19 @@ class WbAutoPromoPriceService:
 
         return recommendations
 
-    async def _find_required_price_for_product(
+    async def _find_required_price(
         self,
         marketplace_account_id: int,
         wb_nm_id: int,
-        active_promos: list[WbPromotion],
     ) -> Decimal | None:
-        """Find the required price for a product from nomenclatures or promotion conditions."""
-
+        """Find required price from nomenclatures or conditions."""
         from app.models.domain import WbPromotionNomenclature
-
-        active_promo_ids = [p.wb_promotion_id for p in active_promos]
-        if not active_promo_ids:
-            return None
 
         result = await self.session.execute(
             select(WbPromotionNomenclature.plan_price)
             .where(
                 WbPromotionNomenclature.marketplace_account_id == marketplace_account_id,
                 WbPromotionNomenclature.wb_nm_id == wb_nm_id,
-                WbPromotionNomenclature.wb_promotion_id.in_(active_promo_ids),
                 WbPromotionNomenclature.plan_price.isnot(None),
                 WbPromotionNomenclature.plan_price > 0,
             )
@@ -356,7 +403,7 @@ class WbAutoPromoPriceService:
         if price is not None:
             return price
 
-        conditions_result = await self.session.execute(
+        cond_result = await self.session.execute(
             select(WbAutoPromotionCondition.required_price)
             .where(
                 WbAutoPromotionCondition.marketplace_account_id == marketplace_account_id,
@@ -365,7 +412,7 @@ class WbAutoPromoPriceService:
             )
             .limit(1)
         )
-        return conditions_result.scalar_one_or_none()
+        return cond_result.scalar_one_or_none()
 
 
 def _extract_nm_id(product: Product) -> int | None:

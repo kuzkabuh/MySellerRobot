@@ -31,11 +31,12 @@ from app.services.pricing.mrc_import_service import MrcImportService
 from app.services.pricing.mrc_pricing_settings_service import MrcPricingSettingsService
 from app.services.pricing.wb_auto_promo_price_service import (
     WbAutoPromoPriceService,
-    STATUS_AUTO_PROMO_SET_PRICE,
-    STATUS_AUTO_PROMO_PRICE_OK,
-    STATUS_AUTO_PROMO_PRICE_VIOLATION,
-    STATUS_AUTO_PROMO_MIN_PRICE_VIOLATION,
-    STATUS_AUTO_PROMO_REQUIRED_PRICE_UNKNOWN,
+    STATUS_AUTO_SET_PRICE,
+    STATUS_AUTO_PRICE_OK,
+    STATUS_AUTO_PRICE_VIOLATION,
+    STATUS_AUTO_MIN_PRICE_VIOLATION,
+    STATUS_AUTO_REQUIRED_PRICE_UNKNOWN,
+    STATUS_AUTO_WAITING_WB_SYNC,
 )
 from app.services.pricing.wb_mrc_price_service import WbMrcPriceResult, WbMrcPriceService
 from app.services.wb.wb_promotions_sync_service import WbPromotionsSyncService
@@ -987,6 +988,329 @@ def _auto_promo_prices_content(
     return "\n".join(parts)
 
 
+@router.get("/auto-promo-import", response_class=HTMLResponse)
+async def auto_promo_import_page(
+    user=CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+    marketplace_account_id: int | None = Query(None),
+) -> str:
+    """Auto promotion conditions import page."""
+    try:
+        access = await FeatureAccessService(session).can_use_feature(
+            user.id, FeatureCode.MRC_PRICING
+        )
+        if not access.allowed:
+            return render_page(
+                "Импорт условий автоакций WB",
+                user.first_name or user.username or str(user.telegram_id),
+                _feature_locked_content(access),
+                active_path="/web/mrc-pricing",
+            )
+
+        if marketplace_account_id is None:
+            first_account = await session.execute(
+                select(MarketplaceAccount.id).where(
+                    MarketplaceAccount.user_id == user.id,
+                    MarketplaceAccount.marketplace == Marketplace.WB,
+                    MarketplaceAccount.is_active.is_(True),
+                ).limit(1)
+            )
+            marketplace_account_id = first_account.scalar_one_or_none()
+
+        accounts_result = await session.execute(
+            select(MarketplaceAccount.id, MarketplaceAccount.name).where(
+                MarketplaceAccount.user_id == user.id,
+                MarketplaceAccount.marketplace == Marketplace.WB,
+                MarketplaceAccount.is_active.is_(True),
+            )
+        )
+        accounts = list(accounts_result.all())
+
+        return render_page(
+            "Импорт условий автоакций WB",
+            user.first_name or user.username or str(user.telegram_id),
+            _auto_promo_import_content(accounts, marketplace_account_id),
+            active_path="/web/mrc-pricing",
+        )
+    except Exception:
+        logger.exception(
+            "auto_promo_import_page_failed",
+            extra={"user_id": user.id},
+        )
+        return render_page(
+            "Ошибка — Импорт условий",
+            user.first_name or user.username or str(user.telegram_id),
+            '<div class="card"><h2>Не удалось загрузить страницу</h2>'
+            '<p>Ошибка записана в лог.</p>'
+            '<p><a href="/web/mrc-pricing" class="button primary">Вернуться</a></p></div>',
+            active_path="/web/mrc-pricing",
+        )
+
+
+@router.get("/auto-promo-import/template")
+async def auto_promo_import_template(
+    user=CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+):
+    """Download Excel template for auto promotion conditions."""
+    try:
+        access = await FeatureAccessService(session).can_use_feature(
+            user.id, FeatureCode.MRC_PRICING
+        )
+        if not access.allowed:
+            return render_page(
+                "Ошибка",
+                user.first_name or user.username or str(user.telegram_id),
+                _feature_locked_content(access),
+                active_path="/web/mrc-pricing",
+            )
+
+        from app.services.pricing.wb_auto_promo_import_service import (
+            WbAutoPromoImportService,
+        )
+        from fastapi.responses import FileResponse
+
+        service = WbAutoPromoImportService(session)
+        file_path = await service.generate_template(user.id)
+
+        return FileResponse(
+            path=str(file_path),
+            filename=file_path.name,
+            media_type=(
+                "application/vnd.openxmlformats-officedocument"
+                ".spreadsheetml.sheet"
+            ),
+        )
+    except Exception:
+        logger.exception(
+            "auto_promo_import_template_failed",
+            extra={"user_id": user.id},
+        )
+        return RedirectResponse(
+            url="/web/auto-promo-import?error=template",
+            status_code=303,
+        )
+
+
+@router.post("/auto-promo-import/preview", response_class=HTMLResponse)
+async def auto_promo_import_preview(
+    request: Request,
+    user=CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+    marketplace_account_id: int = Form(...),
+    file: UploadFile = Form(...),
+) -> str:
+    """Preview auto promotion conditions import."""
+    try:
+        access = await FeatureAccessService(session).can_use_feature(
+            user.id, FeatureCode.MRC_PRICING
+        )
+        if not access.allowed:
+            return render_page(
+                "Ошибка",
+                user.first_name or user.username or str(user.telegram_id),
+                _feature_locked_content(access),
+                active_path="/web/mrc-pricing",
+            )
+
+        import tempfile
+        from pathlib import Path
+
+        from app.services.pricing.wb_auto_promo_import_service import (
+            WbAutoPromoImportService,
+        )
+
+        content = await file.read()
+        with tempfile.NamedTemporaryFile(
+            suffix=".xlsx", delete=False
+        ) as tmp:
+            tmp.write(content)
+            tmp_path = Path(tmp.name)
+
+        service = WbAutoPromoImportService(session)
+        preview, preview_rows = await service.create_preview(
+            tmp_path,
+            user.id,
+            marketplace_account_id,
+            original_file_name=file.filename,
+        )
+
+        return render_page(
+            "Предпросмотр импорта условий автоакций",
+            user.first_name or user.username or str(user.telegram_id),
+            _auto_promo_import_preview_content(
+                preview, preview_rows, marketplace_account_id
+            ),
+            active_path="/web/mrc-pricing",
+        )
+    except ValueError as exc:
+        return render_page(
+            "Ошибка импорта",
+            user.first_name or user.username or str(user.telegram_id),
+            f'<div class="card"><h2>Ошибка</h2>'
+            f"<p>{escape(str(exc))}</p>"
+            '<p><a href="/web/auto-promo-import" class="button primary">'
+            "Назад</a></p></div>",
+            active_path="/web/mrc-pricing",
+        )
+    except Exception:
+        logger.exception(
+            "auto_promo_import_preview_failed",
+            extra={"user_id": user.id},
+        )
+        return RedirectResponse(
+            url="/web/auto-promo-import?error=preview",
+            status_code=303,
+        )
+
+
+@router.post("/auto-promo-import/apply", response_class=HTMLResponse)
+async def auto_promo_import_apply(
+    request: Request,
+    user=CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+    marketplace_account_id: int = Form(...),
+) -> str:
+    """Apply auto promotion conditions import."""
+    try:
+        access = await FeatureAccessService(session).can_use_feature(
+            user.id, FeatureCode.MRC_PRICING
+        )
+        if not access.allowed:
+            return render_page(
+                "Ошибка",
+                user.first_name or user.username or str(user.telegram_id),
+                _feature_locked_content(access),
+                active_path="/web/mrc-pricing",
+            )
+
+        from app.services.pricing.wb_auto_promo_import_service import (
+            WbAutoPromoImportService,
+        )
+
+        form = await request.form()
+        preview_rows_json = form.get("preview_rows", "[]")
+        import json
+
+        preview_rows = json.loads(preview_rows_json)
+
+        service = WbAutoPromoImportService(session)
+        saved = await service.apply_import(
+            preview_rows, user.id, marketplace_account_id
+        )
+        await session.commit()
+
+        return RedirectResponse(
+            url=f"/web/auto-promo-import?saved={saved}",
+            status_code=303,
+        )
+    except Exception:
+        logger.exception(
+            "auto_promo_import_apply_failed",
+            extra={"user_id": user.id},
+        )
+        return RedirectResponse(
+            url="/web/auto-promo-import?error=apply",
+            status_code=303,
+        )
+
+
+@router.get(
+    "/mrc-pricing/auto-promotions/recommendations",
+    response_class=HTMLResponse,
+)
+async def auto_promo_recommendations_page(
+    user=CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+    marketplace_account_id: int | None = Query(None),
+) -> str:
+    """Auto promotion price recommendations page."""
+    try:
+        access = await FeatureAccessService(session).can_use_feature(
+            user.id, FeatureCode.MRC_PRICING
+        )
+        if not access.allowed:
+            return render_page(
+                "Рекомендации по автоакциям WB",
+                user.first_name or user.username or str(user.telegram_id),
+                _feature_locked_content(access),
+                active_path="/web/mrc-pricing",
+            )
+
+        from app.services.pricing.wb_auto_promo_price_service import (
+            WbAutoPromoPriceService,
+        )
+        from app.services.pricing.wb_price_update_service import (
+            WbPriceUpdateService,
+        )
+
+        if marketplace_account_id is None:
+            first_account = await session.execute(
+                select(MarketplaceAccount.id).where(
+                    MarketplaceAccount.user_id == user.id,
+                    MarketplaceAccount.marketplace == Marketplace.WB,
+                    MarketplaceAccount.is_active.is_(True),
+                ).limit(1)
+            )
+            marketplace_account_id = first_account.scalar_one_or_none()
+
+        recommendations = []
+        preview = []
+        if marketplace_account_id:
+            price_service = WbAutoPromoPriceService(session)
+            recs = await price_service.build_recommendations_for_conditions(
+                user_id=user.id,
+                marketplace_account_id=marketplace_account_id,
+            )
+            for rec in recs:
+                await price_service.save_recommendation(
+                    rec=rec,
+                    user_id=user.id,
+                    marketplace_account_id=marketplace_account_id,
+                )
+                recommendations.append(rec)
+
+            update_service = WbPriceUpdateService(session)
+            preview = await update_service.prepare_price_changes(
+                user_id=user.id,
+                marketplace_account_id=marketplace_account_id,
+            )
+
+        await session.commit()
+
+        accounts_result = await session.execute(
+            select(MarketplaceAccount.id, MarketplaceAccount.name).where(
+                MarketplaceAccount.user_id == user.id,
+                MarketplaceAccount.marketplace == Marketplace.WB,
+                MarketplaceAccount.is_active.is_(True),
+            )
+        )
+        accounts = list(accounts_result.all())
+
+        return render_page(
+            "Рекомендации по автоакциям WB",
+            user.first_name or user.username or str(user.telegram_id),
+            _auto_promo_recommendations_content(
+                recommendations, preview, accounts, marketplace_account_id
+            ),
+            active_path="/web/mrc-pricing",
+        )
+    except Exception:
+        logger.exception(
+            "auto_promo_recommendations_failed",
+            extra={"user_id": user.id},
+        )
+        return render_page(
+            "Ошибка — Рекомендации",
+            user.first_name or user.username or str(user.telegram_id),
+            '<div class="card"><h2>Не удалось загрузить рекомендации</h2>'
+            '<p>Ошибка записана в лог.</p>'
+            '<p><a href="/web/mrc-pricing" class="button primary">'
+            "Вернуться</a></p></div>",
+            active_path="/web/mrc-pricing",
+        )
+
+
 @router.get("/wb-promotions", response_class=HTMLResponse)
 async def wb_promotions_page(
     user=CURRENT_WEB_USER_DEPENDENCY,
@@ -1911,20 +2235,20 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
                     )
             elif row.auto_promo_status:
                 # Auto promotion status computed
-                if row.auto_promo_status == STATUS_AUTO_PROMO_SET_PRICE:
+                if row.auto_promo_status == STATUS_AUTO_SET_PRICE:
                     rec_price = f"{row.auto_promo_recommended_price:.0f}" if row.auto_promo_recommended_price else "?"
                     parts.append(
                         f"<td><small style='color:#3b82f6'>Автоакция WB:<br>цена входа {rec_price} ₽</small></td>"
                     )
-                elif row.auto_promo_status == STATUS_AUTO_PROMO_PRICE_OK:
+                elif row.auto_promo_status == STATUS_AUTO_PRICE_OK:
                     parts.append(
                         "<td><small style='color:#10b981'>Автоакция WB:<br>цена подходит</small></td>"
                     )
-                elif row.auto_promo_status in (STATUS_AUTO_PROMO_PRICE_VIOLATION, STATUS_AUTO_PROMO_MIN_PRICE_VIOLATION):
+                elif row.auto_promo_status in (STATUS_AUTO_PRICE_VIOLATION, STATUS_AUTO_MIN_PRICE_VIOLATION):
                     parts.append(
                         "<td><small style='color:#ef4444'>Автоакция WB:<br>цена ниже допустимой</small></td>"
                     )
-                elif row.auto_promo_status == STATUS_AUTO_PROMO_REQUIRED_PRICE_UNKNOWN:
+                elif row.auto_promo_status == STATUS_AUTO_REQUIRED_PRICE_UNKNOWN:
                     parts.append(
                         "<td><small style='color:#f59e0b'>Автоакции WB найдены,<br>нужна цена входа</small></td>"
                     )
@@ -1966,19 +2290,19 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
 
             # Status badge
             is_auto_promo = row.promo_type and row.promo_type.lower() == "auto"
-            if row.auto_promo_status == STATUS_AUTO_PROMO_SET_PRICE:
+            if row.auto_promo_status == STATUS_AUTO_SET_PRICE:
                 parts.append(
                     '<td><span class="badge" style="background:#dbeafe;color:#1e40af">🤖 Можно войти</span></td>'
                 )
-            elif row.auto_promo_status == STATUS_AUTO_PROMO_PRICE_OK:
+            elif row.auto_promo_status == STATUS_AUTO_PRICE_OK:
                 parts.append(
                     '<td><span class="badge" style="background:#d1fae5;color:#065f46">🤖 В автоакции</span></td>'
                 )
-            elif row.auto_promo_status in (STATUS_AUTO_PROMO_PRICE_VIOLATION, STATUS_AUTO_PROMO_MIN_PRICE_VIOLATION):
+            elif row.auto_promo_status in (STATUS_AUTO_PRICE_VIOLATION, STATUS_AUTO_MIN_PRICE_VIOLATION):
                 parts.append(
                     '<td><span class="badge" style="background:#fee2e2;color:#991b1b">🤖 Нарушение МРЦ</span></td>'
                 )
-            elif row.auto_promo_status == STATUS_AUTO_PROMO_REQUIRED_PRICE_UNKNOWN:
+            elif row.auto_promo_status == STATUS_AUTO_REQUIRED_PRICE_UNKNOWN:
                 parts.append(
                     '<td><span class="badge" style="background:#fef3c7;color:#92400e">🤖 Нужна цена</span></td>'
                 )
@@ -2040,12 +2364,12 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
                 )
 
             # Auto promo recommendation row
-            if row.auto_promo_status == STATUS_AUTO_PROMO_SET_PRICE and row.auto_promo_reason:
+            if row.auto_promo_status == STATUS_AUTO_SET_PRICE and row.auto_promo_reason:
                 reason = escape(row.auto_promo_reason)
                 parts.append(
                     f'<tr><td colspan="10"><small style="color:#3b82f6">🤖 {reason}</small></td></tr>'
                 )
-            elif row.auto_promo_status in (STATUS_AUTO_PROMO_PRICE_VIOLATION, STATUS_AUTO_PROMO_MIN_PRICE_VIOLATION) and row.auto_promo_reason:
+            elif row.auto_promo_status in (STATUS_AUTO_PRICE_VIOLATION, STATUS_AUTO_MIN_PRICE_VIOLATION) and row.auto_promo_reason:
                 reason = escape(row.auto_promo_reason)
                 parts.append(
                     f'<tr><td colspan="10"><small style="color:#ef4444">🤖 {reason}</small></td></tr>'
@@ -2619,6 +2943,348 @@ def _mrc_settings_content(
             document.querySelector('.card')?.before(div);
         }
     })();
+    </script>
+    """)
+
+    return "\n".join(parts)
+
+
+def _auto_promo_import_content(
+    accounts: list,
+    selected_account_id: int | None,
+) -> str:
+    """Render auto promotion import page."""
+    parts = []
+    parts.append('<div class="card">')
+    parts.append("<h2>📥 Импорт условий автоакций WB</h2>")
+    parts.append(
+        '<p class="text-muted" style="margin-bottom:16px">'
+        "Загрузите Excel-файл с ценами входа в автоакции WB. "
+        "Система проверит данные и покажет предпросмотр."
+        "</p>"
+    )
+
+    if not accounts:
+        parts.append(
+            '<div class="empty-state">'
+            '<p>Нет активных аккаунтов WB.</p>'
+            "</div></div>"
+        )
+        return "\n".join(parts)
+
+    parts.append(
+        '<form method="post" action="/web/auto-promo-import/preview" '
+        'enctype="multipart/form-data">'
+    )
+    parts.append('<div style="margin-bottom:16px">')
+    parts.append(
+        '<label style="display:block;font-weight:600;margin-bottom:4px">'
+        "Аккаунт</label>"
+    )
+    parts.append(
+        '<select name="marketplace_account_id" style="padding:6px 10px;'
+        'border:1px solid var(--color-border);border-radius:6px">'
+    )
+    for acct_id, acct_name in accounts:
+        sel = "selected" if acct_id == selected_account_id else ""
+        parts.append(
+            f'<option value="{acct_id}" {sel}>'
+            f"{escape(acct_name or f'Аккаунт {acct_id}')}"
+            f"</option>"
+        )
+    parts.append("</select></div>")
+
+    parts.append('<div style="margin-bottom:16px">')
+    parts.append(
+        '<a href="/web/auto-promo-import/template" class="button primary">'
+        "📥 Скачать шаблон Excel</a>"
+    )
+    parts.append("</div>")
+
+    parts.append('<div style="margin-bottom:16px">')
+    parts.append(
+        '<label style="display:block;font-weight:600;margin-bottom:4px">'
+        "Файл</label>"
+    )
+    parts.append(
+        '<input type="file" name="file" accept=".xlsx" '
+        'style="padding:6px;border:1px solid var(--color-border);'
+        'border-radius:6px">'
+    )
+    parts.append("</div>")
+
+    parts.append(
+        '<button type="submit" class="button primary">🔍 Предпросмотр</button>'
+    )
+    parts.append("</form></div>")
+
+    return "\n".join(parts)
+
+
+def _auto_promo_import_preview_content(
+    preview,
+    preview_rows: list[dict],
+    marketplace_account_id: int,
+) -> str:
+    """Render import preview."""
+    import json
+
+    parts = []
+    parts.append('<div class="card">')
+    parts.append("<h2>Предпросмотр импорта</h2>")
+
+    parts.append(
+        '<div style="display:flex;gap:12px;flex-wrap:wrap;'
+        'margin-bottom:16px">'
+    )
+    parts.append(
+        f'<div class="kpi-card"><div class="kpi-value">'
+        f"{preview.total_rows}</div>"
+        '<div class="kpi-label">Всего строк</div></div>'
+    )
+    parts.append(
+        f'<div class="kpi-card"><div class="kpi-value" '
+        f'style="color:#10b981">{preview.valid_rows}</div>'
+        '<div class="kpi-label">Найдены в базе</div></div>'
+    )
+    parts.append(
+        f'<div class="kpi-card"><div class="kpi-value" '
+        f'style="color:#f59e0b">{preview.warning_rows}</div>'
+        '<div class="kpi-label">Предупреждения</div></div>'
+    )
+    parts.append(
+        f'<div class="kpi-card"><div class="kpi-value" '
+        f'style="color:#ef4444">{preview.error_rows}</div>'
+        '<div class="kpi-label">Ошибки</div></div>'
+    )
+    parts.append("</div>")
+
+    parts.append(
+        '<form method="post" action="/web/auto-promo-import/apply">'
+        f'<input type="hidden" name="marketplace_account_id" '
+        f'value="{marketplace_account_id}">'
+        f'<input type="hidden" name="preview_rows" '
+        f'value="{escape(json.dumps(preview_rows, default=str))}">'
+    )
+
+    parts.append('<div class="table-wrap">')
+    parts.append("<table>")
+    parts.append("<thead><tr>")
+    for th in ["Строка", "nmID", "Артикул", "Автоакция",
+               "Цена входа", "Текущая цена", "Статус"]:
+        parts.append(f"<th>{th}</th>")
+    parts.append("</tr></thead>")
+    parts.append("<tbody>")
+
+    for row in preview_rows:
+        if row["status"] == "valid":
+            bg, tc = "#d1fae5", "#065f46"
+        elif row["status"] == "warning":
+            bg, tc = "#fef3c7", "#92400e"
+        else:
+            bg, tc = "#fee2e2", "#991b1b"
+        parts.append("<tr>")
+        parts.append(f"<td>{row['row_num']}</td>")
+        parts.append(f"<td>{row.get('wb_nm_id') or '—'}</td>")
+        parts.append(
+            f"<td>{escape(row.get('seller_article') or '—')}</td>"
+        )
+        parts.append(
+            f"<td>{escape(row.get('promotion_name') or '—')}</td>"
+        )
+        rp = row.get("required_price")
+        parts.append(f"<td>{rp:.0f} ₽</td>" if rp else "<td>—</td>")
+        cp = row.get("current_wb_price")
+        parts.append(f"<td>{cp:.0f} ₽</td>" if cp else "<td>—</td>")
+        msg = escape(row.get("message") or row["status"])
+        parts.append(
+            f'<td><span class="badge" style="background:{bg};'
+            f'color:{tc}">{msg}</span></td>'
+        )
+        parts.append("</tr>")
+
+    parts.append("</tbody></table></div>")
+
+    if preview.error_rows == 0:
+        parts.append(
+            '<button type="submit" class="button primary" '
+            'style="margin-top:16px">✅ Подтвердить импорт</button>'
+        )
+    parts.append("</form>")
+    parts.append(
+        '<p style="margin-top:12px">'
+        '<a href="/web/auto-promo-import" class="button">← Назад</a>'
+        "</p>"
+    )
+    parts.append("</div>")
+
+    return "\n".join(parts)
+
+
+def _auto_promo_recommendations_content(
+    recommendations: list,
+    preview: list[dict],
+    accounts: list,
+    selected_account_id: int | None,
+) -> str:
+    """Render recommendations page."""
+    parts = []
+    parts.append('<div class="card">')
+    parts.append("<h2>🤖 Рекомендации по ценам для автоакций WB</h2>")
+    parts.append(
+        '<p class="text-muted" style="margin-bottom:16px">'
+        "Система проверяет условия автоакций и рассчитывает, "
+        "нужно ли изменить цену. Цена меняется в пределах допуска "
+        "от МРЦ и не ниже minPrice."
+        "</p>"
+    )
+
+    if not accounts:
+        parts.append(
+            '<div class="empty-state">'
+            '<p>Нет активных аккаунтов WB.</p></div></div>'
+        )
+        return "\n".join(parts)
+
+    parts.append(
+        '<form method="get" action="/web/mrc-pricing/auto-promotions/'
+        'recommendations" style="margin-bottom:16px">'
+    )
+    parts.append(
+        '<select name="marketplace_account_id" style="padding:6px 10px;'
+        'border:1px solid var(--color-border);border-radius:6px">'
+    )
+    for acct_id, acct_name in accounts:
+        sel = "selected" if acct_id == selected_account_id else ""
+        parts.append(
+            f'<option value="{acct_id}" {sel}>'
+            f"{escape(acct_name or f'Аккаунт {acct_id}')}"
+            f"</option>"
+        )
+    parts.append("</select>")
+    parts.append(
+        '<button type="submit" class="button primary">'
+        "🔄 Сформировать</button>"
+    )
+    parts.append("</form>")
+
+    if not preview and not recommendations:
+        parts.append(
+            '<div class="empty-state">'
+            '<p>Нет рекомендаций по изменению цен.</p>'
+            '<p><a href="/web/auto-promo-import" '
+            'class="button primary">📥 Импортировать условия</a></p>'
+            '<p><a href="/web/mrc-pricing" class="button">'
+            "← Назад к МРЦ</a></p></div></div>"
+        )
+        return "\n".join(parts)
+
+    parts.append(
+        '<div style="display:flex;gap:12px;flex-wrap:wrap;'
+        'margin-bottom:16px">'
+    )
+    parts.append(
+        f'<div class="kpi-card"><div class="kpi-value">'
+        f'{len(preview)}</div>'
+        '<div class="kpi-label">Всего</div></div>'
+    )
+    can_count = sum(1 for p in preview if p.get("can_change"))
+    parts.append(
+        f'<div class="kpi-card"><div class="kpi-value" '
+        f'style="color:#10b981">{can_count}</div>'
+        '<div class="kpi-label">Можно</div></div>'
+    )
+    parts.append(
+        f'<div class="kpi-card"><div class="kpi-value" '
+        f'style="color:#ef4444">{len(preview) - can_count}</div>'
+        '<div class="kpi-label">Пропущено</div></div>'
+    )
+    parts.append("</div>")
+
+    parts.append(
+        '<form method="post" action="/web/auto-promo-prices/apply">'
+        f'<input type="hidden" name="marketplace_account_id" '
+        f'value="{selected_account_id}">'
+    )
+
+    parts.append(
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;'
+        'margin-bottom:16px">'
+    )
+    parts.append(
+        '<button type="submit" name="dry_run" value="on" '
+        'class="button primary">🔍 Подготовить</button>'
+    )
+    parts.append(
+        '<button type="submit" name="dry_run" value="off" '
+        'class="button" style="background:#ef4444;color:white" '
+        'onclick="return confirm(\'Применить?\')">⚡ Применить</button>'
+    )
+    parts.append("</div>")
+
+    parts.append('<div class="table-wrap">')
+    parts.append("<table>")
+    parts.append("<thead><tr>")
+    parts.append(
+        "<th style='width:30px'>"
+        "<input type='checkbox' id='select-all'></th>"
+    )
+    for th in ["Товар", "nmID", "МРЦ", "Границы МРЦ", "minPrice",
+               "Текущая", "Цена входа", "Рекоменд.", "Статус"]:
+        parts.append(f"<th>{th}</th>")
+    parts.append("</tr></thead>")
+    parts.append("<tbody>")
+
+    for p in preview:
+        parts.append("<tr>")
+        dis = "" if p.get("can_change") else "disabled"
+        parts.append(
+            f"<td><input type='checkbox' name='product_ids' "
+            f"value='{p['product_id']}' class='product-checkbox' "
+            f"{dis}></td>"
+        )
+        title = escape((p.get("title") or "")[:50])
+        art = escape(p.get("seller_article") or "")
+        parts.append(
+            f"<td>{title}<br><small class='text-muted'>{art}</small></td>"
+        )
+        parts.append(f"<td>{p['wb_nm_id']}</td>")
+        parts.append(f"<td>{p['mrc_price']:.0f} ₽</td>")
+        parts.append(
+            f"<td><small>{p['mrc_lower_bound']:.0f} — "
+            f"{p['mrc_upper_bound']:.0f} ₽</small></td>"
+        )
+        mp = p.get("min_price")
+        parts.append(f"<td>{mp:.0f} ₽</td>" if mp else "<td>—</td>")
+        cp = p.get("current_wb_price")
+        parts.append(f"<td>{cp:.0f} ₽</td>" if cp else "<td>—</td>")
+        parts.append(f"<td>{p['recommended_price']:.0f} ₽</td>")
+        parts.append(f"<td><b>{p['recommended_price']:.0f} ₽</b></td>")
+
+        if p.get("can_change"):
+            parts.append(
+                '<td><span class="badge" style="background:#d1fae5;'
+                'color:#065f46">✅</span></td>'
+            )
+        else:
+            skip = escape(p.get("skip_reason") or "—")
+            parts.append(
+                f'<td><span class="badge" style="background:#fee2e2;'
+                f'color:#991b1b">⚠️ {skip}</span></td>'
+            )
+        parts.append("</tr>")
+
+    parts.append("</tbody></table></div>")
+    parts.append("</form>")
+    parts.append("</div>")
+
+    parts.append("""
+    <script>
+    document.getElementById('select-all')?.addEventListener('change',
+    function() {
+        document.querySelectorAll('.product-checkbox:not([disabled])')
+        .forEach(cb => cb.checked = this.checked);
+    });
     </script>
     """)
 
