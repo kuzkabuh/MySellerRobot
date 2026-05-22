@@ -418,6 +418,30 @@ class WildberriesClient:
             ),
         )
 
+    async def get_promotion_details(
+        self,
+        *,
+        promotion_ids: list[int],
+    ) -> dict[str, Any]:
+        """Get details of WB calendar promotions.
+
+        GET https://dp-calendar-api.wildberries.ru/api/v1/calendar/promotions/details
+        Parameter: promotionIDs
+
+        Returns details including participation data for auto promotions.
+        """
+        ids_str = ",".join(str(pid) for pid in promotion_ids)
+        params: dict[str, Any] = {"promotionIDs": ids_str}
+        return cast(
+            dict[str, Any],
+            await self.calendar.request(
+                "GET",
+                "/api/v1/calendar/promotions/details",
+                headers=self.headers,
+                params=params,
+            ),
+        )
+
     async def get_promotion_nomenclatures(
         self,
         *,

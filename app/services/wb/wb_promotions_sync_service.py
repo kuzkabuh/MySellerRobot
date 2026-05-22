@@ -1,7 +1,7 @@
-"""version: 3.0.0
+"""version: 4.0.0
 description: Wildberries daily promotions synchronization service.
     Supports allPromo=true mode, proper data.promotions/data.nomenclatures parsing,
-    rate limiting, extended date range, and detailed diagnostics.
+    rate limiting, extended date range, auto promotion details sync, and detailed diagnostics.
     Fetches promotions from yesterday to 90 days ahead.
 updated: 2026-05-22
 """
@@ -193,8 +193,11 @@ class WbPromotionsSyncService:
             # Don't wipe existing data — WB API may be temporarily unavailable
             return stats
 
-        # Step 2: Upsert promotions
+        # Step 2: Upsert promotions and collect auto promotion IDs
         now_utc = datetime.now(tz=UTC)
+        auto_promotion_ids: list[int] = []
+        auto_promotion_map: dict[int, WbPromotion] = {}
+
         for promo_data in all_promotions:
             try:
                 promo = await self._upsert_promotion(
@@ -212,22 +215,25 @@ class WbPromotionsSyncService:
                 )
                 continue
 
-            # Step 3: Fetch nomenclatures for regular promotions only
+            # Check if this is an auto promotion
             promo_type = promo_data.get("type") or promo_data.get("promoType", "")
             is_auto = promo_type.lower() == "auto"
 
             if is_auto:
                 stats.promotions_skipped_auto += 1
+                auto_promotion_ids.append(promo.wb_promotion_id)
+                auto_promotion_map[promo.wb_promotion_id] = promo
                 logger.info(
-                    "wb_promotions_skip_auto_nomenclatures",
+                    "wb_promotions_auto_promotion_found",
                     extra={
                         "account_id": account.id,
                         "promotion_id": promo.wb_promotion_id,
-                        "promotion_type": promo_type,
+                        "promotion_name": promo.name,
                     },
                 )
                 continue
 
+            # Step 3: Fetch nomenclatures for regular promotions only
             try:
                 nomenclature_count = await self._sync_promotion_nomenclatures(
                     account=account,
@@ -249,7 +255,137 @@ class WbPromotionsSyncService:
                     },
                 )
 
+        # Step 4: Fetch auto promotion details and extract product participation
+        if auto_promotion_ids:
+            auto_stats = await self._sync_auto_promotion_details(
+                account=account,
+                client=client,
+                auto_promotion_ids=auto_promotion_ids,
+                auto_promotion_map=auto_promotion_map,
+                now_utc=now_utc,
+            )
+            stats.nomenclatures_fetched += auto_stats.nomenclatures_fetched
+            stats.errors.extend(auto_stats.errors)
+
         return stats
+
+    async def _sync_auto_promotion_details(
+        self,
+        account: MarketplaceAccount,
+        client: WildberriesClient,
+        auto_promotion_ids: list[int],
+        auto_promotion_map: dict[int, WbPromotion],
+        now_utc: datetime,
+    ) -> WbPromotionsSyncStats:
+        """Fetch details for auto promotions and extract product participation data."""
+        stats = WbPromotionsSyncStats()
+        last_request_time = 0.0
+
+        # Fetch details in batches
+        batch_size = 50
+        for i in range(0, len(auto_promotion_ids), batch_size):
+            batch_ids = auto_promotion_ids[i:i + batch_size]
+
+            # Rate limiting
+            elapsed = time.monotonic() - last_request_time
+            if elapsed < 0.6:
+                await asyncio.sleep(0.6 - elapsed)
+            last_request_time = time.monotonic()
+
+            try:
+                details_response = await client.get_promotion_details(promotion_ids=batch_ids)
+            except Exception:
+                error_msg = f"Failed to fetch details for auto promotions {batch_ids}"
+                stats.errors.append(error_msg)
+                logger.exception(
+                    "wb_auto_promotions_details_fetch_failed",
+                    extra={"account_id": account.id, "promotion_ids": batch_ids},
+                )
+                continue
+
+            # Parse details
+            promo_details = _extract_promotion_details_from_response(details_response)
+
+            for promo_id, detail in promo_details.items():
+                promotion = auto_promotion_map.get(promo_id)
+                if not promotion:
+                    continue
+
+                # Update promotion with details
+                await self._update_auto_promotion_with_details(promotion, detail, now_utc)
+
+                # Extract and save nomenclature data from details
+                nomenclatures = _extract_nomenclatures_from_auto_detail(detail)
+                for nom_data in nomenclatures:
+                    wb_nm_id = int(nom_data.get("id") or nom_data.get("nmId") or nom_data.get("nmID") or 0)
+                    if not wb_nm_id:
+                        continue
+
+                    await self._upsert_auto_promo_nomenclature(
+                        account=account,
+                        promotion=promotion,
+                        item_data=nom_data,
+                        now_utc=now_utc,
+                    )
+                    stats.nomenclatures_fetched += 1
+
+        return stats
+
+    async def _update_auto_promotion_with_details(
+        self,
+        promotion: WbPromotion,
+        detail: dict[str, Any],
+        now_utc: datetime,
+    ) -> None:
+        """Update auto promotion with details data."""
+        if promotion.raw_payload is None:
+            promotion.raw_payload = {}
+        promotion.raw_payload["_details"] = detail
+        promotion.synced_at = now_utc
+        await self.session.flush()
+
+    async def _upsert_auto_promo_nomenclature(
+        self,
+        account: MarketplaceAccount,
+        promotion: WbPromotion,
+        item_data: dict[str, Any],
+        now_utc: datetime,
+    ) -> None:
+        """Upsert nomenclature for auto promotion product."""
+        wb_nm_id = int(item_data.get("id") or item_data.get("nmId") or item_data.get("nmID") or 0)
+        if not wb_nm_id:
+            return
+
+        result = await self.session.execute(
+            select(WbPromotionNomenclature).where(
+                WbPromotionNomenclature.marketplace_account_id == account.id,
+                WbPromotionNomenclature.wb_promotion_id == promotion.wb_promotion_id,
+                WbPromotionNomenclature.wb_nm_id == wb_nm_id,
+                WbPromotionNomenclature.in_action.is_(True),
+            )
+        )
+        nomenclature = result.scalar_one_or_none()
+
+        if nomenclature is None:
+            nomenclature = WbPromotionNomenclature(
+                user_id=account.user_id,
+                marketplace_account_id=account.id,
+                wb_promotion_id=promotion.wb_promotion_id,
+                wb_nm_id=wb_nm_id,
+                in_action=True,
+            )
+            self.session.add(nomenclature)
+
+        nomenclature.current_price = _money(item_data.get("price"))
+        nomenclature.plan_price = _money(
+            item_data.get("planPrice") or item_data.get("requiredPrice") or item_data.get("maxPrice")
+        )
+        nomenclature.current_discount = _decimal_optional(item_data.get("discount"))
+        nomenclature.plan_discount = _decimal_optional(item_data.get("planDiscount"))
+        nomenclature.raw_payload = item_data
+        nomenclature.synced_at = now_utc
+
+        await self.session.flush()
 
     async def _fetch_all_promotions(
         self,
@@ -692,3 +828,59 @@ def _safe_response_preview(response: Any, max_len: int = 1000) -> str:
     if len(preview) > max_len:
         preview = preview[:max_len] + "...(truncated)"
     return preview
+
+
+def _extract_promotion_details_from_response(response: dict[str, Any]) -> dict[int, dict[str, Any]]:
+    """Extract promotion details from WB API response.
+
+    Response format may vary. Try multiple formats:
+    - {"data": {"promotions": [...]}}
+    - {"data": [...]}
+    - {"promotions": [...]}
+    """
+    result: dict[int, dict[str, Any]] = {}
+
+    if not isinstance(response, dict):
+        return result
+
+    data = response.get("data")
+    promotions = None
+    if isinstance(data, dict):
+        promotions = data.get("promotions")
+    elif isinstance(data, list):
+        promotions = data
+
+    if promotions is None:
+        promotions = response.get("promotions")
+
+    if not isinstance(promotions, list):
+        return result
+
+    for promo in promotions:
+        if not isinstance(promo, dict):
+            continue
+        promo_id = int(promo.get("id") or promo.get("promotionId") or 0)
+        if promo_id:
+            result[promo_id] = promo
+
+    return result
+
+
+def _extract_nomenclatures_from_auto_detail(detail: dict[str, Any]) -> list[dict[str, Any]]:
+    """Extract nomenclature/product list from auto promotion details.
+
+    Try multiple field names since WB API structure may vary.
+    """
+    for key in ("nomenclatures", "products", "items"):
+        items = detail.get(key)
+        if isinstance(items, list):
+            return items
+
+    data = detail.get("data")
+    if isinstance(data, dict):
+        for key in ("nomenclatures", "products", "items"):
+            items = data.get(key)
+            if isinstance(items, list):
+                return items
+
+    return []

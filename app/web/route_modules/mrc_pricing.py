@@ -54,6 +54,7 @@ class MrcProductRow:
     promo_plan_price: Decimal | None
     promo_end_date: str | None
     promo_in_action: bool | None
+    promo_type: str | None
 
 
 @dataclass(slots=True)
@@ -754,8 +755,8 @@ async def _load_mrc_page_data(
                 if key not in nm_ids_to_lookup:
                     nm_ids_to_lookup.append(key)
 
-    # Single batch query for all promo nomenclatures
-    promo_map: dict[tuple[int, int], WbPromotionNomenclature] = {}
+    # Single batch query for all promo nomenclatures (including auto promotions)
+    promo_map: dict[tuple[int, int], tuple[WbPromotionNomenclature, str, datetime | None, str | None]] = {}
     if nm_ids_to_lookup:
         conditions = [
             (WbPromotionNomenclature.marketplace_account_id == acct_id)
@@ -763,7 +764,7 @@ async def _load_mrc_page_data(
             for acct_id, nm_id in nm_ids_to_lookup
         ]
         nomenclature_query = (
-            select(WbPromotionNomenclature, WbPromotion.name, WbPromotion.end_datetime)
+            select(WbPromotionNomenclature, WbPromotion.name, WbPromotion.end_datetime, WbPromotion.promotion_type)
             .join(
                 WbPromotion,
                 (WbPromotion.wb_promotion_id == WbPromotionNomenclature.wb_promotion_id)
@@ -784,10 +785,10 @@ async def _load_mrc_page_data(
             )
         )
         nomenclature_result = await session.execute(nomenclature_query)
-        for nom, promo_name, promo_end in nomenclature_result.all():
+        for nom, promo_name, promo_end_dt, promo_type in nomenclature_result.all():
             key = (nom.marketplace_account_id, nom.wb_nm_id)
             if key not in promo_map:
-                promo_map[key] = (nom, promo_name, promo_end)
+                promo_map[key] = (nom, promo_name or "", promo_end_dt, promo_type)
 
     # Enrich with MRC calculation and promo data
     rows = []
@@ -806,8 +807,9 @@ async def _load_mrc_page_data(
         if product.mrc_price and product.mrc_price > 0:
             promo_data = product_nm_map.get(product.id)
             promo_nomenclature = None
+            promo_type = None
             if promo_data and promo_data in promo_map:
-                promo_nomenclature, promo_name, promo_end_dt = promo_map[promo_data]
+                promo_nomenclature, promo_name, promo_end_dt, promo_type = promo_map[promo_data]
 
             promo_required_price = None
             if promo_nomenclature and promo_nomenclature.plan_price:
@@ -841,6 +843,7 @@ async def _load_mrc_page_data(
                 promo_plan_price=promo_plan_price,
                 promo_end_date=promo_end_date,
                 promo_in_action=promo_in_action,
+                promo_type=promo_type,
             )
         )
 
@@ -1340,14 +1343,22 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
             if row.has_active_promo:
                 promo_name = escape(row.promo_name or "Акция WB")
                 promo_price = f"{row.promo_plan_price:.0f}" if row.promo_plan_price else "—"
-                in_action_text = "Участвует" if row.promo_in_action else "Подходит"
-                parts.append(
-                    f"<td><small>{promo_name}<br>{promo_price} ₽ ({in_action_text})</small></td>"
-                )
+                is_auto = row.promo_type and row.promo_type.lower() == "auto"
+                if is_auto:
+                    in_action_text = "Автоакция ✅"
+                    parts.append(
+                        f"<td><small>{promo_name}<br>{promo_price} ₽ ({in_action_text})</small></td>"
+                    )
+                else:
+                    in_action_text = "Участвует" if row.promo_in_action else "Подходит"
+                    parts.append(
+                        f"<td><small>{promo_name}<br>{promo_price} ₽ ({in_action_text})</small></td>"
+                    )
             else:
                 parts.append("<td><small class='text-muted'>Нет акции</small></td>")
 
             # Status badge
+            is_auto_promo = row.promo_type and row.promo_type.lower() == "auto"
             if row.mrc_result:
                 if row.mrc_result.is_limited_by_min_price:
                     parts.append(
@@ -1358,13 +1369,23 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
                         '<td><span class="badge" style="background:#fef3c7;color:#92400e">⚠️ 10% лимит</span></td>'
                     )
                 elif row.mrc_result.is_promo_applied:
-                    parts.append(
-                        '<td><span class="badge" style="background:#d1fae5;color:#065f46">✅ Акция</span></td>'
-                    )
+                    if is_auto_promo:
+                        parts.append(
+                            '<td><span class="badge" style="background:#dbeafe;color:#1e40af">🤖 Автоакция</span></td>'
+                        )
+                    else:
+                        parts.append(
+                            '<td><span class="badge" style="background:#d1fae5;color:#065f46">✅ Акция</span></td>'
+                        )
                 else:
-                    parts.append(
-                        '<td><span class="badge" style="background:#dbeafe;color:#1e40af">ℹ️ МРЦ</span></td>'
-                    )
+                    if is_auto_promo:
+                        parts.append(
+                            '<td><span class="badge" style="background:#dbeafe;color:#1e40af">🤖 Автоакция</span></td>'
+                        )
+                    else:
+                        parts.append(
+                            '<td><span class="badge" style="background:#dbeafe;color:#1e40af">ℹ️ МРЦ</span></td>'
+                        )
             else:
                 if product.mrc_price and product.mrc_price > 0:
                     parts.append(
