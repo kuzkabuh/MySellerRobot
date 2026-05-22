@@ -9,6 +9,7 @@ from arq.connections import RedisSettings
 from app.core.config import get_settings
 from app.core.redis import redis_settings_from_url
 from app.workers.tasks import (
+    check_auto_promo_prices,
     check_fbs_deadlines,
     check_low_stocks,
     check_ozon_commission_source,
@@ -62,6 +63,7 @@ class WorkerSettings:
         check_ozon_commission_source,
         sync_wb_logistics_tariffs,
         sync_wb_daily_promotions,
+        check_auto_promo_prices,
     ]
     order_poll_minutes = {
         0,
@@ -110,6 +112,7 @@ class WorkerSettings:
         cron(check_ozon_commission_source, hour=3, minute=30),
         cron(sync_wb_logistics_tariffs, hour=3, minute=50),
         cron(sync_wb_daily_promotions, minute={15, 45}),
+        cron(check_auto_promo_prices, minute={0, 30}),
     ]
     redis_settings = _redis_settings()
     max_jobs = 10

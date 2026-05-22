@@ -426,12 +426,11 @@ class WildberriesClient:
         """Get details of WB calendar promotions.
 
         GET https://dp-calendar-api.wildberries.ru/api/v1/calendar/promotions/details
-        Parameter: promotionIDs as repeated query params.
-
-        Returns details including participation data for auto promotions.
+        Parameter: promotionIDs as comma-separated string.
         """
+        ids_str = ",".join(str(pid) for pid in promotion_ids)
         params: dict[str, Any] = {
-            "promotionIDs": [str(pid) for pid in promotion_ids],
+            "promotionIDs": ids_str,
         }
         return cast(
             dict[str, Any],

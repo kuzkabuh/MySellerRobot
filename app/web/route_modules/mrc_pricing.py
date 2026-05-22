@@ -29,6 +29,14 @@ from app.models.enums import Marketplace
 from app.services.feature_access_service import FeatureAccessService, FeatureCode
 from app.services.pricing.mrc_import_service import MrcImportService
 from app.services.pricing.mrc_pricing_settings_service import MrcPricingSettingsService
+from app.services.pricing.wb_auto_promo_price_service import (
+    WbAutoPromoPriceService,
+    STATUS_AUTO_PROMO_SET_PRICE,
+    STATUS_AUTO_PROMO_PRICE_OK,
+    STATUS_AUTO_PROMO_PRICE_VIOLATION,
+    STATUS_AUTO_PROMO_MIN_PRICE_VIOLATION,
+    STATUS_AUTO_PROMO_REQUIRED_PRICE_UNKNOWN,
+)
 from app.services.pricing.wb_mrc_price_service import WbMrcPriceResult, WbMrcPriceService
 from app.services.wb.wb_promotions_sync_service import WbPromotionsSyncService
 from app.utils.datetime import format_datetime_for_user
@@ -55,6 +63,10 @@ class MrcProductRow:
     promo_end_date: str | None
     promo_in_action: bool | None
     promo_type: str | None
+    auto_promo_status: str | None = None
+    auto_promo_reason: str | None = None
+    auto_promo_required_price: Decimal | None = None
+    auto_promo_recommended_price: Decimal | None = None
 
 
 @dataclass(slots=True)
@@ -680,6 +692,301 @@ async def cancel_mrc_import(
     return RedirectResponse(url="/web/mrc-pricing?import_cancelled=1", status_code=303)
 
 
+@router.get("/auto-promo-prices", response_class=HTMLResponse)
+async def auto_promo_prices_page(
+    user=CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+    marketplace_account_id: int | None = Query(None),
+) -> str:
+    """Auto promotion price recommendations page."""
+    try:
+        access = await FeatureAccessService(session).can_use_feature(user.id, FeatureCode.MRC_PRICING)
+        if not access.allowed:
+            return render_page(
+                "Цены для автоакций WB",
+                user.first_name or user.username or str(user.telegram_id),
+                _feature_locked_content(access),
+                active_path="/web/mrc-pricing",
+            )
+
+        from app.services.pricing.wb_price_update_service import WbPriceUpdateService
+
+        price_service = WbPriceUpdateService(session)
+
+        if marketplace_account_id is None:
+            first_account = await session.execute(
+                select(MarketplaceAccount.id).where(
+                    MarketplaceAccount.user_id == user.id,
+                    MarketplaceAccount.marketplace == Marketplace.WB,
+                    MarketplaceAccount.is_active.is_(True),
+                ).limit(1)
+            )
+            marketplace_account_id = first_account.scalar_one_or_none()
+
+        preview = []
+        if marketplace_account_id:
+            preview = await price_service.prepare_price_changes(
+                user_id=user.id,
+                marketplace_account_id=marketplace_account_id,
+            )
+
+        accounts_result = await session.execute(
+            select(MarketplaceAccount.id, MarketplaceAccount.name).where(
+                MarketplaceAccount.user_id == user.id,
+                MarketplaceAccount.marketplace == Marketplace.WB,
+                MarketplaceAccount.is_active.is_(True),
+            )
+        )
+        accounts = list(accounts_result.all())
+
+        return render_page(
+            "Цены для автоакций WB",
+            user.first_name or user.username or str(user.telegram_id),
+            _auto_promo_prices_content(preview, accounts, marketplace_account_id),
+            active_path="/web/mrc-pricing",
+        )
+    except Exception:
+        logger.exception("auto_promo_prices_page_failed", extra={"user_id": user.id})
+        return render_page(
+            "Ошибка — Цены для автоакций",
+            user.first_name or user.username or str(user.telegram_id),
+            '<div class="card"><h2>Не удалось загрузить рекомендации</h2>'
+            '<p>Ошибка записана в лог. Попробуйте позже.</p>'
+            '<p><a href="/web/mrc-pricing" class="button primary">Вернуться</a></p></div>',
+            active_path="/web/mrc-pricing",
+        )
+
+
+@router.post("/auto-promo-prices/apply", response_class=HTMLResponse)
+async def auto_promo_prices_apply(
+    request: Request,
+    user=CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    """Apply selected auto promo price changes."""
+    try:
+        access = await FeatureAccessService(session).can_use_feature(user.id, FeatureCode.MRC_PRICING)
+        if not access.allowed:
+            return render_page(
+                "Цены для автоакций WB",
+                user.first_name or user.username or str(user.telegram_id),
+                _feature_locked_content(access),
+                active_path="/web/mrc-pricing",
+            )
+
+        form = await request.form()
+        marketplace_account_id = int(form.get("marketplace_account_id", "0"))
+        dry_run = form.get("dry_run", "on") == "on"
+
+        selected_ids = form.getlist("product_ids")
+        product_ids = [int(x) for x in selected_ids] if selected_ids else None
+
+        wb_api_key = form.get("wb_api_key", "").strip()
+        if not wb_api_key and not dry_run:
+            return RedirectResponse(url="/web/auto-promo-prices?error=no_api_key", status_code=303)
+
+        from app.services.pricing.wb_price_update_service import WbPriceUpdateService
+        from app.core.security import decrypt_value
+
+        price_service = WbPriceUpdateService(session)
+
+        if not dry_run and wb_api_key:
+            api_key_to_use = wb_api_key
+        elif not dry_run:
+            account_result = await session.execute(
+                select(MarketplaceAccount.encrypted_api_key).where(
+                    MarketplaceAccount.id == marketplace_account_id,
+                )
+            )
+            encrypted_key = account_result.scalar_one_or_none()
+            if encrypted_key:
+                api_key_to_use = decrypt_value(encrypted_key)
+            else:
+                return RedirectResponse(url="/web/auto-promo-prices?error=no_api_key", status_code=303)
+        else:
+            api_key_to_use = "dry_run"
+
+        results = await price_service.apply_price_changes(
+            user_id=user.id,
+            marketplace_account_id=marketplace_account_id,
+            wb_api_key=api_key_to_use,
+            product_ids=product_ids,
+            dry_run=dry_run,
+        )
+
+        await session.commit()
+
+        applied = sum(1 for r in results if r["status"] == "applied")
+        dry_count = sum(1 for r in results if r["status"] == "dry_run")
+        skipped = sum(1 for r in results if r["status"] == "skipped")
+        failed = sum(1 for r in results if r["status"] == "failed")
+
+        msg_parts = []
+        if dry_run:
+            msg_parts.append(f"Preview: {len(results)} товаров")
+        else:
+            if applied:
+                msg_parts.append(f"Применено: {applied}")
+            if skipped:
+                msg_parts.append(f"Пропущено: {skipped}")
+            if failed:
+                msg_parts.append(f"Ошибки: {failed}")
+
+        query = f"result={'_'.join(msg_parts)}"
+        return RedirectResponse(url=f"/web/auto-promo-prices?{query}", status_code=303)
+    except Exception:
+        logger.exception("auto_promo_prices_apply_failed", extra={"user_id": user.id})
+        return RedirectResponse(url="/web/auto-promo-prices?error=apply_failed", status_code=303)
+
+
+def _auto_promo_prices_content(
+    preview: list[dict],
+    accounts: list,
+    selected_account_id: int | None,
+) -> str:
+    """Render auto promo prices page content."""
+    parts = []
+    parts.append('<div class="card">')
+    parts.append("<h2>🤖 Рекомендации по ценам для автоакций WB</h2>")
+    parts.append(
+        '<p class="text-muted" style="margin-bottom:16px">'
+        "Система проверяет активные автоакции WB и рассчитывает, нужно ли изменить цену товара "
+        "для участия. Цена меняется только в пределах допустимого отклонения от МРЦ и не ниже minPrice."
+        "</p>"
+    )
+
+    if not accounts:
+        parts.append(
+            '<div class="empty-state">'
+            '<p>Нет активных аккаунтов WB.</p>'
+            '<p><a href="/web/mrc-pricing" class="button primary">← Назад к МРЦ</a></p>'
+            "</div>"
+        )
+        return "\n".join(parts)
+
+    parts.append('<form method="get" action="/web/auto-promo-prices" style="margin-bottom:16px">')
+    parts.append('<select name="marketplace_account_id" style="padding:6px 10px;border:1px solid var(--color-border);border-radius:6px">')
+    for acct_id, acct_name in accounts:
+        selected = "selected" if acct_id == selected_account_id else ""
+        parts.append(f'<option value="{acct_id}" {selected}>{escape(acct_name or f"Аккаунт {acct_id}")}</option>')
+    parts.append("</select>")
+    parts.append('<button type="submit" class="button primary">Загрузить</button>')
+    parts.append("</form>")
+
+    if not preview:
+        parts.append(
+            '<div class="empty-state">'
+            '<p>Нет рекомендаций по изменению цен.</p>'
+            '<p class="text-muted">Это может означать, что:</p>'
+            '<ul><li>Нет активных автоакций</li>'
+            '<li>Цены уже подходят для автоакций</li>'
+            '<li>Изменение цены нарушит МРЦ или minPrice</li>'
+            '<li>Требуется синхронизация акций WB</li></ul>'
+            '<p><a href="/web/mrc-pricing" class="button primary">← Назад к МРЦ</a></p>'
+            "</div>"
+        )
+        parts.append("</div>")
+        return "\n".join(parts)
+
+    can_apply = any(p["can_change"] for p in preview)
+
+    parts.append(
+        f'<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">'
+        f'<div class="kpi-card"><div class="kpi-value">{len(preview)}</div>'
+        '<div class="kpi-label">Всего рекомендаций</div></div>'
+        f'<div class="kpi-card"><div class="kpi-value" style="color:#10b981">{sum(1 for p in preview if p["can_change"])}</div>'
+        '<div class="kpi-label">Можно применить</div></div>'
+        f'<div class="kpi-card"><div class="kpi-value" style="color:#ef4444">{sum(1 for p in preview if not p["can_change"])}</div>'
+        '<div class="kpi-label">Пропущено</div></div>'
+        "</div>"
+    )
+
+    parts.append(
+        '<form method="post" action="/web/auto-promo-prices/apply" id="apply-form">'
+        f'<input type="hidden" name="marketplace_account_id" value="{selected_account_id}">'
+    )
+
+    parts.append('<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">')
+    parts.append(
+        '<button type="submit" name="dry_run" value="on" class="button primary">🔍 Подготовить изменение цен</button>'
+    )
+    parts.append(
+        '<button type="submit" name="dry_run" value="off" class="button" '
+        'style="background:#ef4444;color:white" '
+        'onclick="return confirm(\'Применить изменения цен в WB? Это действие нельзя отменить.\')">⚡ Применить выбранные</button>'
+    )
+    parts.append("</div>")
+
+    parts.append('<div class="table-wrap">')
+    parts.append("<table>")
+    parts.append("<thead><tr>")
+    parts.append("<th style='width:30px'><input type='checkbox' id='select-all'></th>")
+    parts.append("<th>Товар</th>")
+    parts.append("<th>nmID</th>")
+    parts.append("<th>МРЦ</th>")
+    parts.append("<th>Текущая цена</th>")
+    parts.append("<th>Цена входа</th>")
+    parts.append("<th>Границы МРЦ</th>")
+    parts.append("<th>Рекомендуемая</th>")
+    parts.append("<th>Статус</th>")
+    parts.append("</tr></thead>")
+    parts.append("<tbody>")
+
+    for p in preview:
+        parts.append("<tr>")
+        checkbox_disabled = "" if p["can_change"] else "disabled"
+        parts.append(
+            f"<td><input type='checkbox' name='product_ids' value='{p['product_id']}' "
+            f"class='product-checkbox' {checkbox_disabled}></td>"
+        )
+        title = escape((p.get("title") or "")[:50])
+        article = escape(p.get("seller_article") or "")
+        parts.append(f"<td>{title}<br><small class='text-muted'>{article}</small></td>")
+        parts.append(f"<td>{p['wb_nm_id']}</td>")
+        parts.append(f"<td>{p['mrc_price']:.0f} ₽</td>")
+        parts.append(f"<td>{p['current_wb_price']:.0f} ₽" if p["current_wb_price"] else "<td>—")
+        parts.append(f"</td><td>{p['recommended_price']:.0f} ₽</td>")
+        parts.append(
+            f"<td><small>{p['mrc_lower_bound']:.0f} — {p['mrc_upper_bound']:.0f} ₽</small></td>"
+        )
+        parts.append(f"<td><b>{p['recommended_price']:.0f} ₽</b></td>")
+
+        if p["can_change"]:
+            parts.append(
+                '<td><span class="badge" style="background:#d1fae5;color:#065f46">✅ Можно</span></td>'
+            )
+        else:
+            skip_reason = escape(p.get("skip_reason") or "Пропущено")
+            parts.append(
+                f'<td><span class="badge" style="background:#fee2e2;color:#991b1b">⚠️ {skip_reason}</span></td>'
+            )
+
+        parts.append("</tr>")
+
+    parts.append("</tbody></table>")
+    parts.append("</div>")
+    parts.append("</form>")
+
+    parts.append(
+        '<p class="text-muted" style="margin-top:16px;font-size:13px">'
+        "⚠️ Изменение цен отправляется в WB API. minPrice не меняется. "
+        "Перед применением рекомендуется нажать «Подготовить изменение цен» для проверки."
+        "</p>"
+    )
+
+    parts.append("</div>")
+
+    parts.append("""
+    <script>
+    document.getElementById('select-all')?.addEventListener('change', function() {
+        document.querySelectorAll('.product-checkbox:not([disabled])').forEach(cb => cb.checked = this.checked);
+    });
+    </script>
+    """)
+
+    return "\n".join(parts)
+
+
 @router.get("/wb-promotions", response_class=HTMLResponse)
 async def wb_promotions_page(
     user=CURRENT_WEB_USER_DEPENDENCY,
@@ -843,6 +1150,25 @@ async def _load_mrc_page_data(
     products_limited_by_mrc = 0
     products_limited_by_min = 0
 
+    # Pre-load auto promo price service for products without nomenclature
+    auto_price_service = WbAutoPromoPriceService(session)
+
+    # Collect account IDs that have active auto promotions
+    accounts_with_auto: dict[int, list[WbPromotion]] = {}
+    if has_active_auto_promotions:
+        auto_promos_result = await session.execute(
+            select(WbPromotion).where(
+                WbPromotion.marketplace_account_id.in_(
+                    select(MarketplaceAccount.id).where(MarketplaceAccount.user_id == user_id)
+                ),
+                WbPromotion.promotion_type == "auto",
+                WbPromotion.start_datetime <= now_utc,
+                WbPromotion.end_datetime >= now_utc,
+            )
+        )
+        for promo in auto_promos_result.scalars().all():
+            accounts_with_auto.setdefault(promo.marketplace_account_id, []).append(promo)
+
     for product, account_name in product_rows:
         mrc_result = None
         has_active_promo = False
@@ -850,11 +1176,16 @@ async def _load_mrc_page_data(
         promo_plan_price = None
         promo_end_date = None
         promo_in_action = None
+        promo_type = None
+
+        auto_promo_status: str | None = None
+        auto_promo_reason: str | None = None
+        auto_promo_required_price: Decimal | None = None
+        auto_promo_recommended_price: Decimal | None = None
 
         if product.mrc_price and product.mrc_price > 0:
             promo_data = product_nm_map.get(product.id)
             promo_nomenclature = None
-            promo_type = None
             if promo_data and promo_data in promo_map:
                 promo_nomenclature, promo_name, promo_end_dt, promo_type = promo_map[promo_data]
 
@@ -880,6 +1211,27 @@ async def _load_mrc_page_data(
             except Exception:
                 logger.exception("mrc_calculation_failed", extra={"product_id": product.id})
 
+            # If no promo nomenclature found but auto promotions exist, compute auto promo status
+            if not has_active_promo and has_active_auto_promotions:
+                acct_auto_promos = accounts_with_auto.get(product.marketplace_account_id, [])
+                if acct_auto_promos:
+                    required_price = await _find_auto_promo_required_price(
+                        session=session,
+                        marketplace_account_id=product.marketplace_account_id,
+                        wb_nm_id=_extract_nm_id(product),
+                        active_promos=acct_auto_promos,
+                    )
+
+                    auto_rec = await auto_price_service.build_recommendation(
+                        product=product,
+                        current_wb_price=None,
+                        required_price=required_price,
+                    )
+                    auto_promo_status = auto_rec.status
+                    auto_promo_reason = auto_rec.reason
+                    auto_promo_required_price = auto_rec.required_price
+                    auto_promo_recommended_price = auto_rec.recommended_price
+
         rows.append(
             MrcProductRow(
                 product=product,
@@ -891,6 +1243,10 @@ async def _load_mrc_page_data(
                 promo_end_date=promo_end_date,
                 promo_in_action=promo_in_action,
                 promo_type=promo_type,
+                auto_promo_status=auto_promo_status,
+                auto_promo_reason=auto_promo_reason,
+                auto_promo_required_price=auto_promo_required_price,
+                auto_promo_recommended_price=auto_promo_recommended_price,
             )
         )
 
@@ -1245,6 +1601,48 @@ def _extract_nm_id(product: Product) -> int | None:
     return None
 
 
+async def _find_auto_promo_required_price(
+    session: AsyncSession,
+    marketplace_account_id: int,
+    wb_nm_id: int | None,
+    active_promos: list[WbPromotion],
+) -> Decimal | None:
+    """Find the required price for a product from active auto promotions."""
+    if wb_nm_id is None or not active_promos:
+        return None
+
+    active_promo_ids = [p.wb_promotion_id for p in active_promos]
+
+    result = await session.execute(
+        select(WbPromotionNomenclature.plan_price)
+        .where(
+            WbPromotionNomenclature.marketplace_account_id == marketplace_account_id,
+            WbPromotionNomenclature.wb_nm_id == wb_nm_id,
+            WbPromotionNomenclature.wb_promotion_id.in_(active_promo_ids),
+            WbPromotionNomenclature.plan_price.isnot(None),
+            WbPromotionNomenclature.plan_price > 0,
+        )
+        .order_by(WbPromotionNomenclature.plan_price.asc())
+        .limit(1)
+    )
+    price = result.scalar_one_or_none()
+    if price is not None:
+        return price
+
+    for promo in active_promos:
+        if promo.raw_payload and "_details" in promo.raw_payload:
+            details = promo.raw_payload["_details"]
+            for key in ("planPrice", "requiredPrice", "maxPrice"):
+                val = details.get(key)
+                if val is not None:
+                    try:
+                        return Decimal(str(val))
+                    except Exception:
+                        continue
+
+    return None
+
+
 def _feature_locked_content(access) -> str:
     """Render feature locked message."""
     return f"""
@@ -1365,6 +1763,10 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
     parts.append(
         '<a href="/web/wb-promotions" class="button">🎯 Акции WB</a>'
     )
+    if data.has_active_auto_promotions:
+        parts.append(
+            '<a href="/web/auto-promo-prices" class="button" style="background:#dbeafe;color:#1e40af">🤖 Цены для автоакций</a>'
+        )
     parts.append(
         '<a href="/web/mrc-pricing/settings" class="button">⚙️ Настройки МРЦ</a>'
     )
@@ -1507,6 +1909,29 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
                     parts.append(
                         f"<td><small>{promo_name}<br>{promo_price} ₽ ({in_action_text})</small></td>"
                     )
+            elif row.auto_promo_status:
+                # Auto promotion status computed
+                if row.auto_promo_status == STATUS_AUTO_PROMO_SET_PRICE:
+                    rec_price = f"{row.auto_promo_recommended_price:.0f}" if row.auto_promo_recommended_price else "?"
+                    parts.append(
+                        f"<td><small style='color:#3b82f6'>Автоакция WB:<br>цена входа {rec_price} ₽</small></td>"
+                    )
+                elif row.auto_promo_status == STATUS_AUTO_PROMO_PRICE_OK:
+                    parts.append(
+                        "<td><small style='color:#10b981'>Автоакция WB:<br>цена подходит</small></td>"
+                    )
+                elif row.auto_promo_status in (STATUS_AUTO_PROMO_PRICE_VIOLATION, STATUS_AUTO_PROMO_MIN_PRICE_VIOLATION):
+                    parts.append(
+                        "<td><small style='color:#ef4444'>Автоакция WB:<br>цена ниже допустимой</small></td>"
+                    )
+                elif row.auto_promo_status == STATUS_AUTO_PROMO_REQUIRED_PRICE_UNKNOWN:
+                    parts.append(
+                        "<td><small style='color:#f59e0b'>Автоакции WB найдены,<br>нужна цена входа</small></td>"
+                    )
+                else:
+                    parts.append(
+                        "<td><small class='text-muted'>Автоакция WB:<br>ожидание синхронизации</small></td>"
+                    )
             else:
                 # No promo nomenclature found for this product
                 has_any_active_promo = data.active_promotions_count > 0
@@ -1515,25 +1940,20 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
                 noms_synced = data.nomenclatures_count > 0
 
                 if not has_any_active_promo:
-                    # No active promotions at all
                     parts.append("<td><small class='text-muted'>Нет акции</small></td>")
                 elif has_auto_promo and not noms_synced:
-                    # Auto promotions exist but nomenclatures not synced yet
                     parts.append(
                         "<td><small class='text-muted'>Автоакции WB найдены,<br>участие уточняется</small></td>"
                     )
                 elif has_auto_promo and noms_synced and not has_regular_promo:
-                    # Only auto promotions active, nomenclatures synced but product not found
                     parts.append(
                         "<td><small class='text-muted'>Автоакция WB:<br>требуется проверка цены</small></td>"
                     )
                 elif has_regular_promo and not noms_synced:
-                    # Regular promotions exist but nomenclatures not synced
                     parts.append(
                         "<td><small class='text-muted'>Товары акций не<br>синхронизированы</small></td>"
                     )
                 elif has_regular_promo and noms_synced:
-                    # Regular promotions synced, product confirmed not in any
                     if has_auto_promo:
                         parts.append(
                             "<td><small class='text-muted'>Нет в регулярных;<br>автоакция уточняется</small></td>"
@@ -1546,7 +1966,23 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
 
             # Status badge
             is_auto_promo = row.promo_type and row.promo_type.lower() == "auto"
-            if row.mrc_result:
+            if row.auto_promo_status == STATUS_AUTO_PROMO_SET_PRICE:
+                parts.append(
+                    '<td><span class="badge" style="background:#dbeafe;color:#1e40af">🤖 Можно войти</span></td>'
+                )
+            elif row.auto_promo_status == STATUS_AUTO_PROMO_PRICE_OK:
+                parts.append(
+                    '<td><span class="badge" style="background:#d1fae5;color:#065f46">🤖 В автоакции</span></td>'
+                )
+            elif row.auto_promo_status in (STATUS_AUTO_PROMO_PRICE_VIOLATION, STATUS_AUTO_PROMO_MIN_PRICE_VIOLATION):
+                parts.append(
+                    '<td><span class="badge" style="background:#fee2e2;color:#991b1b">🤖 Нарушение МРЦ</span></td>'
+                )
+            elif row.auto_promo_status == STATUS_AUTO_PROMO_REQUIRED_PRICE_UNKNOWN:
+                parts.append(
+                    '<td><span class="badge" style="background:#fef3c7;color:#92400e">🤖 Нужна цена</span></td>'
+                )
+            elif row.mrc_result:
                 if row.mrc_result.is_limited_by_min_price:
                     parts.append(
                         '<td><span class="badge" style="background:#fef3c7;color:#92400e">⚠️ minPrice</span></td>'
@@ -1601,6 +2037,18 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
                 reason = escape(row.mrc_result.reason)
                 parts.append(
                     f'<tr><td colspan="10"><small style="color:#f59e0b">⚠️ {reason}</small></td></tr>'
+                )
+
+            # Auto promo recommendation row
+            if row.auto_promo_status == STATUS_AUTO_PROMO_SET_PRICE and row.auto_promo_reason:
+                reason = escape(row.auto_promo_reason)
+                parts.append(
+                    f'<tr><td colspan="10"><small style="color:#3b82f6">🤖 {reason}</small></td></tr>'
+                )
+            elif row.auto_promo_status in (STATUS_AUTO_PROMO_PRICE_VIOLATION, STATUS_AUTO_PROMO_MIN_PRICE_VIOLATION) and row.auto_promo_reason:
+                reason = escape(row.auto_promo_reason)
+                parts.append(
+                    f'<tr><td colspan="10"><small style="color:#ef4444">🤖 {reason}</small></td></tr>'
                 )
 
         parts.append("</tbody></table>")

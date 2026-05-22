@@ -1113,3 +1113,120 @@ async def sync_wb_daily_promotions(ctx: dict[str, Any]) -> None:
                 await session.rollback()
             except Exception:
                 pass
+
+
+async def check_auto_promo_prices(ctx: dict[str, Any]) -> None:
+    """Check auto promotion prices and optionally apply safe changes.
+
+    Runs every 30 minutes. For accounts with auto_price_for_auto_promotions enabled,
+    builds recommendations and applies only safe price changes.
+    """
+    from app.core.security import TokenCipher, decrypt_value
+    from app.models.domain import MrcPricingSettings
+    from app.services.pricing.wb_auto_promo_price_service import (
+        WbAutoPromoPriceService,
+        STATUS_AUTO_PROMO_SET_PRICE,
+    )
+    from app.services.pricing.wb_price_update_service import WbPriceUpdateService
+
+    async with AsyncSessionFactory() as session:
+        try:
+            settings_result = await session.execute(
+                select(MrcPricingSettings).where(
+                    MrcPricingSettings.auto_promo_check_enabled.is_(True),
+                )
+            )
+            settings_list = list(settings_result.scalars().all())
+
+            if not settings_list:
+                return
+
+            auto_price_service = WbAutoPromoPriceService(session)
+            price_update_service = WbPriceUpdateService(session)
+
+            total_recommendations = 0
+            total_applied = 0
+            total_skipped = 0
+
+            for settings in settings_list:
+                if settings.marketplace_account_id is None:
+                    continue
+
+                recommendations = await auto_price_service.build_recommendations_for_active_auto_promos(
+                    user_id=settings.user_id,
+                    marketplace_account_id=settings.marketplace_account_id,
+                )
+
+                for rec in recommendations:
+                    await auto_price_service.save_recommendation(
+                        rec=rec,
+                        user_id=settings.user_id,
+                        marketplace_account_id=settings.marketplace_account_id,
+                    )
+                    total_recommendations += 1
+
+                if settings.auto_price_for_auto_promotions:
+                    account_result = await session.execute(
+                        select(MarketplaceAccount).where(
+                            MarketplaceAccount.id == settings.marketplace_account_id,
+                        )
+                    )
+                    account = account_result.scalar_one_or_none()
+                    if account and account.encrypted_api_key:
+                        try:
+                            api_key = decrypt_value(account.encrypted_api_key)
+                            results = await price_update_service.apply_price_changes(
+                                user_id=settings.user_id,
+                                marketplace_account_id=settings.marketplace_account_id,
+                                wb_api_key=api_key,
+                                dry_run=False,
+                            )
+                            for r in results:
+                                if r["status"] == "applied":
+                                    total_applied += 1
+                                elif r["status"] in ("skipped", "failed"):
+                                    total_skipped += 1
+                        except Exception:
+                            logger.exception(
+                                "auto_promo_price_apply_failed",
+                                extra={"account_id": settings.marketplace_account_id},
+                            )
+
+            await session.commit()
+
+            if total_recommendations > 0 or total_applied > 0:
+                logger.info(
+                    "auto_promo_price_check_completed",
+                    extra={
+                        "recommendations": total_recommendations,
+                        "prices_applied": total_applied,
+                        "prices_skipped": total_skipped,
+                    },
+                )
+
+                if total_applied > 0:
+                    try:
+                        async with bot_session() as bot:
+                            for settings in settings_list:
+                                if settings.auto_price_for_auto_promotions:
+                                    user_result = await session.execute(
+                                        select(User).where(User.id == settings.user_id)
+                                    )
+                                    user = user_result.scalar_one_or_none()
+                                    if user and user.telegram_id:
+                                        await bot.send_message(
+                                            chat_id=user.telegram_id,
+                                            text=(
+                                                f"🤖 Автоакции WB: изменено цен — {total_applied}, "
+                                                f"пропущено — {total_skipped}"
+                                            ),
+                                        )
+                    except Exception:
+                        logger.exception("auto_promo_telegram_notification_failed")
+
+        except Exception:
+            logger.exception("auto_promo_price_check_task_failed")
+            try:
+                await session.rollback()
+            except Exception:
+                pass
