@@ -539,15 +539,51 @@ class MrcImportService:
             raise ValueError("Предварительная проверка файла устарела или не найдена. Загрузите файл заново.")
 
         if mrc_import.user_id != user_id:
+            logger.warning(
+                "mrc_import_confirm_rejected",
+                extra={
+                    "import_id": import_id,
+                    "expected_user_id": user_id,
+                    "actual_user_id": mrc_import.user_id,
+                    "reason": "wrong_user_id",
+                },
+            )
             raise ValueError("Доступ запрещён.")
 
         if mrc_import.status == "applied":
+            logger.warning(
+                "mrc_import_confirm_rejected",
+                extra={
+                    "import_id": import_id,
+                    "status": mrc_import.status,
+                    "applied_at": str(mrc_import.applied_at),
+                    "reason": "already_applied",
+                },
+            )
             raise ValueError("Этот файл уже был сохранён ранее.")
 
         if mrc_import.status in ("cancelled", "failed"):
+            logger.warning(
+                "mrc_import_confirm_rejected",
+                extra={
+                    "import_id": import_id,
+                    "status": mrc_import.status,
+                    "reason": "wrong_status",
+                },
+            )
             raise ValueError(f"Импорт имеет статус '{mrc_import.status}' и не может быть применён.")
 
-        if mrc_import.expires_at and mrc_import.expires_at < datetime.now(tz=UTC):
+        now_utc = datetime.now(tz=UTC)
+        if mrc_import.expires_at and mrc_import.expires_at < now_utc:
+            logger.warning(
+                "mrc_import_confirm_rejected",
+                extra={
+                    "import_id": import_id,
+                    "expires_at": str(mrc_import.expires_at),
+                    "now_utc": str(now_utc),
+                    "reason": "expired",
+                },
+            )
             raise ValueError("Предварительная проверка файла истекла. Загрузите файл заново.")
 
         if mrc_import.valid_rows == 0:

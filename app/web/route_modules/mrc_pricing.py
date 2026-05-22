@@ -390,7 +390,7 @@ async def export_mrc_template(
         )
 
 
-@router.post("/mrc-pricing/import")
+@router.post("/mrc-pricing/import", response_class=HTMLResponse)
 async def import_mrc_file(
     file: UploadFile,
     user=CURRENT_WEB_USER_DEPENDENCY,
@@ -519,7 +519,6 @@ async def cancel_mrc_import(
         service = MrcImportService(session)
         await service.cancel_import(int(import_id), user_id)
     except Exception:
-        await session.rollback()
         logger.exception("mrc_import_cancel_failed", extra={"user_id": user_id})
 
     return RedirectResponse(url="/web/mrc-pricing?import_cancelled=1", status_code=303)

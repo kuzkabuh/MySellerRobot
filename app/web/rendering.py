@@ -474,6 +474,8 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
       background: var(--line);
     }}
     .kpi-card {{ background: var(--panel); }}
+    .kpi-card .kpi-value {{ display:block;font-size:28px;line-height:1.2;font-weight:700;color:var(--text); }}
+    .kpi-card .kpi-label {{ display:block;color:var(--muted);font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;margin-top:6px; }}
     .kpi:hover {{
       box-shadow: var(--shadow-md);
       transform: translateY(-1px);
