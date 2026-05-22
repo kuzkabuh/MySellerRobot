@@ -325,20 +325,37 @@ async def trigger_promotions_sync(
     """Manually trigger WB promotions sync (allPromo=true)."""
     service = WbPromotionsSyncService(session)
     try:
-        stats = await service.sync_all_accounts(all_promo=True)
-        await session.commit()
-        return RedirectResponse(
-            url=(
-                f"/web/mrc-pricing?sync_done=1&promos={stats.promotions_upserted}"
-                f"&nomenclatures={stats.nomenclatures_upserted}"
-                f"&raw_promos={stats.promotions_fetched}&all_promo=true"
-                f"&auto_skipped={stats.promotions_skipped_auto}"
-            ),
-            status_code=303,
-        )
+        acquired, lock_msg = await service.try_acquire_sync_lock()
+        if not acquired:
+            return RedirectResponse(
+                url=f"/web/mrc-pricing?sync_cooldown=1&message={lock_msg}",
+                status_code=303,
+            )
+        try:
+            stats = await service.sync_all_accounts(all_promo=True)
+            await session.commit()
+            return RedirectResponse(
+                url=(
+                    f"/web/mrc-pricing?sync_done=1&promos={stats.promotions_upserted}"
+                    f"&nomenclatures={stats.nomenclatures_upserted}"
+                    f"&raw_promos={stats.promotions_fetched}&all_promo=true"
+                    f"&auto_skipped={stats.promotions_skipped_auto}"
+                    f"&rate_limits={stats.rate_limit_hits}"
+                    f"&regular_processed={stats.regular_promotions_processed}"
+                    f"&regular_empty={stats.regular_nomenclatures_empty}"
+                    f"&auto_details_failed={stats.auto_details_failed}"
+                ),
+                status_code=303,
+            )
+        finally:
+            await service.release_sync_lock()
     except Exception:
         logger.exception("wb_promotions_manual_sync_failed")
         await session.rollback()
+        try:
+            await service.release_sync_lock()
+        except Exception:
+            pass
         return RedirectResponse(url="/web/mrc-pricing?sync_error=1", status_code=303)
 
 
@@ -350,20 +367,37 @@ async def trigger_promotions_sync_limited(
     """Manually trigger WB promotions sync (allPromo=false — only joinable promos)."""
     service = WbPromotionsSyncService(session)
     try:
-        stats = await service.sync_all_accounts(all_promo=False)
-        await session.commit()
-        return RedirectResponse(
-            url=(
-                f"/web/mrc-pricing?sync_done=1&promos={stats.promotions_upserted}"
-                f"&nomenclatures={stats.nomenclatures_upserted}"
-                f"&raw_promos={stats.promotions_fetched}&all_promo=false"
-                f"&auto_skipped={stats.promotions_skipped_auto}"
-            ),
-            status_code=303,
-        )
+        acquired, lock_msg = await service.try_acquire_sync_lock()
+        if not acquired:
+            return RedirectResponse(
+                url=f"/web/mrc-pricing?sync_cooldown=1&message={lock_msg}",
+                status_code=303,
+            )
+        try:
+            stats = await service.sync_all_accounts(all_promo=False)
+            await session.commit()
+            return RedirectResponse(
+                url=(
+                    f"/web/mrc-pricing?sync_done=1&promos={stats.promotions_upserted}"
+                    f"&nomenclatures={stats.nomenclatures_upserted}"
+                    f"&raw_promos={stats.promotions_fetched}&all_promo=false"
+                    f"&auto_skipped={stats.promotions_skipped_auto}"
+                    f"&rate_limits={stats.rate_limit_hits}"
+                    f"&regular_processed={stats.regular_promotions_processed}"
+                    f"&regular_empty={stats.regular_nomenclatures_empty}"
+                    f"&auto_details_failed={stats.auto_details_failed}"
+                ),
+                status_code=303,
+            )
+        finally:
+            await service.release_sync_lock()
     except Exception:
         logger.exception("wb_promotions_manual_sync_limited_failed")
         await session.rollback()
+        try:
+            await service.release_sync_lock()
+        except Exception:
+            pass
         return RedirectResponse(url="/web/mrc-pricing?sync_error=1", status_code=303)
 
 
@@ -1602,12 +1636,27 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
     parts.append("</ul>")
     parts.append("</div>")
 
-    # JavaScript for select all
+    # JavaScript for select all and sync button cooldown
     parts.append("""
     <script>
     document.getElementById('select-all')?.addEventListener('change', function() {
         document.querySelectorAll('.product-checkbox').forEach(cb => cb.checked = this.checked);
     });
+
+    // Sync button cooldown
+    (function() {
+        const syncForms = document.querySelectorAll('form[action*="sync-promotions"]');
+        syncForms.forEach(form => {
+            const btn = form.querySelector('button[type="submit"]');
+            if (!btn) return;
+            form.addEventListener('submit', function() {
+                btn.disabled = true;
+                btn.textContent = '⏳ Синхронизация...';
+                btn.style.opacity = '0.6';
+                btn.style.cursor = 'not-allowed';
+            });
+        });
+    })();
     </script>
     """)
 
@@ -1638,15 +1687,32 @@ def _flash_messages() -> str:
             const promos = params.get('promos') || '0';
             const noms = params.get('nomenclatures') || '0';
             const autoSkipped = params.get('auto_skipped') || '0';
+            const rateLimits = params.get('rate_limits') || '0';
+            const regularProcessed = params.get('regular_processed') || '0';
+            const regularEmpty = params.get('regular_empty') || '0';
+            const autoDetailsFailed = params.get('auto_details_failed') || '0';
             const modeText = allPromo === 'true' ? 'все акции (allPromo=true)' : 'только доступные (allPromo=false)';
             msg = '✅ Синхронизация акций завершена (' + modeText + ')\\n'
                 + 'WB вернул акций: ' + rawPromos
                 + ' | Сохранено: ' + promos
-                + ' | Автоакций пропущено: ' + autoSkipped
-                + ' | Товаров в акциях: ' + noms;
+                + ' | Автоакций: ' + autoSkipped
+                + ' | Товаров в акциях: ' + noms
+                + ' | Regular обработано: ' + regularProcessed
+                + ' | Regular пустых: ' + regularEmpty
+                + ' | Auto details ошибок: ' + autoDetailsFailed;
+            if (rateLimits !== '0') {
+                msg += '\\n⚠️ Rate limit срабатываний: ' + rateLimits;
+            }
             if (rawPromos === '0' && allPromo === 'false') {
                 msg += '\\n💡 WB вернул 0 доступных акций. Попробуйте основную синхронизацию allPromo=true.';
             }
+            if (parseInt(autoSkipped) > 0 && parseInt(noms) === 0) {
+                msg += '\\nℹ️ Автоакции найдены, но товары акций не загружены. Это нормально для auto promotions.';
+            }
+        }
+        if (params.get('sync_cooldown') === '1') {
+            const message = params.get('message') || 'Синхронизация уже запускалась. Подождите.';
+            msg = '⏳ ' + message;
         }
         if (params.get('sync_error') === '1') msg = '❌ Ошибка синхронизации акций';
         if (params.get('error') === 'invalid_mrc') msg = '❌ МРЦ должна быть положительным числом';

@@ -1,8 +1,9 @@
-"""version: 4.0.0
+"""version: 5.0.0
 description: Wildberries daily promotions synchronization service.
     Supports allPromo=true mode, proper data.promotions/data.nomenclatures parsing,
     rate limiting, extended date range, auto promotion details sync, and detailed diagnostics.
     Fetches promotions from yesterday to 90 days ahead.
+    Includes Redis-based sync lock to prevent concurrent runs.
 updated: 2026-05-22
 """
 
@@ -14,6 +15,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,6 +31,10 @@ from app.models.domain import (
 from app.models.enums import Marketplace
 
 logger = logging.getLogger(__name__)
+
+PROMOTIONS_SYNC_LOCK_KEY = "wb-promotions-sync:lock"
+PROMOTIONS_SYNC_LOCK_TTL = 300  # 5 minutes max lock duration
+PROMOTIONS_SYNC_COOLDOWN = 60  # 60 seconds cooldown between manual syncs
 
 
 @dataclass(slots=True)
@@ -47,6 +53,12 @@ class WbPromotionsSyncStats:
     sync_period_start: str = ""
     sync_period_end: str = ""
     errors: list[str] = field(default_factory=list)
+    rate_limit_hits: int = 0
+    regular_promotions_processed: int = 0
+    regular_nomenclatures_empty: int = 0
+    auto_details_failed: int = 0
+    auto_details_success: int = 0
+    sync_in_progress: bool = False
 
 
 class WbPromotionsSyncService:
@@ -57,10 +69,74 @@ class WbPromotionsSyncService:
     regular (non-auto) promotions.
     """
 
-    def __init__(self, session: AsyncSession, cipher: TokenCipher | None = None) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        cipher: TokenCipher | None = None,
+        redis: Redis | None = None,
+    ) -> None:
         self.session = session
         self.cipher = cipher or TokenCipher()
         self.settings = get_settings()
+        self.redis = redis
+        self._owns_redis = redis is None
+
+    async def _get_redis(self) -> Redis:
+        """Get Redis client, creating one if needed."""
+        if self.redis is None:
+            from redis.asyncio import Redis as AsyncRedis
+            self.redis = AsyncRedis.from_url(
+                self.settings.redis_url,
+                encoding="utf-8",
+                decode_responses=True,
+            )
+            self._owns_redis = True
+        return self.redis
+
+    async def _close_redis(self) -> None:
+        """Close Redis client if we own it."""
+        if self._owns_redis and self.redis is not None:
+            try:
+                await self.redis.aclose()
+            except Exception:
+                pass
+            self.redis = None
+            self._owns_redis = False
+
+    async def try_acquire_sync_lock(self) -> tuple[bool, str]:
+        """Try to acquire sync lock. Returns (success, message)."""
+        try:
+            redis = await self._get_redis()
+
+            # Check cooldown
+            cooldown_key = f"{PROMOTIONS_SYNC_LOCK_KEY}:cooldown"
+            last_sync = await redis.get(cooldown_key)
+            if last_sync:
+                remaining = PROMOTIONS_SYNC_COOLDOWN - (int(time.time()) - int(last_sync))
+                if remaining > 0:
+                    return False, f"Синхронизация уже запускалась. Подождите {remaining} сек."
+
+            # Try to acquire lock
+            acquired = await redis.set(PROMOTIONS_SYNC_LOCK_KEY, "1", ex=PROMOTIONS_SYNC_LOCK_TTL, nx=True)
+            if not acquired:
+                return False, "Синхронизация уже выполняется. Подождите завершения."
+
+            # Set cooldown
+            await redis.set(cooldown_key, str(int(time.time())), ex=PROMOTIONS_SYNC_COOLDOWN * 2)
+            return True, ""
+        except Exception as e:
+            logger.warning("wb_promotions_sync_lock_error", extra={"error": str(e)})
+            return True, ""  # Allow sync if Redis is unavailable
+
+    async def release_sync_lock(self) -> None:
+        """Release sync lock."""
+        try:
+            redis = await self._get_redis()
+            await redis.delete(PROMOTIONS_SYNC_LOCK_KEY)
+        except Exception as e:
+            logger.warning("wb_promotions_sync_unlock_error", extra={"error": str(e)})
+        finally:
+            await self._close_redis()
 
     async def sync_all_accounts(
         self,
@@ -130,9 +206,14 @@ class WbPromotionsSyncService:
                 stats.promotions_upserted += account_stats.promotions_upserted
                 stats.promotions_skipped_auto += account_stats.promotions_skipped_auto
                 stats.nomenclatures_fetched += account_stats.nomenclatures_fetched
-                stats.nomenclatures_upserted += account_stats.nomenclatures_fetched  # Same as fetched (upsert)
+                stats.nomenclatures_upserted += account_stats.nomenclatures_upserted
                 stats.products_matched += account_stats.products_matched
                 stats.errors.extend(account_stats.errors)
+                stats.rate_limit_hits += account_stats.rate_limit_hits
+                stats.regular_promotions_processed += account_stats.regular_promotions_processed
+                stats.regular_nomenclatures_empty += account_stats.regular_nomenclatures_empty
+                stats.auto_details_failed += account_stats.auto_details_failed
+                stats.auto_details_success += account_stats.auto_details_success
             except Exception:
                 stats.accounts_failed += 1
                 error_msg = f"Account {account.id} sync failed"
@@ -150,9 +231,15 @@ class WbPromotionsSyncService:
                 "accounts_failed": stats.accounts_failed,
                 "promotions_fetched": stats.promotions_fetched,
                 "promotions_upserted": stats.promotions_upserted,
+                "regular_promotions_processed": stats.regular_promotions_processed,
+                "auto_promotions_found": stats.promotions_skipped_auto,
                 "nomenclatures_fetched": stats.nomenclatures_fetched,
                 "nomenclatures_upserted": stats.nomenclatures_upserted,
+                "regular_nomenclatures_empty": stats.regular_nomenclatures_empty,
+                "auto_details_success": stats.auto_details_success,
+                "auto_details_failed": stats.auto_details_failed,
                 "products_matched": stats.products_matched,
+                "rate_limit_hits": stats.rate_limit_hits,
                 "errors_count": len(stats.errors),
                 "all_promo": all_promo,
             },
@@ -258,6 +345,7 @@ class WbPromotionsSyncService:
                 continue
 
             regular_promotion_count += 1
+            stats.regular_promotions_processed += 1
 
             # Step 3: Fetch nomenclatures for regular promotions only
             logger.info(
@@ -275,8 +363,19 @@ class WbPromotionsSyncService:
                     promotion=promo,
                     client=client,
                     now_utc=now_utc,
+                    stats=stats,
                 )
                 stats.nomenclatures_fetched += nomenclature_count
+                if nomenclature_count == 0:
+                    stats.regular_nomenclatures_empty += 1
+                    logger.info(
+                        "wb_promotion_nomenclatures_empty",
+                        extra={
+                            "account_id": account.id,
+                            "promotion_id": promo.wb_promotion_id,
+                            "promotion_name": promo.name,
+                        },
+                    )
             except Exception:
                 error_msg = (
                     f"Failed to fetch nomenclatures for promotion {promo.wb_promotion_id}"
@@ -323,7 +422,11 @@ class WbPromotionsSyncService:
                 now_utc=now_utc,
             )
             stats.nomenclatures_fetched += auto_stats.nomenclatures_fetched
+            stats.nomenclatures_upserted += auto_stats.nomenclatures_upserted
             stats.errors.extend(auto_stats.errors)
+            stats.rate_limit_hits += auto_stats.rate_limit_hits
+            stats.auto_details_failed += auto_stats.auto_details_failed
+            stats.auto_details_success += auto_stats.auto_details_success
 
         return stats
 
@@ -360,8 +463,10 @@ class WbPromotionsSyncService:
 
             try:
                 details_response = await client.get_promotion_details(promotion_ids=batch_ids)
+                stats.auto_details_success += 1
             except Exception as exc:
                 error_text = str(exc)
+                stats.auto_details_failed += 1
                 if "400" in error_text or "Invalid query params" in error_text:
                     logger.warning(
                         "wb_promotion_details_query_invalid",
@@ -379,6 +484,17 @@ class WbPromotionsSyncService:
                             "reason": "WB API does not support details for these auto promotions",
                         },
                     )
+                    continue
+                if "429" in error_text or "rate" in error_text.lower():
+                    stats.rate_limit_hits += 1
+                    logger.warning(
+                        "wb_auto_promotions_details_rate_limited",
+                        extra={
+                            "account_id": account.id,
+                            "promotion_ids": batch_ids,
+                        },
+                    )
+                    await asyncio.sleep(2)
                     continue
                 error_msg = f"Failed to fetch details for auto promotions {batch_ids}"
                 stats.errors.append(error_msg)
@@ -647,6 +763,7 @@ class WbPromotionsSyncService:
         promotion: WbPromotion,
         client: WildberriesClient,
         now_utc: datetime,
+        stats: WbPromotionsSyncStats | None = None,
     ) -> int:
         """Fetch and upsert nomenclatures for a promotion.
 
@@ -688,7 +805,22 @@ class WbPromotionsSyncService:
                         limit=limit,
                         offset=offset,
                     )
-                except Exception:
+                except Exception as exc:
+                    error_text = str(exc)
+                    if "429" in error_text or "rate" in error_text.lower():
+                        if stats:
+                            stats.rate_limit_hits += 1
+                        logger.warning(
+                            "wb_promotions_nomenclatures_rate_limited",
+                            extra={
+                                "account_id": account.id,
+                                "promotion_id": wb_promotion_id,
+                                "in_action": in_action,
+                                "offset": offset,
+                            },
+                        )
+                        await asyncio.sleep(2)
+                        continue
                     error_msg = (
                         f"Failed to fetch nomenclatures for promotion {wb_promotion_id}, "
                         f"in_action={in_action}, offset={offset}"
