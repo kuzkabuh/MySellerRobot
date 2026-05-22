@@ -1381,6 +1381,63 @@ async def _load_mrc_page_data(
     now_utc = datetime.now(tz=UTC)
     mrc_service = WbMrcPriceService()
 
+    # Safe defaults for all stats variables
+    has_active_auto_promotions = False
+    active_auto_promotions_count = 0
+    active_regular_promotions_count = 0
+    active_promotions_count = 0
+    nomenclatures_count = 0
+    last_nomenclatures_sync_at: str | None = None
+    nomenclatures_synced = False
+    has_sync_errors = False
+
+    # Fetch promotion stats FIRST (needed before product enrichment)
+    try:
+        auto_promos_result = await session.execute(
+            select(func.count(WbPromotion.id))
+            .join(MarketplaceAccount, MarketplaceAccount.id == WbPromotion.marketplace_account_id)
+            .where(MarketplaceAccount.user_id == user_id)
+            .where(WbPromotion.promotion_type == "auto")
+            .where(WbPromotion.start_datetime <= now_utc)
+            .where(WbPromotion.end_datetime >= now_utc)
+        )
+        active_auto_promotions_count = int(auto_promos_result.scalar_one() or 0)
+        has_active_auto_promotions = active_auto_promotions_count > 0
+    except Exception:
+        logger.exception("auto_promo_count_query_failed")
+
+    try:
+        regular_promos_result = await session.execute(
+            select(func.count(WbPromotion.id))
+            .join(MarketplaceAccount, MarketplaceAccount.id == WbPromotion.marketplace_account_id)
+            .where(MarketplaceAccount.user_id == user_id)
+            .where(WbPromotion.promotion_type != "auto")
+            .where(WbPromotion.promotion_type != "")
+            .where(WbPromotion.start_datetime <= now_utc)
+            .where(WbPromotion.end_datetime >= now_utc)
+        )
+        active_regular_promotions_count = int(regular_promos_result.scalar_one() or 0)
+    except Exception:
+        logger.exception("regular_promo_count_query_failed")
+
+    active_promotions_count = active_auto_promotions_count + active_regular_promotions_count
+
+    try:
+        nomenclatures_count_result = await session.execute(
+            select(func.count(WbPromotionNomenclature.id))
+            .join(MarketplaceAccount, MarketplaceAccount.id == WbPromotionNomenclature.marketplace_account_id)
+            .where(MarketplaceAccount.user_id == user_id)
+        )
+        nomenclatures_count = int(nomenclatures_count_result.scalar_one() or 0)
+        nomenclatures_synced = nomenclatures_count > 0
+    except Exception:
+        logger.exception("nomenclatures_count_query_failed")
+
+    has_sync_errors = (
+        active_regular_promotions_count > 0
+        and nomenclatures_count == 0
+    )
+
     # Base query
     base_query = (
         select(Product, MarketplaceAccount.name)
@@ -1597,42 +1654,6 @@ async def _load_mrc_page_data(
     last_sync = last_sync_result.scalar_one_or_none()
     last_sync_time = format_datetime_for_user(last_sync, "Europe/Moscow") if last_sync else None
 
-    # Check if nomenclatures are synced for this user
-    nomenclatures_count_result = await session.execute(
-        select(func.count(WbPromotionNomenclature.id))
-        .join(MarketplaceAccount, MarketplaceAccount.id == WbPromotionNomenclature.marketplace_account_id)
-        .where(MarketplaceAccount.user_id == user_id)
-    )
-    nomenclatures_count = int(nomenclatures_count_result.scalar_one() or 0)
-    nomenclatures_synced = nomenclatures_count > 0
-
-    # Check if there are active auto promotions
-    auto_promos_result = await session.execute(
-        select(func.count(WbPromotion.id))
-        .join(MarketplaceAccount, MarketplaceAccount.id == WbPromotion.marketplace_account_id)
-        .where(MarketplaceAccount.user_id == user_id)
-        .where(WbPromotion.promotion_type == "auto")
-        .where(WbPromotion.start_datetime <= now_utc)
-        .where(WbPromotion.end_datetime >= now_utc)
-    )
-    active_auto_promotions_count = int(auto_promos_result.scalar_one() or 0)
-    has_active_auto_promotions = active_auto_promotions_count > 0
-
-    # Count active regular promotions
-    regular_promos_result = await session.execute(
-        select(func.count(WbPromotion.id))
-        .join(MarketplaceAccount, MarketplaceAccount.id == WbPromotion.marketplace_account_id)
-        .where(MarketplaceAccount.user_id == user_id)
-        .where(WbPromotion.promotion_type != "auto")
-        .where(WbPromotion.promotion_type != "")
-        .where(WbPromotion.start_datetime <= now_utc)
-        .where(WbPromotion.end_datetime >= now_utc)
-    )
-    active_regular_promotions_count = int(regular_promos_result.scalar_one() or 0)
-
-    # Total active promotions
-    active_promotions_count = active_auto_promotions_count + active_regular_promotions_count
-
     # Last promotions sync time
     last_promo_sync_result = await session.execute(
         select(func.max(WbPromotion.synced_at))
@@ -1650,12 +1671,6 @@ async def _load_mrc_page_data(
     )
     last_nom_sync = last_nom_sync_result.scalar_one_or_none()
     last_nomenclatures_sync_at = format_datetime_for_user(last_nom_sync, "Europe/Moscow") if last_nom_sync else None
-
-    # Check for recent sync errors (promotions synced but no nomenclatures for regular promos)
-    has_sync_errors = (
-        active_regular_promotions_count > 0
-        and nomenclatures_count == 0
-    )
 
     total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
 
