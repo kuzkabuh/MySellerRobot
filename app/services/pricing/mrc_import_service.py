@@ -464,6 +464,8 @@ class MrcImportService:
         mrc_import.error_rows = error_rows
 
         await self.session.flush()
+        await self.session.commit()
+        await self.session.refresh(mrc_import)
 
         logger.info(
             "mrc_import_preview_created",
@@ -506,9 +508,33 @@ class MrcImportService:
         mrc_import = result.scalar_one_or_none()
 
         if mrc_import is None:
+            # Diagnostic: check for recent imports by this user to help debug
+            recent_result = await self.session.execute(
+                select(MrcImport)
+                .where(MrcImport.user_id == user_id)
+                .where(MrcImport.source == source)
+                .order_by(MrcImport.created_at.desc())
+                .limit(3)
+            )
+            recent_imports = recent_result.scalars().all()
+            recent_info = [
+                {
+                    "id": imp.id,
+                    "status": imp.status,
+                    "created_at": str(imp.created_at),
+                    "expires_at": str(imp.expires_at),
+                }
+                for imp in recent_imports
+            ]
             logger.warning(
-                "mrc_import_confirm_not_found",
-                extra={"user_id": user_id, "source": source, "import_id": import_id},
+                "mrc_import_not_found_by_id",
+                extra={
+                    "import_id": import_id,
+                    "user_id": user_id,
+                    "source": source,
+                    "now_utc": str(datetime.now(tz=UTC)),
+                    "recent_imports": recent_info,
+                },
             )
             raise ValueError("Предварительная проверка файла устарела или не найдена. Загрузите файл заново.")
 

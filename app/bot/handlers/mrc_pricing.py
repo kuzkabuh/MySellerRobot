@@ -920,6 +920,7 @@ async def mrc_import_upload_handler(callback: CallbackQuery, state: FSMContext) 
 @router.message(MrcStates.waiting_for_import_file, F.document)
 async def mrc_import_file_handler(message: Message, state: FSMContext) -> None:
     """Обработка загруженного файла МРЦ."""
+    user_id = None
     try:
         doc = message.document
         if not doc.file_name or not doc.file_name.endswith(".xlsx"):
@@ -988,7 +989,7 @@ async def mrc_import_file_handler(message: Message, state: FSMContext) -> None:
     except ValueError as exc:
         logger.warning(
             "mrc_import_file_validation_error",
-            extra={"user_id": message.from_user.id, "error": str(exc)},
+            extra={"user_id": user_id or message.from_user.id, "error": str(exc)},
         )
         await message.answer(
             f"❌ {str(exc)}",
@@ -996,7 +997,7 @@ async def mrc_import_file_handler(message: Message, state: FSMContext) -> None:
             parse_mode="HTML",
         )
     except Exception:
-        logger.exception("mrc_import_file_handler_failed", extra={"user_id": message.from_user.id})
+        logger.exception("mrc_import_file_handler_failed", extra={"user_id": user_id or message.from_user.id})
         await message.answer(
             "❌ Не удалось прочитать Excel-файл. Скачайте новый шаблон и заполните колонку new_mrc_price.",
             reply_markup=mrc_back_menu(),
@@ -1006,6 +1007,8 @@ async def mrc_import_file_handler(message: Message, state: FSMContext) -> None:
 @router.callback_query(F.data == "mrc:import_confirm", MrcStates.waiting_for_import_confirm)
 async def mrc_import_confirm_handler(callback: CallbackQuery, state: FSMContext) -> None:
     """Подтвердить и сохранить импорт МРЦ."""
+    user_id = None
+    import_id = None
     try:
         user_id = await _get_user_id_from_callback(callback)
         if user_id is None:
@@ -1043,7 +1046,7 @@ async def mrc_import_confirm_handler(callback: CallbackQuery, state: FSMContext)
         error_msg = str(exc)
         logger.warning(
             "mrc_import_confirm_validation_error",
-            extra={"user_id": callback.from_user.id, "import_id": import_id, "error": error_msg},
+            extra={"user_id": user_id or callback.from_user.id, "import_id": import_id, "error": error_msg},
         )
         await safe_edit_text(
             callback.message,
@@ -1053,7 +1056,7 @@ async def mrc_import_confirm_handler(callback: CallbackQuery, state: FSMContext)
         )
         await state.clear()
     except Exception:
-        logger.exception("mrc_import_confirm_failed", extra={"user_id": callback.from_user.id, "import_id": import_id})
+        logger.exception("mrc_import_confirm_failed", extra={"user_id": user_id or callback.from_user.id, "import_id": import_id})
         await safe_edit_text(
             callback.message,
             "❌ Не удалось сохранить МРЦ из-за ошибки базы данных. Ошибка записана в лог.",
