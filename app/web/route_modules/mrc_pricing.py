@@ -73,6 +73,8 @@ class MrcPageData:
     last_sync_status: str
     last_sync_time: str | None
     last_sync_error: str | None
+    nomenclatures_synced: bool
+    has_active_auto_promotions: bool
 
 
 @dataclass(slots=True)
@@ -870,6 +872,26 @@ async def _load_mrc_page_data(
     last_sync = last_sync_result.scalar_one_or_none()
     last_sync_time = format_datetime_for_user(last_sync, "Europe/Moscow") if last_sync else None
 
+    # Check if nomenclatures are synced for this user
+    nomenclatures_count_result = await session.execute(
+        select(func.count(WbPromotionNomenclature.id))
+        .join(MarketplaceAccount, MarketplaceAccount.id == WbPromotionNomenclature.marketplace_account_id)
+        .where(MarketplaceAccount.user_id == user_id)
+    )
+    nomenclatures_count = int(nomenclatures_count_result.scalar_one() or 0)
+    nomenclatures_synced = nomenclatures_count > 0
+
+    # Check if there are active auto promotions
+    auto_promos_result = await session.execute(
+        select(func.count(WbPromotion.id))
+        .join(MarketplaceAccount, MarketplaceAccount.id == WbPromotion.marketplace_account_id)
+        .where(MarketplaceAccount.user_id == user_id)
+        .where(WbPromotion.promotion_type == "auto")
+        .where(WbPromotion.start_datetime <= now_utc)
+        .where(WbPromotion.end_datetime >= now_utc)
+    )
+    has_active_auto_promotions = int(auto_promos_result.scalar_one() or 0) > 0
+
     total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
 
     return MrcPageData(
@@ -887,6 +909,8 @@ async def _load_mrc_page_data(
         last_sync_status="ok",
         last_sync_time=last_sync_time,
         last_sync_error=None,
+        nomenclatures_synced=nomenclatures_synced,
+        has_active_auto_promotions=has_active_auto_promotions,
     )
 
 
@@ -1173,6 +1197,27 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
             "</p>"
         )
 
+    # Warning if nomenclatures not synced
+    if not data.nomenclatures_synced:
+        if data.has_active_auto_promotions:
+            parts.append(
+                '<div style="padding:12px 16px;margin-bottom:16px;border-radius:8px;font-size:14px;'
+                'background:#fef3c7;color:#92400e">'
+                "⚠️ <b>Автоакции WB найдены, участие уточняется</b><br>"
+                "Товары автоматических акций загружаются. Если товары не отображаются, "
+                "нажмите «Синхронизировать акции WB» для обновления."
+                "</div>"
+            )
+        else:
+            parts.append(
+                '<div style="padding:12px 16px;margin-bottom:16px;border-radius:8px;font-size:14px;'
+                'background:#fee2e2;color:#991b1b">'
+                "⚠️ <b>Товары акций не синхронизированы</b><br>"
+                "Акции WB найдены, но список товаров внутри акций ещё не загружен. "
+                "Нажмите «Синхронизировать акции WB» для загрузки товаров."
+                "</div>"
+            )
+
     # Stats bar
     parts.append('<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">')
     parts.append(
@@ -1355,7 +1400,17 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
                         f"<td><small>{promo_name}<br>{promo_price} ₽ ({in_action_text})</small></td>"
                     )
             else:
-                parts.append("<td><small class='text-muted'>Нет акции</small></td>")
+                # No promo found for this product - check if nomenclatures are synced
+                if not data.nomenclatures_synced and data.has_active_auto_promotions:
+                    parts.append(
+                        "<td><small class='text-muted'>Автоакции WB найдены,<br>участие уточняется</small></td>"
+                    )
+                elif not data.nomenclatures_synced:
+                    parts.append(
+                        "<td><small class='text-muted'>Товары акций не<br>синхронизированы</small></td>"
+                    )
+                else:
+                    parts.append("<td><small class='text-muted'>Нет акции</small></td>")
 
             # Status badge
             is_auto_promo = row.promo_type and row.promo_type.lower() == "auto"

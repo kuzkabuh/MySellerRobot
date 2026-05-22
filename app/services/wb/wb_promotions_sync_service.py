@@ -71,6 +71,8 @@ class WbPromotionsSyncService:
         Default all_promo=True to get all promotions including ones
         the seller is already participating in.
         """
+        logger.info("sync_wb_daily_promotions_started")
+
         stats = WbPromotionsSyncStats()
         stats.all_promo_mode = all_promo
 
@@ -86,7 +88,7 @@ class WbPromotionsSyncService:
             logger.info("wb_promotions_sync_no_active_accounts")
             return stats
 
-        # Extended date range: yesterday to 90 days ahead
+        # Determine extended date range in UTC: yesterday to 90 days ahead
         sync_tz_name = self.settings.wb_promotions_sync_timezone
         try:
             from zoneinfo import ZoneInfo
@@ -128,7 +130,7 @@ class WbPromotionsSyncService:
                 stats.promotions_upserted += account_stats.promotions_upserted
                 stats.promotions_skipped_auto += account_stats.promotions_skipped_auto
                 stats.nomenclatures_fetched += account_stats.nomenclatures_fetched
-                stats.nomenclatures_upserted += account_stats.nomenclatures_upserted
+                stats.nomenclatures_upserted += account_stats.nomenclatures_fetched  # Same as fetched (upsert)
                 stats.products_matched += account_stats.products_matched
                 stats.errors.extend(account_stats.errors)
             except Exception:
@@ -142,7 +144,7 @@ class WbPromotionsSyncService:
                 await self.session.rollback()
 
         logger.info(
-            "wb_promotions_sync_completed",
+            "sync_wb_daily_promotions_completed",
             extra={
                 "accounts_processed": stats.accounts_processed,
                 "accounts_failed": stats.accounts_failed,
@@ -168,6 +170,18 @@ class WbPromotionsSyncService:
         """Sync promotions for a single WB account."""
         stats = WbPromotionsSyncStats()
 
+        logger.info(
+            "sync_wb_daily_promotions_account_started",
+            extra={
+                "account_id": account.id,
+                "user_id": account.user_id,
+                "account_name": account.name,
+                "start_datetime": start_datetime,
+                "end_datetime": end_datetime,
+                "all_promo": all_promo,
+            },
+        )
+
         api_key = self.cipher.decrypt(account.encrypted_api_key)
         client = WildberriesClient(api_key)
 
@@ -179,6 +193,15 @@ class WbPromotionsSyncService:
             all_promo=all_promo,
         )
         stats.promotions_fetched = len(all_promotions)
+
+        logger.info(
+            "wb_promotions_list_fetched",
+            extra={
+                "account_id": account.id,
+                "promotions_count": len(all_promotions),
+                "all_promo": all_promo,
+            },
+        )
 
         if not all_promotions:
             logger.info(
@@ -197,6 +220,7 @@ class WbPromotionsSyncService:
         now_utc = datetime.now(tz=UTC)
         auto_promotion_ids: list[int] = []
         auto_promotion_map: dict[int, WbPromotion] = {}
+        regular_promotion_count = 0
 
         for promo_data in all_promotions:
             try:
@@ -233,6 +257,8 @@ class WbPromotionsSyncService:
                 )
                 continue
 
+            regular_promotion_count += 1
+
             # Step 3: Fetch nomenclatures for regular promotions only
             try:
                 nomenclature_count = await self._sync_promotion_nomenclatures(
@@ -254,6 +280,17 @@ class WbPromotionsSyncService:
                         "promotion_id": promo.wb_promotion_id,
                     },
                 )
+
+        logger.info(
+            "wb_promotions_saved",
+            extra={
+                "account_id": account.id,
+                "promotions_upserted": stats.promotions_upserted,
+                "regular_promotions": regular_promotion_count,
+                "auto_promotions": stats.promotions_skipped_auto,
+                "nomenclatures_fetched": stats.nomenclatures_fetched,
+            },
+        )
 
         # Step 4: Fetch auto promotion details and extract product participation
         if auto_promotion_ids:
@@ -281,6 +318,14 @@ class WbPromotionsSyncService:
         stats = WbPromotionsSyncStats()
         last_request_time = 0.0
 
+        logger.info(
+            "wb_auto_promotion_details_sync_started",
+            extra={
+                "account_id": account.id,
+                "auto_promotion_ids_count": len(auto_promotion_ids),
+            },
+        )
+
         # Fetch details in batches
         batch_size = 50
         for i in range(0, len(auto_promotion_ids), batch_size):
@@ -303,8 +348,33 @@ class WbPromotionsSyncService:
                 )
                 continue
 
+            # Log response structure for debugging
+            if isinstance(details_response, dict):
+                response_keys = list(details_response.keys())
+                data = details_response.get("data")
+                data_keys = list(data.keys()) if isinstance(data, dict) else []
+                logger.info(
+                    "wb_auto_promotion_details_response_structure",
+                    extra={
+                        "account_id": account.id,
+                        "batch_ids": batch_ids,
+                        "response_keys": response_keys,
+                        "data_keys": data_keys,
+                        "has_data_list": isinstance(data, list),
+                    },
+                )
+
             # Parse details
             promo_details = _extract_promotion_details_from_response(details_response)
+
+            logger.info(
+                "wb_auto_promotion_details_parsed",
+                extra={
+                    "account_id": account.id,
+                    "batch_ids": batch_ids,
+                    "parsed_promo_ids": list(promo_details.keys()),
+                },
+            )
 
             for promo_id, detail in promo_details.items():
                 promotion = auto_promotion_map.get(promo_id)
@@ -316,6 +386,19 @@ class WbPromotionsSyncService:
 
                 # Extract and save nomenclature data from details
                 nomenclatures = _extract_nomenclatures_from_auto_detail(detail)
+
+                # Log detail structure for debugging
+                detail_keys = list(detail.keys()) if isinstance(detail, dict) else []
+                logger.info(
+                    "wb_auto_promotion_detail_nomenclatures_extracted",
+                    extra={
+                        "account_id": account.id,
+                        "promotion_id": promo_id,
+                        "detail_keys": detail_keys,
+                        "nomenclatures_count": len(nomenclatures),
+                    },
+                )
+
                 for nom_data in nomenclatures:
                     wb_nm_id = int(nom_data.get("id") or nom_data.get("nmId") or nom_data.get("nmID") or 0)
                     if not wb_nm_id:
@@ -328,6 +411,15 @@ class WbPromotionsSyncService:
                         now_utc=now_utc,
                     )
                     stats.nomenclatures_fetched += 1
+
+        logger.info(
+            "wb_auto_promotion_details_sync_completed",
+            extra={
+                "account_id": account.id,
+                "nomenclatures_fetched": stats.nomenclatures_fetched,
+                "errors_count": len(stats.errors),
+            },
+        )
 
         return stats
 
@@ -521,14 +613,28 @@ class WbPromotionsSyncService:
         Official WB API response format: {"data": {"nomenclatures": [...]}}
         """
         total_fetched = 0
+        total_saved = 0
         limit = self.settings.wb_promotions_page_limit
         wb_promotion_id = promotion.wb_promotion_id
         last_request_time = 0.0
 
+        logger.info(
+            "wb_promotion_nomenclatures_sync_started",
+            extra={
+                "account_id": account.id,
+                "user_id": account.user_id,
+                "promotion_id": wb_promotion_id,
+                "promotion_name": promotion.name,
+                "promotion_type": promotion.promotion_type,
+            },
+        )
+
         # Fetch both inAction=false and inAction=true
         for in_action in (False, True):
             offset = 0
+            page = 0
             while True:
+                page += 1
                 # Rate limiting
                 elapsed = time.monotonic() - last_request_time
                 if elapsed < 0.6:
@@ -543,18 +649,57 @@ class WbPromotionsSyncService:
                         offset=offset,
                     )
                 except Exception:
+                    error_msg = (
+                        f"Failed to fetch nomenclatures for promotion {wb_promotion_id}, "
+                        f"in_action={in_action}, offset={offset}"
+                    )
                     logger.exception(
                         "wb_promotions_nomenclatures_fetch_failed",
                         extra={
+                            "account_id": account.id,
                             "promotion_id": wb_promotion_id,
                             "in_action": in_action,
                             "offset": offset,
+                            "page": page,
                         },
                     )
                     break
 
                 # Parse official format: {"data": {"nomenclatures": [...]}}
                 items = _extract_nomenclatures_list(response)
+
+                logger.info(
+                    "wb_promotion_nomenclatures_sync_page_fetched",
+                    extra={
+                        "account_id": account.id,
+                        "promotion_id": wb_promotion_id,
+                        "in_action": in_action,
+                        "page": page,
+                        "offset": offset,
+                        "fetched_count": len(items),
+                        "limit": limit,
+                    },
+                )
+
+                if not items:
+                    # Log response structure for debugging
+                    if isinstance(response, dict):
+                        response_keys = list(response.keys())
+                        data = response.get("data")
+                        data_keys = list(data.keys()) if isinstance(data, dict) else []
+                        logger.info(
+                            "wb_promotion_nomenclatures_empty_response",
+                            extra={
+                                "account_id": account.id,
+                                "promotion_id": wb_promotion_id,
+                                "in_action": in_action,
+                                "page": page,
+                                "response_keys": response_keys,
+                                "data_keys": data_keys,
+                                "http_status": response.get("_http_status", "unknown"),
+                            },
+                        )
+                    break
 
                 for item in items:
                     await self._upsert_nomenclature(
@@ -565,11 +710,22 @@ class WbPromotionsSyncService:
                         now_utc=now_utc,
                     )
                     total_fetched += 1
+                    total_saved += 1
 
                 if len(items) < limit:
                     break
 
                 offset += limit
+
+        logger.info(
+            "wb_promotion_nomenclatures_sync_completed",
+            extra={
+                "account_id": account.id,
+                "promotion_id": wb_promotion_id,
+                "fetched_count": total_fetched,
+                "saved_count": total_saved,
+            },
+        )
 
         return total_fetched
 
