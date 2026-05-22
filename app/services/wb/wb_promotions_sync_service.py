@@ -1,8 +1,9 @@
-"""version: 2.0.0
+"""version: 3.0.0
 description: Wildberries daily promotions synchronization service.
     Supports allPromo=true mode, proper data.promotions/data.nomenclatures parsing,
-    rate limiting, and detailed diagnostics.
-updated: 2026-05-21
+    rate limiting, extended date range, and detailed diagnostics.
+    Fetches promotions from yesterday to 90 days ahead.
+updated: 2026-05-22
 """
 
 import asyncio
@@ -63,9 +64,13 @@ class WbPromotionsSyncService:
 
     async def sync_all_accounts(
         self,
-        all_promo: bool = False,
+        all_promo: bool = True,
     ) -> WbPromotionsSyncStats:
-        """Run promotions sync for all active WB accounts."""
+        """Run promotions sync for all active WB accounts.
+
+        Default all_promo=True to get all promotions including ones
+        the seller is already participating in.
+        """
         stats = WbPromotionsSyncStats()
         stats.all_promo_mode = all_promo
 
@@ -81,7 +86,7 @@ class WbPromotionsSyncService:
             logger.info("wb_promotions_sync_no_active_accounts")
             return stats
 
-        # Determine today's date range in UTC
+        # Extended date range: yesterday to 90 days ahead
         sync_tz_name = self.settings.wb_promotions_sync_timezone
         try:
             from zoneinfo import ZoneInfo
@@ -90,12 +95,12 @@ class WbPromotionsSyncService:
             sync_tz = UTC
 
         now_in_sync_tz = datetime.now(tz=sync_tz)
-        today_start = now_in_sync_tz.replace(hour=0, minute=0, second=0, microsecond=0)
-        today_end = today_start + timedelta(days=1) - timedelta(seconds=1)
+        start_date = (now_in_sync_tz - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        end_date = (now_in_sync_tz + timedelta(days=90)).replace(hour=23, minute=59, second=59, microsecond=0)
 
         # Convert to UTC ISO format for WB API
-        start_datetime = today_start.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-        end_datetime = today_end.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        start_datetime = start_date.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        end_datetime = end_date.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         stats.sync_period_start = start_datetime
         stats.sync_period_end = end_datetime
@@ -158,7 +163,7 @@ class WbPromotionsSyncService:
         account: MarketplaceAccount,
         start_datetime: str,
         end_datetime: str,
-        all_promo: bool = False,
+        all_promo: bool = True,
     ) -> WbPromotionsSyncStats:
         """Sync promotions for a single WB account."""
         stats = WbPromotionsSyncStats()
@@ -166,7 +171,7 @@ class WbPromotionsSyncService:
         api_key = self.cipher.decrypt(account.encrypted_api_key)
         client = WildberriesClient(api_key)
 
-        # Step 1: Fetch promotions for today
+        # Step 1: Fetch promotions for the date range
         all_promotions = await self._fetch_all_promotions(
             client=client,
             start_datetime=start_datetime,
@@ -185,17 +190,27 @@ class WbPromotionsSyncService:
                     "end_datetime": end_datetime,
                 },
             )
+            # Don't wipe existing data — WB API may be temporarily unavailable
             return stats
 
         # Step 2: Upsert promotions
         now_utc = datetime.now(tz=UTC)
         for promo_data in all_promotions:
-            promo = await self._upsert_promotion(
-                account=account,
-                promo_data=promo_data,
-                now_utc=now_utc,
-            )
-            stats.promotions_upserted += 1
+            try:
+                promo = await self._upsert_promotion(
+                    account=account,
+                    promo_data=promo_data,
+                    now_utc=now_utc,
+                )
+                stats.promotions_upserted += 1
+            except Exception:
+                error_msg = f"Failed to upsert promotion {promo_data.get('id', 'unknown')}"
+                stats.errors.append(error_msg)
+                logger.exception(
+                    "wb_promotions_upsert_failed",
+                    extra={"account_id": account.id, "promotion_data": promo_data.get("id")},
+                )
+                continue
 
             # Step 3: Fetch nomenclatures for regular promotions only
             promo_type = promo_data.get("type") or promo_data.get("promoType", "")
@@ -241,7 +256,7 @@ class WbPromotionsSyncService:
         client: WildberriesClient,
         start_datetime: str,
         end_datetime: str,
-        all_promo: bool = False,
+        all_promo: bool = True,
     ) -> list[dict[str, Any]]:
         """Fetch all promotions for the date range with pagination.
 
@@ -484,11 +499,10 @@ class WbPromotionsSyncService:
 
         now_utc = datetime.now(tz=UTC)
 
-        # Find active promotions for this account
+        # Find active promotions for this account (overlapping with current time)
         active_promos_result = await self.session.execute(
             select(WbPromotion.wb_promotion_id).where(
                 WbPromotion.marketplace_account_id == marketplace_account_id,
-                WbPromotion.is_active_today.is_(True),
                 WbPromotion.start_datetime <= now_utc,
                 WbPromotion.end_datetime >= now_utc,
             )

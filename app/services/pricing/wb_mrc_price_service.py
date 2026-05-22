@@ -1,6 +1,7 @@
-"""version: 1.0.0
+"""version: 2.0.0
 description: Wildberries MRC (recommended retail price) price calculation service.
-updated: 2026-05-21
+    Now uses configurable settings instead of hardcoded values.
+updated: 2026-05-22
 """
 
 import logging
@@ -25,7 +26,7 @@ class WbMrcPriceResult:
     discount_percent: Decimal
     mrc_discount_rub: Decimal
     mrc_discount_percent: Decimal
-    max_mrc_discount_percent: int
+    max_mrc_discount_percent: Decimal
     is_promo_applied: bool
     is_limited_by_mrc_rule: bool
     is_limited_by_min_price: bool
@@ -55,19 +56,25 @@ class WbMrcPriceService:
     def __init__(
         self,
         *,
-        max_discount_percent: int | None = None,
-        price_before_discount_multiplier: int | None = None,
+        max_discount_percent: Decimal | int | None = None,
+        price_before_discount_multiplier: Decimal | int | None = None,
+        default_discount_percent: Decimal | None = None,
     ) -> None:
         settings = get_settings()
         self.max_discount_percent = (
-            max_discount_percent
+            Decimal(str(max_discount_percent))
             if max_discount_percent is not None
-            else settings.wb_mrc_promo_max_discount_percent
+            else Decimal(str(settings.wb_mrc_promo_max_discount_percent))
         )
         self.price_before_discount_multiplier = (
-            price_before_discount_multiplier
+            Decimal(str(price_before_discount_multiplier))
             if price_before_discount_multiplier is not None
-            else settings.wb_price_before_discount_multiplier
+            else Decimal(str(settings.wb_price_before_discount_multiplier))
+        )
+        self.default_discount_percent = (
+            default_discount_percent
+            if default_discount_percent is not None
+            else Decimal("75")
         )
 
     def calculate(
@@ -93,7 +100,7 @@ class WbMrcPriceService:
             ValidationError: If mrc_price is invalid.
         """
         mrc_price = self._validate_mrc_price(mrc_price)
-        effective_discount = discount_percent or Decimal("75")
+        effective_discount = discount_percent if discount_percent is not None else self.default_discount_percent
 
         # Step 1: Determine final discounted price
         final_discounted_price, is_promo_applied, is_limited_by_mrc_rule = (

@@ -34,6 +34,7 @@ from app.models.enums import Marketplace
 from app.repositories.users import UserRepository
 from app.services.feature_access_service import FeatureAccessService, FeatureCode
 from app.services.pricing.mrc_import_service import MrcImportService
+from app.services.pricing.mrc_pricing_settings_service import MrcPricingSettingsService
 from app.services.pricing.wb_mrc_price_service import WbMrcPriceService
 from app.services.wb.wb_promotions_sync_service import WbPromotionsSyncService
 from app.utils.datetime import format_datetime_for_user
@@ -280,7 +281,6 @@ async def mrc_promos_today_handler(callback: CallbackQuery) -> None:
                 select(WbPromotion)
                 .join(MarketplaceAccount, MarketplaceAccount.id == WbPromotion.marketplace_account_id)
                 .where(MarketplaceAccount.user_id == user_id)
-                .where(WbPromotion.is_active_today.is_(True))
                 .where(WbPromotion.start_datetime <= now_utc)
                 .where(WbPromotion.end_datetime >= now_utc)
                 .order_by(WbPromotion.start_datetime)
@@ -1099,3 +1099,236 @@ async def mrc_import_cancel_handler(callback: CallbackQuery, state: FSMContext) 
         )
     finally:
         await callback.answer()
+
+
+@router.callback_query(F.data == "mrc:settings")
+async def mrc_settings_handler(callback: CallbackQuery) -> None:
+    """Show MRC settings."""
+    try:
+        user_id = await _get_user_id_from_callback(callback)
+        if user_id is None:
+            return
+
+        async with AsyncSessionFactory() as session:
+            settings_service = MrcPricingSettingsService(session)
+            settings = await settings_service.get_settings(user_id=user_id)
+
+        discount_str = f"{settings.default_discount_percent:.0f}%"
+        multiplier_val = settings.full_price_multiplier
+        multiplier_str = f"{multiplier_val:.0f}" if multiplier_val == multiplier_val.to_integral_value() else str(multiplier_val)
+        deviation_str = f"{settings.allowed_action_price_deviation_percent:.0f}%"
+        auto_check = "вкл" if settings.auto_promo_check_enabled else "выкл"
+        auto_add = "вкл" if settings.auto_add_to_promotions else "выкл"
+        auto_price = "вкл" if settings.auto_price_for_auto_promotions else "выкл"
+
+        text = (
+            "⚙️ <b>Настройки МРЦ и акций WB</b>\n\n"
+            f"Процент скидки WB: <b>{discount_str}</b>\n"
+            f"Коэффициент полной цены: <b>{multiplier_str}</b>\n"
+            f"Допуск цены акции: <b>{deviation_str}</b>\n"
+            f"Автопроверка акций: <b>{auto_check}</b>\n"
+            f"Автодобавление в акции: <b>{auto_add}</b>\n"
+            f"Автоцена для автоакций WB: <b>{auto_price}</b>\n\n"
+            "Выберите параметр для изменения:"
+        )
+
+        from app.bot.keyboards.main import mrc_settings_keyboard
+        await safe_edit_text(callback.message, text, reply_markup=mrc_settings_keyboard(), parse_mode="HTML")
+    except Exception:
+        logger.exception("mrc_settings_failed")
+        await safe_edit_text(
+            callback.message,
+            "Не удалось открыть настройки МРЦ. Попробуйте позже.",
+            reply_markup=mrc_back_menu(),
+        )
+    finally:
+        await callback.answer()
+
+
+@router.callback_query(F.data == "mrc:settings:discount")
+async def mrc_settings_discount_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Change discount percent."""
+    try:
+        await state.set_state(MrcStates.waiting_for_discount_percent)
+        await safe_edit_text(
+            callback.message,
+            "✏️ <b>Процент скидки WB</b>\n\n"
+            "Введите новый процент скидки (0–99), например: <b>75</b>",
+            reply_markup=mrc_back_menu(),
+            parse_mode="HTML",
+        )
+    except Exception:
+        logger.exception("mrc_settings_discount_failed")
+        await safe_edit_text(
+            callback.message,
+            "Не удалось начать изменение. Попробуйте позже.",
+            reply_markup=mrc_back_menu(),
+        )
+    finally:
+        await callback.answer()
+
+
+@router.callback_query(F.data == "mrc:settings:multiplier")
+async def mrc_settings_multiplier_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Change price multiplier."""
+    try:
+        await state.set_state(MrcStates.waiting_for_price_multiplier)
+        await safe_edit_text(
+            callback.message,
+            "✏️ <b>Коэффициент полной цены</b>\n\n"
+            "Введите новый коэффициент (1–20), например: <b>4</b>",
+            reply_markup=mrc_back_menu(),
+            parse_mode="HTML",
+        )
+    except Exception:
+        logger.exception("mrc_settings_multiplier_failed")
+        await safe_edit_text(
+            callback.message,
+            "Не удалось начать изменение. Попробуйте позже.",
+            reply_markup=mrc_back_menu(),
+        )
+    finally:
+        await callback.answer()
+
+
+@router.callback_query(F.data == "mrc:settings:deviation")
+async def mrc_settings_deviation_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    """Change deviation percent."""
+    try:
+        await state.set_state(MrcStates.waiting_for_deviation_percent)
+        await safe_edit_text(
+            callback.message,
+            "✏️ <b>Допустимое отклонение цены в акции от МРЦ</b>\n\n"
+            "Введите новый процент (0–100), например: <b>10</b>",
+            reply_markup=mrc_back_menu(),
+            parse_mode="HTML",
+        )
+    except Exception:
+        logger.exception("mrc_settings_deviation_failed")
+        await safe_edit_text(
+            callback.message,
+            "Не удалось начать изменение. Попробуйте позже.",
+            reply_markup=mrc_back_menu(),
+        )
+    finally:
+        await callback.answer()
+
+
+@router.message(MrcStates.waiting_for_discount_percent)
+async def mrc_settings_discount_input_handler(message: Message, state: FSMContext) -> None:
+    """Handle discount percent input."""
+    raw_value = message.text.strip().replace(",", ".")
+    try:
+        value = Decimal(raw_value)
+    except (InvalidOperation, ValueError):
+        await message.answer(
+            "❌ Некорректное число. Введите процент от 0 до 99:",
+            reply_markup=mrc_back_menu(),
+            parse_mode="HTML",
+        )
+        return
+
+    if value < 0 or value > 99:
+        await message.answer(
+            "❌ Процент должен быть от 0 до 99. Введите корректное значение:",
+            reply_markup=mrc_back_menu(),
+            parse_mode="HTML",
+        )
+        return
+
+    value = value.quantize(Decimal("0.01"))
+    user_id = await _get_user_id_from_message(message)
+    if user_id is None:
+        return
+
+    async with AsyncSessionFactory() as session:
+        settings_service = MrcPricingSettingsService(session)
+        await settings_service.update_settings(user_id=user_id, default_discount_percent=value)
+        await session.commit()
+
+    await message.answer(
+        f"✅ <b>Процент скидки WB обновлён</b>\n\nНовое значение: <b>{value:.0f}%</b>",
+        reply_markup=mrc_back_menu(),
+        parse_mode="HTML",
+    )
+    await state.clear()
+
+
+@router.message(MrcStates.waiting_for_price_multiplier)
+async def mrc_settings_multiplier_input_handler(message: Message, state: FSMContext) -> None:
+    """Handle price multiplier input."""
+    raw_value = message.text.strip().replace(",", ".")
+    try:
+        value = Decimal(raw_value)
+    except (InvalidOperation, ValueError):
+        await message.answer(
+            "❌ Некорректное число. Введите коэффициент от 1 до 20:",
+            reply_markup=mrc_back_menu(),
+            parse_mode="HTML",
+        )
+        return
+
+    if value < 1 or value > 20:
+        await message.answer(
+            "❌ Коэффициент должен быть от 1 до 20. Введите корректное значение:",
+            reply_markup=mrc_back_menu(),
+            parse_mode="HTML",
+        )
+        return
+
+    value = value.quantize(Decimal("0.01"))
+    user_id = await _get_user_id_from_message(message)
+    if user_id is None:
+        return
+
+    async with AsyncSessionFactory() as session:
+        settings_service = MrcPricingSettingsService(session)
+        await settings_service.update_settings(user_id=user_id, full_price_multiplier=value)
+        await session.commit()
+
+    await message.answer(
+        f"✅ <b>Коэффициент полной цены обновлён</b>\n\nНовое значение: <b>{value:.0f}</b>",
+        reply_markup=mrc_back_menu(),
+        parse_mode="HTML",
+    )
+    await state.clear()
+
+
+@router.message(MrcStates.waiting_for_deviation_percent)
+async def mrc_settings_deviation_input_handler(message: Message, state: FSMContext) -> None:
+    """Handle deviation percent input."""
+    raw_value = message.text.strip().replace(",", ".")
+    try:
+        value = Decimal(raw_value)
+    except (InvalidOperation, ValueError):
+        await message.answer(
+            "❌ Некорректное число. Введите процент от 0 до 100:",
+            reply_markup=mrc_back_menu(),
+            parse_mode="HTML",
+        )
+        return
+
+    if value < 0 or value > 100:
+        await message.answer(
+            "❌ Процент должен быть от 0 до 100. Введите корректное значение:",
+            reply_markup=mrc_back_menu(),
+            parse_mode="HTML",
+        )
+        return
+
+    value = value.quantize(Decimal("0.01"))
+    user_id = await _get_user_id_from_message(message)
+    if user_id is None:
+        return
+
+    async with AsyncSessionFactory() as session:
+        settings_service = MrcPricingSettingsService(session)
+        await settings_service.update_settings(user_id=user_id, allowed_action_price_deviation_percent=value)
+        await session.commit()
+
+    await message.answer(
+        f"✅ <b>Допустимое отклонение обновлено</b>\n\nНовое значение: <b>{value:.0f}%</b>",
+        reply_markup=mrc_back_menu(),
+        parse_mode="HTML",
+    )
+    await state.clear()

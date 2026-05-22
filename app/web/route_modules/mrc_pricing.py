@@ -27,6 +27,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.domain import MarketplaceAccount, Product, WbPromotion, WbPromotionNomenclature
 from app.models.enums import Marketplace
 from app.services.feature_access_service import FeatureAccessService, FeatureCode
+from app.services.pricing.mrc_import_service import MrcImportService
+from app.services.pricing.mrc_pricing_settings_service import MrcPricingSettingsService
 from app.services.pricing.wb_mrc_price_service import WbMrcPriceResult, WbMrcPriceService
 from app.services.wb.wb_promotions_sync_service import WbPromotionsSyncService
 from app.utils.datetime import format_datetime_for_user
@@ -351,6 +353,112 @@ async def trigger_promotions_sync_all(
         return RedirectResponse(url="/web/mrc-pricing?sync_error=1", status_code=303)
 
 
+@router.get("/mrc-pricing/settings", response_class=HTMLResponse)
+async def mrc_settings_page(
+    user=CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    """MRC settings page."""
+    try:
+        access = await FeatureAccessService(session).can_use_feature(user.id, FeatureCode.MRC_PRICING)
+        if not access.allowed:
+            return render_page(
+                "Настройки МРЦ",
+                user.first_name or user.username or str(user.telegram_id),
+                _feature_locked_content(access),
+                active_path="/web/mrc-pricing",
+            )
+
+        settings_service = MrcPricingSettingsService(session)
+        settings = await settings_service.get_settings(user_id=user.id)
+
+        return render_page(
+            "Настройки МРЦ и акций WB",
+            user.first_name or user.username or str(user.telegram_id),
+            _mrc_settings_content(settings),
+            active_path="/web/mrc-pricing",
+        )
+    except Exception:
+        logger.exception("mrc_settings_page_failed", extra={"user_id": user.id})
+        return render_page(
+            "Ошибка — Настройки МРЦ",
+            user.first_name or user.username or str(user.telegram_id),
+            '<div class="card"><h2>Не удалось загрузить настройки</h2>'
+            '<p>Ошибка уже записана в лог. Попробуйте обновить страницу позже.</p>'
+            '<p><a href="/web/mrc-pricing" class="button primary">Вернуться</a></p></div>',
+            active_path="/web/mrc-pricing",
+        )
+
+
+@router.post("/mrc-pricing/settings", response_class=HTMLResponse)
+async def save_mrc_settings(
+    request: Request,
+    user=CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    """Save MRC settings."""
+    try:
+        access = await FeatureAccessService(session).can_use_feature(user.id, FeatureCode.MRC_PRICING)
+        if not access.allowed:
+            return render_page(
+                "Настройки МРЦ",
+                user.first_name or user.username or str(user.telegram_id),
+                _feature_locked_content(access),
+                active_path="/web/mrc-pricing",
+            )
+
+        form = await request.form()
+
+        def _decimal_form(key: str, default: str) -> Decimal:
+            val = form.get(key, default).strip().replace(",", ".")
+            try:
+                return Decimal(val)
+            except Exception:
+                return Decimal(default)
+
+        def _bool_form(key: str) -> bool:
+            return form.get(key, "off") == "on"
+
+        default_discount = _decimal_form("default_discount_percent", "75")
+        full_price_multiplier = _decimal_form("full_price_multiplier", "4")
+        allowed_deviation = _decimal_form("allowed_action_price_deviation_percent", "10")
+        auto_promo_check = _bool_form("auto_promo_check_enabled")
+        auto_add = _bool_form("auto_add_to_promotions")
+        auto_price = _bool_form("auto_price_for_auto_promotions")
+
+        settings_service = MrcPricingSettingsService(session)
+        errors = MrcPricingSettingsService.validate_settings(
+            default_discount_percent=default_discount,
+            full_price_multiplier=full_price_multiplier,
+            allowed_action_price_deviation_percent=allowed_deviation,
+        )
+
+        if errors:
+            settings = await settings_service.get_settings(user_id=user.id)
+            return render_page(
+                "Настройки МРЦ и акций WB",
+                user.first_name or user.username or str(user.telegram_id),
+                _mrc_settings_content(settings, errors=errors),
+                active_path="/web/mrc-pricing",
+            )
+
+        await settings_service.update_settings(
+            user_id=user.id,
+            default_discount_percent=default_discount,
+            full_price_multiplier=full_price_multiplier,
+            allowed_action_price_deviation_percent=allowed_deviation,
+            auto_promo_check_enabled=auto_promo_check,
+            auto_add_to_promotions=auto_add,
+            auto_price_for_auto_promotions=auto_price,
+        )
+        await session.commit()
+
+        return RedirectResponse(url="/web/mrc-pricing/settings?saved=1", status_code=303)
+    except Exception:
+        logger.exception("mrc_settings_save_failed", extra={"user_id": user.id})
+        return RedirectResponse(url="/web/mrc-pricing/settings?error=1", status_code=303)
+
+
 @router.get("/mrc-pricing/export-template", response_model=None)
 async def export_mrc_template(
     user=CURRENT_WEB_USER_DEPENDENCY,
@@ -663,7 +771,6 @@ async def _load_mrc_page_data(
             )
             .where(
                 or_(*conditions),
-                WbPromotion.is_active_today.is_(True),
                 WbPromotion.start_datetime <= now_utc,
                 WbPromotion.end_datetime >= now_utc,
                 WbPromotionNomenclature.plan_price.isnot(None),
@@ -793,7 +900,6 @@ async def _load_promotions_page_data(
         select(WbPromotion, MarketplaceAccount.name)
         .join(MarketplaceAccount, MarketplaceAccount.id == WbPromotion.marketplace_account_id)
         .where(MarketplaceAccount.user_id == user_id)
-        .where(WbPromotion.is_active_today.is_(True))
         .where(WbPromotion.start_datetime <= now_utc)
         .where(WbPromotion.end_datetime >= now_utc)
         .order_by(WbPromotion.start_datetime)
@@ -997,7 +1103,6 @@ async def _get_actual_promo(
         .where(
             WbPromotionNomenclature.marketplace_account_id == marketplace_account_id,
             WbPromotionNomenclature.wb_nm_id == wb_nm_id,
-            WbPromotion.is_active_today.is_(True),
             WbPromotion.start_datetime <= now_utc,
             WbPromotion.end_datetime >= now_utc,
             WbPromotionNomenclature.plan_price.isnot(None),
@@ -1103,6 +1208,9 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
     )
     parts.append(
         '<a href="/web/wb-promotions" class="button">🎯 Акции WB</a>'
+    )
+    parts.append(
+        '<a href="/web/mrc-pricing/settings" class="button">⚙️ Настройки МРЦ</a>'
     )
     parts.append(
         '<a href="/web/mrc-pricing/export" class="button">📥 Скачать отчёт</a>'
@@ -1674,3 +1782,155 @@ def _form_value(form: dict[str, list[str]], key: str, default: str) -> str:
     if not values:
         return default
     return values[0]
+
+
+def _mrc_settings_content(
+    settings,
+    errors: list[str] | None = None,
+) -> str:
+    """Render MRC settings page."""
+    parts = []
+    parts.append('<div class="card">')
+    parts.append("<h2>⚙️ Настройки МРЦ и акций WB</h2>")
+
+    if errors:
+        parts.append('<div class="card" style="background:#fee2e2;margin-bottom:16px">')
+        parts.append("<h3>⚠️ Ошибки валидации</h3>")
+        parts.append("<ul>")
+        for err in errors:
+            parts.append(f"<li>{escape(err)}</li>")
+        parts.append("</ul></div>")
+
+    parts.append(
+        '<form method="post" action="/web/mrc-pricing/settings">'
+    )
+
+    # Discount percent
+    parts.append('<div style="margin-bottom:16px">')
+    parts.append(
+        '<label style="display:block;font-weight:600;margin-bottom:4px">'
+        "Процент скидки WB, %"
+        "</label>"
+    )
+    parts.append(
+        f'<input type="text" name="default_discount_percent" '
+        f'value="{settings.default_discount_percent}" '
+        'style="width:100px;padding:6px 10px;border:1px solid var(--color-border);border-radius:6px">'
+    )
+    parts.append(
+        '<p class="text-muted" style="margin-top:4px;font-size:13px">'
+        "Используется для расчёта скидки WB при формировании полной цены. Диапазон: 0–99."
+        "</p>"
+    )
+    parts.append("</div>")
+
+    # Full price multiplier
+    parts.append('<div style="margin-bottom:16px">')
+    parts.append(
+        '<label style="display:block;font-weight:600;margin-bottom:4px">'
+        "Коэффициент полной цены"
+        "</label>"
+    )
+    parts.append(
+        f'<input type="text" name="full_price_multiplier" '
+        f'value="{settings.full_price_multiplier}" '
+        'style="width:100px;padding:6px 10px;border:1px solid var(--color-border);border-radius:6px">'
+    )
+    parts.append(
+        '<p class="text-muted" style="margin-top:4px;font-size:13px">'
+        "Полная цена = МРЦ × коэффициент. Диапазон: 1–20."
+        "</p>"
+    )
+    parts.append("</div>")
+
+    # Allowed deviation
+    parts.append('<div style="margin-bottom:16px">')
+    parts.append(
+        '<label style="display:block;font-weight:600;margin-bottom:4px">'
+        "Допустимое отклонение цены в акции от МРЦ, %"
+        "</label>"
+    )
+    parts.append(
+        f'<input type="text" name="allowed_action_price_deviation_percent" '
+        f'value="{settings.allowed_action_price_deviation_percent}" '
+        'style="width:100px;padding:6px 10px;border:1px solid var(--color-border);border-radius:6px">'
+    )
+    parts.append(
+        '<p class="text-muted" style="margin-top:4px;font-size:13px">'
+        "Если цена в акции отличается от МРЦ больше чем на этот процент — товар требует внимания. Диапазон: 0–100."
+        "</p>"
+    )
+    parts.append("</div>")
+
+    # Auto promo check
+    parts.append('<div style="margin-bottom:16px">')
+    parts.append(
+        '<label style="display:flex;align-items:center;gap:8px">'
+        f'<input type="checkbox" name="auto_promo_check_enabled" '
+        f'{"checked" if settings.auto_promo_check_enabled else ""}>'
+        " Автоматически проверять участие в акциях WB"
+        "</label>"
+    )
+    parts.append("</div>")
+
+    # Auto add to promotions
+    parts.append('<div style="margin-bottom:16px">')
+    parts.append(
+        '<label style="display:flex;align-items:center;gap:8px">'
+        f'<input type="checkbox" name="auto_add_to_promotions" '
+        f'{"checked" if settings.auto_add_to_promotions else ""}>'
+        " Автоматически добавлять товары в подходящие акции WB"
+        "</label>"
+    )
+    parts.append(
+        '<p class="text-muted" style="margin-top:4px;font-size:13px">'
+        "Товары с нарушением МРЦ не будут добавлены автоматически."
+        "</p>"
+    )
+    parts.append("</div>")
+
+    # Auto price for auto promotions
+    parts.append('<div style="margin-bottom:16px;padding:12px;background:#fef3c7;border-radius:8px">')
+    parts.append(
+        '<label style="display:flex;align-items:center;gap:8px">'
+        f'<input type="checkbox" name="auto_price_for_auto_promotions" '
+        f'{"checked" if settings.auto_price_for_auto_promotions else ""}>'
+        " <b>Автоматически менять цену для входа в автоакции WB</b>"
+        "</label>"
+    )
+    parts.append(
+        '<p class="text-muted" style="margin-top:4px;font-size:13px;color:#92400e">'
+        "⚠️ Включая автоцену для автоакций WB, вы разрешаете сервису автоматически менять цены товаров, "
+        "если новая цена не нарушает МРЦ, minPrice и заданный процент допуска."
+        "</p>"
+    )
+    parts.append("</div>")
+
+    # Buttons
+    parts.append('<div style="display:flex;gap:8px;margin-top:24px">')
+    parts.append('<button type="submit" class="button primary">💾 Сохранить настройки</button>')
+    parts.append('<a href="/web/mrc-pricing" class="button">← Назад</a>')
+    parts.append("</div>")
+
+    parts.append("</form></div>")
+
+    # Flash message
+    parts.append("""
+    <script>
+    (function() {
+        const params = new URLSearchParams(window.location.search);
+        let msg = '';
+        if (params.get('saved') === '1') msg = '✅ Настройки МРЦ сохранены';
+        if (params.get('error') === '1') msg = '❌ Ошибка сохранения настроек';
+        if (msg) {
+            const div = document.createElement('div');
+            div.style.cssText = 'padding:12px 16px;margin-bottom:16px;border-radius:8px;font-size:14px;' +
+                (msg.startsWith('✅') ? 'background:#d1fae5;color:#065f46' : 'background:#fee2e2;color:#991b1b');
+            div.textContent = msg;
+            document.querySelector('.card')?.before(div);
+        }
+    })();
+    </script>
+    """)
+
+    return "\n".join(parts)

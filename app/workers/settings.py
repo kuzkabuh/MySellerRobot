@@ -109,7 +109,7 @@ class WorkerSettings:
         cron(sync_wb_commissions, hour=3, minute=10),
         cron(check_ozon_commission_source, hour=3, minute=30),
         cron(sync_wb_logistics_tariffs, hour=3, minute=50),
-        cron(sync_wb_daily_promotions, hour=0, minute=15),
+        cron(sync_wb_daily_promotions, minute={15, 45}),
     ]
     redis_settings = _redis_settings()
     max_jobs = 10

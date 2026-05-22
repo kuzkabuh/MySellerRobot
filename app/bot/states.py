@@ -37,3 +37,6 @@ class MrcStates(StatesGroup):
     waiting_for_mrc_price = State()
     waiting_for_import_file = State()
     waiting_for_import_confirm = State()
+    waiting_for_discount_percent = State()
+    waiting_for_price_multiplier = State()
+    waiting_for_deviation_percent = State()
