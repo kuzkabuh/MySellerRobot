@@ -1,15 +1,15 @@
 """Add min_price, mrc_lower_bound, mrc_upper_bound to wb_price_change_history.
 
-Revision ID: 0038
-Revises: 0037
+Revision ID: 20260523_0038_price_history_bounds
+Revises: 20260522_0037_fix_auto_promo_columns
 Create Date: 2026-05-23
 """
 
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0038"
-down_revision = "0037"
+revision = "20260523_0038_price_history_bounds"
+down_revision = "20260522_0037_fix_auto_promo_columns"
 branch_labels = None
 depends_on = None
 
