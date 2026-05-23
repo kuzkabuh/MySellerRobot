@@ -16,6 +16,7 @@ from app.models.domain import (
     Product,
     WbAutoPromoPriceRecommendation,
     WbPriceChangeHistory,
+    WbPromotionNomenclature,
 )
 
 logger = logging.getLogger(__name__)
@@ -156,6 +157,9 @@ class WbPriceUpdateService:
                     error=skip_reason,
                     dry_run=dry_run,
                     source=source,
+                    min_price=rec.min_price,
+                    mrc_lower_bound=rec.mrc_lower_bound,
+                    mrc_upper_bound=rec.mrc_upper_bound,
                 )
                 logger.info(
                     "wb_auto_promo_price_update_skipped",
@@ -186,6 +190,9 @@ class WbPriceUpdateService:
                     status=STATUS_DRY_RUN,
                     dry_run=True,
                     source=source,
+                    min_price=rec.min_price,
+                    mrc_lower_bound=rec.mrc_lower_bound,
+                    mrc_upper_bound=rec.mrc_upper_bound,
                 )
                 results.append({
                     "product_id": product.id,
@@ -214,6 +221,9 @@ class WbPriceUpdateService:
                     status=STATUS_APPLIED,
                     dry_run=False,
                     source=source,
+                    min_price=rec.min_price,
+                    mrc_lower_bound=rec.mrc_lower_bound,
+                    mrc_upper_bound=rec.mrc_upper_bound,
                 )
                 logger.info(
                     "wb_auto_promo_price_update_applied",
@@ -243,6 +253,9 @@ class WbPriceUpdateService:
                     error=str(exc),
                     dry_run=False,
                     source=source,
+                    min_price=rec.min_price,
+                    mrc_lower_bound=rec.mrc_lower_bound,
+                    mrc_upper_bound=rec.mrc_upper_bound,
                 )
                 logger.exception(
                     "wb_auto_promo_price_update_failed",
@@ -270,6 +283,9 @@ class WbPriceUpdateService:
         if new_price <= 0:
             return False, "Цена должна быть больше 0"
 
+        if rec.min_price and new_price < rec.min_price:
+            return False, f"Цена {new_price} ниже minPrice ({rec.min_price})"
+
         if rec.mrc_lower_bound and new_price < rec.mrc_lower_bound:
             return False, (
                 f"Цена {new_price} ниже нижней границы МРЦ "
@@ -281,9 +297,6 @@ class WbPriceUpdateService:
                 f"Цена {new_price} выше верхней границы МРЦ "
                 f"({rec.mrc_upper_bound})"
             )
-
-        if rec.min_price and new_price < rec.min_price:
-            return False, f"Цена {new_price} ниже minPrice ({rec.min_price})"
 
         last_change = await self._get_last_price_change(
             product.marketplace_account_id,
@@ -302,8 +315,40 @@ class WbPriceUpdateService:
         return True, None
 
     async def _get_current_wb_price(self, product: Product) -> Decimal | None:
-        """Get current WB price from product data."""
-        return None
+        """Get current WB price from synced nomenclatures or conditions."""
+        nm_id_str = product.external_product_id or product.marketplace_article
+        if not nm_id_str or not nm_id_str.isdigit():
+            return None
+        wb_nm_id = int(nm_id_str)
+
+        result = await self.session.execute(
+            select(WbPromotionNomenclature.current_price)
+            .where(
+                WbPromotionNomenclature.marketplace_account_id == product.marketplace_account_id,
+                WbPromotionNomenclature.wb_nm_id == wb_nm_id,
+                WbPromotionNomenclature.current_price.isnot(None),
+                WbPromotionNomenclature.current_price > 0,
+            )
+            .order_by(WbPromotionNomenclature.synced_at.desc())
+            .limit(1)
+        )
+        price = result.scalar_one_or_none()
+        if price is not None:
+            return price
+
+        from app.models.domain import WbAutoPromotionCondition
+
+        cond_result = await self.session.execute(
+            select(WbAutoPromotionCondition.current_wb_price)
+            .where(
+                WbAutoPromotionCondition.marketplace_account_id == product.marketplace_account_id,
+                WbAutoPromotionCondition.wb_nm_id == wb_nm_id,
+                WbAutoPromotionCondition.current_wb_price.isnot(None),
+                WbAutoPromotionCondition.current_wb_price > 0,
+            )
+            .limit(1)
+        )
+        return cond_result.scalar_one_or_none()
 
     async def _get_last_price_change(
         self,
@@ -336,6 +381,9 @@ class WbPriceUpdateService:
         error: str | None = None,
         dry_run: bool = True,
         source: str = SOURCE_MANUAL,
+        min_price: Decimal | None = None,
+        mrc_lower_bound: Decimal | None = None,
+        mrc_upper_bound: Decimal | None = None,
     ) -> None:
         """Record a price change in history."""
         record = WbPriceChangeHistory(
@@ -345,6 +393,9 @@ class WbPriceUpdateService:
             wb_nm_id=wb_nm_id,
             old_price=old_price,
             new_price=new_price,
+            min_price=min_price,
+            mrc_lower_bound=mrc_lower_bound,
+            mrc_upper_bound=mrc_upper_bound,
             reason=REASON_AUTO_PROMOTION,
             source=source,
             status=status,

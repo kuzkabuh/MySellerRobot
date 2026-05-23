@@ -1052,6 +1052,7 @@ class WbPriceChangeHistory(Base):
     __tablename__ = "wb_price_change_history"
     __table_args__ = (
         Index("ix_price_change_hist_nm", "wb_nm_id"),
+        Index("ix_price_change_hist_account_created", "marketplace_account_id", "created_at"),
     )
 
     id: Mapped[int_pk]
@@ -1061,6 +1062,9 @@ class WbPriceChangeHistory(Base):
     wb_nm_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     old_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     new_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    min_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    mrc_lower_bound: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    mrc_upper_bound: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     reason: Mapped[str] = mapped_column(String(64), nullable=False, default="auto_promotion")
     source: Mapped[str] = mapped_column(String(64), nullable=False, default="manual")
     dry_run: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

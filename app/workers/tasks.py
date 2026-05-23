@@ -1126,6 +1126,10 @@ async def check_auto_promo_prices(ctx: dict[str, Any]) -> None:
     from app.services.pricing.wb_auto_promo_price_service import (
         WbAutoPromoPriceService,
         STATUS_AUTO_SET_PRICE,
+        STATUS_AUTO_PRICE_OK,
+        STATUS_AUTO_REQUIRED_PRICE_UNKNOWN,
+        STATUS_AUTO_PRICE_VIOLATION,
+        STATUS_AUTO_MIN_PRICE_VIOLATION,
     )
     from app.services.pricing.wb_price_update_service import (
         WbPriceUpdateService,
@@ -1150,6 +1154,11 @@ async def check_auto_promo_prices(ctx: dict[str, Any]) -> None:
             total_recommendations = 0
             total_applied = 0
             total_skipped = 0
+            total_set_price = 0
+            total_price_ok = 0
+            total_violation = 0
+            total_min_price_violation = 0
+            total_unknown = 0
 
             for settings in settings_list:
                 if settings.marketplace_account_id is None:
@@ -1167,6 +1176,16 @@ async def check_auto_promo_prices(ctx: dict[str, Any]) -> None:
                         marketplace_account_id=settings.marketplace_account_id,
                     )
                     total_recommendations += 1
+                    if rec.status == STATUS_AUTO_SET_PRICE:
+                        total_set_price += 1
+                    elif rec.status == STATUS_AUTO_PRICE_OK:
+                        total_price_ok += 1
+                    elif rec.status == STATUS_AUTO_PRICE_VIOLATION:
+                        total_violation += 1
+                    elif rec.status == STATUS_AUTO_MIN_PRICE_VIOLATION:
+                        total_min_price_violation += 1
+                    elif rec.status == STATUS_AUTO_REQUIRED_PRICE_UNKNOWN:
+                        total_unknown += 1
 
                 if settings.auto_price_for_auto_promotions:
                     account_result = await session.execute(
@@ -1203,6 +1222,11 @@ async def check_auto_promo_prices(ctx: dict[str, Any]) -> None:
                     "auto_promo_price_check_completed",
                     extra={
                         "recommendations": total_recommendations,
+                        "set_price": total_set_price,
+                        "price_ok": total_price_ok,
+                        "violations": total_violation,
+                        "min_price_violations": total_min_price_violation,
+                        "unknown": total_unknown,
                         "prices_applied": total_applied,
                         "prices_skipped": total_skipped,
                     },
@@ -1221,8 +1245,15 @@ async def check_auto_promo_prices(ctx: dict[str, Any]) -> None:
                                         await bot.send_message(
                                             chat_id=user.telegram_id,
                                             text=(
-                                                f"🤖 Автоакции WB: изменено цен — {total_applied}, "
-                                                f"пропущено — {total_skipped}"
+                                                f"🤖 Автоакции WB:\n"
+                                                f"Рекомендаций: {total_recommendations}\n"
+                                                f"Можно изменить: {total_set_price}\n"
+                                                f"Уже подходят: {total_price_ok}\n"
+                                                f"Нарушают МРЦ: {total_violation}\n"
+                                                f"Нарушают minPrice: {total_min_price_violation}\n"
+                                                f"Нет цены входа: {total_unknown}\n"
+                                                f"Изменено цен: {total_applied}\n"
+                                                f"Пропущено: {total_skipped}"
                                             ),
                                         )
                     except Exception:
