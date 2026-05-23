@@ -327,7 +327,38 @@ async def mrc_promos_today_handler(callback: CallbackQuery) -> None:
             )
 
         text = "\n\n".join(lines)
-        await safe_edit_text(callback.message, text, reply_markup=mrc_back_menu(), parse_mode="HTML")
+
+        # Telegram message limit is 4096 chars. Split if too long.
+        if len(text) > 4000:
+            header = lines[0]
+            if last_sync:
+                header += "\n" + lines[1]
+            promo_lines = lines[2:] if last_sync else lines[1:]
+
+            chunks: list[str] = []
+            current_chunk = header + "\n\n"
+            for promo_line in promo_lines:
+                if len(current_chunk) + len(promo_line) + 20 > 4000:
+                    chunks.append(current_chunk)
+                    current_chunk = f"🎯 <b>Акции WB (продолжение)</b>\n\n{promo_line}"
+                else:
+                    current_chunk += "\n\n" + promo_line
+            if current_chunk.strip():
+                chunks.append(current_chunk)
+
+            for idx, chunk in enumerate(chunks):
+                if idx == 0:
+                    await safe_edit_text(callback.message, chunk, reply_markup=mrc_back_menu() if len(chunks) == 1 else None, parse_mode="HTML")
+                else:
+                    async with bot_session() as bot:
+                        await bot.send_message(
+                            chat_id=callback.message.chat.id,
+                            text=chunk,
+                            reply_markup=mrc_back_menu() if idx == len(chunks) - 1 else None,
+                            parse_mode="HTML",
+                        )
+        else:
+            await safe_edit_text(callback.message, text, reply_markup=mrc_back_menu(), parse_mode="HTML")
     except Exception:
         logger.exception("mrc_promos_today_failed")
         await safe_edit_text(

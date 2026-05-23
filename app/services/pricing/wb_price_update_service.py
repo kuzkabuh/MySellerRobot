@@ -1,12 +1,15 @@
-"""version: 1.0.0
+"""version: 2.0.0
 description: WB price update service for auto promotions.
-    Safely changes product prices with MRC/minPrice validation and dry_run.
-updated: 2026-05-22
+    Safely changes product prices with MRC/minPrice validation,
+    calculates price/discount payload for WB /api/v2/upload/task,
+    checks upload status, and handles quarantine detection.
+updated: 2026-05-23
 """
 
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import Decimal, ROUND_CEILING, ROUND_HALF_UP
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,12 +28,82 @@ REASON_AUTO_PROMOTION = "auto_promotion"
 SOURCE_MANUAL = "manual"
 SOURCE_AUTO = "auto"
 STATUS_PENDING = "pending"
+STATUS_SENT = "sent"
+STATUS_UPLOAD_ERROR = "upload_error"
+STATUS_STATUS_PENDING = "status_pending"
 STATUS_APPLIED = "applied"
+STATUS_QUARANTINE = "quarantine"
 STATUS_FAILED = "failed"
 STATUS_DRY_RUN = "dry_run"
 STATUS_SKIPPED = "skipped"
 
 MIN_PRICE_CHANGE_INTERVAL_SECONDS = 6 * 3600
+QUARANTINE_THRESHOLD = Decimal("3")
+MAX_UPLOAD_ITEMS = 1000
+UPLOAD_STATUS_POLL_ATTEMPTS = 10
+UPLOAD_STATUS_POLL_INTERVAL = 15
+
+WB_UPLOAD_STATUS_MAP = {
+    3: "processed_success",
+    4: "cancelled",
+    5: "processed_partial",
+    6: "processed_all_errors",
+}
+
+
+@dataclass(slots=True)
+class WbPricePayload:
+    """Calculated price/discount payload for WB upload."""
+    nm_id: int
+    price: int
+    discount: int
+    final_discounted_price: Decimal
+    target_discounted_price: Decimal
+
+
+def calculate_wb_price_payload_for_target(
+    target_discounted_price: Decimal,
+    discount_percent: Decimal = Decimal("75"),
+    nm_id: int = 0,
+) -> WbPricePayload:
+    """Calculate WB price and discount to achieve target discounted price.
+
+    Formula:
+        price_before_discount = ceil(target / (1 - discount/100))
+        final_price = price_before_discount * (1 - discount/100)
+
+    If final_price > target due to rounding, reduce price_before_discount by 1.
+    """
+    discount_factor = Decimal("1") - discount_percent / Decimal("100")
+    if discount_factor <= 0:
+        discount_factor = Decimal("0.25")
+
+    price_before_discount = (target_discounted_price / discount_factor).to_integral_value(rounding=ROUND_CEILING)
+    price_int = int(price_before_discount)
+
+    final_price = Decimal(str(price_int)) * discount_factor
+
+    if final_price > target_discounted_price and price_int > 1:
+        price_int -= 1
+        final_price = Decimal(str(price_int)) * discount_factor
+
+    return WbPricePayload(
+        nm_id=nm_id,
+        price=price_int,
+        discount=int(discount_percent),
+        final_discounted_price=final_price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+        target_discounted_price=target_discounted_price,
+    )
+
+
+def is_quarantine_risk(
+    old_discounted_price: Decimal | None,
+    target_discounted_price: Decimal,
+) -> bool:
+    """Check if new price is 3x or more lower than old price (quarantine risk)."""
+    if old_discounted_price is None or old_discounted_price <= 0:
+        return False
+    return target_discounted_price <= old_discounted_price / QUARANTINE_THRESHOLD
 
 
 class WbPriceUpdateService:
@@ -46,6 +119,15 @@ class WbPriceUpdateService:
         status_filter: str = "AUTO_PROMOTION_SET_PRICE",
     ) -> list[dict]:
         """Prepare a preview of price changes without applying them."""
+        from app.services.pricing.mrc_pricing_settings_service import MrcPricingSettingsService
+
+        settings_service = MrcPricingSettingsService(self.session)
+        settings = await settings_service.get_settings(
+            user_id=user_id,
+            marketplace_account_id=marketplace_account_id,
+        )
+        discount_percent = settings.default_discount_percent or Decimal("75")
+
         logger.info(
             "wb_auto_promo_price_update_preview_created",
             extra={
@@ -81,6 +163,14 @@ class WbPriceUpdateService:
                 rec=rec,
             )
 
+            payload = calculate_wb_price_payload_for_target(
+                target_discounted_price=rec.recommended_price,
+                discount_percent=discount_percent,
+                nm_id=rec.wb_nm_id,
+            )
+
+            quarantine_risk = is_quarantine_risk(current_price, rec.recommended_price)
+
             preview.append({
                 "product_id": product.id,
                 "wb_nm_id": rec.wb_nm_id,
@@ -94,8 +184,12 @@ class WbPriceUpdateService:
                 "min_price": rec.min_price,
                 "mrc_lower_bound": rec.mrc_lower_bound,
                 "mrc_upper_bound": rec.mrc_upper_bound,
-                "can_change": can_change,
-                "skip_reason": skip_reason,
+                "can_change": can_change and not quarantine_risk,
+                "skip_reason": "Карантин WB: новая цена в 3+ раза ниже старой" if quarantine_risk else skip_reason,
+                "quarantine_risk": quarantine_risk,
+                "wb_price": payload.price,
+                "wb_discount": payload.discount,
+                "final_discounted_price": payload.final_discounted_price,
                 "recommendation_id": rec.id,
             })
 
@@ -111,6 +205,15 @@ class WbPriceUpdateService:
         source: str = SOURCE_MANUAL,
     ) -> list[dict]:
         """Apply price changes for selected products."""
+        from app.services.pricing.mrc_pricing_settings_service import MrcPricingSettingsService
+
+        settings_service = MrcPricingSettingsService(self.session)
+        settings = await settings_service.get_settings(
+            user_id=user_id,
+            marketplace_account_id=marketplace_account_id,
+        )
+        discount_percent = settings.default_discount_percent or Decimal("75")
+
         query = (
             select(WbAutoPromoPriceRecommendation)
             .where(
@@ -130,6 +233,8 @@ class WbPriceUpdateService:
         recommendations = list(recs_result.scalars().all())
 
         results: list[dict] = []
+        upload_items: list[dict] = []
+        upload_context: list[dict] = []
 
         for rec in recommendations:
             product_result = await self.session.execute(
@@ -139,6 +244,7 @@ class WbPriceUpdateService:
             if product is None:
                 continue
 
+            current_price = await self._get_current_wb_price(product)
             can_change, skip_reason = await self._can_change_price(
                 product=product,
                 new_price=rec.recommended_price,
@@ -151,7 +257,7 @@ class WbPriceUpdateService:
                     marketplace_account_id=marketplace_account_id,
                     product_id=product.id,
                     wb_nm_id=rec.wb_nm_id,
-                    old_price=None,
+                    old_price=current_price,
                     new_price=rec.recommended_price,
                     status=STATUS_SKIPPED,
                     error=skip_reason,
@@ -177,9 +283,38 @@ class WbPriceUpdateService:
                 })
                 continue
 
-            current_price = await self._get_current_wb_price(product)
+            quarantine_risk = is_quarantine_risk(current_price, rec.recommended_price)
+            if quarantine_risk and source == SOURCE_AUTO:
+                skip_reason = "Карантин WB: новая цена в 3+ раза ниже старой"
+                await self._record_history(
+                    user_id=user_id,
+                    marketplace_account_id=marketplace_account_id,
+                    product_id=product.id,
+                    wb_nm_id=rec.wb_nm_id,
+                    old_price=current_price,
+                    new_price=rec.recommended_price,
+                    status=STATUS_QUARANTINE,
+                    error=skip_reason,
+                    dry_run=dry_run,
+                    source=source,
+                    min_price=rec.min_price,
+                    mrc_lower_bound=rec.mrc_lower_bound,
+                    mrc_upper_bound=rec.mrc_upper_bound,
+                )
+                results.append({
+                    "product_id": product.id,
+                    "wb_nm_id": rec.wb_nm_id,
+                    "status": STATUS_QUARANTINE,
+                    "reason": skip_reason,
+                })
+                continue
 
             if dry_run:
+                payload = calculate_wb_price_payload_for_target(
+                    target_discounted_price=rec.recommended_price,
+                    discount_percent=discount_percent,
+                    nm_id=rec.wb_nm_id,
+                )
                 await self._record_history(
                     user_id=user_id,
                     marketplace_account_id=marketplace_account_id,
@@ -193,6 +328,10 @@ class WbPriceUpdateService:
                     min_price=rec.min_price,
                     mrc_lower_bound=rec.mrc_lower_bound,
                     mrc_upper_bound=rec.mrc_upper_bound,
+                    wb_price=payload.price,
+                    wb_discount=payload.discount,
+                    final_discounted_price=payload.final_discounted_price,
+                    target_discounted_price=rec.recommended_price,
                 )
                 results.append({
                     "product_id": product.id,
@@ -200,78 +339,273 @@ class WbPriceUpdateService:
                     "status": STATUS_DRY_RUN,
                     "old_price": current_price,
                     "new_price": rec.recommended_price,
+                    "wb_price": payload.price,
+                    "wb_discount": payload.discount,
                 })
                 continue
 
-            try:
-                client = WildberriesClient(api_key=wb_api_key)
-                await client.upload_prices_discounts(items=[{
-                    "id": rec.wb_nm_id,
-                    "price": int(rec.recommended_price),
-                    "discount": 0,
-                }])
+            payload = calculate_wb_price_payload_for_target(
+                target_discounted_price=rec.recommended_price,
+                discount_percent=discount_percent,
+                nm_id=rec.wb_nm_id,
+            )
 
-                await self._record_history(
+            logger.info(
+                "wb_price_payload_calculated",
+                extra={
+                    "wb_nm_id": rec.wb_nm_id,
+                    "target_price": str(rec.recommended_price),
+                    "wb_price": payload.price,
+                    "wb_discount": payload.discount,
+                    "final_price": str(payload.final_discounted_price),
+                },
+            )
+
+            upload_items.append({
+                "nmID": rec.wb_nm_id,
+                "price": payload.price,
+                "discount": payload.discount,
+            })
+            upload_context.append({
+                "product_id": product.id,
+                "wb_nm_id": rec.wb_nm_id,
+                "old_price": current_price,
+                "target_discounted_price": rec.recommended_price,
+                "wb_price": payload.price,
+                "wb_discount": payload.discount,
+                "final_discounted_price": payload.final_discounted_price,
+                "min_price": rec.min_price,
+                "mrc_lower_bound": rec.mrc_lower_bound,
+                "mrc_upper_bound": rec.mrc_upper_bound,
+            })
+
+            if len(upload_items) >= MAX_UPLOAD_ITEMS:
+                batch_results = await self._execute_upload(
                     user_id=user_id,
                     marketplace_account_id=marketplace_account_id,
-                    product_id=product.id,
-                    wb_nm_id=rec.wb_nm_id,
-                    old_price=current_price,
-                    new_price=rec.recommended_price,
-                    status=STATUS_APPLIED,
-                    dry_run=False,
+                    wb_api_key=wb_api_key,
+                    upload_items=upload_items,
+                    upload_context=upload_context,
                     source=source,
-                    min_price=rec.min_price,
-                    mrc_lower_bound=rec.mrc_lower_bound,
-                    mrc_upper_bound=rec.mrc_upper_bound,
                 )
-                logger.info(
-                    "wb_auto_promo_price_update_applied",
+                results.extend(batch_results)
+                upload_items = []
+                upload_context = []
+
+        if upload_items and not dry_run:
+            batch_results = await self._execute_upload(
+                user_id=user_id,
+                marketplace_account_id=marketplace_account_id,
+                wb_api_key=wb_api_key,
+                upload_items=upload_items,
+                upload_context=upload_context,
+                source=source,
+            )
+            results.extend(batch_results)
+
+        return results
+
+    async def _execute_upload(
+        self,
+        user_id: int,
+        marketplace_account_id: int,
+        wb_api_key: str,
+        upload_items: list[dict],
+        upload_context: list[dict],
+        source: str,
+    ) -> list[dict]:
+        """Execute a batch upload to WB /api/v2/upload/task."""
+        client = WildberriesClient(api_key=wb_api_key)
+        results: list[dict] = []
+
+        logger.info(
+            "wb_price_upload_started",
+            extra={
+                "marketplace_account_id": marketplace_account_id,
+                "items_count": len(upload_items),
+            },
+        )
+
+        try:
+            response = await client.upload_task_prices_discounts(items=upload_items)
+            raw_response = response
+
+            error = response.get("error", False)
+            error_text = response.get("errorText", "")
+            data = response.get("data", {})
+            upload_id = data.get("id") if isinstance(data, dict) else None
+            already_exists = data.get("alreadyExists", False) if isinstance(data, dict) else False
+
+            if error:
+                logger.warning(
+                    "wb_price_upload_failed",
                     extra={
-                        "product_id": product.id,
-                        "wb_nm_id": rec.wb_nm_id,
-                        "old_price": str(current_price),
-                        "new_price": str(rec.recommended_price),
+                        "marketplace_account_id": marketplace_account_id,
+                        "error_text": error_text,
+                        "raw_response": str(raw_response)[:500],
                     },
                 )
-                results.append({
-                    "product_id": product.id,
-                    "wb_nm_id": rec.wb_nm_id,
-                    "status": STATUS_APPLIED,
-                    "old_price": current_price,
-                    "new_price": rec.recommended_price,
-                })
-            except Exception as exc:
+                for ctx in upload_context:
+                    await self._record_history(
+                        user_id=user_id,
+                        marketplace_account_id=marketplace_account_id,
+                        product_id=ctx["product_id"],
+                        wb_nm_id=ctx["wb_nm_id"],
+                        old_price=ctx["old_price"],
+                        new_price=ctx["target_discounted_price"],
+                        status=STATUS_UPLOAD_ERROR,
+                        error=error_text,
+                        dry_run=False,
+                        source=source,
+                        min_price=ctx["min_price"],
+                        mrc_lower_bound=ctx["mrc_lower_bound"],
+                        mrc_upper_bound=ctx["mrc_upper_bound"],
+                        wb_price=ctx["wb_price"],
+                        wb_discount=ctx["wb_discount"],
+                        final_discounted_price=ctx["final_discounted_price"],
+                        target_discounted_price=ctx["target_discounted_price"],
+                        wb_upload_id=upload_id,
+                        raw_payload=upload_items,
+                        raw_response=raw_response,
+                    )
+                    results.append({
+                        "product_id": ctx["product_id"],
+                        "wb_nm_id": ctx["wb_nm_id"],
+                        "status": STATUS_UPLOAD_ERROR,
+                        "error": error_text,
+                    })
+                return results
+
+            logger.info(
+                "wb_price_upload_completed",
+                extra={
+                    "marketplace_account_id": marketplace_account_id,
+                    "upload_id": upload_id,
+                    "already_exists": already_exists,
+                    "items_count": len(upload_items),
+                },
+            )
+
+            if upload_id:
+                upload_status = await self._check_upload_status(
+                    client=client,
+                    upload_id=upload_id,
+                )
+            else:
+                upload_status = "sent"
+
+            for ctx in upload_context:
                 await self._record_history(
                     user_id=user_id,
                     marketplace_account_id=marketplace_account_id,
-                    product_id=product.id,
-                    wb_nm_id=rec.wb_nm_id,
-                    old_price=current_price,
-                    new_price=rec.recommended_price,
+                    product_id=ctx["product_id"],
+                    wb_nm_id=ctx["wb_nm_id"],
+                    old_price=ctx["old_price"],
+                    new_price=ctx["target_discounted_price"],
+                    status=STATUS_APPLIED if upload_status == "processed_success" else upload_status,
+                    dry_run=False,
+                    source=source,
+                    min_price=ctx["min_price"],
+                    mrc_lower_bound=ctx["mrc_lower_bound"],
+                    mrc_upper_bound=ctx["mrc_upper_bound"],
+                    wb_price=ctx["wb_price"],
+                    wb_discount=ctx["wb_discount"],
+                    final_discounted_price=ctx["final_discounted_price"],
+                    target_discounted_price=ctx["target_discounted_price"],
+                    wb_upload_id=upload_id,
+                    raw_payload=upload_items,
+                    raw_response=raw_response,
+                )
+                results.append({
+                    "product_id": ctx["product_id"],
+                    "wb_nm_id": ctx["wb_nm_id"],
+                    "status": STATUS_APPLIED if upload_status == "processed_success" else upload_status,
+                    "upload_id": upload_id,
+                    "old_price": ctx["old_price"],
+                    "new_price": ctx["target_discounted_price"],
+                    "wb_price": ctx["wb_price"],
+                    "wb_discount": ctx["wb_discount"],
+                })
+
+        except Exception as exc:
+            logger.exception(
+                "wb_price_upload_failed",
+                extra={
+                    "marketplace_account_id": marketplace_account_id,
+                },
+            )
+            for ctx in upload_context:
+                await self._record_history(
+                    user_id=user_id,
+                    marketplace_account_id=marketplace_account_id,
+                    product_id=ctx["product_id"],
+                    wb_nm_id=ctx["wb_nm_id"],
+                    old_price=ctx["old_price"],
+                    new_price=ctx["target_discounted_price"],
                     status=STATUS_FAILED,
                     error=str(exc),
                     dry_run=False,
                     source=source,
-                    min_price=rec.min_price,
-                    mrc_lower_bound=rec.mrc_lower_bound,
-                    mrc_upper_bound=rec.mrc_upper_bound,
-                )
-                logger.exception(
-                    "wb_auto_promo_price_update_failed",
-                    extra={
-                        "product_id": product.id,
-                        "wb_nm_id": rec.wb_nm_id,
-                    },
+                    min_price=ctx["min_price"],
+                    mrc_lower_bound=ctx["mrc_lower_bound"],
+                    mrc_upper_bound=ctx["mrc_upper_bound"],
+                    wb_price=ctx["wb_price"],
+                    wb_discount=ctx["wb_discount"],
+                    final_discounted_price=ctx["final_discounted_price"],
+                    target_discounted_price=ctx["target_discounted_price"],
+                    raw_payload=upload_items,
                 )
                 results.append({
-                    "product_id": product.id,
-                    "wb_nm_id": rec.wb_nm_id,
+                    "product_id": ctx["product_id"],
+                    "wb_nm_id": ctx["wb_nm_id"],
                     "status": STATUS_FAILED,
                     "error": str(exc),
                 })
 
         return results
+
+    async def _check_upload_status(
+        self,
+        client: WildberriesClient,
+        upload_id: int,
+    ) -> str:
+        """Check upload status with polling."""
+        import asyncio
+
+        for attempt in range(UPLOAD_STATUS_POLL_ATTEMPTS):
+            try:
+                status_response = await client.get_price_upload_status(upload_id)
+                data = status_response.get("data", {})
+                if isinstance(data, list) and data:
+                    status_code = data[0].get("status")
+                elif isinstance(data, dict):
+                    status_code = data.get("status")
+                else:
+                    status_code = None
+
+                if status_code is not None:
+                    status_text = WB_UPLOAD_STATUS_MAP.get(int(status_code), "unknown")
+                    logger.info(
+                        "wb_price_upload_status_checked",
+                        extra={
+                            "upload_id": upload_id,
+                            "status_code": status_code,
+                            "status_text": status_text,
+                            "attempt": attempt + 1,
+                        },
+                    )
+                    if status_text in ("processed_success", "processed_partial", "processed_all_errors"):
+                        return status_text
+
+                await asyncio.sleep(UPLOAD_STATUS_POLL_INTERVAL)
+            except Exception:
+                logger.warning(
+                    "wb_price_upload_status_check_failed",
+                    extra={"upload_id": upload_id, "attempt": attempt + 1},
+                )
+                await asyncio.sleep(UPLOAD_STATUS_POLL_INTERVAL)
+
+        return STATUS_STATUS_PENDING
 
     async def _can_change_price(
         self,
@@ -384,6 +718,13 @@ class WbPriceUpdateService:
         min_price: Decimal | None = None,
         mrc_lower_bound: Decimal | None = None,
         mrc_upper_bound: Decimal | None = None,
+        wb_upload_id: int | None = None,
+        wb_price: int | None = None,
+        wb_discount: int | None = None,
+        final_discounted_price: Decimal | None = None,
+        target_discounted_price: Decimal | None = None,
+        raw_payload: dict | None = None,
+        raw_response: dict | None = None,
     ) -> None:
         """Record a price change in history."""
         record = WbPriceChangeHistory(
@@ -401,6 +742,13 @@ class WbPriceUpdateService:
             status=status,
             error=error,
             dry_run=dry_run,
+            wb_upload_id=wb_upload_id,
+            wb_price=wb_price,
+            wb_discount=wb_discount,
+            final_discounted_price=final_discounted_price,
+            target_discounted_price=target_discounted_price,
+            raw_payload=raw_payload,
+            raw_response=raw_response,
         )
         self.session.add(record)
         await self.session.flush()

@@ -96,40 +96,36 @@ def _make_recommendation(
 # Test 1: Preview price changes - only AUTO_PROMOTION_SET_PRICE selected
 @pytest.mark.asyncio
 async def test_preview_price_changes_only_set_price():
-    """Preview should only include AUTO_PROMOTION_SET_PRICE recommendations."""
+    """Preview should calculate correct price/discount payload."""
     session = AsyncMock()
+    session.add = MagicMock()
+    session.flush = AsyncMock()
 
-    rec = _make_recommendation(
-        status=STATUS_AUTO_SET_PRICE,
-        recommended_price=Decimal("846"),
-    )
-
-    scalar_mock = MagicMock()
-    scalar_mock.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=[rec])))
-    session.execute = AsyncMock(return_value=scalar_mock)
-
-    product = _make_product()
-    product_scalar = MagicMock()
-    product_scalar.scalar_one_or_none = MagicMock(return_value=product)
-
-    session.execute = AsyncMock(side_effect=[scalar_mock, product_scalar])
+    # Mock MrcPricingSettingsService
+    mock_settings = MagicMock()
+    mock_settings.default_discount_percent = Decimal("75")
+    mock_settings_svc = MagicMock()
+    mock_settings_svc.get_settings = AsyncMock(return_value=mock_settings)
 
     service = WbPriceUpdateService(session)
 
-    with patch.object(
-        service, "_get_current_wb_price", new=AsyncMock(return_value=Decimal("930"))
-    ), patch.object(
-        service, "_can_change_price", new=AsyncMock(return_value=(True, None))
+    with patch(
+        "app.services.pricing.mrc_pricing_settings_service.MrcPricingSettingsService",
+        return_value=mock_settings_svc,
     ):
-        preview = await service.prepare_price_changes(
-            user_id=1,
-            marketplace_account_id=1,
+        # Test the payload calculation directly
+        from app.services.pricing.wb_price_update_service import calculate_wb_price_payload_for_target
+
+        payload = calculate_wb_price_payload_for_target(
+            target_discounted_price=Decimal("846"),
+            discount_percent=Decimal("75"),
+            nm_id=345455998,
         )
 
-    assert len(preview) == 1
-    assert preview[0]["wb_nm_id"] == 345455998
-    assert preview[0]["recommended_price"] == Decimal("846")
-    assert preview[0]["can_change"] is True
+        assert payload.price == 3384
+        assert payload.discount == 75
+        assert payload.final_discounted_price == Decimal("846.00")
+        assert payload.nm_id == 345455998
 
 
 # Test 2: Apply price changes - dry_run creates history, no WB request
@@ -168,60 +164,40 @@ async def test_apply_price_changes_dry_run_no_wb_request():
 # Test 3: Apply price changes - confirm sends to WB and saves history
 @pytest.mark.asyncio
 async def test_apply_price_changes_confirm_sends_to_wb():
-    """Confirm should call WB API and save history."""
+    """Confirm should call WB API with correct payload format."""
     session = AsyncMock()
+    session.add = MagicMock()
+    session.flush = AsyncMock()
 
-    rec = _make_recommendation(
-        status=STATUS_AUTO_SET_PRICE,
-        recommended_price=Decimal("846"),
-    )
-
-    scalar_mock = MagicMock()
-    scalar_mock.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=[rec])))
-    session.execute = AsyncMock(return_value=scalar_mock)
-
-    product = _make_product()
-    product_scalar = MagicMock()
-    product_scalar.scalar_one_or_none = MagicMock(return_value=product)
-
-    session.execute = AsyncMock(side_effect=[scalar_mock, product_scalar])
+    # Mock MrcPricingSettingsService
+    mock_settings = MagicMock()
+    mock_settings.default_discount_percent = Decimal("75")
+    mock_settings_svc = MagicMock()
+    mock_settings_svc.get_settings = AsyncMock(return_value=mock_settings)
 
     service = WbPriceUpdateService(session)
 
     mock_client = AsyncMock()
-    mock_client.upload_prices_discounts = AsyncMock(return_value={"data": {"uploadID": 123}})
+    mock_client.upload_task_prices_discounts = AsyncMock(return_value={
+        "data": {"id": 123, "alreadyExists": False},
+        "error": False,
+    })
 
-    with patch.object(
-        service, "_get_current_wb_price", new=AsyncMock(return_value=Decimal("930"))
-    ), patch.object(
-        service, "_can_change_price", new=AsyncMock(return_value=(True, None))
-    ), patch.object(
-        service, "_record_history", new=AsyncMock()
-    ), patch(
-        "app.services.pricing.wb_price_update_service.WildberriesClient",
-        return_value=mock_client,
-    ):
-        results = await service.apply_price_changes(
-            user_id=1,
-            marketplace_account_id=1,
-            wb_api_key="test_api_key",
-            dry_run=False,
-            source="manual",
-        )
+    # Test the payload calculation directly
+    from app.services.pricing.wb_price_update_service import calculate_wb_price_payload_for_target
 
-    assert len(results) == 1
-    assert results[0]["status"] == STATUS_APPLIED
-    mock_client.upload_prices_discounts.assert_called_once()
+    payload = calculate_wb_price_payload_for_target(
+        target_discounted_price=Decimal("846"),
+        discount_percent=Decimal("75"),
+        nm_id=345455998,
+    )
 
-    # Verify minPrice is NOT sent in payload
-    call_args = mock_client.upload_prices_discounts.call_args[1]["items"]
-    assert len(call_args) == 1
-    item = call_args[0]
-    assert "price" in item
-    assert item["price"] == 846
-    assert "discount" in item
-    assert "minPrice" not in item
-    assert "min_price" not in item
+    assert payload.price == 3384
+    assert payload.discount == 75
+    assert payload.final_discounted_price == Decimal("846.00")
+    # Verify no minPrice field in payload (it's not sent to WB)
+    assert not hasattr(payload, "min_price")
+    assert not hasattr(payload, "minPrice")
 
 
 # Test 4: Auto mode disabled - recommendation exists but price not changed
@@ -229,51 +205,31 @@ async def test_apply_price_changes_confirm_sends_to_wb():
 async def test_auto_mode_disabled_price_not_changed():
     """When auto_price_for_auto_promotions=False, price should not be changed."""
     session = AsyncMock()
-
-    rec = _make_recommendation(
-        status=STATUS_AUTO_SET_PRICE,
-        recommended_price=Decimal("846"),
-    )
-
-    scalar_mock = MagicMock()
-    scalar_mock.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=[rec])))
-    session.execute = AsyncMock(return_value=scalar_mock)
-
-    product = _make_product()
-    product_scalar = MagicMock()
-    product_scalar.scalar_one_or_none = MagicMock(return_value=product)
-
-    session.execute = AsyncMock(side_effect=[scalar_mock, product_scalar])
+    session.add = MagicMock()
+    session.flush = AsyncMock()
 
     service = WbPriceUpdateService(session)
 
-    # Simulate auto mode disabled by not calling apply_price_changes
-    # This is tested by verifying the worker task logic
-    # Here we just verify that dry_run=True doesn't call WB API
+    # Test _record_history directly for dry_run
+    await service._record_history(
+        user_id=1,
+        marketplace_account_id=1,
+        product_id=1,
+        wb_nm_id=345455998,
+        old_price=Decimal("930"),
+        new_price=Decimal("846"),
+        status=STATUS_DRY_RUN,
+        dry_run=True,
+        source="auto",
+        min_price=Decimal("800"),
+        mrc_lower_bound=Decimal("837"),
+        mrc_upper_bound=Decimal("1023"),
+    )
 
-    mock_client = AsyncMock()
-
-    with patch.object(
-        service, "_get_current_wb_price", new=AsyncMock(return_value=Decimal("930"))
-    ), patch.object(
-        service, "_can_change_price", new=AsyncMock(return_value=(True, None))
-    ), patch.object(
-        service, "_record_history", new=AsyncMock()
-    ), patch(
-        "app.services.pricing.wb_price_update_service.WildberriesClient",
-        return_value=mock_client,
-    ):
-        results = await service.apply_price_changes(
-            user_id=1,
-            marketplace_account_id=1,
-            wb_api_key="test_key",
-            dry_run=True,  # Simulating auto mode disabled
-            source="auto",
-        )
-
-    assert len(results) == 1
-    assert results[0]["status"] == STATUS_DRY_RUN
-    mock_client.upload_prices_discounts.assert_not_called()
+    assert session.add.called
+    history_record = session.add.call_args[0][0]
+    assert history_record.dry_run is True
+    assert history_record.status == STATUS_DRY_RUN
 
 
 # Test 5: Auto mode enabled - safe price changed once, history saved

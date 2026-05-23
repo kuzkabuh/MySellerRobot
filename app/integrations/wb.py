@@ -493,6 +493,31 @@ class WildberriesClient:
             ),
         )
 
+    async def upload_task_prices_discounts(
+        self,
+        items: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Upload prices and discounts via task endpoint.
+
+        POST https://discounts-prices-api.wildberries.ru/api/v2/upload/task
+
+        Items format: [{"nmID": int, "price": int, "discount": int}]
+        Max 1000 items per request.
+
+        Returns:
+            {"data": {"id": upload_id, "alreadyExists": bool}, "error": bool, "errorText": str}
+        """
+        payload = {"data": items}
+        return cast(
+            dict[str, Any],
+            await self.discounts_prices.request(
+                "POST",
+                "/api/v2/upload/task",
+                headers=self.headers,
+                json=payload,
+            ),
+        )
+
     async def get_price_upload_status(
         self,
         upload_id: int,
@@ -509,6 +534,23 @@ class WildberriesClient:
                 "/api/v2/history/tasks",
                 headers=self.headers,
                 params=params,
+            ),
+        )
+
+    async def get_price_upload_details(
+        self,
+        upload_id: int,
+    ) -> dict[str, Any]:
+        """Get details of a processed price/discount upload.
+
+        GET https://discounts-prices-api.wildberries.ru/api/v2/history/tasks/{upload_id}/details
+        """
+        return cast(
+            dict[str, Any],
+            await self.discounts_prices.request(
+                "GET",
+                f"/api/v2/history/tasks/{upload_id}/details",
+                headers=self.headers,
             ),
         )
 
