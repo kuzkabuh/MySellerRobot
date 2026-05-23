@@ -160,9 +160,9 @@ class WbAutoPromoImportService:
 
         for row_idx, row_values in enumerate(rows_iter, start=2):
             row_data: dict[str, Any] = {}
-            for idx, header_key in enumerate(headers):
-                if idx < len(row_values):
-                    row_data[header_key] = row_values[idx]
+            for col_idx, header_key in headers.items():
+                if col_idx < len(row_values):
+                    row_data[header_key] = row_values[col_idx]
 
             wb_nm_id = self._parse_int(row_data.get("wb_nm_id"))
             required_price = self._parse_decimal(row_data.get("required_price"))
@@ -174,6 +174,7 @@ class WbAutoPromoImportService:
 
             status = "valid"
             message: str | None = None
+            product = None
 
             if wb_nm_id is None:
                 status = "error"
