@@ -1079,3 +1079,28 @@ class WbPriceChangeHistory(Base):
     raw_response: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=sa.func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=sa.func.now(), onupdate=sa.func.now())
+
+
+class WbProductPrice(Base):
+    __tablename__ = "wb_product_prices"
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "marketplace_account_id", "wb_nm_id",
+            name="uq_wb_product_prices_account_nm",
+        ),
+        Index("ix_wb_product_prices_account", "marketplace_account_id"),
+        Index("ix_wb_product_prices_nm", "wb_nm_id"),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    marketplace_account_id: Mapped[int] = mapped_column(ForeignKey("marketplace_accounts.id", ondelete="CASCADE"), nullable=False, index=True)
+    wb_nm_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    discount: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    discounted_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    currency_code: Mapped[str] = mapped_column(String(16), nullable=False, default="RUB")
+    raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=sa.func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=sa.func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=sa.func.now(), onupdate=sa.func.now())

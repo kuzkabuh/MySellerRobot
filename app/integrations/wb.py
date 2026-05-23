@@ -554,6 +554,32 @@ class WildberriesClient:
             ),
         )
 
+    async def get_current_prices(
+        self,
+        *,
+        limit: int = 1000,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """Get current product prices from WB.
+
+        GET https://discounts-prices-api.wildberries.ru/api/v2/prices
+
+        Returns list of products with their current prices and discounts.
+        """
+        params: dict[str, Any] = {
+            "limit": limit,
+            "offset": offset,
+        }
+        return cast(
+            dict[str, Any],
+            await self.discounts_prices.request(
+                "GET",
+                "/api/v2/prices",
+                headers=self.headers,
+                params=params,
+            ),
+        )
+
     async def add_products_to_promotion(
         self,
         *,

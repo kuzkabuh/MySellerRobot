@@ -1,9 +1,11 @@
-"""version: 1.0.0
-description: Excel import service for WB auto promotion conditions.
-    Imports entry price conditions from user-uploaded Excel files.
-updated: 2026-05-22
+"""version: 1.1.0
+description: Excel/CSV import service for WB auto promotion conditions.
+    Imports entry price conditions from user-uploaded Excel or CSV files.
+updated: 2026-05-23
 """
 
+import csv
+import io
 import logging
 import tempfile
 from dataclasses import dataclass
@@ -11,6 +13,7 @@ from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
+from zipfile import BadZipFile
 
 import openpyxl
 from openpyxl import Workbook
@@ -125,8 +128,8 @@ class WbAutoPromoImportService:
         marketplace_account_id: int,
         source: str = "web",
         original_file_name: str | None = None,
-    ) -> AutoPromoImportPreview:
-        """Parse Excel file and create a preview of import results."""
+    ) -> tuple[AutoPromoImportPreview, list[dict[str, Any]]]:
+        """Parse Excel or CSV file and create a preview of import results."""
         logger.info(
             "wb_auto_promo_conditions_import_started",
             extra={
@@ -136,19 +139,84 @@ class WbAutoPromoImportService:
             },
         )
 
-        wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
-        ws = wb.active
-        rows_iter = ws.iter_rows(values_only=True)
+        suffix = file_path.suffix.lower()
 
+        try:
+            if suffix in (".xlsx", ".xlsm"):
+                return await self._parse_xlsx(
+                    file_path, user_id, marketplace_account_id, source, original_file_name,
+                )
+            elif suffix == ".csv":
+                return await self._parse_csv(
+                    file_path, user_id, marketplace_account_id, source, original_file_name,
+                )
+            else:
+                raise ValueError("Файл должен быть .xlsx или .csv")
+        except BadZipFile:
+            logger.warning(
+                "wb_auto_promo_import_bad_zip_file",
+                extra={"file": original_file_name or file_path.name},
+            )
+            raise ValueError("Excel-файл повреждён или сохранён не в формате XLSX")
+        except ValueError:
+            raise
+        except Exception as exc:
+            logger.exception("wb_auto_promo_import_unexpected_error")
+            raise ValueError(f"Ошибка при чтении файла: {exc}")
+
+    async def _parse_xlsx(
+        self,
+        file_path: Path,
+        user_id: int,
+        marketplace_account_id: int,
+        source: str,
+        original_file_name: str | None,
+    ) -> tuple[AutoPromoImportPreview, list[dict[str, Any]]]:
+        """Parse XLSX/XLSM file."""
+        wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+        try:
+            return await self._process_rows(
+                wb.active.iter_rows(values_only=True),
+                user_id, marketplace_account_id, source, original_file_name,
+            )
+        finally:
+            wb.close()
+
+    async def _parse_csv(
+        self,
+        file_path: Path,
+        user_id: int,
+        marketplace_account_id: int,
+        source: str,
+        original_file_name: str | None,
+    ) -> tuple[AutoPromoImportPreview, list[dict[str, Any]]]:
+        """Parse CSV file."""
+        with open(file_path, "r", encoding="utf-8-sig") as f:
+            content = f.read()
+
+        reader = csv.reader(io.StringIO(content))
+        rows_iter = iter(reader)
+
+        return await self._process_rows(
+            rows_iter, user_id, marketplace_account_id, source, original_file_name,
+        )
+
+    async def _process_rows(
+        self,
+        rows_iter,
+        user_id: int,
+        marketplace_account_id: int,
+        source: str,
+        original_file_name: str | None,
+    ) -> tuple[AutoPromoImportPreview, list[dict[str, Any]]]:
+        """Process rows from any source (XLSX or CSV)."""
         raw_headers = next(rows_iter, None)
         if raw_headers is None:
-            wb.close()
             raise ValueError("Файл пустой")
 
         headers = self._resolve_headers(raw_headers)
         missing = REQUIRED_COLUMNS - set(headers.values())
         if missing:
-            wb.close()
             raise ValueError(f"Нет обязательных колонок: {', '.join(missing)}")
 
         preview_rows: list[dict[str, Any]] = []
@@ -208,8 +276,6 @@ class WbAutoPromoImportService:
                 "status": status,
                 "message": message,
             })
-
-        wb.close()
 
         total_rows = len(preview_rows)
         preview = AutoPromoImportPreview(

@@ -1,9 +1,12 @@
-"""Tests for WbAutoPromoImportService - Excel import for auto promotion conditions."""
+"""Tests for WbAutoPromoImportService - Excel/CSV import for auto promotion conditions."""
 
+import csv
+import io
 from decimal import Decimal
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from unittest.mock import AsyncMock, MagicMock, patch
+from zipfile import BadZipFile
 
 import openpyxl
 import pytest
@@ -246,3 +249,112 @@ async def test_template_generation():
             file_path.unlink(missing_ok=True)
         except Exception:
             pass
+
+
+def _create_csv_file(rows: list[list], headers: list[str] | None = None) -> Path:
+    """Create a temporary CSV file with given rows."""
+    tmp = NamedTemporaryFile(suffix=".csv", delete=False, mode="w", encoding="utf-8", newline="")
+    writer = csv.writer(tmp)
+    if headers:
+        writer.writerow(headers)
+    for row in rows:
+        writer.writerow(row)
+    tmp.close()
+    return Path(tmp.name)
+
+
+# Test 8: Import from CSV file
+@pytest.mark.asyncio
+async def test_import_from_csv_file():
+    """CSV file with wb_nm_id=345455998, required_price=846 should be imported without BadZipFile."""
+    session = AsyncMock()
+
+    mock_product = MagicMock()
+    mock_product.id = 98
+    mock_product.mrc_price = Decimal("930")
+
+    service = WbAutoPromoImportService(session)
+
+    with patch.object(
+        WbAutoPromoImportService, "_find_product_by_nm_id", new=AsyncMock(return_value=mock_product)
+    ):
+        headers = ["nmID", "Артикул продавца", "Название товара", "Название автоакции",
+                   "Цена для участия", "Текущая цена WB", "Участвует"]
+        rows = [[345455998, "2461.RoeRue", "Test Product", "Модная распродажа",
+                 846, 930, "нет"]]
+
+        file_path = _create_csv_file(rows, headers)
+
+        preview, preview_rows = await service.create_preview(
+            file_path,
+            user_id=1,
+            marketplace_account_id=2,
+        )
+
+        assert preview.total_rows == 1
+        assert preview.valid_rows == 1
+        assert preview.warning_rows == 0
+        assert preview.error_rows == 0
+        assert preview_rows[0]["status"] == "valid"
+        assert preview_rows[0]["wb_nm_id"] == 345455998
+        assert preview_rows[0]["required_price"] == Decimal("846")
+
+        try:
+            file_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+# Test 9: Invalid XLSX file returns user-friendly error
+@pytest.mark.asyncio
+async def test_import_invalid_xlsx_returns_user_friendly_error():
+    """Corrupted XLSX file should return user-friendly error, not traceback."""
+    session = AsyncMock()
+    service = WbAutoPromoImportService(session)
+
+    # Create a file that is NOT a valid XLSX (just plain text)
+    tmp = NamedTemporaryFile(suffix=".xlsx", delete=False)
+    tmp.write(b"This is not a valid XLSX file")
+    tmp.close()
+    file_path = Path(tmp.name)
+
+    with pytest.raises(ValueError) as exc_info:
+        await service.create_preview(
+            file_path,
+            user_id=1,
+            marketplace_account_id=2,
+        )
+
+    assert "повреждён" in str(exc_info.value) or "XLSX" in str(exc_info.value)
+
+    try:
+        file_path.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+# Test 10: Unsupported file format returns error
+@pytest.mark.asyncio
+async def test_import_unsupported_format_returns_error():
+    """File with unsupported extension should return clear error."""
+    session = AsyncMock()
+    service = WbAutoPromoImportService(session)
+
+    tmp = NamedTemporaryFile(suffix=".pdf", delete=False)
+    tmp.write(b"PDF content")
+    tmp.close()
+    file_path = Path(tmp.name)
+
+    with pytest.raises(ValueError) as exc_info:
+        await service.create_preview(
+            file_path,
+            user_id=1,
+            marketplace_account_id=2,
+        )
+
+    assert ".xlsx" in str(exc_info.value) and ".csv" in str(exc_info.value)
+
+    try:
+        file_path.unlink(missing_ok=True)
+    except Exception:
+        pass
