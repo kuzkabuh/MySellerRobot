@@ -19,7 +19,6 @@ from app.services.pricing.wb_auto_promo_price_service import (
     STATUS_AUTO_PRICE_VIOLATION,
     STATUS_AUTO_REQUIRED_PRICE_UNKNOWN,
     STATUS_AUTO_SET_PRICE,
-    STATUS_AUTO_WAITING_WB_SYNC,
     WbAutoPromoPriceService,
 )
 from app.services.pricing.wb_price_update_service import (
@@ -294,7 +293,7 @@ class TestWbProductPriceParsing:
         item = {"nmID": 123}
         assert WbCurrentPricesSyncService._parse_discounted_price(item) is None
 
-    def test_multiple_sizes_uses_minimum(self):
+    def test_multiple_sizes_uses_first_price_and_minimum_discounted(self):
         item = {
             "nmID": 123,
             "sizes": [
@@ -302,7 +301,7 @@ class TestWbProductPriceParsing:
                 {"sizeID": 2, "price": 10000, "discountedPrice": 3000},
             ],
         }
-        assert WbCurrentPricesSyncService._parse_price(item) == Decimal("10000")
+        assert WbCurrentPricesSyncService._parse_price(item) == Decimal("15000")
         assert WbCurrentPricesSyncService._parse_discounted_price(item) == Decimal("3000")
 
 
@@ -319,8 +318,9 @@ class TestTokenCipher:
         assert decrypted == original
 
     def test_decrypt_invalid_token_raises(self):
-        from app.core.security import TokenCipher
         from cryptography.fernet import InvalidToken
+
+        from app.core.security import TokenCipher
 
         cipher = TokenCipher()
         with pytest.raises((ValueError, InvalidToken)):

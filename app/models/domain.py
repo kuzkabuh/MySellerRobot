@@ -1041,12 +1041,23 @@ class WbAutoPromoPriceRecommendation(TimestampMixin, Base):
     current_wb_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     required_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     recommended_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    current_full_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    current_discount: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    current_discounted_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    max_auto_promo_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    recommended_discounted_price: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 2), nullable=True
+    )
+    recommended_full_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    recommended_discount: Mapped[int | None] = mapped_column(Integer, nullable=True)
     min_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     mrc_lower_bound: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     mrc_upper_bound: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     status: Mapped[str] = mapped_column(String(64), nullable=False)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     source: Mapped[str] = mapped_column(String(64), nullable=False, default="calculation")
+    raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class WbPriceChangeHistory(Base):

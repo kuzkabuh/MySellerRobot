@@ -5,7 +5,6 @@
 import json
 from collections import defaultdict
 from dataclasses import dataclass
-from decimal import Decimal
 from html import escape
 from typing import Any
 
@@ -14,7 +13,6 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import TokenCipher
 from app.models.domain import (
     MarketplaceAccount,
     Product,
@@ -28,8 +26,10 @@ from app.models.domain import (
 )
 from app.models.enums import Marketplace
 from app.services.pricing.wb_auto_promo_condition_resolver import WbAutoPromoConditionResolver
+from app.services.pricing.wb_auto_promo_participation_service import (
+    WbAutoPromoParticipationService,
+)
 from app.services.pricing.wb_price_apply_service import WbPriceApplyService
-from app.services.pricing.wb_price_recommendation_service import WbPriceRecommendationService
 from app.services.pricing.wb_price_sync_service import WbPriceSyncService
 from app.services.pricing.wb_promotion_sync_service import WbPromotionSyncService
 from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY
@@ -117,9 +117,10 @@ async def pricing_build_recommendations(
     total = 0
     for account in await _wb_accounts(session, user.id):
         total += len(
-            await WbPriceRecommendationService(session).save_for_account(
-                user_id=user.id,
-                marketplace_account_id=account.id,
+            await WbAutoPromoParticipationService(
+                session
+            ).calculate_participation_recommendations(
+                account.id,
             )
         )
     return RedirectResponse(url=f"/web/pricing?recommendations={total}#recommendations", status_code=303)
@@ -150,23 +151,17 @@ async def pricing_apply_selected(
     for rec in recs.scalars().all():
         by_account.setdefault(rec.marketplace_account_id, []).append(rec.id)
 
-    cipher = TokenCipher()
     applied = 0
     for account_id, rec_ids in by_account.items():
         account = await session.get(MarketplaceAccount, account_id)
         if account is None or account.user_id != user.id:
             continue
-        api_key = cipher.decrypt(account.encrypted_api_key)
-        result = await WbPriceApplyService(session).apply(
-            wb_api_key=api_key,
-            user_id=user.id,
-            marketplace_account_id=account_id,
-            recommendation_ids=rec_ids,
-            discount=Decimal("75"),
+        result = await WbAutoPromoParticipationService(session).apply_recommendations(
+            account_id,
+            rec_ids,
             dry_run=False,
         )
-        applied += len(result.get("items", []))
-    await session.commit()
+        applied += len([row for row in result if row.get("payload")])
     return RedirectResponse(url=f"/web/pricing?applied={applied}#recommendations", status_code=303)
 
 
@@ -392,7 +387,7 @@ def _pricing_content(data: PricingViewData) -> str:
           {_quick_action("/web/pricing/sync-prices", "Обновить цены WB", primary=True)}
           {_quick_action("/web/pricing/sync-promotions", "Синхронизировать акции")}
           {_quick_action("/web/pricing/resolve-conditions", "Найти условия автоакций")}
-          {_quick_action("/web/pricing/build-recommendations", "Сформировать рекомендации")}
+          {_quick_action("/web/pricing/build-recommendations", "Рассчитать участие в автоакциях")}
           <button class="pricing-button pricing-button-dark" type="submit" form="pricing-recommendations-form">Применить выбранные</button>
         </div>
       </section>
@@ -459,7 +454,7 @@ def _tabs() -> str:
         ("mrc", "МРЦ"),
         ("promotions", "Акции WB"),
         ("conditions", "Условия автоакций"),
-        ("recommendations", "Рекомендации"),
+        ("recommendations", "Автоакции WB"),
         ("history", "История"),
         ("diagnostics", "Диагностика"),
     ]
@@ -474,7 +469,7 @@ def _overview_section(data: PricingViewData) -> str:
         ("Цены WB загружены", bool(data.prices), "/web/pricing/sync-prices"),
         ("Акции синхронизированы", bool(data.promotions), "/web/pricing/sync-promotions"),
         ("Условия автоакций найдены", any(c.required_price is not None for c in data.conditions), "/web/pricing/resolve-conditions"),
-        ("Рекомендации сформированы", bool(data.recommendations), "/web/pricing/build-recommendations"),
+        ("Участие в автоакциях рассчитано", bool(data.recommendations), "/web/pricing/build-recommendations"),
         ("Цены готовы к применению", any(r.status == "CAN_APPLY" for r in data.recommendations), "/web/pricing/prepare-apply"),
     ]
     attention = _attention_items(data)
@@ -512,13 +507,15 @@ def _attention_items(data: PricingViewData) -> str:
     price_nm_ids = {price.wb_nm_id for price in data.prices}
     no_current_price = len([nm_id for nm_id in product_nm_ids if nm_id and nm_id not in price_nm_ids])
     no_mrc = sum(1 for product in data.products if product.mrc_price is None)
-    no_required = sum(1 for rec in data.recommendations if rec.status == "NO_REQUIRED_PRICE")
+    no_required = sum(1 for rec in data.recommendations if rec.status == "NO_AUTO_PROMO_PRICE")
     blocked_mrc = sum(1 for rec in data.recommendations if rec.status == "BLOCKED_BY_MRC")
     blocked_min = sum(1 for rec in data.recommendations if rec.status == "BLOCKED_BY_MIN_PRICE")
     quarantine = sum(
         1
         for rec in data.recommendations
-        if rec.current_wb_price and rec.recommended_price and rec.recommended_price <= rec.current_wb_price / Decimal("3")
+        if rec.current_discounted_price
+        and rec.recommended_discounted_price
+        and rec.recommended_discounted_price <= rec.current_discounted_price / 3
     )
     items = [
         ("Нет текущей цены", no_current_price, "neutral"),
@@ -640,7 +637,7 @@ def _recommendations_section(data: PricingViewData) -> str:
     </div>
     <div class="pricing-bulk-bar">
       <button type="button" data-bulk="select-available">Выбрать все доступные</button>
-      <button type="button" data-bulk="prepare">Подготовить выбранные</button>
+      <button type="button" data-bulk="prepare">Подготовить изменение цен</button>
       <button type="submit" class="primary">Применить выбранные</button>
       <button type="button" data-bulk="clear">Снять выделение</button>
       <span id="pricing-selected-count">Выбрано: 0</span>
@@ -658,7 +655,7 @@ def _recommendations_section(data: PricingViewData) -> str:
       </div>
     </form>
     """
-    return _panel("recommendations", "Рекомендации", table)
+    return _panel("recommendations", "Автоакции WB", table)
 
 
 def _recommendation_pair(row: WbAutoPromoPriceRecommendation, product: Product | None) -> str:
@@ -667,8 +664,12 @@ def _recommendation_pair(row: WbAutoPromoPriceRecommendation, product: Product |
     discount = ""
     checkbox = ""
     action = "Недоступно"
-    if row.status == "CAN_APPLY" and row.recommended_price is not None:
-        payload = WbPriceApplyService.build_payload(nm_id=row.wb_nm_id, recommended_price=row.recommended_price)
+    if row.status == "CAN_APPLY" and row.recommended_discounted_price is not None:
+        payload = WbPriceApplyService.build_payload(
+            nm_id=row.wb_nm_id,
+            recommended_price=row.recommended_discounted_price,
+            max_discounted_price=row.max_auto_promo_price,
+        )
         payload_dict = payload.as_wb_item()
         payload_text = json.dumps(payload_dict, ensure_ascii=False, indent=2)
         full_price = str(payload.price)
@@ -685,19 +686,19 @@ def _recommendation_pair(row: WbAutoPromoPriceRecommendation, product: Product |
         ]
     )
     details = _recommendation_details(row, payload_text, full_price)
-    problem = "1" if row.status in {"BLOCKED_BY_MRC", "BLOCKED_BY_MIN_PRICE", "NO_REQUIRED_PRICE"} else "0"
+    problem = "1" if row.status in {"BLOCKED_BY_MRC", "BLOCKED_BY_MIN_PRICE", "NO_AUTO_PROMO_PRICE"} else "0"
     return f"""
-    <tr class="pricing-rec-row" data-search="{escape(searchable.lower())}" data-status="{escape(row.status)}" data-promo="{escape(row.promotion_name or '')}" data-can-apply="{'1' if row.status == 'CAN_APPLY' else '0'}" data-problem="{problem}" data-mrc="{row.mrc_price}" data-recommended="{row.recommended_price or 0}" data-updated="{row.id}">
+    <tr class="pricing-rec-row" data-search="{escape(searchable.lower())}" data-status="{escape(row.status)}" data-promo="{escape(row.promotion_name or '')}" data-can-apply="{'1' if row.status == 'CAN_APPLY' else '0'}" data-problem="{problem}" data-mrc="{row.mrc_price}" data-recommended="{row.recommended_discounted_price or 0}" data-updated="{row.id}">
       <td>{checkbox}</td>
       <td>{_product_title(product)}<small>{escape(product.seller_article or '') if product else ''}</small></td>
       <td>{row.wb_nm_id}</td>
       <td>{escape(row.promotion_name or '')}</td>
       <td>{_money(row.mrc_price)}</td>
-      <td>{_money(row.current_wb_price)}</td>
-      <td>{_money(row.required_price)}</td>
+      <td>{_money(row.current_discounted_price or row.current_wb_price)}</td>
+      <td>{_money(row.max_auto_promo_price or row.required_price)}</td>
       <td>{bounds}</td>
-      <td>{_money(row.recommended_price)}</td>
-      <td>{escape(full_price)}</td>
+      <td>{_money(row.recommended_discounted_price or row.recommended_price)}</td>
+      <td>{_money(row.recommended_full_price) or escape(full_price)}</td>
       <td>{escape(discount)}</td>
       <td>{_status_badge(row.status)}</td>
       <td>{escape(action)}</td>
@@ -709,14 +710,17 @@ def _recommendation_pair(row: WbAutoPromoPriceRecommendation, product: Product |
 def _recommendation_details(row: WbAutoPromoPriceRecommendation, payload_text: str, full_price: str) -> str:
     discount_factor = "0.25"
     formula = ""
-    if row.recommended_price is not None and full_price:
-        formula = f"Полная цена WB: {row.recommended_price} / {discount_factor} = {full_price} ₽"
+    if row.recommended_discounted_price is not None and full_price:
+        formula = (
+            f"Цена без скидки: {row.recommended_discounted_price} / "
+            f"{discount_factor} = {full_price} ₽"
+        )
     payload = payload_text or "Payload не формируется для заблокированной рекомендации."
     return f"""
     <div class="pricing-details-grid">
       <div>
         <h4>Формула расчёта</h4>
-        <p>МРЦ: {_money(row.mrc_price)}<br>Отклонение: по настройкам МРЦ<br>Нижняя граница: {_money(row.mrc_lower_bound)}<br>Цена входа автоакции: {_money(row.required_price)}<br>Рекомендуемая цена: {_money(row.recommended_price)}<br>{escape(formula)}</p>
+        <p>МРЦ: {_money(row.mrc_price)}<br>Допустимое снижение: по настройкам МРЦ<br>Минимальная цена: {_money(row.mrc_lower_bound)}<br>Максимальная цена WB для автоакции: {_money(row.max_auto_promo_price or row.required_price)}<br>Рекомендуемая цена со скидкой: {_money(row.recommended_discounted_price or row.recommended_price)}<br>Скидка WB: {row.recommended_discount or 75}%<br>{escape(formula)}</p>
       </div>
       <div>
         <h4>Решение</h4>
@@ -809,13 +813,17 @@ def _status_label(status: str) -> str:
     return {
         "CAN_APPLY": "Можно применить",
         "AUTO_PROMOTION_SET_PRICE": "Можно применить",
+        "ALREADY_ELIGIBLE": "Уже подходит",
         "ALREADY_OK": "Уже подходит",
         "AUTO_PROMOTION_PRICE_OK": "Уже подходит",
         "BLOCKED_BY_MRC": "Ниже МРЦ",
         "AUTO_PROMOTION_PRICE_VIOLATION": "Ниже МРЦ",
         "BLOCKED_BY_MIN_PRICE": "Ниже minPrice",
         "AUTO_PROMOTION_MIN_PRICE_VIOLATION": "Ниже minPrice",
-        "NO_REQUIRED_PRICE": "Нет цены входа",
+        "NO_AUTO_PROMO_PRICE": "Нет цены входа",
+        "NO_CURRENT_PRICE": "Нет текущей цены",
+        "NO_MRC_PRICE": "Нет МРЦ",
+        "WAITING_WB_SYNC": "Ожидает WB",
         "AUTO_PROMOTION_REQUIRED_PRICE_UNKNOWN": "Нет цены входа",
         "AUTO_PROMOTION_WAITING_WB_SYNC": "Ожидает WB",
         "applied": "Применено",
@@ -826,13 +834,13 @@ def _status_label(status: str) -> str:
 def _status_tone(status: str) -> str:
     if status in {"CAN_APPLY", "AUTO_PROMOTION_SET_PRICE", "applied"}:
         return "green"
-    if status in {"ALREADY_OK", "AUTO_PROMOTION_PRICE_OK"}:
+    if status in {"ALREADY_ELIGIBLE", "ALREADY_OK", "AUTO_PROMOTION_PRICE_OK"}:
         return "blue"
     if status in {"BLOCKED_BY_MRC", "BLOCKED_BY_MIN_PRICE", "AUTO_PROMOTION_PRICE_VIOLATION", "AUTO_PROMOTION_MIN_PRICE_VIOLATION", "failed"}:
         return "red"
-    if status in {"NO_REQUIRED_PRICE", "AUTO_PROMOTION_REQUIRED_PRICE_UNKNOWN"}:
+    if status in {"NO_AUTO_PROMO_PRICE", "NO_REQUIRED_PRICE", "AUTO_PROMOTION_REQUIRED_PRICE_UNKNOWN"}:
         return "amber"
-    if status == "AUTO_PROMOTION_WAITING_WB_SYNC":
+    if status in {"WAITING_WB_SYNC", "AUTO_PROMOTION_WAITING_WB_SYNC"}:
         return "violet"
     return "gray"
 

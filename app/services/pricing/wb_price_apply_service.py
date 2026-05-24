@@ -2,7 +2,7 @@
 
 import logging
 from dataclasses import dataclass
-from decimal import ROUND_CEILING, Decimal
+from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
 from typing import Any
 
 from sqlalchemy import select
@@ -19,6 +19,7 @@ class WbPriceApplyPayload:
     nm_id: int
     price: int
     discount: int
+    final_discounted_price: Decimal | None = None
 
     def as_wb_item(self) -> dict[str, int]:
         return {"nmID": self.nm_id, "price": self.price, "discount": self.discount}
@@ -37,6 +38,7 @@ class WbPriceApplyService:
         recommended_price: Decimal,
         discount: Decimal = Decimal("75"),
         min_price: Decimal | None = None,
+        max_discounted_price: Decimal | None = None,
     ) -> WbPriceApplyPayload:
         if min_price is not None and recommended_price < min_price:
             raise ValueError("recommended_price is below WB minPrice")
@@ -46,10 +48,22 @@ class WbPriceApplyService:
         full_wb_price = (recommended_price / discount_factor).to_integral_value(
             rounding=ROUND_CEILING
         )
+        final_discounted = (full_wb_price * discount_factor).quantize(
+            Decimal("0.01"),
+            rounding=ROUND_HALF_UP,
+        )
+        ceiling = max_discounted_price or recommended_price
+        while final_discounted > ceiling and full_wb_price > 1:
+            full_wb_price -= 1
+            final_discounted = (full_wb_price * discount_factor).quantize(
+                Decimal("0.01"),
+                rounding=ROUND_HALF_UP,
+            )
         return WbPriceApplyPayload(
             nm_id=nm_id,
             price=int(full_wb_price),
             discount=int(discount),
+            final_discounted_price=final_discounted,
         )
 
     async def prepare_from_recommendations(

@@ -23,6 +23,10 @@ PRICE_FIELDS = (
     "thresholdPrice",
     "autoActionPrice",
     "discountPrice",
+    "priceForParticipation",
+    "maxDiscountedPrice",
+    "promotionPrice",
+    "actionDiscountedPrice",
 )
 NESTED_PRICE_PATHS = (
     ("priceInfo", "requiredPrice"),
@@ -42,7 +46,10 @@ DISCOUNT_FIELDS = ("requiredDiscount", "discount", "planDiscount", "targetDiscou
 class WbAutoPromoConditionDTO:
     wb_nm_id: int
     required_price: Decimal | None
+    max_auto_promo_price: Decimal | None
     current_wb_price: Decimal | None
+    current_full_price: Decimal | None
+    current_discount: int | None
     is_participating: bool | None
     promotion_id: int | None
     promotion_name: str | None
@@ -72,7 +79,12 @@ class WbAutoPromoConditionResolver:
                 WbAutoPromoConditionDTO(
                     wb_nm_id=wb_nm_id,
                     required_price=required_price,
+                    max_auto_promo_price=required_price,
                     current_wb_price=self._money(item.get("price") or item.get("currentPrice")),
+                    current_full_price=self._first_money(item, FULL_PRICE_FIELDS),
+                    current_discount=self._int_optional(
+                        item.get("discount") or item.get("currentDiscount")
+                    ),
                     is_participating=self._parse_bool(
                         item.get("inAction")
                         or item.get("isParticipating")
@@ -261,6 +273,15 @@ class WbAutoPromoConditionResolver:
             if lowered in {"false", "no", "0", "нет", "не участвует"}:
                 return False
         return None
+
+    @staticmethod
+    def _int_optional(value: Any) -> int | None:
+        if value is None or value == "":
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
 
     @staticmethod
     def _dedupe_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
