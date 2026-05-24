@@ -7,6 +7,8 @@ description: Wildberries daily promotions synchronization service.
 updated: 2026-05-22
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import time
@@ -60,6 +62,18 @@ class WbPromotionsSyncStats:
     auto_details_failed: int = 0
     auto_details_success: int = 0
     sync_in_progress: bool = False
+
+
+@dataclass(slots=True)
+class AutoPromoConditionDTO:
+    """Normalized auto promotion condition extracted from WB API details."""
+    wb_nm_id: int
+    required_price: Decimal | None
+    current_wb_price: Decimal | None
+    is_participating: bool | None
+    promotion_id: int | None
+    promotion_name: str | None
+    raw_payload: dict[str, Any]
 
 
 class WbPromotionsSyncService:
@@ -1350,18 +1364,6 @@ def _extract_nomenclatures_from_auto_detail(detail: dict[str, Any]) -> list[dict
                 return items
 
     return []
-
-
-@dataclass(slots=True)
-class AutoPromoConditionDTO:
-    """Normalized auto promotion condition extracted from WB API details."""
-    wb_nm_id: int
-    required_price: Decimal | None
-    current_wb_price: Decimal | None
-    is_participating: bool | None
-    promotion_id: int | None
-    promotion_name: str | None
-    raw_payload: dict[str, Any]
 
 
 def extract_auto_promo_required_prices(
