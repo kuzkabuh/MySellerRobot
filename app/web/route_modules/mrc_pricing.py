@@ -2979,7 +2979,11 @@ def _flash_messages() -> str:
             const fetched = params.get('prices_fetched') || '0';
             const upserted = params.get('prices_upserted') || '0';
             const failed = params.get('accounts_failed') || '0';
-            msg = '✅ Цены WB обновлены\\nЗагружено: ' + fetched + ' | Сохранено: ' + upserted + ' | Ошибок: ' + failed;
+            if (parseInt(fetched) === 0) {
+                msg = '⚠️ Цены WB не были загружены. Проверьте токен WB и endpoint Prices API.\\nЗагружено: ' + fetched + ' | Сохранено: ' + upserted + ' | Ошибок: ' + failed;
+            } else {
+                msg = '✅ Цены WB обновлены\\nЗагружено: ' + fetched + ' | Сохранено: ' + upserted + ' | Ошибок: ' + failed;
+            }
         }
         if (params.get('prices_sync_error') === '1') msg = '❌ Ошибка синхронизации цен WB';
         if (params.get('error') === 'invalid_mrc') msg = '❌ МРЦ должна быть положительным числом';
@@ -3432,8 +3436,10 @@ def _mrc_settings_content(
         if (params.get('error') === '1') msg = '❌ Ошибка сохранения настроек';
         if (msg) {
             const div = document.createElement('div');
-            div.style.cssText = 'padding:12px 16px;margin-bottom:16px;border-radius:8px;font-size:14px;' +
-                (msg.startsWith('✅') ? 'background:#d1fae5;color:#065f46' : 'background:#fee2e2;color:#991b1b');
+            let bgColor = 'background:#fee2e2;color:#991b1b';
+            if (msg.startsWith('✅')) bgColor = 'background:#d1fae5;color:#065f46';
+            else if (msg.startsWith('⚠️')) bgColor = 'background:#fef3c7;color:#92400e';
+            div.style.cssText = 'padding:12px 16px;margin-bottom:16px;border-radius:8px;font-size:14px;white-space:pre-line;' + bgColor;
             div.textContent = msg;
             document.querySelector('.card')?.before(div);
         }

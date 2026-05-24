@@ -213,17 +213,16 @@ class WbCurrentPricesSyncService:
             # Structure may vary, so we try multiple field names
             price = self._parse_price(item)
             discount = self._parse_discount(item)
-            currency_code = item.get("currencyCode") or item.get("currency") or "RUB"
+            currency_code = item.get("currencyCode") or item.get("currencyIsoCode4217") or "RUB"
             club_discount = self._parse_club_discount(item)
-
-            if price is None:
-                continue
 
             # Calculate discounted price if not provided
             discounted_price = self._parse_discounted_price(item)
-            if discounted_price is None and discount is not None and discount > 0:
+            if discounted_price is None and price is not None and discount is not None and discount > 0:
                 discounted_price = price * (Decimal("1") - Decimal(str(discount)) / Decimal("100"))
                 discounted_price = discounted_price.quantize(Decimal("0.01"))
+            elif discounted_price is None and price is not None:
+                discounted_price = price
 
             club_discounted_price = None
             if club_discount is not None and club_discount > 0 and price is not None:
@@ -248,8 +247,10 @@ class WbCurrentPricesSyncService:
                 self.session.add(existing_price)
 
             existing_price.price = price
-            existing_price.discount = discount or 0
-            existing_price.discounted_price = discounted_price or price
+            existing_price.discount = discount
+            existing_price.discounted_price = discounted_price
+            existing_price.club_discount = club_discount
+            existing_price.club_discounted_price = club_discounted_price
             existing_price.currency_code = currency_code
             existing_price.raw_payload = item
             existing_price.synced_at = now_utc
@@ -259,9 +260,15 @@ class WbCurrentPricesSyncService:
     @staticmethod
     def _extract_nm_id(product: Product) -> int | None:
         """Extract WB nmID from product."""
+        if product.marketplace != Marketplace.WB:
+            return None
         for field_value in (product.external_product_id, product.marketplace_article):
-            if field_value and field_value.isdigit():
-                return int(field_value)
+            if field_value is None:
+                continue
+            try:
+                return int(str(field_value).strip())
+            except (ValueError, TypeError):
+                continue
         return None
 
     @staticmethod
