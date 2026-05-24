@@ -25,6 +25,7 @@ from app.integrations.wb import WildberriesClient
 from app.models.domain import (
     MarketplaceAccount,
     Product,
+    WbAutoPromotionCondition,
     WbPromotion,
     WbPromotionNomenclature,
 )
@@ -223,6 +224,11 @@ class WbPromotionsSyncService:
                     extra={"account_id": account.id},
                 )
                 await self.session.rollback()
+
+        # After syncing all accounts, auto-generate price recommendations
+        # for accounts that have auto promotion conditions
+        if stats.promotions_skipped_auto > 0 or stats.auto_details_success > 0:
+            await self._auto_generate_recommendations_for_all_accounts(accounts)
 
         logger.info(
             "sync_wb_daily_promotions_completed",
@@ -568,6 +574,21 @@ class WbPromotionsSyncService:
                     )
                     stats.nomenclatures_fetched += 1
 
+                # Extract and save auto promotion conditions (required prices) from WB API
+                auto_conditions = extract_auto_promo_required_prices(
+                    detail=detail,
+                    promotion_id=promo_id,
+                    promotion_name=promotion.name,
+                )
+                for cond_dto in auto_conditions:
+                    if cond_dto.required_price is None:
+                        continue
+                    await self._upsert_auto_promo_condition_from_api(
+                        account=account,
+                        condition_dto=cond_dto,
+                        now_utc=now_utc,
+                    )
+
         logger.info(
             "wb_auto_promotion_details_sync_completed",
             extra={
@@ -634,6 +655,101 @@ class WbPromotionsSyncService:
         nomenclature.synced_at = now_utc
 
         await self.session.flush()
+
+    async def _upsert_auto_promo_condition_from_api(
+        self,
+        account: MarketplaceAccount,
+        condition_dto: AutoPromoConditionDTO,
+        now_utc: datetime,
+    ) -> None:
+        """Upsert auto promotion condition extracted from WB API details.
+
+        Saves conditions with source='wb_api' so they can be used
+        automatically for price recommendations without manual input.
+        """
+        wb_nm_id = condition_dto.wb_nm_id
+        if not wb_nm_id or condition_dto.required_price is None:
+            return
+
+        result = await self.session.execute(
+            select(WbAutoPromotionCondition).where(
+                WbAutoPromotionCondition.marketplace_account_id == account.id,
+                WbAutoPromotionCondition.wb_nm_id == wb_nm_id,
+                WbAutoPromotionCondition.promotion_name == (condition_dto.promotion_name or ""),
+                WbAutoPromotionCondition.source == "wb_api",
+            )
+        )
+        existing = result.scalar_one_or_none()
+
+        if existing is None:
+            existing = WbAutoPromotionCondition(
+                user_id=account.user_id,
+                marketplace_account_id=account.id,
+                wb_nm_id=wb_nm_id,
+                promotion_name=condition_dto.promotion_name,
+                wb_promotion_id=condition_dto.promotion_id,
+                source="wb_api",
+            )
+            self.session.add(existing)
+
+        existing.required_price = condition_dto.required_price
+        existing.current_wb_price = condition_dto.current_wb_price
+        existing.is_participating = condition_dto.is_participating
+        existing.raw_payload = condition_dto.raw_payload
+        existing.synced_at = now_utc
+
+        await self.session.flush()
+
+    async def _auto_generate_recommendations_for_all_accounts(
+        self,
+        accounts: list[MarketplaceAccount],
+    ) -> None:
+        """Auto-generate price recommendations after auto promotion sync.
+
+        For each account that has wb_auto_promotion_conditions with
+        required_price, builds recommendations and saves them.
+        """
+        from app.services.pricing.wb_auto_promo_price_service import (
+            WbAutoPromoPriceService,
+        )
+
+        price_service = WbAutoPromoPriceService(self.session)
+        total_recs = 0
+
+        for account in accounts:
+            try:
+                recs = await price_service.build_recommendations_for_conditions(
+                    user_id=account.user_id,
+                    marketplace_account_id=account.id,
+                )
+                for rec in recs:
+                    await price_service.save_recommendation(
+                        rec=rec,
+                        user_id=account.user_id,
+                        marketplace_account_id=account.id,
+                    )
+                total_recs += len(recs)
+                logger.info(
+                    "wb_auto_promo_recommendations_auto_generated",
+                    extra={
+                        "account_id": account.id,
+                        "user_id": account.user_id,
+                        "recommendations_count": len(recs),
+                    },
+                )
+            except Exception:
+                logger.exception(
+                    "wb_auto_promo_recommendations_auto_generate_failed",
+                    extra={"account_id": account.id},
+                )
+
+        if total_recs > 0:
+            await self.session.flush()
+
+        logger.info(
+            "wb_auto_promo_recommendations_auto_generation_completed",
+            extra={"total_recommendations": total_recs},
+        )
 
     async def _fetch_all_promotions(
         self,
@@ -1221,16 +1337,136 @@ def _extract_nomenclatures_from_auto_detail(detail: dict[str, Any]) -> list[dict
 
     Try multiple field names since WB API structure may vary.
     """
-    for key in ("nomenclatures", "products", "items"):
+    for key in ("nomenclatures", "products", "items", "goods"):
         items = detail.get(key)
         if isinstance(items, list):
             return items
 
     data = detail.get("data")
     if isinstance(data, dict):
-        for key in ("nomenclatures", "products", "items"):
+        for key in ("nomenclatures", "products", "items", "goods"):
             items = data.get(key)
             if isinstance(items, list):
                 return items
 
     return []
+
+
+@dataclass(slots=True)
+class AutoPromoConditionDTO:
+    """Normalized auto promotion condition extracted from WB API details."""
+    wb_nm_id: int
+    required_price: Decimal | None
+    current_wb_price: Decimal | None
+    is_participating: bool | None
+    promotion_id: int | None
+    promotion_name: str | None
+    raw_payload: dict[str, Any]
+
+
+def extract_auto_promo_required_prices(
+    detail: dict[str, Any],
+    promotion_id: int | None = None,
+    promotion_name: str | None = None,
+) -> list[AutoPromoConditionDTO]:
+    """Extract auto promotion conditions (required prices) from WB API detail response.
+
+    Searches for product entries in multiple possible structures:
+    - detail["nomenclatures"], detail["products"], detail["items"], detail["goods"]
+    - detail["data"]["nomenclatures"], etc.
+    - detail["params"]["nomenclatures"], etc.
+    - detail["conditions"]["nomenclatures"], etc.
+
+    For each product entry, looks for price fields:
+    - planPrice, requiredPrice, maxPrice, price, discountPrice
+    - actionPrice, participationPrice, targetPrice, thresholdPrice, autoActionPrice
+
+    Returns a list of AutoPromoConditionDTO objects.
+    """
+    conditions: list[AutoPromoConditionDTO] = []
+
+    items_list = _extract_nomenclatures_from_auto_detail(detail)
+
+    for item in items_list:
+        if not isinstance(item, dict):
+            continue
+
+        wb_nm_id = int(item.get("id") or item.get("nmId") or item.get("nmID") or 0)
+        if not wb_nm_id:
+            continue
+
+        required_price = _extract_required_price_from_item(item)
+        current_wb_price = _money(item.get("price"))
+        is_participating = item.get("inAction") or item.get("isParticipating") or item.get("participating")
+
+        if isinstance(is_participating, str):
+            is_participating = is_participating.lower() in ("true", "yes", "1", "да", "участвует")
+
+        conditions.append(AutoPromoConditionDTO(
+            wb_nm_id=wb_nm_id,
+            required_price=required_price,
+            current_wb_price=current_wb_price,
+            is_participating=bool(is_participating) if is_participating is not None else None,
+            promotion_id=promotion_id,
+            promotion_name=promotion_name,
+            raw_payload=item,
+        ))
+
+    # Diagnostic logging: if no items found, log structure for debugging
+    if not items_list:
+        detail_keys = list(detail.keys()) if isinstance(detail, dict) else []
+        data = detail.get("data") if isinstance(detail, dict) else None
+        data_keys = list(data.keys()) if isinstance(data, dict) else []
+        logger.info(
+            "wb_auto_promo_detail_no_items_found",
+            extra={
+                "promotion_id": promotion_id,
+                "detail_keys": detail_keys,
+                "data_keys": data_keys,
+                "detail_preview": _safe_response_preview(detail, max_len=500),
+            },
+        )
+
+    return conditions
+
+
+def _extract_required_price_from_item(item: dict[str, Any]) -> Decimal | None:
+    """Extract required/entry price from a single auto promotion product item.
+
+    Searches for price fields in priority order:
+    1. planPrice — planned price for the promotion
+    2. requiredPrice — explicitly required price
+    3. maxPrice — maximum allowed price (often the entry threshold)
+    4. actionPrice — promotional action price
+    5. participationPrice — price for participation
+    6. targetPrice — target price
+    7. thresholdPrice — threshold price
+    8. autoActionPrice — auto action price
+    9. discountPrice — discounted price
+    10. price — current price (fallback, only if nothing else found)
+    """
+    price_keys = [
+        "planPrice", "requiredPrice", "maxPrice",
+        "actionPrice", "participationPrice", "targetPrice",
+        "thresholdPrice", "autoActionPrice", "discountPrice",
+    ]
+
+    for key in price_keys:
+        value = item.get(key)
+        if value is not None:
+            parsed = _money(value)
+            if parsed is not None and parsed > 0:
+                return parsed
+
+    # Fallback: check nested price objects
+    for key in ("priceInfo", "pricing", "conditions"):
+        nested = item.get(key)
+        if isinstance(nested, dict):
+            for sub_key in ("planPrice", "requiredPrice", "maxPrice", "price"):
+                value = nested.get(sub_key)
+                if value is not None:
+                    parsed = _money(value)
+                    if parsed is not None and parsed > 0:
+                        return parsed
+
+    return None

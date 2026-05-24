@@ -325,3 +325,179 @@ class TestTokenCipher:
         cipher = TokenCipher()
         with pytest.raises((ValueError, InvalidToken)):
             cipher.decrypt("not-a-valid-token")
+
+
+class TestExtractAutoPromoRequiredPrices:
+    """Test automatic extraction of required prices from WB auto promotion details."""
+
+    def test_extract_from_nomenclatures_with_plan_price(self):
+        """Should extract required_price from planPrice in nomenclatures list."""
+        from app.services.wb.wb_promotions_sync_service import (
+            extract_auto_promo_required_prices,
+        )
+
+        detail = {
+            "nomenclatures": [
+                {
+                    "id": 12345678,
+                    "price": 4000,
+                    "planPrice": 950,
+                    "inAction": False,
+                }
+            ]
+        }
+
+        conditions = extract_auto_promo_required_prices(
+            detail=detail,
+            promotion_id=100,
+            promotion_name="Test Auto Promo",
+        )
+
+        assert len(conditions) == 1
+        assert conditions[0].wb_nm_id == 12345678
+        assert conditions[0].required_price == Decimal("950")
+        assert conditions[0].current_wb_price == Decimal("4000")
+        assert conditions[0].promotion_id == 100
+        assert conditions[0].promotion_name == "Test Auto Promo"
+
+    def test_extract_from_products_with_required_price(self):
+        """Should extract from products list with requiredPrice field."""
+        from app.services.wb.wb_promotions_sync_service import (
+            extract_auto_promo_required_prices,
+        )
+
+        detail = {
+            "products": [
+                {
+                    "nmId": 87654321,
+                    "requiredPrice": 850,
+                    "maxPrice": 900,
+                }
+            ]
+        }
+
+        conditions = extract_auto_promo_required_prices(detail=detail)
+
+        assert len(conditions) == 1
+        assert conditions[0].wb_nm_id == 87654321
+        assert conditions[0].required_price == Decimal("850")
+
+    def test_extract_from_data_nomenclatures(self):
+        """Should extract from data.nomenclatures nested structure."""
+        from app.services.wb.wb_promotions_sync_service import (
+            extract_auto_promo_required_prices,
+        )
+
+        detail = {
+            "data": {
+                "nomenclatures": [
+                    {
+                        "id": 11111111,
+                        "maxPrice": 950,
+                    }
+                ]
+            }
+        }
+
+        conditions = extract_auto_promo_required_prices(detail=detail)
+
+        assert len(conditions) == 1
+        assert conditions[0].wb_nm_id == 11111111
+        assert conditions[0].required_price == Decimal("950")
+
+    def test_extract_uses_plan_price_over_max_price(self):
+        """planPrice should take priority over maxPrice."""
+        from app.services.wb.wb_promotions_sync_service import (
+            extract_auto_promo_required_prices,
+        )
+
+        detail = {
+            "nomenclatures": [
+                {
+                    "id": 22222222,
+                    "planPrice": 950,
+                    "maxPrice": 1000,
+                }
+            ]
+        }
+
+        conditions = extract_auto_promo_required_prices(detail=detail)
+
+        assert conditions[0].required_price == Decimal("950")
+
+    def test_extract_multiple_products(self):
+        """Should extract conditions for all products in the list."""
+        from app.services.wb.wb_promotions_sync_service import (
+            extract_auto_promo_required_prices,
+        )
+
+        detail = {
+            "nomenclatures": [
+                {"id": 1, "planPrice": 950},
+                {"id": 2, "planPrice": 850},
+                {"id": 3, "planPrice": 1000},
+            ]
+        }
+
+        conditions = extract_auto_promo_required_prices(detail=detail)
+
+        assert len(conditions) == 3
+        assert conditions[0].required_price == Decimal("950")
+        assert conditions[1].required_price == Decimal("850")
+        assert conditions[2].required_price == Decimal("1000")
+
+    def test_extract_skips_items_without_price(self):
+        """Items without any price field should still be extracted but with None required_price."""
+        from app.services.wb.wb_promotions_sync_service import (
+            extract_auto_promo_required_prices,
+        )
+
+        detail = {
+            "nomenclatures": [
+                {"id": 1, "planPrice": 950},
+                {"id": 2},
+            ]
+        }
+
+        conditions = extract_auto_promo_required_prices(detail=detail)
+
+        assert len(conditions) == 2
+        assert conditions[0].required_price == Decimal("950")
+        assert conditions[1].required_price is None
+
+    def test_extract_from_items_list(self):
+        """Should extract from items list as fallback."""
+        from app.services.wb.wb_promotions_sync_service import (
+            extract_auto_promo_required_prices,
+        )
+
+        detail = {
+            "items": [
+                {"nmID": 33333333, "targetPrice": 750}
+            ]
+        }
+
+        conditions = extract_auto_promo_required_prices(detail=detail)
+
+        assert len(conditions) == 1
+        assert conditions[0].wb_nm_id == 33333333
+        assert conditions[0].required_price == Decimal("750")
+
+    def test_extract_from_data_products(self):
+        """Should extract from data.products nested structure."""
+        from app.services.wb.wb_promotions_sync_service import (
+            extract_auto_promo_required_prices,
+        )
+
+        detail = {
+            "data": {
+                "products": [
+                    {"id": 44444444, "participationPrice": 880}
+                ]
+            }
+        }
+
+        conditions = extract_auto_promo_required_prices(detail=detail)
+
+        assert len(conditions) == 1
+        assert conditions[0].required_price == Decimal("880")
