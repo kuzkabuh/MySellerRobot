@@ -192,6 +192,7 @@ class WbAutoPromoConditionResolver:
             )
             session.add(record)
         record.required_price = condition.required_price
+        record.max_auto_promo_price = condition.max_auto_promo_price
         record.wb_condition_discount_percent = condition.wb_condition_discount_percent
         record.current_wb_price = condition.current_wb_price
         record.current_full_price = condition.current_full_price

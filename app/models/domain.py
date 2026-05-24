@@ -1016,6 +1016,7 @@ class WbAutoPromotionCondition(TimestampMixin, Base):
     title: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     promotion_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
     required_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    max_auto_promo_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     wb_condition_discount_percent: Mapped[Decimal | None] = mapped_column(
         Numeric(5, 2), nullable=True
     )
@@ -1032,6 +1033,74 @@ class WbAutoPromotionCondition(TimestampMixin, Base):
     confidence: Mapped[str] = mapped_column(String(16), nullable=False, default="low")
     raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class WbAutoPromoFileImport(TimestampMixin, Base):
+    __tablename__ = "wb_auto_promo_file_imports"
+    __table_args__ = (
+        Index("ix_wb_auto_promo_file_imports_user_created", "user_id", "created_at"),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    marketplace_account_id: Mapped[int] = mapped_column(
+        ForeignKey("marketplace_accounts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    original_file_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    promotion_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="preview")
+    total_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    valid_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    warning_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    rows: Mapped[list["WbAutoPromoFileImportRow"]] = relationship(
+        back_populates="import_record",
+        cascade="all, delete-orphan",
+    )
+
+
+class WbAutoPromoFileImportRow(TimestampMixin, Base):
+    __tablename__ = "wb_auto_promo_file_import_rows"
+    __table_args__ = (Index("ix_wb_auto_promo_file_rows_import_id", "import_id"),)
+
+    id: Mapped[int_pk]
+    import_id: Mapped[int] = mapped_column(
+        ForeignKey("wb_auto_promo_file_imports.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    row_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    wb_nm_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    seller_article: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    title: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    plan_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    current_full_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    current_discount_percent: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 2), nullable=True
+    )
+    current_discounted_price: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 2), nullable=True
+    )
+    wb_upload_discount_percent: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 2), nullable=True
+    )
+    wb_status: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    already_participating: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+
+    import_record: Mapped["WbAutoPromoFileImport"] = relationship(back_populates="rows")
 
 
 class WbAutoPromoPriceRecommendation(TimestampMixin, Base):

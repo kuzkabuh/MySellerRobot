@@ -31,7 +31,10 @@ from app.models.domain import (
 )
 from app.models.enums import Marketplace
 from app.services.pricing.wb_auto_promo_condition_resolver import WbAutoPromoConditionResolver
-from app.services.pricing.wb_auto_promo_import_service import WbAutoPromoImportService
+from app.services.pricing.wb_auto_promo_file_import_service import (
+    AutoPromoFilePreview,
+    WbAutoPromoFileImportService,
+)
 from app.services.pricing.wb_auto_promo_participation_service import (
     WbAutoPromoParticipationService,
 )
@@ -60,6 +63,22 @@ class PricingViewData:
     products_by_nm: dict[int, Product]
     promo_counts: dict[int, dict[str, int]]
     last_sync: str
+
+
+def _write_upload_temp_file(content: bytes, original_filename: str) -> Path:
+    suffix = Path(original_filename).suffix.lower()
+    if suffix not in (".xlsx", ".xlsm", ".csv"):
+        suffix = ".xlsx"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(content)
+        return Path(tmp.name)
+
+
+def _remove_temp_file(path: Path) -> None:
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
 
 
 @router.get("/pricing", response_class=HTMLResponse)
@@ -116,6 +135,99 @@ async def pricing_resolve_conditions(
     return RedirectResponse(url=f"/web/pricing?conditions={total}#conditions", status_code=303)
 
 
+@router.get("/pricing/auto-promotions/upload", response_class=HTMLResponse)
+async def pricing_auto_promo_upload_page(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    accounts = await _wb_accounts(session, user.id)
+    return page(
+        "Загрузка условий автоакции",
+        user.first_name or user.username or str(user.telegram_id),
+        _auto_promo_upload_page(accounts),
+        active_path="/web/pricing",
+    )
+
+
+@router.post("/pricing/auto-promotions/upload/preview", response_class=HTMLResponse)
+async def pricing_auto_promo_upload_preview(
+    marketplace_account_id: int = Form(...),
+    promotion_name: str | None = Form(default=None),
+    file: UploadFile = AUTO_PROMO_UPLOAD_FILE,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str | RedirectResponse:
+    account = await session.get(MarketplaceAccount, marketplace_account_id)
+    if account is None or account.user_id != user.id or account.marketplace != Marketplace.WB:
+        return RedirectResponse(url="/web/pricing?upload_error=account#recommendations", status_code=303)
+    content = await file.read()
+    if len(content) > 15 * 1024 * 1024:
+        return RedirectResponse(url="/web/pricing?upload_error=file_size#recommendations", status_code=303)
+    original_filename = file.filename or "auto_promo.xlsx"
+    tmp_path = _write_upload_temp_file(content, original_filename)
+    try:
+        service = WbAutoPromoFileImportService(session)
+        preview, rows = await service.create_preview(
+            tmp_path,
+            user.id,
+            marketplace_account_id,
+            original_file_name=original_filename,
+            promotion_name=promotion_name.strip() if promotion_name else None,
+        )
+        await session.commit()
+        return page(
+            "Предпросмотр условий автоакции",
+            user.first_name or user.username or str(user.telegram_id),
+            _auto_promo_preview_page(preview, rows, marketplace_account_id),
+            active_path="/web/pricing",
+        )
+    except ValueError as exc:
+        await session.rollback()
+        return page(
+            "Ошибка загрузки",
+            user.first_name or user.username or str(user.telegram_id),
+            f'<section class="pricing-page"><div class="pricing-card"><h2>Ошибка</h2><p>{escape(str(exc))}</p><a class="pricing-button pricing-button-primary" href="/web/pricing/auto-promotions/upload">Назад к загрузке</a></div></section>',
+            active_path="/web/pricing",
+        )
+    finally:
+        _remove_temp_file(tmp_path)
+
+
+@router.post("/pricing/auto-promotions/upload/apply")
+async def pricing_auto_promo_upload_apply(
+    import_id: int = Form(...),
+    marketplace_account_id: int = Form(...),
+    promotion_name: str | None = Form(default=None),
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    account = await session.get(MarketplaceAccount, marketplace_account_id)
+    if account is None or account.user_id != user.id or account.marketplace != Marketplace.WB:
+        return RedirectResponse(url="/web/pricing?upload_error=account#recommendations", status_code=303)
+    service = WbAutoPromoFileImportService(session)
+    try:
+        saved = await service.apply_import_record(
+            import_id,
+            user.id,
+            promotion_name.strip() if promotion_name else None,
+        )
+        recommendations = await WbAutoPromoParticipationService(
+            session
+        ).calculate_participation_recommendations(marketplace_account_id, commit=False)
+        await session.commit()
+        return RedirectResponse(
+            url=(
+                "/web/pricing?"
+                f"tab=recommendations&import_id={import_id}&saved={saved}"
+                f"&generated={len(recommendations)}#recommendations"
+            ),
+            status_code=303,
+        )
+    except ValueError:
+        await session.rollback()
+        return RedirectResponse(url="/web/pricing?upload_error=apply#recommendations", status_code=303)
+
+
 @router.post("/pricing/upload-auto-promo-file")
 async def pricing_upload_auto_promo_file(
     marketplace_account_id: int = Form(...),
@@ -137,18 +249,14 @@ async def pricing_upload_auto_promo_file(
         tmp_path = Path(tmp.name)
 
     try:
-        import_service = WbAutoPromoImportService(session)
+        import_service = WbAutoPromoFileImportService(session)
         _preview, rows = await import_service.create_preview(
             tmp_path,
             user.id,
             marketplace_account_id,
             original_file_name=original_filename,
         )
-        saved = await import_service.apply_import(
-            rows,
-            user.id,
-            marketplace_account_id,
-        )
+        saved = await import_service.save_conditions(rows, user.id, marketplace_account_id)
         recommendations = await WbAutoPromoParticipationService(
             session
         ).calculate_participation_recommendations(marketplace_account_id, commit=False)
@@ -470,6 +578,103 @@ def _pricing_content(data: PricingViewData) -> str:
     """
 
 
+def _auto_promo_upload_page(accounts: list[MarketplaceAccount]) -> str:
+    return f"""
+    <style>{_pricing_css()}</style>
+    <section class="pricing-page">
+      <div class="pricing-hero">
+        <div>
+          <p class="pricing-eyebrow">WB auto promotions</p>
+          <h1>Загрузка файла условий автоакции</h1>
+          <p>Загрузите Excel-файл условий автоакции из кабинета WB. Система проверит строки, сохранит условия и сформирует рекомендации.</p>
+        </div>
+        <a class="pricing-button" href="/web/pricing#recommendations">Назад к ценам</a>
+      </div>
+      {_auto_promo_upload_form(accounts, standalone=True)}
+      <div class="pricing-card">
+        <h3>Поддерживаемая структура</h3>
+        <p>Лист «Отчёт по скидкам». Колонки: Товар уже участвует в акции, Бренд, Предмет, Наименование, Артикул поставщика, Артикул WB, Последний баркод, Плановая цена для акции, Текущая розничная цена, Валюта, Текущая скидка на сайте, %, Загружаемая скидка для участия в акции, Статус.</p>
+      </div>
+    </section>
+    """
+
+
+def _auto_promo_preview_page(
+    preview: AutoPromoFilePreview,
+    rows: list[Any],
+    marketplace_account_id: int,
+) -> str:
+    kpis = [
+        ("Σ", preview.total_rows, "Всего строк", "Файл WB", "blue"),
+        ("✓", preview.valid_rows, "Валидных", "Готовы к сохранению", "green"),
+        ("!", preview.warning_rows, "Предупреждений", "Можно сохранить", "amber"),
+        ("×", preview.error_rows, "Ошибок", "Не сохраняются", "red"),
+        ("A", preview.already_participating_count, "Уже участвуют", "По файлу WB", "violet"),
+        ("P", preview.with_plan_price_count, "С плановой ценой", "Приоритетный источник", "green"),
+        ("F", preview.without_plan_price_count, "Без плановой цены", "Fallback по скидке", "amber"),
+        ("N", preview.not_participating_count, "Не участвуют", "Нужна цена", "blue"),
+    ]
+    cards = "".join(
+        f"""
+        <article class="pricing-card pricing-kpi pricing-accent-{accent}">
+          <div class="pricing-kpi-icon">{escape(icon)}</div>
+          <div><strong>{value}</strong><span>{escape(label)}</span><small>{escape(note)}</small></div>
+        </article>
+        """
+        for icon, value, label, note, accent in kpis
+    )
+    table_rows = "".join(_auto_promo_preview_row(row) for row in rows)
+    promotion_name = preview.promotion_name or ""
+    return f"""
+    <style>{_pricing_css()}</style>
+    <section class="pricing-page">
+      <div class="pricing-hero">
+        <div>
+          <p class="pricing-eyebrow">Проверка файла WB</p>
+          <h1>Предпросмотр условий автоакции</h1>
+          <p>Проверьте строки перед сохранением. Плановая цена используется как цена входа, загружаемая скидка WB остаётся диагностикой.</p>
+        </div>
+        <a class="pricing-button" href="/web/pricing/auto-promotions/upload">Загрузить другой файл</a>
+      </div>
+      <section class="pricing-kpi-grid">{cards}</section>
+      <form class="pricing-upload-form" method="post" action="/web/pricing/auto-promotions/upload/apply">
+        <input type="hidden" name="import_id" value="{preview.import_id}">
+        <input type="hidden" name="marketplace_account_id" value="{marketplace_account_id}">
+        <label>Название акции<input name="promotion_name" value="{escape(promotion_name)}" placeholder="Можно оставить из имени файла"></label>
+        <button class="pricing-button pricing-button-primary" type="submit">Сохранить условия</button>
+        <a class="pricing-button" href="/web/pricing#recommendations">Сформировать рекомендации позже</a>
+      </form>
+      <div class="pricing-table-wrap">
+        <table class="pricing-table">
+          <thead><tr><th>Строка</th><th>Товар</th><th>Артикул</th><th>nmID</th><th>Плановая цена</th><th>Текущая розничная</th><th>Текущая скидка</th><th>Текущая со скидкой</th><th>Скидка WB</th><th>Статус WB</th><th>Проверка</th></tr></thead>
+          <tbody>{table_rows}</tbody>
+        </table>
+      </div>
+    </section>
+    """
+
+
+def _auto_promo_preview_row(row: Any) -> str:
+    status = getattr(row, "status", "warning")
+    message = getattr(row, "message", None) or "OK"
+    row_class = "is-error" if status == "error" else "is-warning" if status == "warning" else ""
+    return f"""
+    <tr class="{row_class}">
+      <td>{getattr(row, 'row_number', '')}</td>
+      <td>{escape(str(getattr(row, 'title', '') or ''))}</td>
+      <td>{escape(str(getattr(row, 'seller_article', '') or ''))}</td>
+      <td>{getattr(row, 'wb_nm_id', '') or ''}</td>
+      <td>{_money(getattr(row, 'plan_price', None))}</td>
+      <td>{_money(getattr(row, 'current_full_price', None))}</td>
+      <td>{getattr(row, 'current_discount_percent', '') or ''}%</td>
+      <td>{_money(getattr(row, 'current_discounted_price', None))}</td>
+      <td>{getattr(row, 'wb_upload_discount_percent', '') or ''}%</td>
+      <td>{escape(str(getattr(row, 'wb_status', '') or ''))}</td>
+      <td>{escape(str(message))}</td>
+    </tr>
+    """
+
+
 def _quick_action(action: str, label: str, *, primary: bool = False) -> str:
     button_class = "pricing-button pricing-button-primary" if primary else "pricing-button"
     return (
@@ -733,7 +938,11 @@ def _recommendations_section(data: PricingViewData) -> str:
     return _panel("recommendations", "Автоакции WB", table)
 
 
-def _auto_promo_upload_form(accounts: list[MarketplaceAccount]) -> str:
+def _auto_promo_upload_form(
+    accounts: list[MarketplaceAccount],
+    *,
+    standalone: bool = False,
+) -> str:
     if not accounts:
         return ""
     options = "".join(
@@ -741,14 +950,16 @@ def _auto_promo_upload_form(accounts: list[MarketplaceAccount]) -> str:
         for account in accounts
     )
     return f"""
-    <form class="pricing-upload-form" method="post" action="/web/pricing/upload-auto-promo-file" enctype="multipart/form-data">
+    <form class="pricing-upload-form" method="post" action="/web/pricing/auto-promotions/upload/preview" enctype="multipart/form-data">
       <div>
         <strong>Файл WB по автоакции</strong>
         <small>Лист «Отчёт по скидкам»: плановая цена — цена входа, загружаемая скидка WB — диагностика.</small>
       </div>
       <select name="marketplace_account_id">{options}</select>
+      <input name="promotion_name" placeholder="Название акции (необязательно)">
       <input type="file" name="file" accept=".xlsx,.xlsm,.csv" required>
-      <button class="pricing-button pricing-button-primary" type="submit">Загрузить файл WB по автоакции</button>
+      <button class="pricing-button pricing-button-primary" type="submit">Загрузить и проверить</button>
+      {'' if standalone else '<a class="pricing-button" href="/web/pricing/auto-promotions/upload">Открыть мастер</a>'}
     </form>
     """
 

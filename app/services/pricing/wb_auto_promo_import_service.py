@@ -439,6 +439,7 @@ class WbAutoPromoImportService:
             condition.title = row_data.get("title")
             condition.promotion_name = row_data.get("promotion_name")
             condition.required_price = required_price
+            condition.max_auto_promo_price = required_price
             condition.current_wb_price = row_data.get("current_wb_price")
             condition.wb_condition_discount_percent = upload_discount
             condition.current_full_price = current_full_price

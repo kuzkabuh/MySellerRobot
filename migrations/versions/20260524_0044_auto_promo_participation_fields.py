@@ -62,6 +62,7 @@ def upgrade() -> None:
         for col in inspector.get_columns("wb_auto_promotion_conditions")
     }
     condition_additions = [
+        ("max_auto_promo_price", sa.Numeric(12, 2)),
         ("wb_condition_discount_percent", sa.Numeric(5, 2)),
         ("current_full_price", sa.Numeric(12, 2)),
         ("current_discount", sa.Integer()),
@@ -93,6 +94,78 @@ def upgrade() -> None:
                     "wb_auto_promotion_conditions",
                     sa.Column(name, col_type, nullable=True),
                 )
+
+    if not inspector.has_table("wb_auto_promo_file_imports"):
+        op.create_table(
+            "wb_auto_promo_file_imports",
+            sa.Column("id", sa.Integer(), nullable=False),
+            sa.Column("user_id", sa.Integer(), nullable=False),
+            sa.Column("marketplace_account_id", sa.Integer(), nullable=False),
+            sa.Column("original_file_name", sa.String(512), nullable=True),
+            sa.Column("promotion_name", sa.String(512), nullable=True),
+            sa.Column("status", sa.String(32), nullable=False, server_default="preview"),
+            sa.Column("total_rows", sa.Integer(), nullable=False, server_default="0"),
+            sa.Column("valid_rows", sa.Integer(), nullable=False, server_default="0"),
+            sa.Column("error_rows", sa.Integer(), nullable=False, server_default="0"),
+            sa.Column("warning_rows", sa.Integer(), nullable=False, server_default="0"),
+            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+            sa.Column("applied_at", sa.DateTime(timezone=True), nullable=True),
+            sa.Column("error_text", sa.Text(), nullable=True),
+            sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
+            sa.ForeignKeyConstraint(
+                ["marketplace_account_id"],
+                ["marketplace_accounts.id"],
+                ondelete="CASCADE",
+            ),
+            sa.PrimaryKeyConstraint("id"),
+        )
+        op.create_index(
+            "ix_wb_auto_promo_file_imports_user_created",
+            "wb_auto_promo_file_imports",
+            ["user_id", "created_at"],
+        )
+        op.create_index(
+            "ix_wb_auto_promo_file_imports_marketplace_account_id",
+            "wb_auto_promo_file_imports",
+            ["marketplace_account_id"],
+        )
+
+    if not inspector.has_table("wb_auto_promo_file_import_rows"):
+        op.create_table(
+            "wb_auto_promo_file_import_rows",
+            sa.Column("id", sa.Integer(), nullable=False),
+            sa.Column("import_id", sa.Integer(), nullable=False),
+            sa.Column("row_number", sa.Integer(), nullable=False),
+            sa.Column("wb_nm_id", sa.BigInteger(), nullable=True),
+            sa.Column("seller_article", sa.String(255), nullable=True),
+            sa.Column("title", sa.String(1024), nullable=True),
+            sa.Column("plan_price", sa.Numeric(12, 2), nullable=True),
+            sa.Column("current_full_price", sa.Numeric(12, 2), nullable=True),
+            sa.Column("current_discount_percent", sa.Numeric(5, 2), nullable=True),
+            sa.Column("current_discounted_price", sa.Numeric(12, 2), nullable=True),
+            sa.Column("wb_upload_discount_percent", sa.Numeric(5, 2), nullable=True),
+            sa.Column("wb_status", sa.String(512), nullable=True),
+            sa.Column("already_participating", sa.Boolean(), nullable=True),
+            sa.Column("status", sa.String(32), nullable=False),
+            sa.Column("message", sa.Text(), nullable=True),
+            sa.Column("raw_payload", sa.JSON(), nullable=True),
+            sa.ForeignKeyConstraint(
+                ["import_id"],
+                ["wb_auto_promo_file_imports.id"],
+                ondelete="CASCADE",
+            ),
+            sa.PrimaryKeyConstraint("id"),
+        )
+        op.create_index(
+            "ix_wb_auto_promo_file_rows_import_id",
+            "wb_auto_promo_file_import_rows",
+            ["import_id"],
+        )
+        op.create_index(
+            "ix_wb_auto_promo_file_import_rows_wb_nm_id",
+            "wb_auto_promo_file_import_rows",
+            ["wb_nm_id"],
+        )
 
 
 def downgrade() -> None:
@@ -128,6 +201,7 @@ def downgrade() -> None:
         for col in inspector.get_columns("wb_auto_promotion_conditions")
     }
     for name in (
+        "max_auto_promo_price",
         "condition_type",
         "candidate_discounted_price",
         "current_discounted_price",
@@ -137,3 +211,8 @@ def downgrade() -> None:
     ):
         if name in condition_columns:
             op.drop_column("wb_auto_promotion_conditions", name)
+
+    if inspector.has_table("wb_auto_promo_file_import_rows"):
+        op.drop_table("wb_auto_promo_file_import_rows")
+    if inspector.has_table("wb_auto_promo_file_imports"):
+        op.drop_table("wb_auto_promo_file_imports")
