@@ -1019,6 +1019,7 @@ class WbAutoPromotionCondition(TimestampMixin, Base):
     current_wb_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     is_participating: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     source: Mapped[str] = mapped_column(String(64), nullable=False, default="manual")
+    confidence: Mapped[str] = mapped_column(String(16), nullable=False, default="low")
     raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

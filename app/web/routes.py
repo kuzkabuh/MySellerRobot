@@ -18,6 +18,7 @@ from app.web.route_modules import (
     operations,
     orders_profit,
     planning,
+    pricing,
 )
 from app.web.route_modules import (
     dashboard as dashboard_routes,
@@ -76,6 +77,7 @@ for module_router in (
     orders_profit.router,
     planning.router,
     operations.router,
+    pricing.router,
     catalog.router,
     account_settings.router,
     commissions_admin.router,

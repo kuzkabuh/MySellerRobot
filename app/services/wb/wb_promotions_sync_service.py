@@ -26,12 +26,15 @@ from app.core.security import TokenCipher
 from app.integrations.wb import WildberriesClient
 from app.models.domain import (
     MarketplaceAccount,
-    Product,
     WbAutoPromotionCondition,
     WbPromotion,
     WbPromotionNomenclature,
 )
 from app.models.enums import Marketplace
+from app.services.pricing.wb_auto_promo_condition_resolver import (
+    WbAutoPromoConditionDTO as AutoPromoConditionDTO,
+    WbAutoPromoConditionResolver,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,18 +65,6 @@ class WbPromotionsSyncStats:
     auto_details_failed: int = 0
     auto_details_success: int = 0
     sync_in_progress: bool = False
-
-
-@dataclass(slots=True)
-class AutoPromoConditionDTO:
-    """Normalized auto promotion condition extracted from WB API details."""
-    wb_nm_id: int
-    required_price: Decimal | None
-    current_wb_price: Decimal | None
-    is_participating: bool | None
-    promotion_id: int | None
-    promotion_name: str | None
-    raw_payload: dict[str, Any]
 
 
 class WbPromotionsSyncService:
@@ -595,8 +586,6 @@ class WbPromotionsSyncService:
                     promotion_name=promotion.name,
                 )
                 for cond_dto in auto_conditions:
-                    if cond_dto.required_price is None:
-                        continue
                     await self._upsert_auto_promo_condition_from_api(
                         account=account,
                         condition_dto=cond_dto,
@@ -682,14 +671,14 @@ class WbPromotionsSyncService:
         automatically for price recommendations without manual input.
         """
         wb_nm_id = condition_dto.wb_nm_id
-        if not wb_nm_id or condition_dto.required_price is None:
+        if not wb_nm_id:
             return
 
         result = await self.session.execute(
             select(WbAutoPromotionCondition).where(
                 WbAutoPromotionCondition.marketplace_account_id == account.id,
                 WbAutoPromotionCondition.wb_nm_id == wb_nm_id,
-                WbAutoPromotionCondition.promotion_name == (condition_dto.promotion_name or ""),
+                WbAutoPromotionCondition.wb_promotion_id == condition_dto.promotion_id,
                 WbAutoPromotionCondition.source == "wb_api",
             )
         )
@@ -709,6 +698,7 @@ class WbPromotionsSyncService:
         existing.required_price = condition_dto.required_price
         existing.current_wb_price = condition_dto.current_wb_price
         existing.is_participating = condition_dto.is_participating
+        existing.confidence = condition_dto.confidence
         existing.raw_payload = condition_dto.raw_payload
         existing.synced_at = now_utc
 
@@ -723,25 +713,20 @@ class WbPromotionsSyncService:
         For each account that has wb_auto_promotion_conditions with
         required_price, builds recommendations and saves them.
         """
-        from app.services.pricing.wb_auto_promo_price_service import (
-            WbAutoPromoPriceService,
+        from app.services.pricing.wb_price_recommendation_service import (
+            WbPriceRecommendationService,
         )
 
-        price_service = WbAutoPromoPriceService(self.session)
+        price_service = WbPriceRecommendationService(self.session)
         total_recs = 0
 
         for account in accounts:
             try:
-                recs = await price_service.build_recommendations_for_conditions(
+                recs = await price_service.save_for_account(
                     user_id=account.user_id,
                     marketplace_account_id=account.id,
+                    commit=False,
                 )
-                for rec in recs:
-                    await price_service.save_recommendation(
-                        rec=rec,
-                        user_id=account.user_id,
-                        marketplace_account_id=account.id,
-                    )
                 total_recs += len(recs)
                 logger.info(
                     "wb_auto_promo_recommendations_auto_generated",
@@ -1385,37 +1370,15 @@ def extract_auto_promo_required_prices(
 
     Returns a list of AutoPromoConditionDTO objects.
     """
-    conditions: list[AutoPromoConditionDTO] = []
-
-    items_list = _extract_nomenclatures_from_auto_detail(detail)
-
-    for item in items_list:
-        if not isinstance(item, dict):
-            continue
-
-        wb_nm_id = int(item.get("id") or item.get("nmId") or item.get("nmID") or 0)
-        if not wb_nm_id:
-            continue
-
-        required_price = _extract_required_price_from_item(item)
-        current_wb_price = _money(item.get("price"))
-        is_participating = item.get("inAction") or item.get("isParticipating") or item.get("participating")
-
-        if isinstance(is_participating, str):
-            is_participating = is_participating.lower() in ("true", "yes", "1", "да", "участвует")
-
-        conditions.append(AutoPromoConditionDTO(
-            wb_nm_id=wb_nm_id,
-            required_price=required_price,
-            current_wb_price=current_wb_price,
-            is_participating=bool(is_participating) if is_participating is not None else None,
-            promotion_id=promotion_id,
-            promotion_name=promotion_name,
-            raw_payload=item,
-        ))
+    resolver = WbAutoPromoConditionResolver()
+    conditions = resolver.resolve(
+        detail,
+        promotion_id=promotion_id,
+        promotion_name=promotion_name,
+    )
 
     # Diagnostic logging: if no items found, log structure for debugging
-    if not items_list:
+    if not conditions:
         detail_keys = list(detail.keys()) if isinstance(detail, dict) else []
         data = detail.get("data") if isinstance(detail, dict) else None
         data_keys = list(data.keys()) if isinstance(data, dict) else []

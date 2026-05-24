@@ -374,7 +374,7 @@ class WbCurrentPricesSyncService:
         """Parse price from goods/filter response item.
 
         WB may return price at top level OR inside sizes[].
-        When multiple sizes exist, use the minimum price.
+        When multiple sizes exist, use the first valid price from sizes.
         """
         # Try top-level first
         for key in ("price", "priceRub", "priceU", "basicPrice", "basicPriceRub"):
@@ -385,10 +385,9 @@ class WbCurrentPricesSyncService:
                 except (InvalidOperation, ValueError, TypeError):
                     continue
 
-        # Fallback to sizes — collect all prices and return minimum
+        # Fallback to sizes — use the first valid price.
         sizes = item.get("sizes")
         if isinstance(sizes, list) and sizes:
-            prices_in_sizes: list[Decimal] = []
             for size in sizes:
                 if not isinstance(size, dict):
                     continue
@@ -396,12 +395,9 @@ class WbCurrentPricesSyncService:
                     val = size.get(key)
                     if val is not None:
                         try:
-                            prices_in_sizes.append(Decimal(str(val)))
-                            break
+                            return Decimal(str(val))
                         except (InvalidOperation, ValueError, TypeError):
                             continue
-            if prices_in_sizes:
-                return min(prices_in_sizes)
 
         return None
 

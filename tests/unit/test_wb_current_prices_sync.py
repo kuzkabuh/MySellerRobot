@@ -235,8 +235,8 @@ class TestExtractNmId:
         nm_id = WbCurrentPricesSyncService._extract_nm_id(product)
         assert nm_id == 345455998
 
-    def test_parse_price_from_multiple_sizes_uses_minimum(self):
-        """When multiple sizes exist, minimum price should be used."""
+    def test_parse_price_from_multiple_sizes_uses_first_valid(self):
+        """When multiple sizes exist, first valid price should be used."""
         item = {
             "nmID": 123,
             "sizes": [
@@ -248,7 +248,7 @@ class TestExtractNmId:
         }
 
         price = WbCurrentPricesSyncService._parse_price(item)
-        assert price == Decimal("10000")
+        assert price == Decimal("15000")
 
         discounted_price = WbCurrentPricesSyncService._parse_discounted_price(item)
         assert discounted_price == Decimal("3000")
