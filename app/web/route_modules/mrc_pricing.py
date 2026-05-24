@@ -828,25 +828,34 @@ async def auto_promo_prices_apply(
             return RedirectResponse(url="/web/auto-promo-prices?error=no_api_key", status_code=303)
 
         from app.services.pricing.wb_price_update_service import WbPriceUpdateService
-        from app.core.security import decrypt_value
+        from app.core.security import TokenCipher
 
         price_service = WbPriceUpdateService(session)
 
-        if not dry_run and wb_api_key:
+        if dry_run:
+            api_key_to_use = "dry_run"
+        elif wb_api_key:
             api_key_to_use = wb_api_key
-        elif not dry_run:
+        else:
             account_result = await session.execute(
-                select(MarketplaceAccount.encrypted_api_key).where(
+                select(MarketplaceAccount).where(
                     MarketplaceAccount.id == marketplace_account_id,
                 )
             )
-            encrypted_key = account_result.scalar_one_or_none()
-            if encrypted_key:
-                api_key_to_use = decrypt_value(encrypted_key)
+            account = account_result.scalar_one_or_none()
+            if account and account.encrypted_api_key:
+                try:
+                    api_key_to_use = TokenCipher().decrypt(account.encrypted_api_key)
+                except ValueError:
+                    return RedirectResponse(
+                        url="/web/auto-promo-prices?error=decrypt_failed",
+                        status_code=303,
+                    )
             else:
-                return RedirectResponse(url="/web/auto-promo-prices?error=no_api_key", status_code=303)
-        else:
-            api_key_to_use = "dry_run"
+                return RedirectResponse(
+                    url="/web/auto-promo-prices?error=no_api_key",
+                    status_code=303,
+                )
 
         results = await price_service.apply_price_changes(
             user_id=user.id,
@@ -987,11 +996,11 @@ def _auto_promo_prices_content(
         parts.append(f"<td>{p['wb_nm_id']}</td>")
         parts.append(f"<td>{p['mrc_price']:.0f} ₽</td>")
         parts.append(f"<td>{p['current_wb_price']:.0f} ₽" if p["current_wb_price"] else "<td>—")
-        parts.append(f"</td><td>{p['recommended_price']:.0f} ₽</td>")
+        parts.append(f"</td><td>{p['required_price']:.0f} ₽</td>" if p["required_price"] else "</td><td>—")
         parts.append(
             f"<td><small>{p['mrc_lower_bound']:.0f} — {p['mrc_upper_bound']:.0f} ₽</small></td>"
         )
-        parts.append(f"<td><b>{p['recommended_price']:.0f} ₽</b></td>")
+        parts.append(f"<td><b>{p['recommended_price']:.0f} ₽</b></td>" if p["recommended_price"] else "<td><b>—</b></td>")
 
         if p["can_change"]:
             parts.append(
@@ -3162,6 +3171,8 @@ def _flash_messages() -> str:
             }
         }
         if (params.get('prices_sync_error') === '1') msg = '❌ Ошибка синхронизации цен WB';
+        if (params.get('error') === 'no_api_key') msg = '❌ Нет API-ключа WB. Укажите ключ в форме или сохраните его в настройках аккаунта';
+        if (params.get('error') === 'decrypt_failed') msg = '❌ Не удалось расшифровать сохранённый ключ WB. Укажите ключ вручную';
         if (params.get('error') === 'invalid_mrc') msg = '❌ МРЦ должна быть положительным числом';
         if (params.get('error') === 'no_products_selected') msg = '❌ Выберите товары для массового редактирования';
         if (params.get('export_coming_soon') === '1') msg = '📥 Выгрузка отчёта скоро будет доступна';
@@ -4062,7 +4073,7 @@ def _auto_promo_recommendations_content(
         parts.append(f"<td>{mp:.0f} ₽</td>" if mp else "<td>—</td>")
         cp = p.get("current_wb_price")
         parts.append(f"<td>{cp:.0f} ₽</td>" if cp else "<td>—</td>")
-        rp = p.get("required_price") or p.get("recommended_price")
+        rp = p.get("required_price")
         parts.append(f"<td>{rp:.0f} ₽</td>" if rp else "<td>—</td>")
         rec_p = p.get("recommended_price")
         parts.append(
@@ -4116,6 +4127,9 @@ def _auto_promo_recommendations_content(
         }
         if (params.get('error') === 'generate' || params.get('error') === 'build') msg = '❌ Ошибка формирования рекомендаций';
         if (params.get('error') === 'export') msg = '❌ Ошибка экспорта';
+        if (params.get('error') === 'no_api_key') msg = '❌ Нет API-ключа WB';
+        if (params.get('error') === 'decrypt_failed') msg = '❌ Не удалось расшифровать ключ WB';
+        if (params.get('error') === 'apply_failed') msg = '❌ Ошибка применения цен';
         if (params.get('condition_set') === '1') {
             const nmId = params.get('wb_nm_id') || '?';
             const reqPrice = params.get('required_price') || '?';

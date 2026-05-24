@@ -281,14 +281,27 @@ class WbCurrentPricesSyncService:
             sizes = item.get("sizes")
             sizes_count = len(sizes) if isinstance(sizes, list) else 0
 
+            # Skip items where both price and discounted_price are missing
+            if price is None and discounted_price is None:
+                logger.warning(
+                    "wb_current_prices_skip_no_price_data",
+                    extra={
+                        "account_id": account_id,
+                        "wb_nm_id": nm_id,
+                        "sizes_count": sizes_count,
+                    },
+                )
+                continue
+
             if price is None:
                 logger.warning(
-                    "wb_current_price_missing_price",
+                    "wb_current_price_missing_top_level_price",
                     extra={
                         "account_id": account_id,
                         "wb_nm_id": nm_id,
                         "discount": discount,
                         "sizes_count": sizes_count,
+                        "discounted_price": str(discounted_price) if discounted_price is not None else "null",
                     },
                 )
 
