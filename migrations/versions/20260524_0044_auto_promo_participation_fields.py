@@ -27,7 +27,7 @@ def upgrade() -> None:
         ("current_discount", sa.Integer()),
         ("current_discounted_price", sa.Numeric(12, 2)),
         ("max_auto_promo_price", sa.Numeric(12, 2)),
-        ("wb_condition_discount_percent", sa.Numeric(5, 2)),
+        ("wb_condition_discount_percent", sa.Numeric(10, 2)),
         ("candidate_discounted_price", sa.Numeric(12, 2)),
         ("recommended_discounted_price", sa.Numeric(12, 2)),
         ("recommended_full_price", sa.Numeric(12, 2)),
@@ -56,6 +56,22 @@ def upgrade() -> None:
                 op.alter_column(table, name, server_default=None)
             else:
                 op.add_column(table, sa.Column(name, col_type, nullable=True))
+        elif name == "wb_condition_discount_percent":
+            col_info = columns.get(name) if isinstance(columns, dict) else None
+            if col_info is None:
+                rec_cols = inspector.get_columns("wb_auto_promo_price_recommendations")
+                col_info = next(
+                    (c for c in rec_cols if c["name"] == name),
+                    None,
+                )
+            if col_info is not None:
+                existing_type = str(col_info.get("type", ""))
+                if "NUMERIC(5" in existing_type or "numeric(5" in existing_type:
+                    op.alter_column(
+                        table,
+                        name,
+                        type_=sa.Numeric(10, 2),
+                    )
 
     condition_columns = {
         col["name"]
@@ -63,7 +79,7 @@ def upgrade() -> None:
     }
     condition_additions = [
         ("max_auto_promo_price", sa.Numeric(12, 2)),
-        ("wb_condition_discount_percent", sa.Numeric(5, 2)),
+        ("wb_condition_discount_percent", sa.Numeric(10, 2)),
         ("current_full_price", sa.Numeric(12, 2)),
         ("current_discount", sa.Integer()),
         ("current_discounted_price", sa.Numeric(12, 2)),
@@ -94,6 +110,22 @@ def upgrade() -> None:
                     "wb_auto_promotion_conditions",
                     sa.Column(name, col_type, nullable=True),
                 )
+        elif name == "wb_condition_discount_percent":
+            col_info = condition_columns.get(name) if isinstance(condition_columns, dict) else None
+            if col_info is None:
+                cond_cols = inspector.get_columns("wb_auto_promotion_conditions")
+                col_info = next(
+                    (c for c in cond_cols if c["name"] == name),
+                    None,
+                )
+            if col_info is not None:
+                existing_type = str(col_info.get("type", ""))
+                if "NUMERIC(5" in existing_type or "numeric(5" in existing_type:
+                    op.alter_column(
+                        "wb_auto_promotion_conditions",
+                        name,
+                        type_=sa.Numeric(10, 2),
+                    )
 
     if not inspector.has_table("wb_auto_promo_file_imports"):
         op.create_table(

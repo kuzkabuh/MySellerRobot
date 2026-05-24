@@ -260,3 +260,101 @@ def test_wb_report_plan_price_451_already_eligible() -> None:
     )
 
     assert rec.status == STATUS_ALREADY_ELIGIBLE
+
+
+def test_scenario_auto_promo_950_mrc_1000_can_apply() -> None:
+    """Auto-promo requires price <= 950, MRC=1000 with 10% deviation.
+    Lower bound: 1000 * 0.9 = 900. Required price 950 > 900, so CAN_APPLY.
+    Recommended discounted price = 950, full price = 950 / 0.25 = 3800.
+    """
+    rec = WbAutoPromoParticipationService.calculate(
+        wb_nm_id=123456789,
+        mrc_price=Decimal("1000"),
+        current_full_price=Decimal("4000"),
+        current_discount=75,
+        current_discounted_price=Decimal("1000"),
+        max_auto_promo_price=Decimal("950"),
+        allowed_deviation_percent=Decimal("10"),
+        discount=Decimal("75"),
+    )
+
+    assert rec.status == STATUS_CAN_APPLY
+    assert rec.recommended_discounted_price == Decimal("950")
+    assert rec.mrc_lower_bound == Decimal("900.00")
+    assert rec.recommended_discounted_price >= rec.mrc_lower_bound
+    assert rec.recommended_full_price == Decimal("3800")
+
+
+def test_recommendation_price_not_exceeds_required_price() -> None:
+    """Recommended discounted price must never exceed the required/max_auto_promo_price."""
+    rec = WbAutoPromoParticipationService.calculate(
+        wb_nm_id=1,
+        mrc_price=Decimal("2000"),
+        current_full_price=Decimal("8000"),
+        current_discount=75,
+        current_discounted_price=Decimal("2000"),
+        max_auto_promo_price=Decimal("1900"),
+        allowed_deviation_percent=Decimal("10"),
+        discount=Decimal("75"),
+    )
+
+    assert rec.status == STATUS_CAN_APPLY
+    assert rec.recommended_discounted_price is not None
+    assert rec.recommended_discounted_price <= Decimal("1900")
+
+
+def test_mrc_lower_bound_respected() -> None:
+    """When candidate price is below MRC lower bound, status is BLOCKED_BY_MRC."""
+    rec = WbAutoPromoParticipationService.calculate(
+        wb_nm_id=1,
+        mrc_price=Decimal("1000"),
+        current_full_price=Decimal("4000"),
+        current_discount=75,
+        current_discounted_price=Decimal("1000"),
+        max_auto_promo_price=Decimal("800"),
+        allowed_deviation_percent=Decimal("10"),
+    )
+
+    assert rec.mrc_lower_bound == Decimal("900.00")
+    assert rec.status == STATUS_BLOCKED_BY_MRC
+    assert rec.recommended_discounted_price is None
+
+
+def test_full_price_equals_discounted_divided_by_factor() -> None:
+    """Full price = recommended_discounted_price / (1 - discount/100), rounded up."""
+    rec = WbAutoPromoParticipationService.calculate(
+        wb_nm_id=1,
+        mrc_price=Decimal("500"),
+        current_full_price=Decimal("2000"),
+        current_discount=75,
+        current_discounted_price=Decimal("500"),
+        max_auto_promo_price=Decimal("480"),
+        allowed_deviation_percent=Decimal("10"),
+        discount=Decimal("75"),
+    )
+
+    assert rec.status == STATUS_CAN_APPLY
+    assert rec.recommended_discounted_price == Decimal("480")
+    assert rec.recommended_full_price == Decimal("1920")
+    assert rec.recommended_full_price == rec.recommended_discounted_price * Decimal("4")
+
+
+def test_full_price_calculation_with_75_discount() -> None:
+    """With 75% discount, full_price is calculated from discounted_price / 0.25."""
+    from decimal import ROUND_CEILING
+
+    cases = [
+        (Decimal("100"), 400),
+        (Decimal("500"), 2000),
+        (Decimal("950"), 3800),
+        (Decimal("1234.56"), 4938),
+    ]
+    for discounted, expected_full in cases:
+        payload = WbPriceApplyService.build_payload(
+            nm_id=1,
+            recommended_price=discounted,
+            discount=Decimal("75"),
+            max_discounted_price=discounted,
+        )
+        assert payload.price == expected_full, f"{discounted}: expected {expected_full}, got {payload.price}"
+        assert payload.discount == 75

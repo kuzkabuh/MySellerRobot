@@ -1018,7 +1018,7 @@ class WbAutoPromotionCondition(TimestampMixin, Base):
     required_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     max_auto_promo_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     wb_condition_discount_percent: Mapped[Decimal | None] = mapped_column(
-        Numeric(5, 2), nullable=True
+        Numeric(10, 2), nullable=True
     )
     current_wb_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     current_full_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
@@ -1125,7 +1125,7 @@ class WbAutoPromoPriceRecommendation(TimestampMixin, Base):
     current_discounted_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     max_auto_promo_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     wb_condition_discount_percent: Mapped[Decimal | None] = mapped_column(
-        Numeric(5, 2), nullable=True
+        Numeric(10, 2), nullable=True
     )
     candidate_discounted_price: Mapped[Decimal | None] = mapped_column(
         Numeric(12, 2), nullable=True
