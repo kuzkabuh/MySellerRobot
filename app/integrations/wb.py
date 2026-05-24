@@ -580,6 +580,72 @@ class WildberriesClient:
             ),
         )
 
+    async def get_goods_prices_by_nm_ids(
+        self,
+        nm_ids: list[int],
+    ) -> dict[str, Any]:
+        """Get current product prices by nmID list.
+
+        POST https://discounts-prices-api.wildberries.ru/api/v2/list/goods/filter
+
+        Body: {"nmList": [nmID1, nmID2, ...]}
+        Max 1000 nmIDs per request.
+
+        Returns data.listGoods with price info for each product.
+        """
+        if not nm_ids:
+            return {"data": {"listGoods": []}, "error": False, "errorText": ""}
+
+        logger.info(
+            "wb_goods_prices_filter_started",
+            extra={"nm_ids_count": len(nm_ids)},
+        )
+
+        payload = {"nmList": nm_ids}
+
+        logger.info(
+            "wb_goods_prices_filter_request",
+            extra={"nm_ids_count": len(nm_ids)},
+        )
+
+        try:
+            response = await self.discounts_prices.request(
+                "POST",
+                "/api/v2/list/goods/filter",
+                headers=self.headers,
+                json=payload,
+            )
+
+            error = response.get("error", False)
+            error_text = response.get("errorText", "")
+
+            if error:
+                logger.warning(
+                    "wb_goods_prices_filter_failed",
+                    extra={"error_text": error_text, "nm_ids_count": len(nm_ids)},
+                )
+                return response
+
+            list_goods = response.get("data", {}).get("listGoods", [])
+            if not isinstance(list_goods, list):
+                list_goods = []
+
+            logger.info(
+                "wb_goods_prices_filter_response",
+                extra={
+                    "nm_ids_count": len(nm_ids),
+                    "goods_found": len(list_goods),
+                },
+            )
+
+            return response
+        except Exception as exc:
+            logger.exception(
+                "wb_goods_prices_filter_failed",
+                extra={"nm_ids_count": len(nm_ids), "error": str(exc)},
+            )
+            raise
+
     async def add_products_to_promotion(
         self,
         *,

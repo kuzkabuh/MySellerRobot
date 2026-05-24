@@ -209,18 +209,41 @@ async def test_valid_price_change_passes_all_checks():
     assert reason is None
 
 
-# Test 7: _get_current_wb_price returns price from nomenclatures
+# Test 7: _get_current_wb_price returns price from wb_product_prices first
+@pytest.mark.asyncio
+async def test_get_current_wb_price_from_product_prices():
+    """_get_current_wb_price should return price from WbProductPrice first."""
+    session = AsyncMock()
+    product = _make_product()
+
+    prices_scalar = AsyncMock()
+    prices_scalar.scalar_one_or_none = MagicMock(return_value=Decimal("1200"))
+    nom_scalar = AsyncMock()
+    nom_scalar.scalar_one_or_none = MagicMock(return_value=Decimal("930"))
+    cond_scalar = AsyncMock()
+    cond_scalar.scalar_one_or_none = MagicMock(return_value=None)
+    session.execute = AsyncMock(side_effect=[prices_scalar, nom_scalar, cond_scalar])
+
+    service = WbPriceUpdateService(session)
+    price = await service._get_current_wb_price(product)
+
+    assert price == Decimal("1200")
+
+
+# Test 8: _get_current_wb_price returns price from nomenclatures
 @pytest.mark.asyncio
 async def test_get_current_wb_price_from_nomenclatures():
     """_get_current_wb_price should return price from WbPromotionNomenclature."""
     session = AsyncMock()
     product = _make_product()
 
+    prices_scalar = AsyncMock()
+    prices_scalar.scalar_one_or_none = MagicMock(return_value=None)
     nom_scalar = AsyncMock()
     nom_scalar.scalar_one_or_none = MagicMock(return_value=Decimal("930"))
     cond_scalar = AsyncMock()
     cond_scalar.scalar_one_or_none = MagicMock(return_value=None)
-    session.execute = AsyncMock(side_effect=[nom_scalar, cond_scalar])
+    session.execute = AsyncMock(side_effect=[prices_scalar, nom_scalar, cond_scalar])
 
     service = WbPriceUpdateService(session)
     price = await service._get_current_wb_price(product)
@@ -235,6 +258,8 @@ async def test_get_current_wb_price_fallback_to_conditions():
     session = AsyncMock()
     product = _make_product()
 
+    prices_scalar = AsyncMock()
+    prices_scalar.scalar_one_or_none = MagicMock(return_value=None)
     nom_scalar = AsyncMock()
     nom_scalar.scalar_one_or_none = MagicMock(return_value=None)
     cond_scalar = AsyncMock()
@@ -254,11 +279,13 @@ async def test_get_current_wb_price_no_data():
     session = AsyncMock()
     product = _make_product()
 
+    prices_scalar = AsyncMock()
+    prices_scalar.scalar_one_or_none = MagicMock(return_value=None)
     nom_scalar = AsyncMock()
     nom_scalar.scalar_one_or_none = MagicMock(return_value=None)
     cond_scalar = AsyncMock()
     cond_scalar.scalar_one_or_none = MagicMock(return_value=None)
-    session.execute = AsyncMock(side_effect=[nom_scalar, cond_scalar])
+    session.execute = AsyncMock(side_effect=[prices_scalar, nom_scalar, cond_scalar])
 
     service = WbPriceUpdateService(session)
     price = await service._get_current_wb_price(product)

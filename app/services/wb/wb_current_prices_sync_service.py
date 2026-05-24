@@ -1,8 +1,10 @@
-"""version: 1.0.0
-description: Sync current WB product prices from /api/v2/prices into wb_product_prices table.
+"""version: 2.0.0
+description: Sync current WB product prices using /api/v2/list/goods/filter.
+    Fetches prices for specific nmIDs and upserts into wb_product_prices table.
 updated: 2026-05-24
 """
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -14,12 +16,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import TokenCipher
 from app.integrations.wb import WildberriesClient
-from app.models.domain import MarketplaceAccount, WbProductPrice
+from app.models.domain import MarketplaceAccount, Product, WbProductPrice
 from app.models.enums import Marketplace
 
 logger = logging.getLogger(__name__)
 
-PRICES_SYNC_PAGE_LIMIT = 1000
+GOODS_FILTER_CHUNK_SIZE = 1000
+RATE_LIMIT_DELAY = 0.6  # 600ms between requests (10 req / 6 sec)
 
 
 @dataclass(slots=True)
@@ -28,13 +31,14 @@ class WbCurrentPricesSyncStats:
 
     accounts_processed: int = 0
     accounts_failed: int = 0
+    products_scanned: int = 0
     prices_fetched: int = 0
     prices_upserted: int = 0
     errors: list[str] = field(default_factory=list)
 
 
 class WbCurrentPricesSyncService:
-    """Sync current WB product prices from /api/v2/prices into wb_product_prices."""
+    """Sync current WB product prices using /api/v2/list/goods/filter."""
 
     def __init__(
         self,
@@ -61,8 +65,10 @@ class WbCurrentPricesSyncService:
                 api_key = self.cipher.decrypt(account.encrypted_api_key)
                 account_stats = await self._sync_account(account, api_key)
                 stats.accounts_processed += 1
+                stats.products_scanned += account_stats.products_scanned
                 stats.prices_fetched += account_stats.prices_fetched
                 stats.prices_upserted += account_stats.prices_upserted
+                stats.errors.extend(account_stats.errors)
             except Exception as exc:
                 stats.accounts_failed += 1
                 error_msg = f"account_id={account.id}: {exc}"
@@ -77,6 +83,7 @@ class WbCurrentPricesSyncService:
             extra={
                 "accounts_processed": stats.accounts_processed,
                 "accounts_failed": stats.accounts_failed,
+                "products_scanned": stats.products_scanned,
                 "prices_fetched": stats.prices_fetched,
                 "prices_upserted": stats.prices_upserted,
             },
@@ -94,59 +101,105 @@ class WbCurrentPricesSyncService:
         account: MarketplaceAccount,
         api_key: str,
     ) -> WbCurrentPricesSyncStats:
-        """Sync current prices for a single account using API key."""
+        """Sync current prices for a single account using goods/filter API."""
         stats = WbCurrentPricesSyncStats()
         client = WildberriesClient(api_key=api_key)
 
-        offset = 0
-        total_fetched = 0
+        # Get all WB products for this account
+        products_result = await self.session.execute(
+            select(Product).where(
+                Product.marketplace_account_id == account.id,
+                Product.marketplace == Marketplace.WB,
+                Product.is_active.is_(True),
+            )
+        )
+        products = list(products_result.scalars().all())
+        stats.products_scanned = len(products)
 
-        while True:
+        if not products:
+            logger.info(
+                "wb_current_prices_sync_no_products",
+                extra={"account_id": account.id},
+            )
+            return stats
+
+        # Extract nmIDs from products
+        nm_ids = []
+        product_by_nm_id: dict[int, Product] = {}
+
+        for product in products:
+            nm_id = self._extract_nm_id(product)
+            if nm_id is not None and nm_id not in product_by_nm_id:
+                nm_ids.append(nm_id)
+                product_by_nm_id[nm_id] = product
+
+        if not nm_ids:
+            logger.info(
+                "wb_current_prices_sync_no_nm_ids",
+                extra={"account_id": account.id},
+            )
+            return stats
+
+        # Fetch prices in chunks
+        for i in range(0, len(nm_ids), GOODS_FILTER_CHUNK_SIZE):
+            chunk = nm_ids[i:i + GOODS_FILTER_CHUNK_SIZE]
+
             try:
-                response = await client.get_current_prices(
-                    limit=PRICES_SYNC_PAGE_LIMIT,
-                    offset=offset,
-                )
+                response = await client.get_goods_prices_by_nm_ids(chunk)
             except Exception as exc:
                 logger.warning(
-                    "wb_current_prices_api_request_failed",
+                    "wb_current_prices_filter_request_failed",
                     extra={
                         "account_id": account.id,
-                        "offset": offset,
+                        "chunk_start": i,
+                        "chunk_size": len(chunk),
                         "error": str(exc),
                     },
                 )
-                stats.errors.append(f"API request failed at offset={offset}: {exc}")
-                break
+                stats.errors.append(f"Filter request failed at chunk {i}: {exc}")
+                await asyncio.sleep(RATE_LIMIT_DELAY)
+                continue
 
-            data = response.get("data", []) if isinstance(response, dict) else []
-            if not isinstance(data, list):
-                data = []
+            error = response.get("error", False)
+            error_text = response.get("errorText", "")
 
-            if not data:
-                break
+            if error:
+                logger.warning(
+                    "wb_current_prices_filter_api_error",
+                    extra={
+                        "account_id": account.id,
+                        "error_text": error_text,
+                        "chunk_start": i,
+                    },
+                )
+                stats.errors.append(f"API error at chunk {i}: {error_text}")
+                await asyncio.sleep(RATE_LIMIT_DELAY)
+                continue
 
-            await self._upsert_prices(account, data)
-            total_fetched += len(data)
-            stats.prices_fetched += len(data)
-            stats.prices_upserted += len(data)
+            list_goods = response.get("data", {}).get("listGoods", [])
+            if not isinstance(list_goods, list):
+                list_goods = []
 
-            offset += PRICES_SYNC_PAGE_LIMIT
+            stats.prices_fetched += len(list_goods)
 
-            if len(data) < PRICES_SYNC_PAGE_LIMIT:
-                break
+            if list_goods:
+                await self._upsert_prices(account, list_goods)
+                stats.prices_upserted += len(list_goods)
+
+            # Rate limiting
+            await asyncio.sleep(RATE_LIMIT_DELAY)
 
         return stats
 
     async def _upsert_prices(
         self,
         account: MarketplaceAccount,
-        prices_data: list[dict[str, Any]],
+        goods_list: list[dict[str, Any]],
     ) -> None:
-        """Upsert current prices into wb_product_prices table."""
+        """Upsert prices from goods/filter response into wb_product_prices."""
         now_utc = datetime.now(tz=UTC)
 
-        for item in prices_data:
+        for item in goods_list:
             nm_id = item.get("nmID") or item.get("nmId")
             if nm_id is None:
                 continue
@@ -156,40 +209,28 @@ class WbCurrentPricesSyncService:
             except (ValueError, TypeError):
                 continue
 
-            price_raw = item.get("price") or item.get("priceRub")
-            discount_raw = item.get("discount")
-            discounted_price_raw = item.get("discountedPrice") or item.get("priceWithDiscount")
+            # Parse price fields from goods/filter response
+            # Structure may vary, so we try multiple field names
+            price = self._parse_price(item)
+            discount = self._parse_discount(item)
             currency_code = item.get("currencyCode") or item.get("currency") or "RUB"
+            club_discount = self._parse_club_discount(item)
 
-            try:
-                price = Decimal(str(price_raw)) if price_raw is not None else None
-            except (InvalidOperation, ValueError, TypeError):
-                price = None
+            if price is None:
+                continue
 
-            try:
-                discount = int(discount_raw) if discount_raw is not None else 0
-            except (ValueError, TypeError):
-                discount = 0
-
-            try:
-                discounted_price = (
-                    Decimal(str(discounted_price_raw))
-                    if discounted_price_raw is not None
-                    else None
-                )
-            except (InvalidOperation, ValueError, TypeError):
-                discounted_price = None
-
-            if price is not None and discounted_price is None and discount:
+            # Calculate discounted price if not provided
+            discounted_price = self._parse_discounted_price(item)
+            if discounted_price is None and discount is not None and discount > 0:
                 discounted_price = price * (Decimal("1") - Decimal(str(discount)) / Decimal("100"))
                 discounted_price = discounted_price.quantize(Decimal("0.01"))
 
-            if discounted_price is not None and price is None:
-                price = discounted_price
+            club_discounted_price = None
+            if club_discount is not None and club_discount > 0 and price is not None:
+                club_discounted_price = price * (Decimal("1") - Decimal(str(club_discount)) / Decimal("100"))
+                club_discounted_price = club_discounted_price.quantize(Decimal("0.01"))
 
-            if price is None or discounted_price is None:
-                continue
-
+            # Upsert
             existing = await self.session.execute(
                 select(WbProductPrice).where(
                     WbProductPrice.marketplace_account_id == account.id,
@@ -207,10 +248,66 @@ class WbCurrentPricesSyncService:
                 self.session.add(existing_price)
 
             existing_price.price = price
-            existing_price.discount = discount
-            existing_price.discounted_price = discounted_price
+            existing_price.discount = discount or 0
+            existing_price.discounted_price = discounted_price or price
             existing_price.currency_code = currency_code
             existing_price.raw_payload = item
             existing_price.synced_at = now_utc
 
         await self.session.flush()
+
+    @staticmethod
+    def _extract_nm_id(product: Product) -> int | None:
+        """Extract WB nmID from product."""
+        for field_value in (product.external_product_id, product.marketplace_article):
+            if field_value and field_value.isdigit():
+                return int(field_value)
+        return None
+
+    @staticmethod
+    def _parse_price(item: dict[str, Any]) -> Decimal | None:
+        """Parse price from goods/filter response item."""
+        for key in ("price", "priceRub", "priceU", "basicPrice", "basicPriceRub"):
+            val = item.get(key)
+            if val is not None:
+                try:
+                    return Decimal(str(val))
+                except (InvalidOperation, ValueError, TypeError):
+                    continue
+        return None
+
+    @staticmethod
+    def _parse_discount(item: dict[str, Any]) -> int | None:
+        """Parse discount from goods/filter response item."""
+        for key in ("discount", "discountPercent", "discountPercentRub"):
+            val = item.get(key)
+            if val is not None:
+                try:
+                    return int(val)
+                except (ValueError, TypeError):
+                    continue
+        return None
+
+    @staticmethod
+    def _parse_discounted_price(item: dict[str, Any]) -> Decimal | None:
+        """Parse discounted price from goods/filter response item."""
+        for key in ("discountedPrice", "priceWithDiscount", "salePrice", "salePriceRub"):
+            val = item.get(key)
+            if val is not None:
+                try:
+                    return Decimal(str(val))
+                except (InvalidOperation, ValueError, TypeError):
+                    continue
+        return None
+
+    @staticmethod
+    def _parse_club_discount(item: dict[str, Any]) -> int | None:
+        """Parse WB Club discount from goods/filter response item."""
+        for key in ("clubDiscount", "clubDiscountPercent", "wbClubDiscount"):
+            val = item.get(key)
+            if val is not None:
+                try:
+                    return int(val)
+                except (ValueError, TypeError):
+                    continue
+        return None
