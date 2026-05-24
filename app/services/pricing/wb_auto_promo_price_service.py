@@ -18,6 +18,7 @@ from app.models.domain import (
     WbAutoPromotionCondition,
     WbPromotion,
 )
+from app.models.enums import Marketplace
 from app.services.pricing.mrc_pricing_settings_service import (
     MrcPricingSettingsService,
 )
@@ -300,7 +301,7 @@ class WbAutoPromoPriceService:
             product_result = await self.session.execute(
                 select(Product).where(
                     Product.marketplace_account_id == marketplace_account_id,
-                    Product.marketplace == "wb",
+                    Product.marketplace == Marketplace.WB,
                     (Product.external_product_id == str(condition.wb_nm_id))
                     | (Product.marketplace_article == str(condition.wb_nm_id)),
                 ).limit(1)

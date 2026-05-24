@@ -1150,6 +1150,93 @@ async def auto_promo_import_template(
         )
 
 
+@router.post("/mrc-pricing/auto-promotions/conditions/manual")
+async def auto_promo_condition_manual(
+    request: Request,
+    user=CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    """Manually set required_price for an auto promotion condition."""
+    try:
+        form = await request.form()
+        wb_nm_id = form.get("wb_nm_id", "").strip()
+        promotion_name = form.get("promotion_name", "").strip()
+        required_price_str = form.get("required_price", "").strip()
+        marketplace_account_id = int(form.get("marketplace_account_id", "0"))
+
+        if not wb_nm_id or not required_price_str or not marketplace_account_id:
+            return RedirectResponse(
+                url="/web/mrc-pricing?error=manual_condition_missing_fields",
+                status_code=303,
+            )
+
+        try:
+            wb_nm_id_int = int(wb_nm_id)
+            required_price = Decimal(required_price_str)
+        except (ValueError, InvalidOperation):
+            return RedirectResponse(
+                url="/web/mrc-pricing?error=manual_condition_invalid_values",
+                status_code=303,
+            )
+
+        from app.models.domain import WbAutoPromotionCondition
+
+        now_utc = datetime.now(tz=UTC)
+
+        existing_result = await session.execute(
+            select(WbAutoPromotionCondition).where(
+                WbAutoPromotionCondition.marketplace_account_id == marketplace_account_id,
+                WbAutoPromotionCondition.wb_nm_id == wb_nm_id_int,
+                WbAutoPromotionCondition.promotion_name == (promotion_name or None),
+                WbAutoPromotionCondition.source == "manual",
+            )
+        )
+        existing = existing_result.scalar_one_or_none()
+
+        if existing:
+            existing.required_price = required_price
+            existing.synced_at = now_utc
+        else:
+            new_condition = WbAutoPromotionCondition(
+                user_id=user.id,
+                marketplace_account_id=marketplace_account_id,
+                wb_nm_id=wb_nm_id_int,
+                promotion_name=promotion_name or None,
+                required_price=required_price,
+                source="manual",
+                synced_at=now_utc,
+            )
+            session.add(new_condition)
+
+        await session.commit()
+
+        logger.info(
+            "auto_promo_condition_manual_set",
+            extra={
+                "user_id": user.id,
+                "wb_nm_id": wb_nm_id_int,
+                "required_price": str(required_price),
+                "marketplace_account_id": marketplace_account_id,
+            },
+        )
+
+        return RedirectResponse(
+            url=(
+                f"/web/mrc-pricing?condition_set=1"
+                f"&wb_nm_id={wb_nm_id_int}"
+                f"&required_price={required_price}"
+            ),
+            status_code=303,
+        )
+    except Exception:
+        logger.exception("auto_promo_condition_manual_failed", extra={"user_id": user.id})
+        await session.rollback()
+        return RedirectResponse(
+            url="/web/mrc-pricing?error=manual_condition_failed",
+            status_code=303,
+        )
+
+
 @router.post("/auto-promo-import/preview", response_class=HTMLResponse)
 async def auto_promo_import_preview(
     request: Request,
@@ -2346,6 +2433,24 @@ async def _find_auto_promo_required_price(
     if wb_nm_id is None or not active_promos:
         return None
 
+    # First check user-defined conditions (manual or import)
+    from app.models.domain import WbAutoPromotionCondition
+
+    cond_result = await session.execute(
+        select(WbAutoPromotionCondition.required_price)
+        .where(
+            WbAutoPromotionCondition.marketplace_account_id == marketplace_account_id,
+            WbAutoPromotionCondition.wb_nm_id == wb_nm_id,
+            WbAutoPromotionCondition.required_price.isnot(None),
+            WbAutoPromotionCondition.required_price > 0,
+        )
+        .limit(1)
+    )
+    cond_price = cond_result.scalar_one_or_none()
+    if cond_price is not None:
+        return cond_price
+
+    # Fallback: check nomenclatures (for regular promotions that happen to be active)
     active_promo_ids = [p.wb_promotion_id for p in active_promos]
 
     result = await session.execute(
@@ -2738,7 +2843,15 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
                     )
                 elif row.auto_promo_status == STATUS_AUTO_REQUIRED_PRICE_UNKNOWN:
                     parts.append(
-                        "<td><small style='color:#f59e0b'>Автоакции WB найдены,<br>нужна цена входа</small></td>"
+                        f"<td><small style='color:#f59e0b'>Автоакции WB найдены,<br>нужна цена входа<br>"
+                        f"<form method='post' action='/web/mrc-pricing/auto-promotions/conditions/manual' style='margin:4px 0'>"
+                        f"<input type='hidden' name='wb_nm_id' value='{wb_nm_id_for_product}'>"
+                        f"<input type='hidden' name='marketplace_account_id' value='{product.marketplace_account_id}'>"
+                        f"<input type='hidden' name='promotion_name' value=''>"
+                        f"<input type='number' name='required_price' step='1' min='1' placeholder='Цена' style='width:70px;padding:2px 4px;font-size:11px;border:1px solid #d1d5db;border-radius:4px'>"
+                        f"<button type='submit' style='font-size:11px;padding:2px 6px;background:#f59e0b;color:white;border:none;border-radius:4px;cursor:pointer'>✓</button>"
+                        f"</form>"
+                        f"</small></td>"
                     )
                 else:
                     parts.append(
@@ -2975,6 +3088,11 @@ def _flash_messages() -> str:
             msg = '⏳ ' + message;
         }
         if (params.get('sync_error') === '1') msg = '❌ Ошибка синхронизации акций';
+        if (params.get('condition_set') === '1') {
+            const nmId = params.get('wb_nm_id') || '?';
+            const price = params.get('required_price') || '?';
+            msg = '✅ Цена входа установлена: nmID=' + nmId + ', цена=' + price + ' ₽';
+        }
         if (params.get('prices_sync_done') === '1') {
             const fetched = params.get('prices_fetched') || '0';
             const upserted = params.get('prices_upserted') || '0';
