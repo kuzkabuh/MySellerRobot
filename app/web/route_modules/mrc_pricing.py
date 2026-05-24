@@ -2561,6 +2561,17 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
     # Flash messages
     parts.append(_flash_messages())
 
+    parts.append(
+        '<div class="card" style="border:1px solid #bfdbfe;background:#eff6ff;'
+        'box-shadow:0 12px 32px rgba(37,99,235,.10)">'
+        '<h2 style="margin-top:0">Раздел МРЦ перенесён</h2>'
+        '<p class="text-muted">Основное управление МРЦ, текущими ценами WB, акциями, '
+        'условиями автоакций и рекомендациями теперь находится в новом разделе '
+        '<b>Цены и акции</b>.</p>'
+        '<p><a href="/web/pricing" class="button primary">Перейти в Цены и акции</a></p>'
+        '</div>'
+    )
+
     # Header
     parts.append('<div class="card">')
     parts.append("<h2>Управление МРЦ Wildberries</h2>")

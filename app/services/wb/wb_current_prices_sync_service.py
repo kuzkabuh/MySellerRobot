@@ -294,6 +294,7 @@ class WbCurrentPricesSyncService:
                 continue
 
             if price is None:
+                price = discounted_price
                 logger.warning(
                     "wb_current_price_missing_top_level_price",
                     extra={
@@ -301,7 +302,9 @@ class WbCurrentPricesSyncService:
                         "wb_nm_id": nm_id,
                         "discount": discount,
                         "sizes_count": sizes_count,
-                        "discounted_price": str(discounted_price) if discounted_price is not None else "null",
+                        "discounted_price": str(discounted_price)
+                        if discounted_price is not None
+                        else "null",
                     },
                 )
 
@@ -312,7 +315,9 @@ class WbCurrentPricesSyncService:
                     "wb_nm_id": nm_id,
                     "price": str(price) if price is not None else "null",
                     "discount": discount,
-                    "discounted_price": str(discounted_price) if discounted_price is not None else "null",
+                    "discounted_price": str(discounted_price)
+                    if discounted_price is not None
+                    else "null",
                     "sizes_count": sizes_count,
                 },
             )

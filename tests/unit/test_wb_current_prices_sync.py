@@ -155,6 +155,20 @@ class TestParseWbGoodsFilterResponse:
         price = WbCurrentPricesSyncService._parse_price(item)
         assert price is None
 
+    def test_discounted_price_from_sizes_can_be_price_fallback(self):
+        """Sync can avoid NULL price by falling back to discountedPrice from sizes."""
+        item = {
+            "nmID": 123,
+            "sizes": [{"discountedPrice": 950}],
+        }
+
+        price = WbCurrentPricesSyncService._parse_price(item)
+        discounted_price = WbCurrentPricesSyncService._parse_discounted_price(item)
+        fallback_price = price or discounted_price
+
+        assert price is None
+        assert fallback_price == Decimal("950")
+
     def test_empty_sizes_array(self):
         """Empty sizes array should not cause errors."""
         item = {
