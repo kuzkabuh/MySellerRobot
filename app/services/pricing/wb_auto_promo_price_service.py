@@ -16,6 +16,7 @@ from app.models.domain import (
     Product,
     WbAutoPromoPriceRecommendation,
     WbAutoPromotionCondition,
+    WbProductPrice,
     WbPromotion,
 )
 from app.models.enums import Marketplace
@@ -282,8 +283,6 @@ class WbAutoPromoPriceService:
         marketplace_account_id: int,
     ) -> list[AutoPromoPriceRecommendation]:
         """Build recommendations for products matching imported conditions."""
-        from app.models.domain import WbProductPrice
-
         conditions_result = await self.session.execute(
             select(WbAutoPromotionCondition).where(
                 WbAutoPromotionCondition.marketplace_account_id == marketplace_account_id,

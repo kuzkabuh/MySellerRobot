@@ -145,3 +145,30 @@ def test_extract_nm_id_from_marketplace_article_fallback():
 
     nm_id = _extract_nm_id(product)
     assert nm_id == 345455998
+
+
+def test_wb_product_price_import_in_auto_promo_service():
+    """Verify WbProductPrice is importable at module level in wb_auto_promo_price_service.
+
+    The bug was: WbProductPrice was imported locally inside
+    build_recommendations_for_conditions (line 285), but
+    _get_current_wb_price_from_db (line 337) is a separate method that
+    also uses WbProductPrice, causing NameError.
+
+    Fix: move the import to the top-level imports block.
+    """
+    import inspect
+    from app.services.pricing.wb_auto_promo_price_service import (
+        WbAutoPromoPriceService,
+        WbProductPrice,
+    )
+
+    # WbProductPrice should be importable from the module
+    assert WbProductPrice is not None
+
+    # Verify the import is at module level (top-level), not inside a method
+    source = inspect.getsource(WbAutoPromoPriceService)
+    # The method should NOT contain a local import of WbProductPrice
+    assert "from app.models.domain import WbProductPrice" not in source, (
+        "WbProductPrice must be imported at module level, not inside a method"
+    )
