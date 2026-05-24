@@ -597,15 +597,19 @@ class WildberriesClient:
             return {"data": {"listGoods": []}, "error": False, "errorText": ""}
 
         logger.info(
-            "wb_goods_prices_filter_started",
+            "wb_prices_filter_started",
             extra={"nm_ids_count": len(nm_ids)},
         )
 
         payload = {"nmList": nm_ids}
 
         logger.info(
-            "wb_goods_prices_filter_request",
-            extra={"nm_ids_count": len(nm_ids)},
+            "wb_prices_filter_request",
+            extra={
+                "method": "POST",
+                "endpoint": "https://discounts-prices-api.wildberries.ru/api/v2/list/goods/filter",
+                "nm_ids_count": len(nm_ids),
+            },
         )
 
         try:
@@ -621,7 +625,7 @@ class WildberriesClient:
 
             if error:
                 logger.warning(
-                    "wb_goods_prices_filter_failed",
+                    "wb_prices_filter_failed",
                     extra={"error_text": error_text, "nm_ids_count": len(nm_ids)},
                 )
                 return response
@@ -631,18 +635,28 @@ class WildberriesClient:
                 list_goods = []
 
             logger.info(
-                "wb_goods_prices_filter_response",
+                "wb_prices_filter_response",
                 extra={
                     "nm_ids_count": len(nm_ids),
                     "goods_found": len(list_goods),
                 },
             )
 
+            logger.info(
+                "wb_prices_filter_completed",
+                extra={"nm_ids_count": len(nm_ids), "goods_found": len(list_goods)},
+            )
+
             return response
         except Exception as exc:
             logger.exception(
-                "wb_goods_prices_filter_failed",
-                extra={"nm_ids_count": len(nm_ids), "error": str(exc)},
+                "wb_prices_filter_failed",
+                extra={
+                    "nm_ids_count": len(nm_ids),
+                    "error": str(exc),
+                    "method": "POST",
+                    "endpoint": "https://discounts-prices-api.wildberries.ru/api/v2/list/goods/filter",
+                },
             )
             raise
 
