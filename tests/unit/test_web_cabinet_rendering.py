@@ -517,3 +517,17 @@ def test_nav_logout_link_is_real_anchor() -> None:
     """Logout link must be a real <a> tag, not a button with JS."""
     html = page("Главная", "Артем", "<main></main>")
     assert 'href="/web/logout"' in html
+
+
+def test_pricing_web_routes_import_without_fastapi_error() -> None:
+    """Regression: union return types like str | RedirectResponse crash FastAPI startup.
+
+    FastAPI tries to build a response_model from the return annotation and fails
+    with FastAPIError when the annotation contains non-Pydantic types like
+    RedirectResponse in a union.
+    """
+    from app.web.route_modules.pricing import router
+
+    paths = {route.path for route in router.routes}
+    assert "/pricing" in paths
+    assert "/pricing/auto-promotions/upload/preview" in paths

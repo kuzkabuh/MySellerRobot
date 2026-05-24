@@ -14,7 +14,9 @@ from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
+from starlette.responses import Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -149,14 +151,14 @@ async def pricing_auto_promo_upload_page(
     )
 
 
-@router.post("/pricing/auto-promotions/upload/preview", response_class=HTMLResponse)
+@router.post("/pricing/auto-promotions/upload/preview", response_class=HTMLResponse, response_model=None)
 async def pricing_auto_promo_upload_preview(
     marketplace_account_id: int = Form(...),
     promotion_name: str | None = Form(default=None),
     file: UploadFile = AUTO_PROMO_UPLOAD_FILE,
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
-) -> str | RedirectResponse:
+) -> Response:
     account = await session.get(MarketplaceAccount, marketplace_account_id)
     if account is None or account.user_id != user.id or account.marketplace != Marketplace.WB:
         return RedirectResponse(url="/web/pricing?upload_error=account#recommendations", status_code=303)
