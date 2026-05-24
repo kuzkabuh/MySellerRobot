@@ -281,6 +281,8 @@ class WbAutoPromoPriceService:
         marketplace_account_id: int,
     ) -> list[AutoPromoPriceRecommendation]:
         """Build recommendations for products matching imported conditions."""
+        from app.models.domain import WbProductPrice
+
         conditions_result = await self.session.execute(
             select(WbAutoPromotionCondition).where(
                 WbAutoPromotionCondition.marketplace_account_id == marketplace_account_id,
@@ -307,9 +309,14 @@ class WbAutoPromoPriceService:
             if product is None or product.mrc_price is None:
                 continue
 
+            current_wb_price = await self._get_current_wb_price_from_db(
+                marketplace_account_id, condition.wb_nm_id,
+            )
+
             rec = await self.build_recommendation(
                 product=product,
                 condition=condition,
+                current_wb_price=current_wb_price,
             )
             recommendations.append(rec)
 
@@ -325,6 +332,56 @@ class WbAutoPromoPriceService:
             )
 
         return recommendations
+
+    async def _get_current_wb_price_from_db(
+        self,
+        marketplace_account_id: int,
+        wb_nm_id: int,
+    ) -> Decimal | None:
+        """Get current WB price from wb_product_prices, then nomenclatures, then conditions."""
+        result = await self.session.execute(
+            select(WbProductPrice.discounted_price)
+            .where(
+                WbProductPrice.marketplace_account_id == marketplace_account_id,
+                WbProductPrice.wb_nm_id == wb_nm_id,
+                WbProductPrice.discounted_price.isnot(None),
+                WbProductPrice.discounted_price > 0,
+            )
+            .order_by(WbProductPrice.synced_at.desc())
+            .limit(1)
+        )
+        price = result.scalar_one_or_none()
+        if price is not None:
+            return price
+
+        from app.models.domain import WbPromotionNomenclature
+
+        result = await self.session.execute(
+            select(WbPromotionNomenclature.current_price)
+            .where(
+                WbPromotionNomenclature.marketplace_account_id == marketplace_account_id,
+                WbPromotionNomenclature.wb_nm_id == wb_nm_id,
+                WbPromotionNomenclature.current_price.isnot(None),
+                WbPromotionNomenclature.current_price > 0,
+            )
+            .order_by(WbPromotionNomenclature.synced_at.desc())
+            .limit(1)
+        )
+        price = result.scalar_one_or_none()
+        if price is not None:
+            return price
+
+        cond_result = await self.session.execute(
+            select(WbAutoPromotionCondition.current_wb_price)
+            .where(
+                WbAutoPromotionCondition.marketplace_account_id == marketplace_account_id,
+                WbAutoPromotionCondition.wb_nm_id == wb_nm_id,
+                WbAutoPromotionCondition.current_wb_price.isnot(None),
+                WbAutoPromotionCondition.current_wb_price > 0,
+            )
+            .limit(1)
+        )
+        return cond_result.scalar_one_or_none()
 
     async def build_recommendations_for_active_auto_promos(
         self,
@@ -369,9 +426,14 @@ class WbAutoPromoPriceService:
                 wb_nm_id=wb_nm_id,
             )
 
+            current_wb_price = await self._get_current_wb_price_from_db(
+                marketplace_account_id=marketplace_account_id,
+                wb_nm_id=wb_nm_id,
+            )
+
             rec = await self.build_recommendation(
                 product=product,
-                current_wb_price=None,
+                current_wb_price=current_wb_price,
                 required_price=required_price,
             )
             if active_auto_promos:

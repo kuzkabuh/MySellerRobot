@@ -19,6 +19,7 @@ from app.models.domain import (
     Product,
     WbAutoPromoPriceRecommendation,
     WbPriceChangeHistory,
+    WbProductPrice,
     WbPromotionNomenclature,
 )
 
@@ -649,11 +650,26 @@ class WbPriceUpdateService:
         return True, None
 
     async def _get_current_wb_price(self, product: Product) -> Decimal | None:
-        """Get current WB price from synced nomenclatures or conditions."""
+        """Get current WB price from wb_product_prices first, then nomenclatures or conditions."""
         nm_id_str = product.external_product_id or product.marketplace_article
         if not nm_id_str or not nm_id_str.isdigit():
             return None
         wb_nm_id = int(nm_id_str)
+
+        result = await self.session.execute(
+            select(WbProductPrice.discounted_price)
+            .where(
+                WbProductPrice.marketplace_account_id == product.marketplace_account_id,
+                WbProductPrice.wb_nm_id == wb_nm_id,
+                WbProductPrice.discounted_price.isnot(None),
+                WbProductPrice.discounted_price > 0,
+            )
+            .order_by(WbProductPrice.synced_at.desc())
+            .limit(1)
+        )
+        price = result.scalar_one_or_none()
+        if price is not None:
+            return price
 
         result = await self.session.execute(
             select(WbPromotionNomenclature.current_price)

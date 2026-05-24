@@ -1265,3 +1265,33 @@ async def check_auto_promo_prices(ctx: dict[str, Any]) -> None:
                 await session.rollback()
             except Exception:
                 pass
+
+
+async def sync_wb_product_prices(ctx: dict[str, Any]) -> None:
+    """Sync current WB product prices from /api/v2/prices into wb_product_prices table.
+
+    Runs every 30 minutes. Fetches all current prices and upserts into wb_product_prices.
+    """
+    from app.core.security import TokenCipher
+    from app.services.wb.wb_current_prices_sync_service import WbCurrentPricesSyncService
+
+    async with AsyncSessionFactory() as session:
+        service = WbCurrentPricesSyncService(session, cipher=TokenCipher())
+        try:
+            stats = await service.sync_all_accounts()
+            await session.commit()
+            logger.info(
+                "wb_product_prices_sync_task_completed",
+                extra={
+                    "accounts_processed": stats.accounts_processed,
+                    "accounts_failed": stats.accounts_failed,
+                    "prices_fetched": stats.prices_fetched,
+                    "prices_upserted": stats.prices_upserted,
+                },
+            )
+        except Exception:
+            logger.exception("wb_product_prices_sync_task_failed")
+            try:
+                await session.rollback()
+            except Exception:
+                pass

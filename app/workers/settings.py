@@ -31,6 +31,7 @@ from app.workers.tasks import (
     sync_wb_daily_promotions,
     sync_wb_daily_sales_reports,
     sync_wb_logistics_tariffs,
+    sync_wb_product_prices,
 )
 
 settings = get_settings()
@@ -64,6 +65,7 @@ class WorkerSettings:
         sync_wb_logistics_tariffs,
         sync_wb_daily_promotions,
         check_auto_promo_prices,
+        sync_wb_product_prices,
     ]
     order_poll_minutes = {
         0,
@@ -113,6 +115,7 @@ class WorkerSettings:
         cron(sync_wb_logistics_tariffs, hour=3, minute=50),
         cron(sync_wb_daily_promotions, minute={15, 45}),
         cron(check_auto_promo_prices, minute={0, 30}),
+        cron(sync_wb_product_prices, minute={10, 40}),
     ]
     redis_settings = _redis_settings()
     max_jobs = 10

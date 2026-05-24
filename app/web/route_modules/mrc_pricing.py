@@ -68,6 +68,10 @@ class MrcProductRow:
     auto_promo_reason: str | None = None
     auto_promo_required_price: Decimal | None = None
     auto_promo_recommended_price: Decimal | None = None
+    wb_current_price: Decimal | None = None
+    wb_current_discount: int | None = None
+    wb_current_discounted_price: Decimal | None = None
+    wb_prices_synced_at: str | None = None
 
 
 @dataclass(slots=True)
@@ -101,6 +105,9 @@ class MrcPageData:
     auto_rec_min_violation: int = 0
     auto_rec_total: int = 0
     auto_conditions_count: int = 0
+    wb_prices_synced: bool = False
+    last_wb_prices_sync_at: str | None = None
+    wb_prices_count: int = 0
 
 
 @dataclass(slots=True)
@@ -418,6 +425,34 @@ async def trigger_promotions_sync_limited(
         except Exception:
             pass
         return RedirectResponse(url="/web/mrc-pricing?sync_error=1", status_code=303)
+
+
+@router.post("/mrc-pricing/sync-wb-prices")
+async def trigger_wb_prices_sync(
+    user=CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    """Manually trigger WB current prices sync."""
+    from app.core.security import TokenCipher
+    from app.services.wb.wb_current_prices_sync_service import WbCurrentPricesSyncService
+
+    service = WbCurrentPricesSyncService(session, cipher=TokenCipher())
+    try:
+        stats = await service.sync_all_accounts()
+        await session.commit()
+        return RedirectResponse(
+            url=(
+                f"/web/mrc-pricing?prices_sync_done=1"
+                f"&prices_fetched={stats.prices_fetched}"
+                f"&prices_upserted={stats.prices_upserted}"
+                f"&accounts_failed={stats.accounts_failed}"
+            ),
+            status_code=303,
+        )
+    except Exception:
+        logger.exception("wb_prices_manual_sync_failed")
+        await session.rollback()
+        return RedirectResponse(url="/web/mrc-pricing?prices_sync_error=1", status_code=303)
 
 
 @router.get("/mrc-pricing/settings", response_class=HTMLResponse)
@@ -1144,8 +1179,12 @@ async def auto_promo_import_preview(
         )
 
         content = await file.read()
+        original_filename = file.filename or "upload.xlsx"
+        suffix = Path(original_filename).suffix.lower()
+        if suffix not in (".xlsx", ".xlsm", ".csv"):
+            suffix = ".xlsx"
         with tempfile.NamedTemporaryFile(
-            suffix=".xlsx", delete=False
+            suffix=suffix, delete=False
         ) as tmp:
             tmp.write(content)
             tmp_path = Path(tmp.name)
@@ -1755,6 +1794,26 @@ async def _load_mrc_page_data(
             if key not in promo_map:
                 promo_map[key] = (nom, promo_name or "", promo_end_dt, promo_type)
 
+    # Batch lookup for wb_product_prices
+    from app.models.domain import WbProductPrice
+
+    wb_prices_map: dict[tuple[int, int], WbProductPrice] = {}
+    if nm_ids_to_lookup:
+        wb_prices_conditions = [
+            (WbProductPrice.marketplace_account_id == acct_id)
+            & (WbProductPrice.wb_nm_id == nm_id)
+            for acct_id, nm_id in nm_ids_to_lookup
+        ]
+        wb_prices_query = (
+            select(WbProductPrice)
+            .where(or_(*wb_prices_conditions))
+        )
+        wb_prices_result = await session.execute(wb_prices_query)
+        for wp in wb_prices_result.scalars().all():
+            key = (wp.marketplace_account_id, wp.wb_nm_id)
+            if key not in wb_prices_map:
+                wb_prices_map[key] = wp
+
     # Enrich with MRC calculation and promo data
     rows = []
     products_with_promo = 0
@@ -1794,6 +1853,22 @@ async def _load_mrc_page_data(
         auto_promo_required_price: Decimal | None = None
         auto_promo_recommended_price: Decimal | None = None
 
+        wb_current_price: Decimal | None = None
+        wb_current_discount: int | None = None
+        wb_current_discounted_price: Decimal | None = None
+        wb_prices_synced_at: str | None = None
+
+        wb_nm_id_for_product = _extract_nm_id(product) if product.mrc_price and product.mrc_price > 0 else None
+        if wb_nm_id_for_product:
+            wb_key = (product.marketplace_account_id, wb_nm_id_for_product)
+            wb_price_entry = wb_prices_map.get(wb_key)
+            if wb_price_entry:
+                wb_current_price = wb_price_entry.discounted_price
+                wb_current_discount = wb_price_entry.discount
+                wb_current_discounted_price = wb_price_entry.discounted_price
+                if wb_price_entry.synced_at:
+                    wb_prices_synced_at = format_datetime_for_user(wb_price_entry.synced_at, "Europe/Moscow", "%d.%m.%Y %H:%M")
+
         if product.mrc_price and product.mrc_price > 0:
             promo_data = product_nm_map.get(product.id)
             promo_nomenclature = None
@@ -1829,13 +1904,13 @@ async def _load_mrc_page_data(
                     required_price = await _find_auto_promo_required_price(
                         session=session,
                         marketplace_account_id=product.marketplace_account_id,
-                        wb_nm_id=_extract_nm_id(product),
+                        wb_nm_id=wb_nm_id_for_product,
                         active_promos=acct_auto_promos,
                     )
 
                     auto_rec = await auto_price_service.build_recommendation(
                         product=product,
-                        current_wb_price=None,
+                        current_wb_price=wb_current_price,
                         required_price=required_price,
                     )
                     auto_promo_status = auto_rec.status
@@ -1858,6 +1933,10 @@ async def _load_mrc_page_data(
                 auto_promo_reason=auto_promo_reason,
                 auto_promo_required_price=auto_promo_required_price,
                 auto_promo_recommended_price=auto_promo_recommended_price,
+                wb_current_price=wb_current_price,
+                wb_current_discount=wb_current_discount,
+                wb_current_discounted_price=wb_current_discounted_price,
+                wb_prices_synced_at=wb_prices_synced_at,
             )
         )
 
@@ -1954,6 +2033,32 @@ async def _load_mrc_page_data(
         except Exception:
             logger.exception("auto_promo_counts_query_failed")
 
+    # WB prices sync stats
+    wb_prices_synced = False
+    last_wb_prices_sync_at: str | None = None
+    wb_prices_count = 0
+    try:
+        from app.models.domain import WbProductPrice
+
+        wb_prices_count_result = await session.execute(
+            select(func.count(WbProductPrice.id))
+            .join(MarketplaceAccount, MarketplaceAccount.id == WbProductPrice.marketplace_account_id)
+            .where(MarketplaceAccount.user_id == user_id)
+        )
+        wb_prices_count = int(wb_prices_count_result.scalar_one() or 0)
+        wb_prices_synced = wb_prices_count > 0
+
+        if wb_prices_synced:
+            last_wb_sync_result = await session.execute(
+                select(func.max(WbProductPrice.synced_at))
+                .join(MarketplaceAccount, MarketplaceAccount.id == WbProductPrice.marketplace_account_id)
+                .where(MarketplaceAccount.user_id == user_id)
+            )
+            last_wb_sync = last_wb_sync_result.scalar_one_or_none()
+            last_wb_prices_sync_at = format_datetime_for_user(last_wb_sync, "Europe/Moscow") if last_wb_sync else None
+    except Exception:
+        logger.exception("wb_prices_counts_query_failed")
+
     total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
 
     return MrcPageData(
@@ -1986,6 +2091,9 @@ async def _load_mrc_page_data(
         auto_rec_min_violation=auto_rec_min_violation,
         auto_rec_total=auto_rec_total,
         auto_conditions_count=auto_conditions_count,
+        wb_prices_synced=wb_prices_synced,
+        last_wb_prices_sync_at=last_wb_prices_sync_at,
+        wb_prices_count=wb_prices_count,
     )
 
 
@@ -2310,12 +2418,26 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
             parts.append(
                 f" | Товары акций: <b>{data.last_nomenclatures_sync_at}</b>"
             )
+        if data.last_wb_prices_sync_at:
+            parts.append(
+                f" | Цены WB: <b>{data.last_wb_prices_sync_at}</b> ({data.wb_prices_count} товаров)"
+            )
         parts.append("</p>")
     else:
         parts.append(
             '<p style="margin-bottom:12px;font-size:13px;color:#f59e0b">'
             "⚠️ Синхронизация акций ещё не запускалась"
             "</p>"
+        )
+
+    # WB prices not synced warning
+    if not data.wb_prices_synced:
+        parts.append(
+            '<div style="padding:12px 16px;margin-bottom:16px;border-radius:8px;font-size:14px;'
+            'background:#fef3c7;color:#92400e">'
+            "⚠️ <b>Текущие цены WB не загружены</b><br>"
+            "Нажмите «💰 Обновить цены WB» для загрузки текущих цен из Wildberries."
+            "</div>"
         )
 
     # Warning if nomenclatures not synced
@@ -2385,6 +2507,11 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
     parts.append(
         '<form method="post" action="/web/mrc-pricing/sync-promotions-all" style="display:inline">'
         '<button type="submit" class="button" title="allPromo=false — только доступные для участия">🔍 Только доступные акции</button>'
+        "</form>"
+    )
+    parts.append(
+        '<form method="post" action="/web/mrc-pricing/sync-wb-prices" style="display:inline">'
+        '<button type="submit" class="button" style="background:#e0f2fe;color:#0369a1" title="Обновить текущие цены WB из API">💰 Обновить цены WB</button>'
         "</form>"
     )
     parts.append(
@@ -2522,6 +2649,7 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
         parts.append("<th>МРЦ</th>")
         parts.append("<th>Цена со скидкой</th>")
         parts.append("<th>Цена до скидки</th>")
+        parts.append("<th>Текущая цена WB</th>")
         parts.append("<th>Акция WB</th>")
         parts.append("<th>Статус</th>")
         parts.append("<th>Действие</th>")
@@ -2560,6 +2688,23 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
             else:
                 parts.append("<td>—</td>")
                 parts.append("<td>—</td>")
+
+            # Current WB prices
+            if row.wb_current_price is not None:
+                wb_discount_str = f"{row.wb_current_discount}%" if row.wb_current_discount is not None else "—"
+                wb_synced = row.wb_prices_synced_at or ""
+                parts.append(
+                    f"<td><small>"
+                    f"<b>{row.wb_current_discounted_price:.0f} ₽</b> (скидка {wb_discount_str})<br>"
+                    f"<span class='text-muted' style='font-size:11px'>обновлено: {wb_synced}</span>"
+                    f"</small></td>"
+                )
+            else:
+                parts.append(
+                    "<td><small style='color:#f59e0b'>Цена WB не загружена<br>"
+                    "<a href='#' onclick='document.querySelector(\"form[action*=sync-wb-prices]\")?.querySelector(\"button\")?.click();return false' style='font-size:11px'>Обновить цены WB</a>"
+                    "</small></td>"
+                )
 
             # Promo info
             if row.has_active_promo:
@@ -2703,19 +2848,19 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
             ):
                 reason = escape(row.mrc_result.reason)
                 parts.append(
-                    f'<tr><td colspan="10"><small style="color:#f59e0b">⚠️ {reason}</small></td></tr>'
+                    f'<tr><td colspan="11"><small style="color:#f59e0b">⚠️ {reason}</small></td></tr>'
                 )
 
             # Auto promo recommendation row
             if row.auto_promo_status == STATUS_AUTO_SET_PRICE and row.auto_promo_reason:
                 reason = escape(row.auto_promo_reason)
                 parts.append(
-                    f'<tr><td colspan="10"><small style="color:#3b82f6">🤖 {reason}</small></td></tr>'
+                    f'<tr><td colspan="11"><small style="color:#3b82f6">🤖 {reason}</small></td></tr>'
                 )
             elif row.auto_promo_status in (STATUS_AUTO_PRICE_VIOLATION, STATUS_AUTO_MIN_PRICE_VIOLATION) and row.auto_promo_reason:
                 reason = escape(row.auto_promo_reason)
                 parts.append(
-                    f'<tr><td colspan="10"><small style="color:#ef4444">🤖 {reason}</small></td></tr>'
+                    f'<tr><td colspan="11"><small style="color:#ef4444">🤖 {reason}</small></td></tr>'
                 )
 
         parts.append("</tbody></table>")
@@ -2830,6 +2975,13 @@ def _flash_messages() -> str:
             msg = '⏳ ' + message;
         }
         if (params.get('sync_error') === '1') msg = '❌ Ошибка синхронизации акций';
+        if (params.get('prices_sync_done') === '1') {
+            const fetched = params.get('prices_fetched') || '0';
+            const upserted = params.get('prices_upserted') || '0';
+            const failed = params.get('accounts_failed') || '0';
+            msg = '✅ Цены WB обновлены\\nЗагружено: ' + fetched + ' | Сохранено: ' + upserted + ' | Ошибок: ' + failed;
+        }
+        if (params.get('prices_sync_error') === '1') msg = '❌ Ошибка синхронизации цен WB';
         if (params.get('error') === 'invalid_mrc') msg = '❌ МРЦ должна быть положительным числом';
         if (params.get('error') === 'no_products_selected') msg = '❌ Выберите товары для массового редактирования';
         if (params.get('export_coming_soon') === '1') msg = '📥 Выгрузка отчёта скоро будет доступна';

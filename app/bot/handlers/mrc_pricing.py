@@ -51,12 +51,21 @@ async def safe_edit_text(
     reply_markup=None,
     parse_mode: str | None = "HTML",
 ) -> None:
-    """Edit message text, ignoring 'message is not modified' errors."""
+    """Edit message text, ignoring 'message is not modified' and 'MESSAGE_TOO_LONG' errors."""
     try:
         await message.edit_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
     except TelegramBadRequest as e:
-        if "message is not modified" in str(e).lower():
+        error_str = str(e).lower()
+        if "message is not modified" in error_str:
             logger.debug("message_not_modified: %s", e)
+        elif "message_too_long" in error_str or "too long" in error_str:
+            logger.warning("message_too_long_truncated", extra={"text_len": len(text)})
+            truncated = text[:4000] + "\n...(сообщение обрезано)"
+            try:
+                await message.edit_text(truncated, reply_markup=reply_markup, parse_mode=parse_mode)
+            except TelegramBadRequest as e2:
+                if "message is not modified" not in str(e2).lower():
+                    raise
         else:
             raise
 
