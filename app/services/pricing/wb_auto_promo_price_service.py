@@ -283,6 +283,14 @@ class WbAutoPromoPriceService:
         marketplace_account_id: int,
     ) -> list[AutoPromoPriceRecommendation]:
         """Build recommendations for products matching imported conditions."""
+        logger.info(
+            "wb_auto_promo_recommendations_build_started",
+            extra={
+                "user_id": user_id,
+                "marketplace_account_id": marketplace_account_id,
+            },
+        )
+
         conditions_result = await self.session.execute(
             select(WbAutoPromotionCondition).where(
                 WbAutoPromotionCondition.marketplace_account_id == marketplace_account_id,
@@ -292,11 +300,21 @@ class WbAutoPromoPriceService:
         conditions = list(conditions_result.scalars().all())
 
         if not conditions:
+            logger.info(
+                "wb_auto_promo_recommendations_no_conditions",
+                extra={
+                    "user_id": user_id,
+                    "marketplace_account_id": marketplace_account_id,
+                },
+            )
             return []
 
         recommendations: list[AutoPromoPriceRecommendation] = []
+        conditions_processed = 0
+        products_found = 0
 
         for condition in conditions:
+            conditions_processed += 1
             product_result = await self.session.execute(
                 select(Product).where(
                     Product.marketplace_account_id == marketplace_account_id,
@@ -309,6 +327,7 @@ class WbAutoPromoPriceService:
             if product is None or product.mrc_price is None:
                 continue
 
+            products_found += 1
             current_wb_price = await self._get_current_wb_price_from_db(
                 marketplace_account_id, condition.wb_nm_id,
             )
@@ -330,6 +349,23 @@ class WbAutoPromoPriceService:
                     "recommended_price": str(rec.recommended_price),
                 },
             )
+
+        logger.info(
+            "wb_auto_promo_recommendations_build_completed",
+            extra={
+                "user_id": user_id,
+                "marketplace_account_id": marketplace_account_id,
+                "conditions_processed": conditions_processed,
+                "products_found": products_found,
+                "recommendations_count": len(recommendations),
+                "set_price": sum(1 for r in recommendations if r.status == STATUS_AUTO_SET_PRICE),
+                "price_ok": sum(1 for r in recommendations if r.status == STATUS_AUTO_PRICE_OK),
+                "violation": sum(1 for r in recommendations if r.status == STATUS_AUTO_PRICE_VIOLATION),
+                "min_violation": sum(1 for r in recommendations if r.status == STATUS_AUTO_MIN_PRICE_VIOLATION),
+                "required_unknown": sum(1 for r in recommendations if r.status == STATUS_AUTO_REQUIRED_PRICE_UNKNOWN),
+                "current_unknown": sum(1 for r in recommendations if r.status == STATUS_AUTO_WAITING_WB_SYNC),
+            },
+        )
 
         return recommendations
 

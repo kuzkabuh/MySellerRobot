@@ -1220,11 +1220,35 @@ async def auto_promo_condition_manual(
             },
         )
 
+        from app.services.pricing.wb_auto_promo_price_service import (
+            WbAutoPromoPriceService,
+        )
+
+        price_service = WbAutoPromoPriceService(session)
+        recs = await price_service.build_recommendations_for_conditions(
+            user_id=user.id,
+            marketplace_account_id=marketplace_account_id,
+        )
+        for rec in recs:
+            await price_service.save_recommendation(
+                rec=rec,
+                user_id=user.id,
+                marketplace_account_id=marketplace_account_id,
+            )
+        await session.commit()
+
+        set_price = sum(1 for r in recs if r.status == STATUS_AUTO_SET_PRICE)
+        price_ok = sum(1 for r in recs if r.status == STATUS_AUTO_PRICE_OK)
+
         return RedirectResponse(
             url=(
-                f"/web/mrc-pricing?condition_set=1"
+                f"/web/mrc-pricing/auto-promotions/recommendations"
+                f"?marketplace_account_id={marketplace_account_id}"
+                f"&condition_set=1"
                 f"&wb_nm_id={wb_nm_id_int}"
                 f"&required_price={required_price}"
+                f"&rec_set_price={set_price}"
+                f"&rec_price_ok={price_ok}"
             ),
             status_code=303,
         )
@@ -1374,7 +1398,11 @@ async def auto_promo_recommendations_page(
     marketplace_account_id: int | None = Query(None),
     status_filter: str = Query("all"),
 ) -> str:
-    """Auto promotion price recommendations page."""
+    """Auto promotion price recommendations page.
+
+    GET only loads existing recommendations from DB.
+    Use POST /recommendations/build to (re)build recommendations.
+    """
     try:
         access = await FeatureAccessService(session).can_use_feature(
             user.id, FeatureCode.MRC_PRICING
@@ -1387,9 +1415,6 @@ async def auto_promo_recommendations_page(
                 active_path="/web/mrc-pricing",
             )
 
-        from app.services.pricing.wb_auto_promo_price_service import (
-            WbAutoPromoPriceService,
-        )
         from app.services.pricing.wb_price_update_service import (
             WbPriceUpdateService,
         )
@@ -1406,25 +1431,49 @@ async def auto_promo_recommendations_page(
 
         recommendations = []
         preview = []
+        conditions_count = 0
         if marketplace_account_id:
-            price_service = WbAutoPromoPriceService(session)
-            recs = await price_service.build_recommendations_for_conditions(
-                user_id=user.id,
-                marketplace_account_id=marketplace_account_id,
+            from app.models.domain import WbAutoPromotionCondition, WbAutoPromoPriceRecommendation
+
+            cond_result = await session.execute(
+                select(WbAutoPromotionCondition).where(
+                    WbAutoPromotionCondition.marketplace_account_id == marketplace_account_id,
+                    WbAutoPromotionCondition.required_price.isnot(None),
+                )
             )
-            for rec in recs:
-                await price_service.save_recommendation(
-                    rec=rec,
+            conditions_count = len(list(cond_result.scalars().all()))
+
+            recs_result = await session.execute(
+                select(WbAutoPromoPriceRecommendation).where(
+                    WbAutoPromoPriceRecommendation.marketplace_account_id == marketplace_account_id,
+                ).order_by(WbAutoPromoPriceRecommendation.updated_at.desc())
+            )
+            db_recs = list(recs_result.scalars().all())
+
+            for db_rec in db_recs:
+                from app.services.pricing.wb_auto_promo_price_service import AutoPromoPriceRecommendation
+                recommendations.append(AutoPromoPriceRecommendation(
+                    product_id=db_rec.product_id,
+                    wb_nm_id=db_rec.wb_nm_id,
+                    wb_promotion_id=db_rec.wb_promotion_id,
+                    promotion_name=db_rec.promotion_name,
+                    mrc_price=db_rec.mrc_price,
+                    current_wb_price=db_rec.current_wb_price,
+                    required_price=db_rec.required_price,
+                    recommended_price=db_rec.recommended_price,
+                    min_price=db_rec.min_price,
+                    mrc_lower_bound=db_rec.mrc_lower_bound,
+                    mrc_upper_bound=db_rec.mrc_upper_bound,
+                    status=db_rec.status,
+                    reason=db_rec.reason,
+                ))
+
+            if recommendations:
+                update_service = WbPriceUpdateService(session)
+                preview = await update_service.prepare_price_changes(
                     user_id=user.id,
                     marketplace_account_id=marketplace_account_id,
                 )
-                recommendations.append(rec)
-
-            update_service = WbPriceUpdateService(session)
-            preview = await update_service.prepare_price_changes(
-                user_id=user.id,
-                marketplace_account_id=marketplace_account_id,
-            )
 
         await session.commit()
 
@@ -1441,7 +1490,8 @@ async def auto_promo_recommendations_page(
             "Рекомендации по автоакциям WB",
             user.first_name or user.username or str(user.telegram_id),
             _auto_promo_recommendations_content(
-                recommendations, preview, accounts, marketplace_account_id, status_filter
+                recommendations, preview, accounts, marketplace_account_id, status_filter,
+                conditions_count=conditions_count,
             ),
             active_path="/web/mrc-pricing",
         )
@@ -1462,10 +1512,10 @@ async def auto_promo_recommendations_page(
 
 
 @router.post(
-    "/mrc-pricing/auto-promotions/recommendations/generate",
+    "/mrc-pricing/auto-promotions/recommendations/build",
     response_class=HTMLResponse,
 )
-async def auto_promo_recommendations_generate(
+async def auto_promo_recommendations_build(
     request: Request,
     user=CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
@@ -1522,11 +1572,11 @@ async def auto_promo_recommendations_generate(
         )
     except Exception:
         logger.exception(
-            "auto_promo_recommendations_generate_failed",
+            "auto_promo_recommendations_build_failed",
             extra={"user_id": user.id},
         )
         return RedirectResponse(
-            url="/web/mrc-pricing/auto-promotions/recommendations?error=generate",
+            url="/web/mrc-pricing/auto-promotions/recommendations?error=build",
             status_code=303,
         )
 
@@ -3759,6 +3809,7 @@ def _auto_promo_recommendations_content(
     accounts: list,
     selected_account_id: int | None,
     status_filter: str = "all",
+    conditions_count: int = 0,
 ) -> str:
     """Render recommendations page."""
     parts = []
@@ -3814,17 +3865,46 @@ def _auto_promo_recommendations_content(
     parts.append("</select>")
 
     parts.append(
+        '<button type="submit" class="button">'
+        "Фильтр</button>"
+    )
+    parts.append("</form>")
+
+    parts.append(
+        '<form method="post" action="/web/mrc-pricing/auto-promotions/'
+        'recommendations/build" style="margin-bottom:16px">'
+    )
+    parts.append(
+        f'<input type="hidden" name="marketplace_account_id" '
+        f'value="{selected_account_id}">'
+    )
+    parts.append(
         '<button type="submit" class="button primary">'
-        "🔄 Сформировать</button>"
+        "🔄 Сформировать рекомендации</button>"
     )
     parts.append("</form>")
 
     if not preview and not recommendations:
+        parts.append('<div class="empty-state">')
+        if conditions_count == 0:
+            parts.append(
+                '<p><b>Нет условий автоакций.</b></p>'
+                '<p>Укажите цену входа для товаров или загрузите файл условий.</p>'
+            )
+            parts.append(
+                '<p><a href="/web/mrc-pricing" '
+                'class="button primary">📥 Указать цену входа</a></p>'
+            )
+            parts.append(
+                '<p><a href="/web/auto-promo-import" '
+                'class="button">📄 Загрузить условия автоакций</a></p>'
+            )
+        else:
+            parts.append(
+                f'<p>Условий автоакций: <b>{conditions_count}</b>. '
+                'Нажмите «Сформировать рекомендации» для расчёта.</p>'
+            )
         parts.append(
-            '<div class="empty-state">'
-            '<p>Нет рекомендаций по изменению цен.</p>'
-            '<p><a href="/web/auto-promo-import" '
-            'class="button primary">📥 Импортировать условия</a></p>'
             '<p><a href="/web/mrc-pricing" class="button">'
             "← Назад к МРЦ</a></p></div></div>"
         )
@@ -4034,8 +4114,16 @@ def _auto_promo_recommendations_content(
                 + ' | Нарушения minPrice: ' + minViolation
                 + ' | Нет цены входа: ' + unknown;
         }
-        if (params.get('error') === 'generate') msg = '❌ Ошибка формирования рекомендаций';
+        if (params.get('error') === 'generate' || params.get('error') === 'build') msg = '❌ Ошибка формирования рекомендаций';
         if (params.get('error') === 'export') msg = '❌ Ошибка экспорта';
+        if (params.get('condition_set') === '1') {
+            const nmId = params.get('wb_nm_id') || '?';
+            const reqPrice = params.get('required_price') || '?';
+            const setPrice = params.get('rec_set_price') || '0';
+            const priceOk = params.get('rec_price_ok') || '0';
+            msg = '✅ Цена входа сохранена: nmID ' + nmId + ' = ' + reqPrice + ' ₽\\n'
+                + 'Можно изменить: ' + setPrice + ' | Уже подходят: ' + priceOk;
+        }
         if (msg) {
             const div = document.createElement('div');
             div.style.cssText = 'padding:12px 16px;margin-bottom:16px;border-radius:8px;font-size:14px;white-space:pre-line;' +

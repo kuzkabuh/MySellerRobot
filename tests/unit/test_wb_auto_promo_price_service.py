@@ -209,3 +209,91 @@ async def test_no_nm_id():
     )
 
     assert rec.status == STATUS_AUTO_WAITING_WB_SYNC
+
+
+@pytest.mark.asyncio
+async def test_recommendation_uses_wb_product_prices_discounted_price():
+    """Regression: build_recommendations_for_conditions uses wb_product_prices.
+
+    Scenario:
+    - condition: wb_nm_id=345455998, required_price=846
+    - wb_product_prices: discounted_price=930
+    - product: mrc_price=930
+    - settings: deviation=10%
+
+    Expected:
+    - current_wb_price=930 (from wb_product_prices)
+    - lower_bound=837, upper_bound=1023
+    - status=AUTO_PROMOTION_SET_PRICE
+    - recommended_price=846
+    """
+    from decimal import Decimal
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    session = AsyncMock()
+
+    mock_condition = MagicMock()
+    mock_condition.wb_nm_id = 345455998
+    mock_condition.required_price = Decimal("846")
+    mock_condition.current_wb_price = None
+    mock_condition.promotion_name = "Test Promo"
+    mock_condition.wb_promotion_id = None
+
+    mock_product = MagicMock()
+    mock_product.id = 1
+    mock_product.user_id = 1
+    mock_product.marketplace_account_id = 2
+    mock_product.mrc_price = Decimal("930")
+    mock_product.marketplace_article = "345455998"
+    mock_product.external_product_id = "345455998"
+
+    cond_scalars = MagicMock()
+    cond_scalars.all.return_value = [mock_condition]
+    cond_result = MagicMock()
+    cond_result.scalars.return_value = cond_scalars
+
+    product_result = MagicMock()
+    product_result.scalar_one_or_none.return_value = mock_product
+
+    wb_price_result = MagicMock()
+    wb_price_result.scalar_one_or_none.return_value = Decimal("930")
+
+    call_count = 0
+
+    async def mock_execute(query):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return cond_result
+        elif call_count == 2:
+            return product_result
+        else:
+            return wb_price_result
+
+    session.execute = mock_execute
+
+    mock_settings = MagicMock()
+    mock_settings.allowed_action_price_deviation_percent = Decimal("10")
+
+    mock_settings_svc = MagicMock()
+    mock_settings_svc.get_settings = AsyncMock(return_value=mock_settings)
+
+    with patch(
+        "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+        return_value=mock_settings_svc,
+    ):
+        service = WbAutoPromoPriceService(session)
+
+        recs = await service.build_recommendations_for_conditions(
+            user_id=1,
+            marketplace_account_id=2,
+        )
+
+    assert len(recs) == 1
+    rec = recs[0]
+    assert rec.status == STATUS_AUTO_SET_PRICE
+    assert rec.recommended_price == Decimal("846")
+    assert rec.current_wb_price == Decimal("930")
+    assert rec.required_price == Decimal("846")
+    assert rec.mrc_lower_bound == Decimal("837")
+    assert rec.mrc_upper_bound == Decimal("1023")
