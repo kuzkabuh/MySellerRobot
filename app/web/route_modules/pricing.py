@@ -5,6 +5,7 @@
 import json
 from collections import defaultdict
 from dataclasses import dataclass
+from decimal import Decimal
 from html import escape
 from typing import Any
 
@@ -668,7 +669,8 @@ def _recommendation_pair(row: WbAutoPromoPriceRecommendation, product: Product |
         payload = WbPriceApplyService.build_payload(
             nm_id=row.wb_nm_id,
             recommended_price=row.recommended_discounted_price,
-            max_discounted_price=row.max_auto_promo_price,
+            discount=Decimal(str(row.recommended_discount or 75)),
+            max_discounted_price=row.candidate_discounted_price or row.max_auto_promo_price,
         )
         payload_dict = payload.as_wb_item()
         payload_text = json.dumps(payload_dict, ensure_ascii=False, indent=2)
@@ -695,7 +697,7 @@ def _recommendation_pair(row: WbAutoPromoPriceRecommendation, product: Product |
       <td>{escape(row.promotion_name or '')}</td>
       <td>{_money(row.mrc_price)}</td>
       <td>{_money(row.current_discounted_price or row.current_wb_price)}</td>
-      <td>{_money(row.max_auto_promo_price or row.required_price)}</td>
+      <td>{_money(row.candidate_discounted_price or row.max_auto_promo_price or row.required_price)}</td>
       <td>{bounds}</td>
       <td>{_money(row.recommended_discounted_price or row.recommended_price)}</td>
       <td>{_money(row.recommended_full_price) or escape(full_price)}</td>
@@ -720,7 +722,7 @@ def _recommendation_details(row: WbAutoPromoPriceRecommendation, payload_text: s
     <div class="pricing-details-grid">
       <div>
         <h4>Формула расчёта</h4>
-        <p>МРЦ: {_money(row.mrc_price)}<br>Допустимое снижение: по настройкам МРЦ<br>Минимальная цена: {_money(row.mrc_lower_bound)}<br>Максимальная цена WB для автоакции: {_money(row.max_auto_promo_price or row.required_price)}<br>Рекомендуемая цена со скидкой: {_money(row.recommended_discounted_price or row.recommended_price)}<br>Скидка WB: {row.recommended_discount or 75}%<br>{escape(formula)}</p>
+        <p>МРЦ: {_money(row.mrc_price)}<br>Допустимое снижение: по настройкам МРЦ<br>Минимальная цена: {_money(row.mrc_lower_bound)}<br>Тип условия: {escape(row.condition_type)}<br>Скидка в условии WB: {row.wb_condition_discount_percent or '-'}%<br>Цена условия WB: {_money(row.candidate_discounted_price or row.max_auto_promo_price or row.required_price)}<br>Рекомендуемая цена со скидкой: {_money(row.recommended_discounted_price or row.recommended_price)}<br>Скидка WB: {row.recommended_discount or 75}%<br>{escape(formula)}</p>
       </div>
       <div>
         <h4>Решение</h4>

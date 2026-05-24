@@ -39,7 +39,17 @@ NESTED_PRICE_PATHS = (
 PRODUCT_LIST_KEYS = {"nomenclatures", "products", "items", "goods"}
 NM_ID_FIELDS = ("nmID", "nmId", "id")
 FULL_PRICE_FIELDS = ("fullPrice", "price", "basePrice", "wbPrice", "priceBeforeDiscount")
-DISCOUNT_FIELDS = ("requiredDiscount", "discount", "planDiscount", "targetDiscount")
+CURRENT_DISCOUNT_FIELDS = ("currentDiscount", "currentDiscountPercent", "sellerDiscount")
+CONDITION_DISCOUNT_FIELDS = (
+    "wbConditionDiscountPercent",
+    "requiredDiscount",
+    "planDiscount",
+    "targetDiscount",
+    "discountForParticipation",
+    "actionDiscount",
+    "promotionDiscount",
+    "discount",
+)
 
 
 @dataclass(slots=True)
@@ -47,9 +57,13 @@ class WbAutoPromoConditionDTO:
     wb_nm_id: int
     required_price: Decimal | None
     max_auto_promo_price: Decimal | None
+    wb_condition_discount_percent: Decimal | None
     current_wb_price: Decimal | None
     current_full_price: Decimal | None
     current_discount: int | None
+    current_discounted_price: Decimal | None
+    candidate_discounted_price: Decimal | None
+    condition_type: str
     is_participating: bool | None
     promotion_id: int | None
     promotion_name: str | None
@@ -74,17 +88,27 @@ class WbAutoPromoConditionResolver:
             if wb_nm_id is None:
                 continue
 
-            required_price, confidence = self._extract_required_price(item)
+            required_price, condition_discount, condition_type, confidence = (
+                self._extract_required_price(item)
+            )
+            current_full_price = self._first_money(item, FULL_PRICE_FIELDS)
             conditions.append(
                 WbAutoPromoConditionDTO(
                     wb_nm_id=wb_nm_id,
                     required_price=required_price,
                     max_auto_promo_price=required_price,
+                    wb_condition_discount_percent=condition_discount,
                     current_wb_price=self._money(item.get("price") or item.get("currentPrice")),
-                    current_full_price=self._first_money(item, FULL_PRICE_FIELDS),
+                    current_full_price=current_full_price,
                     current_discount=self._int_optional(
-                        item.get("discount") or item.get("currentDiscount")
+                        self._first_raw_value(item, CURRENT_DISCOUNT_FIELDS)
                     ),
+                    current_discounted_price=self._first_money(
+                        item,
+                        ("discountedPrice", "currentDiscountedPrice", "priceWithDiscount"),
+                    ),
+                    candidate_discounted_price=required_price,
+                    condition_type=condition_type,
                     is_participating=self._parse_bool(
                         item.get("inAction")
                         or item.get("isParticipating")
@@ -168,7 +192,13 @@ class WbAutoPromoConditionResolver:
             )
             session.add(record)
         record.required_price = condition.required_price
+        record.wb_condition_discount_percent = condition.wb_condition_discount_percent
         record.current_wb_price = condition.current_wb_price
+        record.current_full_price = condition.current_full_price
+        record.current_discount = condition.current_discount
+        record.current_discounted_price = condition.current_discounted_price
+        record.candidate_discounted_price = condition.candidate_discounted_price
+        record.condition_type = condition.condition_type
         record.is_participating = condition.is_participating
         record.confidence = condition.confidence
         record.raw_payload = condition.raw_payload
@@ -196,11 +226,14 @@ class WbAutoPromoConditionResolver:
         walk(payload)
         return self._dedupe_items(found)
 
-    def _extract_required_price(self, item: dict[str, Any]) -> tuple[Decimal | None, str]:
+    def _extract_required_price(
+        self,
+        item: dict[str, Any],
+    ) -> tuple[Decimal | None, Decimal | None, str, str]:
         for key in PRICE_FIELDS:
             parsed = self._money(item.get(key))
             if parsed is not None and parsed > 0:
-                return parsed, "high"
+                return parsed, None, "max_price", "high"
 
         for first, second in NESTED_PRICE_PATHS:
             nested = item.get(first)
@@ -208,23 +241,24 @@ class WbAutoPromoConditionResolver:
                 continue
             parsed = self._money(nested.get(second))
             if parsed is not None and parsed > 0:
-                return parsed, "high" if second == "requiredPrice" else "medium"
+                confidence = "high" if second == "requiredPrice" else "medium"
+                return parsed, None, "max_price", confidence
 
-        price_from_discount = self._price_from_discount(item)
+        price_from_discount, discount = self._price_from_discount(item)
         if price_from_discount is not None:
-            return price_from_discount, "medium"
+            return price_from_discount, discount, "discount_projection", "medium"
 
-        return None, "low"
+        return None, None, "unknown", "low"
 
-    def _price_from_discount(self, item: dict[str, Any]) -> Decimal | None:
+    def _price_from_discount(self, item: dict[str, Any]) -> tuple[Decimal | None, Decimal | None]:
         full_price = self._first_money(item, FULL_PRICE_FIELDS)
-        required_discount = self._first_money(item, DISCOUNT_FIELDS)
+        required_discount = self._first_money(item, CONDITION_DISCOUNT_FIELDS)
         if full_price is None or required_discount is None:
-            return None
+            return None, required_discount
         if full_price <= 0 or required_discount < 0 or required_discount >= 100:
-            return None
+            return None, required_discount
         result = full_price * (Decimal("1") - required_discount / Decimal("100"))
-        return result.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        return result.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), required_discount
 
     def _first_money(self, item: dict[str, Any], keys: tuple[str, ...]) -> Decimal | None:
         for key in keys:
@@ -237,6 +271,19 @@ class WbAutoPromoConditionResolver:
                 parsed = self._first_money(nested, keys)
                 if parsed is not None:
                     return parsed
+        return None
+
+    def _first_raw_value(self, item: dict[str, Any], keys: tuple[str, ...]) -> Any:
+        for key in keys:
+            value = item.get(key)
+            if value not in (None, ""):
+                return value
+        for nested_key in ("priceInfo", "pricing", "conditions"):
+            nested = item.get(nested_key)
+            if isinstance(nested, dict):
+                value = self._first_raw_value(nested, keys)
+                if value not in (None, ""):
+                    return value
         return None
 
     @staticmethod

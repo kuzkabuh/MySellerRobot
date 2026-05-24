@@ -1016,7 +1016,17 @@ class WbAutoPromotionCondition(TimestampMixin, Base):
     title: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     promotion_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
     required_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    wb_condition_discount_percent: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 2), nullable=True
+    )
     current_wb_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    current_full_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    current_discount: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    current_discounted_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    candidate_discounted_price: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 2), nullable=True
+    )
+    condition_type: Mapped[str] = mapped_column(String(32), nullable=False, default="unknown")
     is_participating: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     source: Mapped[str] = mapped_column(String(64), nullable=False, default="manual")
     confidence: Mapped[str] = mapped_column(String(16), nullable=False, default="low")
@@ -1045,11 +1055,21 @@ class WbAutoPromoPriceRecommendation(TimestampMixin, Base):
     current_discount: Mapped[int | None] = mapped_column(Integer, nullable=True)
     current_discounted_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     max_auto_promo_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    wb_condition_discount_percent: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 2), nullable=True
+    )
+    candidate_discounted_price: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 2), nullable=True
+    )
     recommended_discounted_price: Mapped[Decimal | None] = mapped_column(
         Numeric(12, 2), nullable=True
     )
     recommended_full_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     recommended_discount: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    safe_discounted_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    safe_full_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    safe_discount: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    condition_type: Mapped[str] = mapped_column(String(32), nullable=False, default="unknown")
     min_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     mrc_lower_bound: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     mrc_upper_bound: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)

@@ -36,6 +36,7 @@ STATUS_NO_MRC_PRICE = "NO_MRC_PRICE"
 STATUS_WAITING_WB_SYNC = "WAITING_WB_SYNC"
 STATUS_APPLIED = "APPLIED"
 STATUS_FAILED = "FAILED"
+STATUS_SAFE_PRICE_RESTORE = "AUTO_PROMO_NOT_AVAILABLE_SAFE_PRICE_RESTORE"
 
 
 @dataclass(slots=True)
@@ -49,14 +50,20 @@ class AutoPromoParticipationRecommendation:
     current_discount: int | None
     current_discounted_price: Decimal | None
     max_auto_promo_price: Decimal | None
+    wb_condition_discount_percent: Decimal | None
+    candidate_discounted_price: Decimal | None
     recommended_discounted_price: Decimal | None
     recommended_full_price: Decimal | None
     recommended_discount: int | None
+    safe_discounted_price: Decimal | None
+    safe_full_price: Decimal | None
+    safe_discount: int | None
     min_price: Decimal | None
     mrc_lower_bound: Decimal | None
     mrc_upper_bound: Decimal | None
     status: str
     reason: str
+    condition_type: str = "unknown"
     source: str = "wb_api"
     raw_payload: dict[str, Any] | None = None
 
@@ -114,22 +121,45 @@ class WbAutoPromoParticipationService:
                 continue
             condition = await self._get_condition(account.id, nm_id)
             current_price = await self._get_current_price(account.id, nm_id)
+            current_full_price = (
+                condition.current_full_price
+                if condition and condition.current_full_price is not None
+                else current_price.price if current_price else None
+            )
+            current_discount = (
+                condition.current_discount
+                if condition and condition.current_discount is not None
+                else current_price.discount if current_price else None
+            )
+            current_discounted_price = (
+                condition.current_discounted_price
+                if condition and condition.current_discounted_price is not None
+                else (
+                    current_price.discounted_price
+                    or current_price.club_discounted_price
+                    or current_price.price
+                    if current_price
+                    else None
+                )
+            )
             rec = self.calculate(
                 product_id=product.id,
                 wb_nm_id=nm_id,
                 wb_promotion_id=condition.wb_promotion_id if condition else None,
                 promotion_name=condition.promotion_name if condition else None,
                 mrc_price=product.mrc_price,
-                current_full_price=current_price.price if current_price else None,
-                current_discount=current_price.discount if current_price else None,
-                current_discounted_price=(
-                    current_price.discounted_price
-                    or current_price.club_discounted_price
-                    or current_price.price
-                    if current_price
+                current_full_price=current_full_price,
+                current_discount=current_discount,
+                current_discounted_price=current_discounted_price,
+                max_auto_promo_price=(
+                    condition.required_price
+                    if condition and condition.condition_type == "max_price"
                     else None
                 ),
-                max_auto_promo_price=condition.required_price if condition else None,
+                wb_condition_discount_percent=(
+                    condition.wb_condition_discount_percent if condition else None
+                ),
+                condition_type=condition.condition_type if condition else "unknown",
                 min_price=self._extract_min_price(
                     current_price.raw_payload if current_price else None
                 ),
@@ -155,6 +185,8 @@ class WbAutoPromoParticipationService:
         current_discount: int | None,
         current_discounted_price: Decimal | None,
         max_auto_promo_price: Decimal | None,
+        wb_condition_discount_percent: Decimal | None = None,
+        condition_type: str = "unknown",
         min_price: Decimal | None = None,
         allowed_deviation_percent: Decimal = Decimal("10"),
         discount: Decimal = Decimal("75"),
@@ -171,21 +203,35 @@ class WbAutoPromoParticipationService:
                 current_discount=current_discount,
                 current_discounted_price=current_discounted_price,
                 max_auto_promo_price=max_auto_promo_price,
+                wb_condition_discount_percent=wb_condition_discount_percent,
+                candidate_discounted_price=None,
                 recommended_discounted_price=None,
                 recommended_full_price=None,
                 recommended_discount=None,
+                safe_discounted_price=None,
+                safe_full_price=None,
+                safe_discount=None,
                 min_price=min_price,
                 mrc_lower_bound=None,
                 mrc_upper_bound=None,
                 status=STATUS_NO_MRC_PRICE,
                 reason="МРЦ товара не задана.",
+                condition_type=condition_type,
                 raw_payload=raw_payload,
             )
 
         lower_bound = mrc_price * (Decimal("1") - allowed_deviation_percent / Decimal("100"))
         upper_bound = mrc_price * (Decimal("1") + allowed_deviation_percent / Decimal("100"))
+        safe_payload = WbPriceApplyService.build_payload(
+            nm_id=wb_nm_id,
+            recommended_price=mrc_price,
+            discount=discount,
+            max_discounted_price=mrc_price,
+        )
+        safe_full_price = Decimal(safe_payload.price)
+        safe_discount = safe_payload.discount
 
-        if current_discounted_price is None:
+        if current_discounted_price is None and current_full_price is None:
             return AutoPromoParticipationRecommendation(
                 product_id=product_id,
                 wb_nm_id=wb_nm_id,
@@ -196,18 +242,35 @@ class WbAutoPromoParticipationService:
                 current_discount=current_discount,
                 current_discounted_price=None,
                 max_auto_promo_price=max_auto_promo_price,
+                wb_condition_discount_percent=wb_condition_discount_percent,
+                candidate_discounted_price=None,
                 recommended_discounted_price=None,
                 recommended_full_price=None,
                 recommended_discount=None,
+                safe_discounted_price=mrc_price,
+                safe_full_price=safe_full_price,
+                safe_discount=safe_discount,
                 min_price=min_price,
                 mrc_lower_bound=lower_bound,
                 mrc_upper_bound=upper_bound,
                 status=STATUS_NO_CURRENT_PRICE,
                 reason="Текущая цена WB ещё не загружена.",
+                condition_type=condition_type,
                 raw_payload=raw_payload,
             )
 
-        if max_auto_promo_price is None:
+        candidate = WbAutoPromoParticipationService._candidate_price(
+            max_auto_promo_price=max_auto_promo_price,
+            current_full_price=current_full_price,
+            wb_condition_discount_percent=wb_condition_discount_percent,
+        )
+        resolved_condition_type = condition_type
+        if max_auto_promo_price is not None:
+            resolved_condition_type = "max_price"
+        elif candidate is not None:
+            resolved_condition_type = "discount_projection"
+
+        if candidate is None:
             return AutoPromoParticipationRecommendation(
                 product_id=product_id,
                 wb_nm_id=wb_nm_id,
@@ -218,9 +281,14 @@ class WbAutoPromoParticipationService:
                 current_discount=current_discount,
                 current_discounted_price=current_discounted_price,
                 max_auto_promo_price=None,
+                wb_condition_discount_percent=wb_condition_discount_percent,
+                candidate_discounted_price=None,
                 recommended_discounted_price=None,
                 recommended_full_price=None,
                 recommended_discount=None,
+                safe_discounted_price=mrc_price,
+                safe_full_price=safe_full_price,
+                safe_discount=safe_discount,
                 min_price=min_price,
                 mrc_lower_bound=lower_bound,
                 mrc_upper_bound=upper_bound,
@@ -229,11 +297,16 @@ class WbAutoPromoParticipationService:
                     "WB API не вернул максимальную цену для входа в автоакцию. "
                     "Откройте диагностику raw_payload."
                 ),
+                condition_type=resolved_condition_type,
                 raw_payload=raw_payload,
             )
 
-        candidate = max_auto_promo_price
-        if candidate < lower_bound:
+        if candidate <= 0:
+            status = STATUS_NO_AUTO_PROMO_PRICE
+            reason = "WB API вернул некорректное условие автоакции."
+            rec_price = None
+            payload = None
+        elif candidate < lower_bound:
             status = STATUS_BLOCKED_BY_MRC
             reason = "Цена входа WB ниже минимально допустимой цены по МРЦ."
             rec_price = None
@@ -243,7 +316,7 @@ class WbAutoPromoParticipationService:
             reason = "Цена входа WB ниже minPrice продавца."
             rec_price = None
             payload = None
-        elif current_discounted_price <= max_auto_promo_price:
+        elif current_discounted_price is not None and current_discounted_price <= candidate:
             status = STATUS_ALREADY_ELIGIBLE
             reason = "Текущая цена уже подходит для автоакции."
             rec_price = None
@@ -254,7 +327,7 @@ class WbAutoPromoParticipationService:
                 recommended_price=candidate,
                 discount=discount,
                 min_price=min_price,
-                max_discounted_price=max_auto_promo_price,
+                max_discounted_price=candidate,
             )
             status = STATUS_CAN_APPLY
             reason = "Можно применить цену входа WB для автоакции."
@@ -270,14 +343,20 @@ class WbAutoPromoParticipationService:
             current_discount=current_discount,
             current_discounted_price=current_discounted_price,
             max_auto_promo_price=max_auto_promo_price,
+            wb_condition_discount_percent=wb_condition_discount_percent,
+            candidate_discounted_price=candidate,
             recommended_discounted_price=rec_price,
             recommended_full_price=Decimal(payload.price) if payload else None,
             recommended_discount=payload.discount if payload else None,
+            safe_discounted_price=mrc_price,
+            safe_full_price=safe_full_price,
+            safe_discount=safe_discount,
             min_price=min_price,
             mrc_lower_bound=lower_bound,
             mrc_upper_bound=upper_bound,
             status=status,
             reason=reason,
+            condition_type=resolved_condition_type,
             raw_payload=raw_payload,
         )
 
@@ -290,7 +369,7 @@ class WbAutoPromoParticipationService:
             recommended_price=rec.recommended_discounted_price,
             discount=Decimal(str(rec.recommended_discount or 75)),
             min_price=rec.min_price,
-            max_discounted_price=rec.max_auto_promo_price,
+            max_discounted_price=rec.candidate_discounted_price or rec.max_auto_promo_price,
         )
 
     async def apply_recommendations(
@@ -319,6 +398,8 @@ class WbAutoPromoParticipationService:
                 current_discount=rec.current_discount,
                 current_discounted_price=rec.current_discounted_price,
                 max_auto_promo_price=rec.max_auto_promo_price,
+                wb_condition_discount_percent=rec.wb_condition_discount_percent,
+                condition_type=rec.condition_type,
                 min_price=rec.min_price,
                 raw_payload=rec.raw_payload,
             )
@@ -389,9 +470,15 @@ class WbAutoPromoParticipationService:
         record.current_discount = rec.current_discount
         record.current_discounted_price = rec.current_discounted_price
         record.max_auto_promo_price = rec.max_auto_promo_price
+        record.wb_condition_discount_percent = rec.wb_condition_discount_percent
+        record.candidate_discounted_price = rec.candidate_discounted_price
         record.recommended_discounted_price = rec.recommended_discounted_price
         record.recommended_full_price = rec.recommended_full_price
         record.recommended_discount = rec.recommended_discount
+        record.safe_discounted_price = rec.safe_discounted_price
+        record.safe_full_price = rec.safe_full_price
+        record.safe_discount = rec.safe_discount
+        record.condition_type = rec.condition_type
         record.min_price = rec.min_price
         record.mrc_lower_bound = rec.mrc_lower_bound or Decimal("0")
         record.mrc_upper_bound = rec.mrc_upper_bound or Decimal("0")
@@ -441,6 +528,13 @@ class WbAutoPromoParticipationService:
                 if rec.current_full_price is not None
                 else None,
                 "old_discount": rec.current_discount,
+                "condition_type": rec.condition_type,
+                "wb_condition_discount_percent": str(rec.wb_condition_discount_percent)
+                if rec.wb_condition_discount_percent is not None
+                else None,
+                "candidate_discounted_price": str(rec.candidate_discounted_price)
+                if rec.candidate_discounted_price is not None
+                else None,
                 "new_full_price": str(rec.recommended_full_price)
                 if rec.recommended_full_price is not None
                 else None,
@@ -514,6 +608,25 @@ class WbAutoPromoParticipationService:
             if value not in (None, ""):
                 return Decimal(str(value))
         return None
+
+    @staticmethod
+    def _candidate_price(
+        *,
+        max_auto_promo_price: Decimal | None,
+        current_full_price: Decimal | None,
+        wb_condition_discount_percent: Decimal | None,
+    ) -> Decimal | None:
+        if max_auto_promo_price is not None:
+            return max_auto_promo_price
+        if current_full_price is None or wb_condition_discount_percent is None:
+            return None
+        if current_full_price <= 0:
+            return None
+        if wb_condition_discount_percent < 0 or wb_condition_discount_percent >= 100:
+            return None
+        return current_full_price * (
+            Decimal("1") - wb_condition_discount_percent / Decimal("100")
+        )
 
     @staticmethod
     def _extract_nm_id(product: Product) -> int | None:
