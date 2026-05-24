@@ -89,3 +89,59 @@ def test_stats_queries_before_product_enrichment():
     assert stats_query_idx < enrichment_idx, (
         "Stats queries must come before product enrichment"
     )
+
+
+def test_wb_nm_id_for_product_no_name_error():
+    """Verify wb_nm_id_for_product is defined before use in _mrc_pricing_content.
+
+    The bug was: wb_nm_id_for_product was used at line ~2848 inside the
+    STATUS_AUTO_REQUIRED_PRICE_UNKNOWN branch but was only defined in a
+    different code path (line ~1948), causing NameError.
+
+    Fix: define wb_nm_id_for_product = nm_id inside the branch, with a
+    fallback when nmID is not found.
+
+    This test verifies the source code does not contain an undefined reference.
+    """
+    import inspect
+    from app.web.route_modules.mrc_pricing import _mrc_pricing_content
+
+    source = inspect.getsource(_mrc_pricing_content)
+
+    # The fixed code should define wb_nm_id_for_product inside the
+    # STATUS_AUTO_REQUIRED_PRICE_UNKNOWN branch
+    assert "wb_nm_id_for_product = nm_id" in source, (
+        "wb_nm_id_for_product must be assigned from nm_id in the "
+        "STATUS_AUTO_REQUIRED_PRICE_UNKNOWN branch"
+    )
+
+    # Should also handle the case when nm_id is None
+    assert "nmID не найден" in source or "nm_id is None" in source or "if wb_nm_id_for_product" in source, (
+        "Code should handle missing nmID gracefully"
+    )
+
+
+def test_extract_nm_id_from_external_product_id():
+    """Verify _extract_nm_id extracts nmID from external_product_id."""
+    from unittest.mock import MagicMock
+    from app.web.route_modules.mrc_pricing import _extract_nm_id
+
+    product = MagicMock()
+    product.marketplace_article = "ART-123"
+    product.external_product_id = "345455998"
+
+    nm_id = _extract_nm_id(product)
+    assert nm_id == 345455998
+
+
+def test_extract_nm_id_from_marketplace_article_fallback():
+    """Verify _extract_nm_id falls back to marketplace_article."""
+    from unittest.mock import MagicMock
+    from app.web.route_modules.mrc_pricing import _extract_nm_id
+
+    product = MagicMock()
+    product.marketplace_article = "345455998"
+    product.external_product_id = None
+
+    nm_id = _extract_nm_id(product)
+    assert nm_id == 345455998

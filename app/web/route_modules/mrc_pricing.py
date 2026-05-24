@@ -2842,17 +2842,25 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
                         "<td><small style='color:#ef4444'>Автоакция WB:<br>цена ниже допустимой</small></td>"
                     )
                 elif row.auto_promo_status == STATUS_AUTO_REQUIRED_PRICE_UNKNOWN:
-                    parts.append(
-                        f"<td><small style='color:#f59e0b'>Автоакции WB найдены,<br>нужна цена входа<br>"
-                        f"<form method='post' action='/web/mrc-pricing/auto-promotions/conditions/manual' style='margin:4px 0'>"
-                        f"<input type='hidden' name='wb_nm_id' value='{wb_nm_id_for_product}'>"
-                        f"<input type='hidden' name='marketplace_account_id' value='{product.marketplace_account_id}'>"
-                        f"<input type='hidden' name='promotion_name' value=''>"
-                        f"<input type='number' name='required_price' step='1' min='1' placeholder='Цена' style='width:70px;padding:2px 4px;font-size:11px;border:1px solid #d1d5db;border-radius:4px'>"
-                        f"<button type='submit' style='font-size:11px;padding:2px 6px;background:#f59e0b;color:white;border:none;border-radius:4px;cursor:pointer'>✓</button>"
-                        f"</form>"
-                        f"</small></td>"
-                    )
+                    wb_nm_id_for_product = nm_id
+                    if wb_nm_id_for_product:
+                        parts.append(
+                            f"<td><small style='color:#f59e0b'>Автоакции WB найдены,<br>нужна цена входа<br>"
+                            f"<form method='post' action='/web/mrc-pricing/auto-promotions/conditions/manual' style='margin:4px 0'>"
+                            f"<input type='hidden' name='wb_nm_id' value='{wb_nm_id_for_product}'>"
+                            f"<input type='hidden' name='marketplace_account_id' value='{product.marketplace_account_id}'>"
+                            f"<input type='hidden' name='promotion_name' value=''>"
+                            f"<input type='number' name='required_price' step='1' min='1' placeholder='Цена' style='width:70px;padding:2px 4px;font-size:11px;border:1px solid #d1d5db;border-radius:4px'>"
+                            f"<button type='submit' style='font-size:11px;padding:2px 6px;background:#f59e0b;color:white;border:none;border-radius:4px;cursor:pointer'>✓</button>"
+                            f"</form>"
+                            f"</small></td>"
+                        )
+                    else:
+                        parts.append(
+                            "<td><small style='color:#f59e0b'>Автоакции WB найдены,<br>нужна цена входа<br>"
+                            "<span class='text-muted' style='font-size:11px'>nmID не найден</span>"
+                            "</small></td>"
+                        )
                 else:
                     parts.append(
                         "<td><small class='text-muted'>Автоакция WB:<br>ожидание синхронизации</small></td>"

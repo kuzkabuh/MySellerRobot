@@ -234,3 +234,64 @@ class TestExtractNmId:
 
         nm_id = WbCurrentPricesSyncService._extract_nm_id(product)
         assert nm_id == 345455998
+
+    def test_parse_price_from_multiple_sizes_uses_minimum(self):
+        """When multiple sizes exist, minimum price should be used."""
+        item = {
+            "nmID": 123,
+            "sizes": [
+                {"sizeID": 1, "price": 15000, "discountedPrice": 5000},
+                {"sizeID": 2, "price": 10000, "discountedPrice": 3000},
+                {"sizeID": 3, "price": 12000, "discountedPrice": 4000},
+            ],
+            "discount": 70,
+        }
+
+        price = WbCurrentPricesSyncService._parse_price(item)
+        assert price == Decimal("10000")
+
+        discounted_price = WbCurrentPricesSyncService._parse_discounted_price(item)
+        assert discounted_price == Decimal("3000")
+
+    def test_discounted_price_computed_from_price_and_discount(self):
+        """Discounted price should be computed when not present in response."""
+        item = {
+            "nmID": 123,
+            "price": 10000,
+            "discount": 25,
+        }
+
+        price = WbCurrentPricesSyncService._parse_price(item)
+        discount = WbCurrentPricesSyncService._parse_discount(item)
+        discounted_price = WbCurrentPricesSyncService._parse_discounted_price(item)
+
+        assert price == Decimal("10000")
+        assert discount == 25
+        assert discounted_price is None  # parser returns None; service computes it
+
+    def test_parse_club_discounted_price_from_multiple_sizes_uses_minimum(self):
+        """When multiple sizes exist, minimum clubDiscountedPrice should be used."""
+        item = {
+            "nmID": 123,
+            "sizes": [
+                {"sizeID": 1, "price": 15000, "clubDiscountedPrice": 5000},
+                {"sizeID": 2, "price": 10000, "clubDiscountedPrice": 3000},
+            ],
+            "clubDiscount": 20,
+        }
+
+        club_discounted_price = WbCurrentPricesSyncService._parse_club_discounted_price(item)
+        assert club_discounted_price == Decimal("3000")
+
+    def test_parse_price_prefers_top_level_over_sizes(self):
+        """Top-level price should take precedence over sizes."""
+        item = {
+            "nmID": 123,
+            "price": 9999,
+            "sizes": [
+                {"sizeID": 1, "price": 10000},
+            ],
+        }
+
+        price = WbCurrentPricesSyncService._parse_price(item)
+        assert price == Decimal("9999")

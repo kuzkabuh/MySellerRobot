@@ -61,6 +61,8 @@ class WbCurrentPricesSyncService:
         accounts = list(accounts_result.scalars().all())
 
         for account in accounts:
+            account_id = account.id
+            user_id = account.user_id
             try:
                 api_key = self.cipher.decrypt(account.encrypted_api_key)
                 account_stats = await self._sync_account(account, api_key)
@@ -71,11 +73,11 @@ class WbCurrentPricesSyncService:
                 stats.errors.extend(account_stats.errors)
             except Exception as exc:
                 stats.accounts_failed += 1
-                error_msg = f"account_id={account.id}: {exc}"
+                error_msg = f"account_id={account_id}: {exc}"
                 stats.errors.append(error_msg)
                 logger.exception(
                     "wb_current_prices_sync_account_failed",
-                    extra={"account_id": account.id, "user_id": account.user_id},
+                    extra={"account_id": account_id, "user_id": user_id},
                 )
 
         logger.info(
@@ -222,6 +224,7 @@ class WbCurrentPricesSyncService:
                         await self.session.rollback()
                     except Exception:
                         pass
+                    # After rollback the session is usable again; continue with next chunk
 
             # Rate limiting
             await asyncio.sleep(RATE_LIMIT_DELAY)
@@ -233,7 +236,11 @@ class WbCurrentPricesSyncService:
         account: MarketplaceAccount,
         goods_list: list[dict[str, Any]],
     ) -> None:
-        """Upsert prices from goods/filter response into wb_product_prices."""
+        """Upsert prices from goods/filter response into wb_product_prices.
+
+        Per-item error handling: if one item fails to parse, log a warning
+        and continue with the rest. A full DB error triggers rollback.
+        """
         now_utc = datetime.now(tz=UTC)
         account_id = account.id
         user_id = account.user_id
@@ -249,7 +256,7 @@ class WbCurrentPricesSyncService:
                 continue
 
             # Parse price fields from goods/filter response
-            # WB may return price at top level OR inside sizes[0]
+            # WB may return price at top level OR inside sizes[]
             price = self._parse_price(item)
             discount = self._parse_discount(item)
             currency_code = (
@@ -274,6 +281,17 @@ class WbCurrentPricesSyncService:
             sizes = item.get("sizes")
             sizes_count = len(sizes) if isinstance(sizes, list) else 0
 
+            if price is None:
+                logger.warning(
+                    "wb_current_price_missing_price",
+                    extra={
+                        "account_id": account_id,
+                        "wb_nm_id": nm_id,
+                        "discount": discount,
+                        "sizes_count": sizes_count,
+                    },
+                )
+
             logger.info(
                 "wb_current_prices_upserted",
                 extra={
@@ -286,31 +304,41 @@ class WbCurrentPricesSyncService:
                 },
             )
 
-            # Upsert
-            existing = await self.session.execute(
-                select(WbProductPrice).where(
-                    WbProductPrice.marketplace_account_id == account_id,
-                    WbProductPrice.wb_nm_id == nm_id,
+            try:
+                # Upsert
+                existing = await self.session.execute(
+                    select(WbProductPrice).where(
+                        WbProductPrice.marketplace_account_id == account_id,
+                        WbProductPrice.wb_nm_id == nm_id,
+                    )
                 )
-            )
-            existing_price = existing.scalar_one_or_none()
+                existing_price = existing.scalar_one_or_none()
 
-            if existing_price is None:
-                existing_price = WbProductPrice(
-                    user_id=user_id,
-                    marketplace_account_id=account_id,
-                    wb_nm_id=nm_id,
+                if existing_price is None:
+                    existing_price = WbProductPrice(
+                        user_id=user_id,
+                        marketplace_account_id=account_id,
+                        wb_nm_id=nm_id,
+                    )
+                    self.session.add(existing_price)
+
+                existing_price.price = price
+                existing_price.discount = discount
+                existing_price.discounted_price = discounted_price
+                existing_price.club_discount = club_discount
+                existing_price.club_discounted_price = club_discounted_price
+                existing_price.currency_code = currency_code
+                existing_price.raw_payload = item
+                existing_price.synced_at = now_utc
+            except Exception as item_exc:
+                logger.warning(
+                    "wb_current_prices_upsert_item_failed",
+                    extra={
+                        "account_id": account_id,
+                        "wb_nm_id": nm_id,
+                        "error": str(item_exc),
+                    },
                 )
-                self.session.add(existing_price)
-
-            existing_price.price = price
-            existing_price.discount = discount
-            existing_price.discounted_price = discounted_price
-            existing_price.club_discount = club_discount
-            existing_price.club_discounted_price = club_discounted_price
-            existing_price.currency_code = currency_code
-            existing_price.raw_payload = item
-            existing_price.synced_at = now_utc
 
         await self.session.flush()
 
@@ -332,7 +360,8 @@ class WbCurrentPricesSyncService:
     def _parse_price(item: dict[str, Any]) -> Decimal | None:
         """Parse price from goods/filter response item.
 
-        WB may return price at top level OR inside sizes[0].price.
+        WB may return price at top level OR inside sizes[].
+        When multiple sizes exist, use the minimum price.
         """
         # Try top-level first
         for key in ("price", "priceRub", "priceU", "basicPrice", "basicPriceRub"):
@@ -343,18 +372,23 @@ class WbCurrentPricesSyncService:
                 except (InvalidOperation, ValueError, TypeError):
                     continue
 
-        # Fallback to sizes[0].price
+        # Fallback to sizes — collect all prices and return minimum
         sizes = item.get("sizes")
         if isinstance(sizes, list) and sizes:
-            first_size = sizes[0]
-            if isinstance(first_size, dict):
+            prices_in_sizes: list[Decimal] = []
+            for size in sizes:
+                if not isinstance(size, dict):
+                    continue
                 for key in ("price", "priceRub", "priceU"):
-                    val = first_size.get(key)
+                    val = size.get(key)
                     if val is not None:
                         try:
-                            return Decimal(str(val))
+                            prices_in_sizes.append(Decimal(str(val)))
+                            break
                         except (InvalidOperation, ValueError, TypeError):
                             continue
+            if prices_in_sizes:
+                return min(prices_in_sizes)
 
         return None
 
@@ -374,7 +408,8 @@ class WbCurrentPricesSyncService:
     def _parse_discounted_price(item: dict[str, Any]) -> Decimal | None:
         """Parse discounted price from goods/filter response item.
 
-        WB may return discountedPrice at top level OR inside sizes[0].
+        WB may return discountedPrice at top level OR inside sizes[].
+        When multiple sizes exist, use the minimum discountedPrice.
         """
         # Try top-level first
         for key in ("discountedPrice", "priceWithDiscount", "salePrice", "salePriceRub"):
@@ -385,18 +420,23 @@ class WbCurrentPricesSyncService:
                 except (InvalidOperation, ValueError, TypeError):
                     continue
 
-        # Fallback to sizes[0].discountedPrice
+        # Fallback to sizes — collect all discounted prices and return minimum
         sizes = item.get("sizes")
         if isinstance(sizes, list) and sizes:
-            first_size = sizes[0]
-            if isinstance(first_size, dict):
+            discounted_prices_in_sizes: list[Decimal] = []
+            for size in sizes:
+                if not isinstance(size, dict):
+                    continue
                 for key in ("discountedPrice", "priceWithDiscount", "salePrice"):
-                    val = first_size.get(key)
+                    val = size.get(key)
                     if val is not None:
                         try:
-                            return Decimal(str(val))
+                            discounted_prices_in_sizes.append(Decimal(str(val)))
+                            break
                         except (InvalidOperation, ValueError, TypeError):
                             continue
+            if discounted_prices_in_sizes:
+                return min(discounted_prices_in_sizes)
 
         return None
 
@@ -414,7 +454,10 @@ class WbCurrentPricesSyncService:
 
     @staticmethod
     def _parse_club_discounted_price(item: dict[str, Any]) -> Decimal | None:
-        """Parse club discounted price from goods/filter response item."""
+        """Parse club discounted price from goods/filter response item.
+
+        When multiple sizes exist, use the minimum clubDiscountedPrice.
+        """
         # Try top-level first
         for key in ("clubDiscountedPrice", "clubPriceWithDiscount"):
             val = item.get(key)
@@ -424,17 +467,22 @@ class WbCurrentPricesSyncService:
                 except (InvalidOperation, ValueError, TypeError):
                     continue
 
-        # Fallback to sizes[0].clubDiscountedPrice
+        # Fallback to sizes — collect all club discounted prices and return minimum
         sizes = item.get("sizes")
         if isinstance(sizes, list) and sizes:
-            first_size = sizes[0]
-            if isinstance(first_size, dict):
+            club_discounted_prices_in_sizes: list[Decimal] = []
+            for size in sizes:
+                if not isinstance(size, dict):
+                    continue
                 for key in ("clubDiscountedPrice", "clubPriceWithDiscount"):
-                    val = first_size.get(key)
+                    val = size.get(key)
                     if val is not None:
                         try:
-                            return Decimal(str(val))
+                            club_discounted_prices_in_sizes.append(Decimal(str(val)))
+                            break
                         except (InvalidOperation, ValueError, TypeError):
                             continue
+            if club_discounted_prices_in_sizes:
+                return min(club_discounted_prices_in_sizes)
 
         return None
