@@ -194,3 +194,69 @@ def test_blocked_condition_exposes_safe_mrc_restore_payload() -> None:
     assert rec.safe_discounted_price == Decimal("1000")
     assert rec.safe_full_price == Decimal("4000")
     assert rec.safe_discount == 75
+
+
+def test_wb_report_plan_price_446_uses_default_discount_not_upload_discount() -> None:
+    rec = WbAutoPromoParticipationService.calculate(
+        wb_nm_id=303892412,
+        mrc_price=Decimal("446"),
+        current_full_price=Decimal("1820"),
+        current_discount=75,
+        current_discounted_price=Decimal("455"),
+        max_auto_promo_price=Decimal("446"),
+        wb_condition_discount_percent=Decimal("76"),
+        condition_type="max_price",
+        allowed_deviation_percent=Decimal("10"),
+        discount=Decimal("75"),
+    )
+
+    assert rec.status == STATUS_CAN_APPLY
+    assert rec.candidate_discounted_price == Decimal("446")
+    assert rec.recommended_discounted_price == Decimal("446")
+    assert rec.recommended_discount == 75
+    assert rec.recommended_full_price == Decimal("1784")
+
+    payload = WbPriceApplyService.build_payload(
+        nm_id=303892412,
+        recommended_price=rec.recommended_discounted_price,
+        discount=Decimal(rec.recommended_discount),
+        max_discounted_price=rec.candidate_discounted_price,
+    )
+    assert payload.as_wb_item() == {"nmID": 303892412, "price": 1784, "discount": 75}
+
+
+def test_wb_report_plan_price_439_recalculates_full_price() -> None:
+    rec = WbAutoPromoParticipationService.calculate(
+        wb_nm_id=303892413,
+        mrc_price=Decimal("439"),
+        current_full_price=Decimal("1792"),
+        current_discount=75,
+        current_discounted_price=Decimal("448"),
+        max_auto_promo_price=Decimal("439"),
+        wb_condition_discount_percent=Decimal("76"),
+        condition_type="max_price",
+        allowed_deviation_percent=Decimal("10"),
+        discount=Decimal("75"),
+    )
+
+    assert rec.status == STATUS_CAN_APPLY
+    assert rec.candidate_discounted_price == Decimal("439")
+    assert rec.recommended_discounted_price == Decimal("439")
+    assert rec.recommended_full_price == Decimal("1756")
+    assert rec.recommended_discount == 75
+
+
+def test_wb_report_plan_price_451_already_eligible() -> None:
+    rec = WbAutoPromoParticipationService.calculate(
+        mrc_price=Decimal("451"),
+        current_full_price=Decimal("1804"),
+        current_discount=75,
+        current_discounted_price=Decimal("451"),
+        max_auto_promo_price=Decimal("451"),
+        wb_condition_discount_percent=Decimal("75"),
+        condition_type="max_price",
+        allowed_deviation_percent=Decimal("10"),
+        discount=Decimal("75"),
+    )
+
+    assert rec.status == STATUS_ALREADY_ELIGIBLE

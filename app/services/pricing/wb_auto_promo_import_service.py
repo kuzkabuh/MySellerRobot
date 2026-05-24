@@ -4,6 +4,7 @@ description: Excel/CSV import service for WB auto promotion conditions.
 updated: 2026-05-23
 """
 
+import asyncio
 import csv
 import io
 import logging
@@ -33,7 +34,16 @@ COLUMN_MAP_RU = {
     "название товара": "title",
     "название автоакции": "promotion_name",
     "цена для участия": "required_price",
+    "плановая цена для акции": "required_price",
     "текущая цена wb": "current_wb_price",
+    "текущая розничная цена": "current_full_price",
+    "текущая скидка на сайте, %": "current_discount",
+    "загружаемая скидка для участия в акции": "wb_upload_discount_percent",
+    "товар уже участвует в акции": "is_participating",
+    "артикул wb": "wb_nm_id",
+    "артикул поставщика": "seller_article",
+    "наименование": "title",
+    "статус": "wb_status",
     "участвует": "is_participating",
     "комментарий": "comment",
 }
@@ -45,11 +55,16 @@ COLUMN_MAP_TECH = {
     "promotion_name": "promotion_name",
     "required_price": "required_price",
     "current_wb_price": "current_wb_price",
+    "current_full_price": "current_full_price",
+    "current_discount": "current_discount",
+    "current_discounted_price": "current_discounted_price",
+    "wb_upload_discount_percent": "wb_upload_discount_percent",
+    "wb_status": "wb_status",
     "is_participating": "is_participating",
     "comment": "comment",
 }
 
-REQUIRED_COLUMNS = {"wb_nm_id", "required_price"}
+REQUIRED_COLUMNS = {"wb_nm_id"}
 
 
 @dataclass(slots=True)
@@ -76,6 +91,11 @@ class AutoPromoImportRow:
     promotion_name: str | None
     required_price: Decimal | None
     current_wb_price: Decimal | None
+    current_full_price: Decimal | None
+    current_discount: Decimal | None
+    current_discounted_price: Decimal | None
+    wb_upload_discount_percent: Decimal | None
+    condition_type: str
     is_participating: bool | None
     product_id: int | None
     status: str
@@ -157,12 +177,12 @@ class WbAutoPromoImportService:
                 "wb_auto_promo_import_bad_zip_file",
                 extra={"file": original_file_name or file_path.name},
             )
-            raise ValueError("Excel-файл повреждён или сохранён не в формате XLSX")
+            raise ValueError("Excel-файл повреждён или сохранён не в формате XLSX") from None
         except ValueError:
             raise
         except Exception as exc:
             logger.exception("wb_auto_promo_import_unexpected_error")
-            raise ValueError(f"Ошибка при чтении файла: {exc}")
+            raise ValueError(f"Ошибка при чтении файла: {exc}") from exc
 
     async def _parse_xlsx(
         self,
@@ -175,8 +195,9 @@ class WbAutoPromoImportService:
         """Parse XLSX/XLSM file."""
         wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
         try:
+            ws = wb["Отчёт по скидкам"] if "Отчёт по скидкам" in wb.sheetnames else wb.active
             return await self._process_rows(
-                wb.active.iter_rows(values_only=True),
+                ws.iter_rows(values_only=True),
                 user_id, marketplace_account_id, source, original_file_name,
             )
         finally:
@@ -191,8 +212,7 @@ class WbAutoPromoImportService:
         original_file_name: str | None,
     ) -> tuple[AutoPromoImportPreview, list[dict[str, Any]]]:
         """Parse CSV file."""
-        with open(file_path, "r", encoding="utf-8-sig") as f:
-            content = f.read()
+        content = await asyncio.to_thread(file_path.read_text, encoding="utf-8-sig")
 
         reader = csv.reader(io.StringIO(content))
         rows_iter = iter(reader)
@@ -218,6 +238,13 @@ class WbAutoPromoImportService:
         missing = REQUIRED_COLUMNS - set(headers.values())
         if missing:
             raise ValueError(f"Нет обязательных колонок: {', '.join(missing)}")
+        has_price_condition = bool(
+            {"required_price", "wb_upload_discount_percent"} & set(headers.values())
+        )
+        if not has_price_condition:
+            raise ValueError(
+                "Нет обязательных колонок: required_price или wb_upload_discount_percent"
+            )
 
         preview_rows: list[dict[str, Any]] = []
         valid_count = 0
@@ -235,10 +262,31 @@ class WbAutoPromoImportService:
             wb_nm_id = self._parse_int(row_data.get("wb_nm_id"))
             required_price = self._parse_decimal(row_data.get("required_price"))
             current_wb_price = self._parse_decimal(row_data.get("current_wb_price"))
+            current_full_price = self._parse_decimal(row_data.get("current_full_price"))
+            current_discount = self._parse_decimal(row_data.get("current_discount"))
+            wb_upload_discount_percent = self._parse_decimal(
+                row_data.get("wb_upload_discount_percent")
+            )
+            current_discounted_price = self._parse_decimal(
+                row_data.get("current_discounted_price")
+            )
+            if current_discounted_price is None:
+                current_discounted_price = self._discounted_price(
+                    current_full_price,
+                    current_discount,
+                )
+            if current_wb_price is None:
+                current_wb_price = current_discounted_price
             is_participating = self._parse_bool(row_data.get("is_participating"))
             seller_article = str(row_data.get("seller_article") or "").strip()
             title = str(row_data.get("title") or "").strip()
             promotion_name = str(row_data.get("promotion_name") or "").strip()
+            wb_status = str(row_data.get("wb_status") or "").strip()
+            condition_type = "max_price" if required_price is not None else "discount_projection"
+            fallback_price = self._discounted_price(
+                current_full_price,
+                wb_upload_discount_percent,
+            )
 
             status = "valid"
             message: str | None = None
@@ -248,9 +296,18 @@ class WbAutoPromoImportService:
                 status = "error"
                 message = "nmID не указан или некорректен"
                 error_count += 1
-            elif required_price is None or required_price <= 0:
+            elif required_price is not None and required_price <= 0:
                 status = "error"
-                message = "Цена для участия не указана или <= 0"
+                message = "Плановая цена для акции <= 0"
+                error_count += 1
+            elif required_price is None and (
+                fallback_price is None or fallback_price <= 0
+            ):
+                status = "error"
+                message = (
+                    "Плановая цена не указана, а загружаемую скидку нельзя "
+                    "пересчитать в цену"
+                )
                 error_count += 1
             else:
                 product = await self._find_product_by_nm_id(
@@ -271,10 +328,38 @@ class WbAutoPromoImportService:
                 "promotion_name": promotion_name or None,
                 "required_price": required_price,
                 "current_wb_price": current_wb_price,
+                "current_full_price": current_full_price,
+                "current_discount": current_discount,
+                "current_discounted_price": current_discounted_price,
+                "wb_upload_discount_percent": wb_upload_discount_percent,
+                "fallback_discounted_price": fallback_price,
+                "condition_type": condition_type,
+                "wb_status": wb_status or None,
                 "is_participating": is_participating,
                 "product_id": product.id if product else None,
                 "status": status,
                 "message": message,
+                "raw_payload": {
+                    "row_num": row_idx,
+                    "wb_status": wb_status or None,
+                    "plan_price": str(required_price) if required_price is not None else None,
+                    "current_full_price": str(current_full_price)
+                    if current_full_price is not None
+                    else None,
+                    "current_discount": str(current_discount)
+                    if current_discount is not None
+                    else None,
+                    "current_discounted_price": str(current_discounted_price)
+                    if current_discounted_price is not None
+                    else None,
+                    "wb_upload_discount_percent": str(wb_upload_discount_percent)
+                    if wb_upload_discount_percent is not None
+                    else None,
+                    "fallback_discounted_price": str(fallback_price)
+                    if fallback_price is not None
+                    else None,
+                    "wb_upload_discount_is_diagnostic": required_price is not None,
+                },
             })
 
         total_rows = len(preview_rows)
@@ -320,7 +405,13 @@ class WbAutoPromoImportService:
 
             wb_nm_id = row_data.get("wb_nm_id")
             required_price = row_data.get("required_price")
-            if wb_nm_id is None or required_price is None:
+            current_full_price = row_data.get("current_full_price")
+            upload_discount = row_data.get("wb_upload_discount_percent")
+            fallback_price = row_data.get("fallback_discounted_price")
+            condition_type = row_data.get("condition_type") or "unknown"
+            if wb_nm_id is None:
+                continue
+            if required_price is None and fallback_price is None:
                 continue
 
             existing = await self.session.execute(
@@ -349,7 +440,14 @@ class WbAutoPromoImportService:
             condition.promotion_name = row_data.get("promotion_name")
             condition.required_price = required_price
             condition.current_wb_price = row_data.get("current_wb_price")
+            condition.wb_condition_discount_percent = upload_discount
+            condition.current_full_price = current_full_price
+            condition.current_discount = self._decimal_to_int(row_data.get("current_discount"))
+            condition.current_discounted_price = row_data.get("current_discounted_price")
+            condition.candidate_discounted_price = required_price or fallback_price
+            condition.condition_type = condition_type
             condition.is_participating = row_data.get("is_participating")
+            condition.raw_payload = row_data.get("raw_payload")
             condition.synced_at = now_utc
             saved_count += 1
 
@@ -408,16 +506,28 @@ class WbAutoPromoImportService:
         if value is None:
             return None
         try:
-            return int(value)
+            return int(str(value).replace("\xa0", "").replace(" ", "").strip())
         except (ValueError, TypeError):
-            return None
+            try:
+                return int(Decimal(str(value)))
+            except (InvalidOperation, ValueError, TypeError):
+                return None
 
     @staticmethod
     def _parse_decimal(value: Any) -> Decimal | None:
         if value is None or value == "":
             return None
         try:
-            return Decimal(str(value).replace(",", "."))
+            normalized = (
+                str(value)
+                .replace("\xa0", "")
+                .replace(" ", "")
+                .replace("₽", "")
+                .replace("%", "")
+                .replace(",", ".")
+                .strip()
+            )
+            return Decimal(normalized)
         except (InvalidOperation, ValueError, TypeError):
             return None
 
@@ -433,3 +543,23 @@ class WbAutoPromoImportService:
         if s in ("нет", "no", "false", "0", "не участвует"):
             return False
         return None
+
+    @staticmethod
+    def _discounted_price(
+        full_price: Decimal | None,
+        discount_percent: Decimal | None,
+    ) -> Decimal | None:
+        if full_price is None or discount_percent is None:
+            return None
+        if full_price <= 0 or discount_percent < 0 or discount_percent >= 100:
+            return None
+        return full_price * (Decimal("1") - discount_percent / Decimal("100"))
+
+    @staticmethod
+    def _decimal_to_int(value: Any) -> int | None:
+        if value is None:
+            return None
+        try:
+            return int(Decimal(str(value)))
+        except (InvalidOperation, ValueError, TypeError):
+            return None

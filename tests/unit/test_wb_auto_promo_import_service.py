@@ -1,12 +1,12 @@
 """Tests for WbAutoPromoImportService - Excel/CSV import for auto promotion conditions."""
 
 import csv
-import io
+import math
+import os
 from decimal import Decimal
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from unittest.mock import AsyncMock, MagicMock, patch
-from zipfile import BadZipFile
 
 import openpyxl
 import pytest
@@ -33,12 +33,54 @@ def _create_excel_file(rows: list[list], headers: list[str] | None = None) -> Pa
     return Path(tmp.name)
 
 
+def _create_wb_discount_report(rows: list[list]) -> Path:
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Отчёт по скидкам"
+    ws.append(
+        [
+            "Товар уже участвует в акции",
+            "Бренд",
+            "Предмет",
+            "Наименование",
+            "Артикул поставщика",
+            "Артикул WB",
+            "Последний баркод",
+            "",
+            "",
+            "",
+            "",
+            "Плановая цена для акции",
+            "Текущая розничная цена",
+            "Валюта",
+            "Текущая скидка на сайте, %",
+            "Загружаемая скидка для участия в акции",
+            "Статус",
+        ]
+    )
+    for row in rows:
+        ws.append(row)
+    tmp = NamedTemporaryFile(suffix=".xlsx", delete=False)
+    wb.save(tmp.name)
+    tmp.close()
+    return Path(tmp.name)
+
+
+def _remove_file(path: Path) -> None:
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+
+
 # Test 1: Import conditions from file row
 @pytest.mark.asyncio
 async def test_import_conditions_from_file():
     """File row with wb_nm_id=345455998, required_price=846 should be saved."""
     session = AsyncMock()
-    session.execute = AsyncMock(return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None)))
+    session.execute = AsyncMock(
+        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None))
+    )
     session.add = MagicMock()
     session.flush = AsyncMock()
 
@@ -111,7 +153,7 @@ async def test_preview_valid_row_finds_product():
         assert preview_rows[0]["required_price"] == Decimal("846")
 
         try:
-            file_path.unlink(missing_ok=True)
+            _remove_file(file_path)
         except Exception:
             pass
 
@@ -145,7 +187,7 @@ async def test_preview_missing_product_shows_warning():
         assert preview_rows[0]["status"] == "warning"
 
         try:
-            file_path.unlink(missing_ok=True)
+            _remove_file(file_path)
         except Exception:
             pass
 
@@ -173,7 +215,7 @@ async def test_preview_invalid_nm_id_shows_error():
     assert preview_rows[0]["status"] == "error"
 
     try:
-        file_path.unlink(missing_ok=True)
+        _remove_file(file_path)
     except Exception:
         pass
 
@@ -201,7 +243,7 @@ async def test_preview_missing_required_price_shows_error():
     assert preview_rows[0]["status"] == "error"
 
     try:
-        file_path.unlink(missing_ok=True)
+        _remove_file(file_path)
     except Exception:
         pass
 
@@ -219,6 +261,107 @@ def test_parse_bool_values():
     assert WbAutoPromoImportService._parse_bool("0") is False
     assert WbAutoPromoImportService._parse_bool(None) is None
     assert WbAutoPromoImportService._parse_bool("unknown") is None
+
+
+@pytest.mark.asyncio
+async def test_wb_discount_report_uses_plan_price_as_auto_promo_price():
+    session = AsyncMock()
+    mock_product = MagicMock()
+    mock_product.id = 303
+    service = WbAutoPromoImportService(session)
+
+    with patch.object(
+        WbAutoPromoImportService,
+        "_find_product_by_nm_id",
+        new=AsyncMock(return_value=mock_product),
+    ):
+        file_path = _create_wb_discount_report(
+            [[
+                "нет",
+                "Brand",
+                "Cream",
+                "Крем Wai Ora",
+                "SUP-1",
+                303892412,
+                "barcode",
+                "",
+                "",
+                "",
+                "",
+                446,
+                1820,
+                "RUB",
+                75,
+                76,
+                "Можно участвовать",
+            ]]
+        )
+
+        preview, rows = await service.create_preview(
+            file_path,
+            user_id=1,
+            marketplace_account_id=2,
+        )
+
+        assert preview.valid_rows == 1
+        row = rows[0]
+        assert row["wb_nm_id"] == 303892412
+        assert row["required_price"] == Decimal("446")
+        assert row["current_full_price"] == Decimal("1820")
+        assert row["current_discount"] == Decimal("75")
+        assert row["current_discounted_price"] == Decimal("455.00")
+        assert row["wb_upload_discount_percent"] == Decimal("76")
+        assert row["fallback_discounted_price"] == Decimal("436.80")
+        assert row["condition_type"] == "max_price"
+        assert row["raw_payload"]["wb_upload_discount_is_diagnostic"] is True
+        assert math.ceil((1 - 446 / 1820) * 100) == 76
+
+        _remove_file(file_path)
+
+
+@pytest.mark.asyncio
+async def test_wb_discount_report_apply_persists_upload_discount_as_diagnostic():
+    session = AsyncMock()
+    session.execute = AsyncMock(
+        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None))
+    )
+    session.add = MagicMock()
+    session.flush = AsyncMock()
+    service = WbAutoPromoImportService(session)
+    preview_rows = [{
+        "row_num": 2,
+        "wb_nm_id": 303892412,
+        "seller_article": "SUP-1",
+        "title": "Крем Wai Ora",
+        "promotion_name": None,
+        "required_price": Decimal("446"),
+        "current_wb_price": Decimal("455"),
+        "current_full_price": Decimal("1820"),
+        "current_discount": Decimal("75"),
+        "current_discounted_price": Decimal("455"),
+        "wb_upload_discount_percent": Decimal("76"),
+        "fallback_discounted_price": Decimal("436.80"),
+        "condition_type": "max_price",
+        "wb_status": "Можно участвовать",
+        "is_participating": False,
+        "product_id": 303,
+        "status": "valid",
+        "message": None,
+        "raw_payload": {"wb_upload_discount_is_diagnostic": True},
+    }]
+
+    saved = await service.apply_import(preview_rows, user_id=1, marketplace_account_id=2)
+
+    assert saved == 1
+    condition = session.add.call_args[0][0]
+    assert condition.required_price == Decimal("446")
+    assert condition.wb_condition_discount_percent == Decimal("76")
+    assert condition.current_full_price == Decimal("1820")
+    assert condition.current_discount == 75
+    assert condition.current_discounted_price == Decimal("455")
+    assert condition.candidate_discounted_price == Decimal("446")
+    assert condition.condition_type == "max_price"
+    assert condition.raw_payload["wb_upload_discount_is_diagnostic"] is True
 
 
 # Test 7: Template generation
@@ -246,7 +389,7 @@ async def test_template_generation():
         if wb:
             wb.close()
         try:
-            file_path.unlink(missing_ok=True)
+            _remove_file(file_path)
         except Exception:
             pass
 
@@ -266,7 +409,7 @@ def _create_csv_file(rows: list[list], headers: list[str] | None = None) -> Path
 # Test 8: Import from CSV file
 @pytest.mark.asyncio
 async def test_import_from_csv_file():
-    """CSV file with wb_nm_id=345455998, required_price=846 should be imported without BadZipFile."""
+    """CSV file with wb_nm_id=345455998 should be imported without BadZipFile."""
     session = AsyncMock()
 
     mock_product = MagicMock()
@@ -300,7 +443,7 @@ async def test_import_from_csv_file():
         assert preview_rows[0]["required_price"] == Decimal("846")
 
         try:
-            file_path.unlink(missing_ok=True)
+            _remove_file(file_path)
         except Exception:
             pass
 
@@ -328,7 +471,7 @@ async def test_import_invalid_xlsx_returns_user_friendly_error():
     assert "повреждён" in str(exc_info.value) or "XLSX" in str(exc_info.value)
 
     try:
-        file_path.unlink(missing_ok=True)
+        _remove_file(file_path)
     except Exception:
         pass
 
@@ -355,6 +498,6 @@ async def test_import_unsupported_format_returns_error():
     assert ".xlsx" in str(exc_info.value) and ".csv" in str(exc_info.value)
 
     try:
-        file_path.unlink(missing_ok=True)
+        _remove_file(file_path)
     except Exception:
         pass

@@ -574,10 +574,11 @@ class WbAutoPromoParticipationService:
             .where(
                 WbAutoPromotionCondition.marketplace_account_id == account_id,
                 WbAutoPromotionCondition.wb_nm_id == wb_nm_id,
-                WbAutoPromotionCondition.source == "wb_api",
+                WbAutoPromotionCondition.source.in_(("wb_api", "file_import")),
             )
             .order_by(
                 WbAutoPromotionCondition.required_price.is_(None),
+                WbAutoPromotionCondition.source == "wb_api",
                 WbAutoPromotionCondition.synced_at.desc(),
             )
             .limit(1)

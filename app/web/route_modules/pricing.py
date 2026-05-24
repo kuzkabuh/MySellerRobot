@@ -3,13 +3,17 @@
 # ruff: noqa: E501
 
 import json
+import os
+import tempfile
 from collections import defaultdict
 from dataclasses import dataclass
 from decimal import Decimal
 from html import escape
+from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
-from fastapi import APIRouter, Form
+from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,6 +31,7 @@ from app.models.domain import (
 )
 from app.models.enums import Marketplace
 from app.services.pricing.wb_auto_promo_condition_resolver import WbAutoPromoConditionResolver
+from app.services.pricing.wb_auto_promo_import_service import WbAutoPromoImportService
 from app.services.pricing.wb_auto_promo_participation_service import (
     WbAutoPromoParticipationService,
 )
@@ -38,6 +43,7 @@ from app.web.rendering import page
 
 router = APIRouter()
 RECOMMENDATION_IDS_FORM = Form(default=[])
+AUTO_PROMO_UPLOAD_FILE = File(...)
 
 
 @dataclass(slots=True)
@@ -108,6 +114,63 @@ async def pricing_resolve_conditions(
             )
         )
     return RedirectResponse(url=f"/web/pricing?conditions={total}#conditions", status_code=303)
+
+
+@router.post("/pricing/upload-auto-promo-file")
+async def pricing_upload_auto_promo_file(
+    marketplace_account_id: int = Form(...),
+    file: UploadFile = AUTO_PROMO_UPLOAD_FILE,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    account = await session.get(MarketplaceAccount, marketplace_account_id)
+    if account is None or account.user_id != user.id or account.marketplace != Marketplace.WB:
+        return RedirectResponse(url="/web/pricing?upload_error=account#recommendations", status_code=303)
+
+    content = await file.read()
+    original_filename = file.filename or "auto_promo.xlsx"
+    suffix = Path(original_filename).suffix.lower()
+    if suffix not in (".xlsx", ".xlsm", ".csv"):
+        suffix = ".xlsx"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(content)
+        tmp_path = Path(tmp.name)
+
+    try:
+        import_service = WbAutoPromoImportService(session)
+        _preview, rows = await import_service.create_preview(
+            tmp_path,
+            user.id,
+            marketplace_account_id,
+            original_file_name=original_filename,
+        )
+        saved = await import_service.apply_import(
+            rows,
+            user.id,
+            marketplace_account_id,
+        )
+        recommendations = await WbAutoPromoParticipationService(
+            session
+        ).calculate_participation_recommendations(marketplace_account_id, commit=False)
+        await session.commit()
+        return RedirectResponse(
+            url=(
+                "/web/pricing?"
+                f"uploaded={saved}&recommendations={len(recommendations)}#recommendations"
+            ),
+            status_code=303,
+        )
+    except ValueError as exc:
+        await session.rollback()
+        return RedirectResponse(
+            url=f"/web/pricing?upload_error={quote(str(exc))}#recommendations",
+            status_code=303,
+        )
+    finally:
+        try:
+            os.remove(tmp_path)
+        except FileNotFoundError:
+            pass
 
 
 @router.post("/pricing/build-recommendations")
@@ -623,8 +686,18 @@ def _condition_row(condition: WbAutoPromotionCondition, product: Product | None)
 
 
 def _recommendations_section(data: PricingViewData) -> str:
+    upload_form = _auto_promo_upload_form(data.accounts)
     if not data.recommendations:
-        return _panel("recommendations", "Рекомендации", _empty_state("Рекомендаций пока нет", "Сформировать рекомендации", "/web/pricing/build-recommendations"))
+        return _panel(
+            "recommendations",
+            "Автоакции WB",
+            upload_form
+            + _empty_state(
+                "Рекомендаций пока нет",
+                "Рассчитать участие",
+                "/web/pricing/build-recommendations",
+            ),
+        )
 
     promotion_options = sorted({rec.promotion_name for rec in data.recommendations if rec.promotion_name})
     filters = f"""
@@ -646,17 +719,38 @@ def _recommendations_section(data: PricingViewData) -> str:
     """
     rows = "".join(_recommendation_pair(row, data.products_by_id.get(row.product_id)) for row in data.recommendations)
     table = f"""
+    {upload_form}
     <form id="pricing-recommendations-form" method="post" action="/web/pricing/apply" data-apply-confirm="1">
       {filters}
       <div class="pricing-table-wrap">
         <table class="pricing-table pricing-recommendations-table">
-          <thead><tr><th></th><th>Товар</th><th>nmID</th><th>Акция</th><th>МРЦ</th><th>Текущая цена WB</th><th>Цена входа</th><th>Границы МРЦ</th><th>Рекомендуемая</th><th>Полная цена WB</th><th>Скидка</th><th>Статус</th><th>Действие</th></tr></thead>
+          <thead><tr><th></th><th>Товар</th><th>Артикул</th><th>nmID</th><th>Акция</th><th>Плановая цена</th><th>Текущая полная</th><th>Текущая скидка</th><th>Текущая со скидкой</th><th>Загружаемая скидка WB</th><th>МРЦ</th><th>Мин. МРЦ</th><th>Рекомендуемая</th><th>Новая полная</th><th>Скидка отправки</th><th>Статус</th><th>Причина</th></tr></thead>
           <tbody>{rows}</tbody>
         </table>
       </div>
     </form>
     """
     return _panel("recommendations", "Автоакции WB", table)
+
+
+def _auto_promo_upload_form(accounts: list[MarketplaceAccount]) -> str:
+    if not accounts:
+        return ""
+    options = "".join(
+        f'<option value="{account.id}">{escape(account.name or f"WB #{account.id}")}</option>'
+        for account in accounts
+    )
+    return f"""
+    <form class="pricing-upload-form" method="post" action="/web/pricing/upload-auto-promo-file" enctype="multipart/form-data">
+      <div>
+        <strong>Файл WB по автоакции</strong>
+        <small>Лист «Отчёт по скидкам»: плановая цена — цена входа, загружаемая скидка WB — диагностика.</small>
+      </div>
+      <select name="marketplace_account_id">{options}</select>
+      <input type="file" name="file" accept=".xlsx,.xlsm,.csv" required>
+      <button class="pricing-button pricing-button-primary" type="submit">Загрузить файл WB по автоакции</button>
+    </form>
+    """
 
 
 def _recommendation_pair(row: WbAutoPromoPriceRecommendation, product: Product | None) -> str:
@@ -678,7 +772,6 @@ def _recommendation_pair(row: WbAutoPromoPriceRecommendation, product: Product |
         discount = f"{payload.discount}%"
         checkbox = f'<input class="pricing-rec-checkbox" type="checkbox" name="recommendation_ids" value="{row.id}">'
         action = "Готово к WB"
-    bounds = f"{_money(row.mrc_lower_bound)} - {_money(row.mrc_upper_bound)}"
     searchable = " ".join(
         [
             str(row.wb_nm_id),
@@ -692,20 +785,24 @@ def _recommendation_pair(row: WbAutoPromoPriceRecommendation, product: Product |
     return f"""
     <tr class="pricing-rec-row" data-search="{escape(searchable.lower())}" data-status="{escape(row.status)}" data-promo="{escape(row.promotion_name or '')}" data-can-apply="{'1' if row.status == 'CAN_APPLY' else '0'}" data-problem="{problem}" data-mrc="{row.mrc_price}" data-recommended="{row.recommended_discounted_price or 0}" data-updated="{row.id}">
       <td>{checkbox}</td>
-      <td>{_product_title(product)}<small>{escape(product.seller_article or '') if product else ''}</small></td>
+      <td>{_product_title(product)}</td>
+      <td>{escape(product.seller_article or '') if product else ''}</td>
       <td>{row.wb_nm_id}</td>
       <td>{escape(row.promotion_name or '')}</td>
-      <td>{_money(row.mrc_price)}</td>
-      <td>{_money(row.current_discounted_price or row.current_wb_price)}</td>
       <td>{_money(row.candidate_discounted_price or row.max_auto_promo_price or row.required_price)}</td>
-      <td>{bounds}</td>
+      <td>{_money(row.current_full_price)}</td>
+      <td>{row.current_discount or ''}%</td>
+      <td>{_money(row.current_discounted_price or row.current_wb_price)}</td>
+      <td>{row.wb_condition_discount_percent or ''}%</td>
+      <td>{_money(row.mrc_price)}</td>
+      <td>{_money(row.mrc_lower_bound)}</td>
       <td>{_money(row.recommended_discounted_price or row.recommended_price)}</td>
       <td>{_money(row.recommended_full_price) or escape(full_price)}</td>
       <td>{escape(discount)}</td>
       <td>{_status_badge(row.status)}</td>
-      <td>{escape(action)}</td>
+      <td>{escape(row.reason or action)}</td>
     </tr>
-    <tr class="pricing-rec-details"><td colspan="13"><details><summary>Подробнее</summary>{details}</details></td></tr>
+    <tr class="pricing-rec-details"><td colspan="17"><details><summary>Подробнее</summary>{details}</details></td></tr>
     """
 
 
@@ -953,6 +1050,10 @@ def _pricing_css() -> str:
     .pricing-badge-green{background:#dcfce7;color:#047857}.pricing-badge-blue{background:#dbeafe;color:#1d4ed8}.pricing-badge-red{background:#fee2e2;color:#b91c1c}.pricing-badge-amber{background:#fef3c7;color:#92400e}.pricing-badge-gray{background:#f1f5f9;color:#475569}.pricing-badge-violet{background:#ede9fe;color:#6d28d9}
     .pricing-action-bar{padding:14px;margin-bottom:12px;background:#fff;border:1px solid #e2e8f0;border-radius:20px}
     .pricing-action-bar input,.pricing-action-bar select{border:1px solid #dbe3ef;border-radius:12px;padding:10px 12px;background:#fff}
+    .pricing-upload-form{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:16px;margin-bottom:14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:20px}
+    .pricing-upload-form strong{display:block;color:#0f172a}
+    .pricing-upload-form small{display:block;color:#64748b;margin-top:3px}
+    .pricing-upload-form select,.pricing-upload-form input[type=file]{border:1px solid #dbe3ef;border-radius:12px;padding:10px 12px;background:#fff}
     .pricing-bulk-bar{padding:12px;margin-bottom:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:18px}
     .pricing-empty-state{display:grid;gap:10px;justify-items:start;padding:28px;border-radius:22px;background:#fff;border:1px dashed #cbd5e1;color:#475569}.pricing-empty-state strong{font-size:18px;color:#0f172a}.pricing-empty-state.compact{padding:16px}
     .pricing-promo-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.pricing-promo-top,.pricing-card-footer{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.pricing-promo-card h3{margin:0}.pricing-auto-note{color:#6d28d9;background:#f5f3ff;padding:10px;border-radius:14px}
@@ -964,7 +1065,7 @@ def _pricing_css() -> str:
     .pricing-raw-block{position:relative;background:#fff;border:1px solid #e2e8f0;border-radius:18px;padding:14px;margin-top:12px}.pricing-copy-button{position:absolute;right:14px;top:12px;border:0;border-radius:10px;background:#e2e8f0;padding:7px 10px;font-weight:800}
     .pricing-muted{color:#94a3b8}
     @media (max-width:1100px){.pricing-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.pricing-overview-grid,.pricing-details-grid,.pricing-promo-grid{grid-template-columns:1fr}.pricing-hero{flex-direction:column}}
-    @media (max-width:640px){.pricing-kpi-grid{grid-template-columns:1fr}.pricing-hero{padding:20px;border-radius:20px}.pricing-hero h1{font-size:28px}.pricing-hero-actions,.pricing-action-bar,.pricing-bulk-bar{flex-direction:column;align-items:stretch}.pricing-button,.pricing-action-bar input,.pricing-action-bar select{width:100%}.pricing-mini-grid,.pricing-attention-list{grid-template-columns:1fr}}
+    @media (max-width:640px){.pricing-kpi-grid{grid-template-columns:1fr}.pricing-hero{padding:20px;border-radius:20px}.pricing-hero h1{font-size:28px}.pricing-hero-actions,.pricing-action-bar,.pricing-bulk-bar,.pricing-upload-form{flex-direction:column;align-items:stretch}.pricing-button,.pricing-action-bar input,.pricing-action-bar select,.pricing-upload-form select,.pricing-upload-form input{width:100%}.pricing-mini-grid,.pricing-attention-list{grid-template-columns:1fr}}
     """
 
 
