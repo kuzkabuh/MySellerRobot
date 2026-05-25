@@ -14,7 +14,6 @@ from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, File, Form, UploadFile
-from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.responses import Response
 from sqlalchemy import func, select

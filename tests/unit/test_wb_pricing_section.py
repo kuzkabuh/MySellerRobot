@@ -170,3 +170,246 @@ def test_no_required_price_creates_no_required_price_status() -> None:
     assert rec.status == STATUS_NO_REQUIRED_PRICE
     assert rec.recommended_price is None
     assert "raw_payload" in rec.reason
+
+
+def test_auto_promo_condition_model_columns_covered_by_migrations() -> None:
+    """Regression: all model columns must be present in migration chain.
+
+    Prevents UndefinedColumnError when production DB runs migrations.
+    Specifically guards against missing max_auto_promo_price and other
+    participation fields added in migration 0044.
+    """
+    import pathlib
+
+    from app.models.domain import WbAutoPromotionCondition
+
+    model_columns = {
+        col.key for col in WbAutoPromotionCondition.__table__.columns
+    }
+
+    expected_columns = {
+        "id", "user_id", "marketplace_account_id", "wb_promotion_id",
+        "wb_nm_id", "seller_article", "title", "promotion_name",
+        "required_price", "max_auto_promo_price",
+        "wb_condition_discount_percent", "current_wb_price",
+        "current_full_price", "current_discount", "current_discounted_price",
+        "candidate_discounted_price", "condition_type", "is_participating",
+        "source", "confidence", "raw_payload", "synced_at",
+        "created_at", "updated_at",
+    }
+
+    assert expected_columns.issubset(model_columns), (
+        f"Model missing columns: {expected_columns - model_columns}"
+    )
+
+    migration_dir = pathlib.Path("migrations/versions")
+    migration_sources = []
+    for f in sorted(migration_dir.glob("*.py")):
+        if f.name.startswith("__"):
+            continue
+        migration_sources.append(f.read_text())
+
+    all_migration_text = "\n".join(migration_sources)
+    for col in expected_columns:
+        assert col in all_migration_text, (
+            f"Column {col!r} must be in some migration file"
+        )
+
+
+def test_pricing_module_imports_without_fastapi_error() -> None:
+    """Regression: pricing module must import without FastAPI startup errors.
+
+    Guards against union return types like str | RedirectResponse that
+    crash FastAPI at import time.
+    """
+    from app.web.route_modules.pricing import router
+
+    paths = {route.path for route in router.routes}
+    assert "/pricing" in paths
+    assert "/pricing/auto-promotions/upload/preview" in paths
+
+
+def test_auto_promo_mrc_1000_promo_950_is_can_apply() -> None:
+    """Scenario: MRC 1000, deviation 10%, min allowed 900, promo max 950.
+
+    Since 950 >= 900 (lower bound), the system should recommend price 950.
+    """
+    from app.services.pricing.wb_auto_promo_participation_service import (
+        STATUS_CAN_APPLY,
+        WbAutoPromoParticipationService,
+    )
+
+    rec = WbAutoPromoParticipationService.calculate(
+        mrc_price=Decimal("1000"),
+        current_full_price=Decimal("4000"),
+        current_discount=75,
+        current_discounted_price=Decimal("1000"),
+        max_auto_promo_price=Decimal("950"),
+        wb_condition_discount_percent=None,
+        condition_type="max_price",
+        min_price=None,
+        allowed_deviation_percent=Decimal("10"),
+        discount=Decimal("75"),
+    )
+
+    assert rec.status == STATUS_CAN_APPLY
+    assert rec.recommended_discounted_price == Decimal("950")
+    assert rec.candidate_discounted_price == Decimal("950")
+    assert rec.mrc_lower_bound == Decimal("900")
+    assert rec.reason == "Можно применить цену входа WB для автоакции."
+
+
+def test_auto_promo_full_price_is_discounted_times_4() -> None:
+    """WB full price = discounted_price * 4 (75% discount)."""
+    from app.services.pricing.wb_auto_promo_participation_service import (
+        STATUS_CAN_APPLY,
+        WbAutoPromoParticipationService,
+    )
+
+    rec = WbAutoPromoParticipationService.calculate(
+        mrc_price=Decimal("1000"),
+        current_full_price=Decimal("4000"),
+        current_discount=75,
+        current_discounted_price=Decimal("1000"),
+        max_auto_promo_price=Decimal("950"),
+        wb_condition_discount_percent=None,
+        condition_type="max_price",
+        min_price=None,
+        allowed_deviation_percent=Decimal("10"),
+        discount=Decimal("75"),
+    )
+
+    assert rec.status == STATUS_CAN_APPLY
+    assert rec.recommended_full_price == Decimal("3800")
+    assert rec.recommended_discount == 75
+
+
+def test_auto_promo_blocked_when_below_mrc_lower_bound() -> None:
+    """If max_auto_promo_price < mrc_lower_bound, recommendation must be blocked."""
+    from app.services.pricing.wb_auto_promo_participation_service import (
+        STATUS_BLOCKED_BY_MRC,
+        WbAutoPromoParticipationService,
+    )
+
+    rec = WbAutoPromoParticipationService.calculate(
+        mrc_price=Decimal("1000"),
+        current_full_price=Decimal("4000"),
+        current_discount=75,
+        current_discounted_price=Decimal("1000"),
+        max_auto_promo_price=Decimal("850"),
+        wb_condition_discount_percent=None,
+        condition_type="max_price",
+        min_price=None,
+        allowed_deviation_percent=Decimal("10"),
+        discount=Decimal("75"),
+    )
+
+    assert rec.status == STATUS_BLOCKED_BY_MRC
+    assert rec.recommended_discounted_price is None
+    assert "ниже минимально допустимой" in rec.reason
+
+
+def test_auto_promo_blocked_when_below_min_price() -> None:
+    """If max_auto_promo_price < seller minPrice, recommendation must be blocked."""
+    from app.services.pricing.wb_auto_promo_participation_service import (
+        STATUS_BLOCKED_BY_MIN_PRICE,
+        WbAutoPromoParticipationService,
+    )
+
+    rec = WbAutoPromoParticipationService.calculate(
+        mrc_price=Decimal("1000"),
+        current_full_price=Decimal("4000"),
+        current_discount=75,
+        current_discounted_price=Decimal("1000"),
+        max_auto_promo_price=Decimal("950"),
+        wb_condition_discount_percent=None,
+        condition_type="max_price",
+        min_price=Decimal("960"),
+        allowed_deviation_percent=Decimal("10"),
+        discount=Decimal("75"),
+    )
+
+    assert rec.status == STATUS_BLOCKED_BY_MIN_PRICE
+    assert rec.recommended_discounted_price is None
+    assert "minPrice" in rec.reason
+
+
+def test_auto_promo_already_eligible_when_current_price_ok() -> None:
+    """If current discounted price already <= candidate, no action needed."""
+    from app.services.pricing.wb_auto_promo_participation_service import (
+        STATUS_ALREADY_ELIGIBLE,
+        WbAutoPromoParticipationService,
+    )
+
+    rec = WbAutoPromoParticipationService.calculate(
+        mrc_price=Decimal("1000"),
+        current_full_price=Decimal("4000"),
+        current_discount=75,
+        current_discounted_price=Decimal("900"),
+        max_auto_promo_price=Decimal("950"),
+        wb_condition_discount_percent=None,
+        condition_type="max_price",
+        min_price=None,
+        allowed_deviation_percent=Decimal("10"),
+        discount=Decimal("75"),
+    )
+
+    assert rec.status == STATUS_ALREADY_ELIGIBLE
+    assert rec.recommended_discounted_price is None
+
+
+def test_auto_promo_candidate_from_discount_percent() -> None:
+    """When no max_auto_promo_price, candidate = current_full_price * (1 - discount/100)."""
+    from app.services.pricing.wb_auto_promo_participation_service import (
+        STATUS_CAN_APPLY,
+        WbAutoPromoParticipationService,
+    )
+
+    rec = WbAutoPromoParticipationService.calculate(
+        mrc_price=Decimal("1000"),
+        current_full_price=Decimal("4000"),
+        current_discount=75,
+        current_discounted_price=Decimal("1000"),
+        max_auto_promo_price=None,
+        wb_condition_discount_percent=Decimal("76.25"),
+        condition_type="discount_projection",
+        min_price=None,
+        allowed_deviation_percent=Decimal("10"),
+        discount=Decimal("75"),
+    )
+
+    assert rec.status == STATUS_CAN_APPLY
+    assert rec.candidate_discounted_price == Decimal("950.00")
+    assert rec.recommended_discounted_price == Decimal("950.00")
+
+
+def test_migration_chain_has_single_head() -> None:
+    """Alembic migration chain must have exactly one head."""
+    import subprocess
+
+    result = subprocess.run(
+        ["python", "-m", "alembic", "heads"],
+        capture_output=True,
+        text=True,
+    )
+    heads = [line.strip() for line in result.stdout.strip().splitlines() if line.strip()]
+    assert len(heads) == 1, f"Expected 1 head, got {len(heads)}: {heads}"
+    assert "20260525_0045_ensure_auto_promo_columns" in heads[0]
+
+
+def test_app_create_succeeds() -> None:
+    """FastAPI app must be created without errors."""
+    from app.api.main import create_app
+
+    app = create_app()
+    assert app is not None
+    assert len(app.routes) > 50
+
+
+def test_health_route_registered() -> None:
+    """Health check route must be registered."""
+    from app.api.main import create_app
+
+    app = create_app()
+    paths = {route.path for route in app.routes}
+    assert "/health" in paths
