@@ -123,9 +123,7 @@ def create_app() -> FastAPI:
             cookie_header = request.headers.get("cookie", "")
             cookie_count = len([c for c in cookie_header.split(";") if c.strip()])
             session_cookie_count = sum(
-                1
-                for c in cookie_header.split(";")
-                if c.strip().startswith("seller_web_session=")
+                1 for c in cookie_header.split(";") if c.strip().startswith("seller_web_session=")
             )
             if session_cookie_count != 1 and session_cookie_count > 0:
                 if session_cookie_count > 1:
@@ -236,7 +234,7 @@ def create_app() -> FastAPI:
     @app.get("/favicon.ico", include_in_schema=False)
     async def favicon() -> FileResponse:
         path = Path("logo.png")
-        if path.exists():
+        if await asyncio.to_thread(path.exists):
             return FileResponse(path, media_type="image/x-icon")
         return Response(status_code=204)
 
@@ -270,6 +268,9 @@ def create_app() -> FastAPI:
         return {"log": log}
 
     return app
+
+
+app = create_app()
 
 
 def _read_errors_log() -> str:

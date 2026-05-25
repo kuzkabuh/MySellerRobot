@@ -183,24 +183,38 @@ def test_auto_promo_condition_model_columns_covered_by_migrations() -> None:
 
     from app.models.domain import WbAutoPromotionCondition
 
-    model_columns = {
-        col.key for col in WbAutoPromotionCondition.__table__.columns
-    }
+    model_columns = {col.key for col in WbAutoPromotionCondition.__table__.columns}
 
     expected_columns = {
-        "id", "user_id", "marketplace_account_id", "wb_promotion_id",
-        "wb_nm_id", "seller_article", "title", "promotion_name",
-        "required_price", "max_auto_promo_price",
-        "wb_condition_discount_percent", "current_wb_price",
-        "current_full_price", "current_discount", "current_discounted_price",
-        "candidate_discounted_price", "condition_type", "is_participating",
-        "source", "confidence", "raw_payload", "synced_at",
-        "created_at", "updated_at",
+        "id",
+        "user_id",
+        "marketplace_account_id",
+        "wb_promotion_id",
+        "wb_nm_id",
+        "seller_article",
+        "title",
+        "promotion_name",
+        "required_price",
+        "max_auto_promo_price",
+        "wb_condition_discount_percent",
+        "current_wb_price",
+        "current_full_price",
+        "current_discount",
+        "current_discounted_price",
+        "candidate_discounted_price",
+        "condition_type",
+        "is_participating",
+        "source",
+        "confidence",
+        "raw_payload",
+        "synced_at",
+        "created_at",
+        "updated_at",
     }
 
-    assert expected_columns.issubset(model_columns), (
-        f"Model missing columns: {expected_columns - model_columns}"
-    )
+    assert expected_columns.issubset(
+        model_columns
+    ), f"Model missing columns: {expected_columns - model_columns}"
 
     migration_dir = pathlib.Path("migrations/versions")
     migration_sources = []
@@ -211,9 +225,7 @@ def test_auto_promo_condition_model_columns_covered_by_migrations() -> None:
 
     all_migration_text = "\n".join(migration_sources)
     for col in expected_columns:
-        assert col in all_migration_text, (
-            f"Column {col!r} must be in some migration file"
-        )
+        assert col in all_migration_text, f"Column {col!r} must be in some migration file"
 
 
 def test_pricing_module_imports_without_fastapi_error() -> None:
@@ -394,7 +406,7 @@ def test_migration_chain_has_single_head() -> None:
     )
     heads = [line.strip() for line in result.stdout.strip().splitlines() if line.strip()]
     assert len(heads) == 1, f"Expected 1 head, got {len(heads)}: {heads}"
-    assert "20260525_0045_ensure_auto_promo_columns" in heads[0]
+    assert "20260525_0046_wb_auto_promo_imports" in heads[0]
 
 
 def test_app_create_succeeds() -> None:
@@ -415,6 +427,30 @@ def test_health_route_registered() -> None:
     assert "/health" in paths
 
 
+def test_api_main_app_import_succeeds() -> None:
+    """Importing app.api.main:app must not fail."""
+    from app.api.main import app
+
+    assert app is not None
+
+
+def test_auto_promo_preview_get_route_redirects() -> None:
+    """Direct browser GET to preview URL must not produce a 500."""
+    from fastapi.testclient import TestClient
+
+    from app.api.main import create_app
+
+    app = create_app()
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get(
+            "/web/pricing/auto-promotions/upload/preview",
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/web/pricing")
+
+
 def test_file_import_models_exist() -> None:
     """WbAutoPromoFileImport and WbAutoPromoFileImportRow models must exist."""
     from app.models.domain import WbAutoPromoFileImport, WbAutoPromoFileImportRow
@@ -424,24 +460,47 @@ def test_file_import_models_exist() -> None:
 
     import_cols = {col.key for col in WbAutoPromoFileImport.__table__.columns}
     expected_import_cols = {
-        "id", "user_id", "marketplace_account_id", "original_file_name",
-        "promotion_name", "status", "total_rows", "valid_rows", "error_rows",
-        "warning_rows", "created_at", "updated_at", "applied_at", "error_text",
+        "id",
+        "user_id",
+        "marketplace_account_id",
+        "original_file_name",
+        "promotion_name",
+        "status",
+        "total_rows",
+        "valid_rows",
+        "error_rows",
+        "warning_rows",
+        "created_at",
+        "updated_at",
+        "applied_at",
+        "error_text",
     }
-    assert expected_import_cols.issubset(import_cols), (
-        f"File import model missing: {expected_import_cols - import_cols}"
-    )
+    assert expected_import_cols.issubset(
+        import_cols
+    ), f"File import model missing: {expected_import_cols - import_cols}"
 
     row_cols = {col.key for col in WbAutoPromoFileImportRow.__table__.columns}
     expected_row_cols = {
-        "id", "import_id", "row_number", "wb_nm_id", "seller_article", "title",
-        "plan_price", "current_full_price", "current_discount_percent",
-        "current_discounted_price", "wb_upload_discount_percent", "wb_status",
-        "already_participating", "status", "message", "raw_payload",
+        "id",
+        "import_id",
+        "row_number",
+        "wb_nm_id",
+        "seller_article",
+        "title",
+        "plan_price",
+        "current_full_price",
+        "current_discount_percent",
+        "current_discounted_price",
+        "wb_upload_discount_percent",
+        "wb_status",
+        "already_participating",
+        "status",
+        "message",
+        "raw_payload",
     }
-    assert expected_row_cols.issubset(row_cols), (
-        f"File import row model missing: {expected_row_cols - row_cols}"
-    )
+    assert expected_row_cols.issubset(
+        row_cols
+    ), f"File import row model missing: {expected_row_cols - row_cols}"
 
 
 def test_file_import_tables_in_migrations() -> None:
@@ -460,6 +519,74 @@ def test_file_import_tables_in_migrations() -> None:
     assert "wb_auto_promo_file_import_rows" in all_migration_text
 
 
+def test_latest_auto_promo_import_migration_creates_tables() -> None:
+    """Latest drift-repair migration must create import and row tables."""
+    from importlib import import_module
+
+    import sqlalchemy as sa
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+
+    migration = import_module("migrations.versions.20260525_0046_wb_auto_promo_imports")
+    engine = sa.create_engine("sqlite:///:memory:")
+    metadata = sa.MetaData()
+    sa.Table("users", metadata, sa.Column("id", sa.Integer(), primary_key=True))
+    sa.Table(
+        "marketplace_accounts",
+        metadata,
+        sa.Column("id", sa.Integer(), primary_key=True),
+    )
+    metadata.create_all(engine)
+
+    with engine.begin() as connection:
+        context = MigrationContext.configure(connection)
+        operations = Operations(context)
+        original_op = migration.op
+        migration.op = operations
+        try:
+            migration.upgrade()
+        finally:
+            migration.op = original_op
+
+        inspector = sa.inspect(connection)
+        tables = set(inspector.get_table_names())
+        assert "wb_auto_promo_file_imports" in tables
+        assert "wb_auto_promo_file_import_rows" in tables
+
+        import_columns = {
+            column["name"] for column in inspector.get_columns("wb_auto_promo_file_imports")
+        }
+        assert {
+            "id",
+            "user_id",
+            "marketplace_account_id",
+            "original_file_name",
+            "promotion_name",
+            "status",
+            "total_rows",
+            "valid_rows",
+            "error_rows",
+            "warning_rows",
+            "applied_at",
+            "error_text",
+            "created_at",
+            "updated_at",
+        }.issubset(import_columns)
+
+        row_columns = {
+            column["name"] for column in inspector.get_columns("wb_auto_promo_file_import_rows")
+        }
+        assert {"id", "import_id", "row_number", "wb_nm_id", "status"}.issubset(row_columns)
+
+        index_names = {
+            index["name"] for index in inspector.get_indexes("wb_auto_promo_file_imports")
+        }
+        assert "ix_wb_auto_promo_file_imports_user_id" in index_names
+        assert "ix_wb_auto_promo_file_imports_marketplace_account_id" in index_names
+        assert "ix_wb_auto_promo_file_imports_status" in index_names
+        assert "ix_wb_auto_promo_file_imports_created_at" in index_names
+
+
 def test_wb_full_price_multiplier_is_4() -> None:
     """WB full price multiplier must be 4 (75% discount)."""
     from app.models.domain import MrcPricingSettings
@@ -476,6 +603,7 @@ def test_wb_full_price_multiplier_is_4() -> None:
 def test_pricing_routes_all_have_safe_return_types() -> None:
     """All pricing route handlers must have safe return type annotations."""
     import inspect
+
     from app.web.route_modules.pricing import router
 
     for route in router.routes:
@@ -487,6 +615,6 @@ def test_pricing_routes_all_have_safe_return_types() -> None:
         if return_annotation is inspect.Signature.empty:
             continue
         annotation_str = str(return_annotation)
-        assert "|" not in annotation_str or "None" in annotation_str, (
-            f"Route {route.path} has unsafe union return type: {annotation_str}"
-        )
+        assert (
+            "|" not in annotation_str or "None" in annotation_str
+        ), f"Route {route.path} has unsafe union return type: {annotation_str}"

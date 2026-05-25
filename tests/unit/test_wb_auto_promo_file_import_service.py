@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 import openpyxl
 import pytest
 
+from app.models.domain import WbAutoPromoFileImport, WbAutoPromoFileImportRow
 from app.services.pricing.wb_auto_promo_file_import_service import (
     WbAutoPromoFileImportService,
 )
@@ -68,12 +69,46 @@ def _remove(path: Path) -> None:
         pass
 
 
+class MockPreviewSession:
+    def __init__(self) -> None:
+        self.added: list[object] = []
+        self._next_id = 1
+
+    def add(self, obj: object) -> None:
+        self.added.append(obj)
+        if isinstance(obj, WbAutoPromoFileImport):
+            obj.id = self._next_id
+            self._next_id += 1
+
+    async def flush(self) -> None:
+        return None
+
+
 @pytest.mark.asyncio
 async def test_parse_wb_excel_with_russian_headers() -> None:
-    path = _xlsx([[
-        "Нет", "Brand", "Cream", "Крем", "SUP-1", 303892412, "123", "", "", "", "",
-        446, 1820, "RUB", "75%", 76, "Готов",
-    ]])
+    path = _xlsx(
+        [
+            [
+                "Нет",
+                "Brand",
+                "Cream",
+                "Крем",
+                "SUP-1",
+                303892412,
+                "123",
+                "",
+                "",
+                "",
+                "",
+                446,
+                1820,
+                "RUB",
+                "75%",
+                76,
+                "Готов",
+            ]
+        ]
+    )
     try:
         result = await WbAutoPromoFileImportService().parse_file(path)
     finally:
@@ -91,10 +126,30 @@ async def test_parse_wb_excel_with_russian_headers() -> None:
 
 @pytest.mark.asyncio
 async def test_parse_fallback_by_column_indexes() -> None:
-    path = _xlsx([[
-        "Да", "Brand", "Cream", "Крем", "SUP-1", 303892412, "123", "", "", "", "",
-        446, 1820, "RUB", 75, 76, "Готов",
-    ]], headers=[f"col{i}" for i in range(17)])
+    path = _xlsx(
+        [
+            [
+                "Да",
+                "Brand",
+                "Cream",
+                "Крем",
+                "SUP-1",
+                303892412,
+                "123",
+                "",
+                "",
+                "",
+                "",
+                446,
+                1820,
+                "RUB",
+                75,
+                76,
+                "Готов",
+            ]
+        ],
+        headers=[f"col{i}" for i in range(17)],
+    )
     try:
         result = await WbAutoPromoFileImportService().parse_file(path)
     finally:
@@ -135,10 +190,29 @@ async def test_plan_price_446_recommendation_full_price_1784() -> None:
 
 @pytest.mark.asyncio
 async def test_missing_plan_price_uses_upload_discount_fallback() -> None:
-    path = _xlsx([[
-        "Нет", "Brand", "Cream", "Крем", "SUP-1", 303892412, "123", "", "", "", "",
-        "", 1820, "RUB", 75, 76, "Готов",
-    ]])
+    path = _xlsx(
+        [
+            [
+                "Нет",
+                "Brand",
+                "Cream",
+                "Крем",
+                "SUP-1",
+                303892412,
+                "123",
+                "",
+                "",
+                "",
+                "",
+                "",
+                1820,
+                "RUB",
+                75,
+                76,
+                "Готов",
+            ]
+        ]
+    )
     try:
         result = await WbAutoPromoFileImportService().parse_file(path)
     finally:
@@ -152,10 +226,29 @@ async def test_missing_plan_price_uses_upload_discount_fallback() -> None:
 
 @pytest.mark.asyncio
 async def test_row_without_nm_id_is_error() -> None:
-    path = _xlsx([[
-        "Нет", "Brand", "Cream", "Крем", "SUP-1", "", "123", "", "", "", "",
-        446, 1820, "RUB", 75, 76, "Готов",
-    ]])
+    path = _xlsx(
+        [
+            [
+                "Нет",
+                "Brand",
+                "Cream",
+                "Крем",
+                "SUP-1",
+                "",
+                "123",
+                "",
+                "",
+                "",
+                "",
+                446,
+                1820,
+                "RUB",
+                75,
+                76,
+                "Готов",
+            ]
+        ]
+    )
     try:
         result = await WbAutoPromoFileImportService().parse_file(path)
     finally:
@@ -167,10 +260,29 @@ async def test_row_without_nm_id_is_error() -> None:
 
 @pytest.mark.asyncio
 async def test_row_without_plan_and_upload_discount_is_warning() -> None:
-    path = _xlsx([[
-        "Нет", "Brand", "Cream", "Крем", "SUP-1", 303892412, "123", "", "", "", "",
-        "", 1820, "RUB", 75, "", "Готов",
-    ]])
+    path = _xlsx(
+        [
+            [
+                "Нет",
+                "Brand",
+                "Cream",
+                "Крем",
+                "SUP-1",
+                303892412,
+                "123",
+                "",
+                "",
+                "",
+                "",
+                "",
+                1820,
+                "RUB",
+                75,
+                "",
+                "Готов",
+            ]
+        ]
+    )
     try:
         result = await WbAutoPromoFileImportService().parse_file(path)
     finally:
@@ -182,10 +294,29 @@ async def test_row_without_plan_and_upload_discount_is_warning() -> None:
 
 @pytest.mark.asyncio
 async def test_csv_file_is_supported() -> None:
-    path = _csv([[
-        "Нет", "Brand", "Cream", "Крем", "SUP-1", 303892412, "123", "", "", "", "",
-        446, 1820, "RUB", 75, 76, "Готов",
-    ]])
+    path = _csv(
+        [
+            [
+                "Нет",
+                "Brand",
+                "Cream",
+                "Крем",
+                "SUP-1",
+                303892412,
+                "123",
+                "",
+                "",
+                "",
+                "",
+                446,
+                1820,
+                "RUB",
+                75,
+                76,
+                "Готов",
+            ]
+        ]
+    )
     try:
         result = await WbAutoPromoFileImportService().parse_file(path)
     finally:
@@ -204,10 +335,29 @@ async def test_apply_import_creates_wb_file_conditions() -> None:
     session.add = MagicMock()
     session.flush = AsyncMock()
     service = WbAutoPromoFileImportService(session)
-    path = _xlsx([[
-        "Нет", "Brand", "Cream", "Крем", "SUP-1", 303892412, "123", "", "", "", "",
-        446, 1820, "RUB", 75, 76, "Готов",
-    ]])
+    path = _xlsx(
+        [
+            [
+                "Нет",
+                "Brand",
+                "Cream",
+                "Крем",
+                "SUP-1",
+                303892412,
+                "123",
+                "",
+                "",
+                "",
+                "",
+                446,
+                1820,
+                "RUB",
+                75,
+                76,
+                "Готов",
+            ]
+        ]
+    )
     try:
         parsed = await WbAutoPromoFileImportService().parse_file(path)
     finally:
@@ -229,3 +379,54 @@ async def test_apply_import_creates_wb_file_conditions() -> None:
     assert condition.max_auto_promo_price == Decimal("446.00")
     assert condition.current_wb_price == Decimal("455.00")
     assert condition.promotion_name == "Встречаем лето"
+
+
+@pytest.mark.asyncio
+async def test_create_preview_persists_import_record() -> None:
+    session = MockPreviewSession()
+    service = WbAutoPromoFileImportService(session)  # type: ignore[arg-type]
+    path = _xlsx(
+        [
+            [
+                "Нет",
+                "Brand",
+                "Cream",
+                "Крем",
+                "SUP-1",
+                303892412,
+                "123",
+                "",
+                "",
+                "",
+                "",
+                446,
+                1820,
+                "RUB",
+                "75%",
+                76,
+                "Готов",
+            ]
+        ]
+    )
+    try:
+        preview, rows = await service.create_preview(
+            path,
+            user_id=1,
+            marketplace_account_id=2,
+            original_file_name="auto_promo.xlsx",
+            promotion_name="Встречаем лето",
+        )
+    finally:
+        _remove(path)
+
+    import_record = next(obj for obj in session.added if isinstance(obj, WbAutoPromoFileImport))
+    import_rows = [obj for obj in session.added if isinstance(obj, WbAutoPromoFileImportRow)]
+
+    assert import_record.__tablename__ == "wb_auto_promo_file_imports"
+    assert import_record.user_id == 1
+    assert import_record.marketplace_account_id == 2
+    assert import_record.status == "preview"
+    assert preview.import_id == 1
+    assert len(rows) == 1
+    assert len(import_rows) == 1
+    assert import_rows[0].import_id == 1

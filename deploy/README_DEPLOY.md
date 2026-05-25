@@ -284,9 +284,19 @@ ENABLE_TELEGRAM_DEPLOY_COMMANDS=false
 ```text
 ENABLE_TELEGRAM_DEPLOY_COMMANDS=true
 TELEGRAM_DEPLOY_MODE=trigger
-DEPLOY_UPDATE_COMMAND=bash deploy/update.sh --non-interactive
+DEPLOY_UPDATE_COMMAND="bash deploy/update.sh --non-interactive"
 DEPLOY_UPDATE_TRIGGER_FILE=/opt/mpcontrol/runtime/telegram_update_request.json
 DEPLOY_METADATA_FILE=/opt/mpcontrol/runtime/deploy_metadata.json
+```
+
+Не добавляйте в `.env` отдельные исполняемые строки вроде `deploy/update.sh`.
+Файл окружения должен содержать только `KEY=value`, комментарии через `#` и пустые
+строки. Ручное обновление запускается отдельно:
+
+```bash
+bash deploy/update.sh
+# или
+chmod +x deploy/update.sh && ./deploy/update.sh
 ```
 
 В production-режиме бот не выполняет произвольный shell внутри контейнера. Он создаёт

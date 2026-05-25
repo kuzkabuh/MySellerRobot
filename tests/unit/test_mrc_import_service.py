@@ -1,10 +1,9 @@
 """Tests for MRC import service with DB-backed preview storage."""
 
-import tempfile
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -25,10 +24,20 @@ def _create_test_excel(file_path: Path, rows: list[dict]) -> None:
     ws.title = "МРЦ WB"
 
     headers = [
-        "product_id", "wb_nm_id", "seller_sku", "barcode", "brand",
-        "product_name", "current_wb_price", "current_mrc_price",
-        "new_mrc_price", "min_price", "promo_name", "promo_plan_price",
-        "calculated_price_preview", "comment",
+        "product_id",
+        "wb_nm_id",
+        "seller_sku",
+        "barcode",
+        "brand",
+        "product_name",
+        "current_wb_price",
+        "current_mrc_price",
+        "new_mrc_price",
+        "min_price",
+        "promo_name",
+        "promo_plan_price",
+        "calculated_price_preview",
+        "comment",
     ]
     for col_idx, header in enumerate(headers, 1):
         ws.cell(row=1, column=col_idx, value=header)
@@ -67,6 +76,9 @@ class MockAsyncSession:
         pass
 
     async def rollback(self) -> None:
+        pass
+
+    async def refresh(self, _obj: object) -> None:
         pass
 
     async def get(self, model: type, pk: int) -> MagicMock | None:
@@ -115,17 +127,24 @@ def mock_product() -> MagicMock:
 
 
 @pytest.mark.asyncio
-async def test_create_preview_stores_in_db(mock_session: MockAsyncSession, mock_product: MagicMock, tmp_path: Path) -> None:
+async def test_create_preview_stores_in_db(
+    mock_session: MockAsyncSession, mock_product: MagicMock, tmp_path: Path
+) -> None:
     """WEB import creates preview in DB."""
     test_file = tmp_path / "test_import.xlsx"
-    _create_test_excel(test_file, [
-        {"product_id": 1, "wb_nm_id": 12345, "new_mrc_price": "150"},
-    ])
+    _create_test_excel(
+        test_file,
+        [
+            {"product_id": 1, "wb_nm_id": 12345, "new_mrc_price": "150"},
+        ],
+    )
 
     mock_session.products[1] = mock_product
 
     service = MrcImportService(mock_session)
-    preview = await service.create_preview(test_file, user_id=123, source="web", original_file_name="test.xlsx")
+    preview = await service.create_preview(
+        test_file, user_id=123, source="web", original_file_name="test.xlsx"
+    )
 
     assert preview.import_id is not None
     assert preview.user_id == 123
@@ -135,17 +154,24 @@ async def test_create_preview_stores_in_db(mock_session: MockAsyncSession, mock_
 
 
 @pytest.mark.asyncio
-async def test_apply_mrc_import_uses_import_id(mock_session: MockAsyncSession, mock_product: MagicMock, tmp_path: Path) -> None:
+async def test_apply_mrc_import_uses_import_id(
+    mock_session: MockAsyncSession, mock_product: MagicMock, tmp_path: Path
+) -> None:
     """BOT confirm finds import_id and applies MRC."""
     test_file = tmp_path / "test_import.xlsx"
-    _create_test_excel(test_file, [
-        {"product_id": 1, "wb_nm_id": 12345, "new_mrc_price": "150"},
-    ])
+    _create_test_excel(
+        test_file,
+        [
+            {"product_id": 1, "wb_nm_id": 12345, "new_mrc_price": "150"},
+        ],
+    )
 
     mock_session.products[1] = mock_product
 
     service = MrcImportService(mock_session)
-    preview = await service.create_preview(test_file, user_id=123, source="bot", original_file_name="test.xlsx")
+    preview = await service.create_preview(
+        test_file, user_id=123, source="bot", original_file_name="test.xlsx"
+    )
 
     assert preview.valid_rows >= 1, f"Expected at least 1 valid row, got {preview.valid_rows}"
 
@@ -220,12 +246,17 @@ async def test_file_without_required_columns(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_empty_new_mrc_price_skipped(mock_session: MockAsyncSession, mock_product: MagicMock, tmp_path: Path) -> None:
+async def test_empty_new_mrc_price_skipped(
+    mock_session: MockAsyncSession, mock_product: MagicMock, tmp_path: Path
+) -> None:
     """Empty new_mrc_price rows are skipped."""
     test_file = tmp_path / "test_import.xlsx"
-    _create_test_excel(test_file, [
-        {"product_id": 1, "wb_nm_id": 12345, "new_mrc_price": ""},
-    ])
+    _create_test_excel(
+        test_file,
+        [
+            {"product_id": 1, "wb_nm_id": 12345, "new_mrc_price": ""},
+        ],
+    )
 
     mock_session.products[1] = mock_product
 
@@ -238,12 +269,17 @@ async def test_empty_new_mrc_price_skipped(mock_session: MockAsyncSession, mock_
 
 
 @pytest.mark.asyncio
-async def test_clear_mrc(mock_session: MockAsyncSession, mock_product: MagicMock, tmp_path: Path) -> None:
+async def test_clear_mrc(
+    mock_session: MockAsyncSession, mock_product: MagicMock, tmp_path: Path
+) -> None:
     """CLEAR in new_mrc_price clears MRC."""
     test_file = tmp_path / "test_import.xlsx"
-    _create_test_excel(test_file, [
-        {"product_id": 1, "wb_nm_id": 12345, "new_mrc_price": "CLEAR"},
-    ])
+    _create_test_excel(
+        test_file,
+        [
+            {"product_id": 1, "wb_nm_id": 12345, "new_mrc_price": "CLEAR"},
+        ],
+    )
 
     mock_session.products[1] = mock_product
 

@@ -15,9 +15,9 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
-from starlette.responses import Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.responses import Response
 
 from app.models.domain import (
     MarketplaceAccount,
@@ -150,7 +150,9 @@ async def pricing_auto_promo_upload_page(
     )
 
 
-@router.post("/pricing/auto-promotions/upload/preview", response_class=HTMLResponse, response_model=None)
+@router.post(
+    "/pricing/auto-promotions/upload/preview", response_class=HTMLResponse, response_model=None
+)
 async def pricing_auto_promo_upload_preview(
     marketplace_account_id: int = Form(...),
     promotion_name: str | None = Form(default=None),
@@ -160,10 +162,14 @@ async def pricing_auto_promo_upload_preview(
 ) -> Response:
     account = await session.get(MarketplaceAccount, marketplace_account_id)
     if account is None or account.user_id != user.id or account.marketplace != Marketplace.WB:
-        return RedirectResponse(url="/web/pricing?upload_error=account#recommendations", status_code=303)
+        return RedirectResponse(
+            url="/web/pricing?upload_error=account#recommendations", status_code=303
+        )
     content = await file.read()
     if len(content) > 15 * 1024 * 1024:
-        return RedirectResponse(url="/web/pricing?upload_error=file_size#recommendations", status_code=303)
+        return RedirectResponse(
+            url="/web/pricing?upload_error=file_size#recommendations", status_code=303
+        )
     original_filename = file.filename or "auto_promo.xlsx"
     tmp_path = _write_upload_temp_file(content, original_filename)
     try:
@@ -194,6 +200,13 @@ async def pricing_auto_promo_upload_preview(
         _remove_temp_file(tmp_path)
 
 
+@router.get("/pricing/auto-promotions/upload/preview", response_model=None)
+async def pricing_auto_promo_upload_preview_get() -> Response:
+    return RedirectResponse(
+        url="/web/pricing?upload_error=preview_method#recommendations", status_code=303
+    )
+
+
 @router.post("/pricing/auto-promotions/upload/apply")
 async def pricing_auto_promo_upload_apply(
     import_id: int = Form(...),
@@ -204,7 +217,9 @@ async def pricing_auto_promo_upload_apply(
 ) -> RedirectResponse:
     account = await session.get(MarketplaceAccount, marketplace_account_id)
     if account is None or account.user_id != user.id or account.marketplace != Marketplace.WB:
-        return RedirectResponse(url="/web/pricing?upload_error=account#recommendations", status_code=303)
+        return RedirectResponse(
+            url="/web/pricing?upload_error=account#recommendations", status_code=303
+        )
     service = WbAutoPromoFileImportService(session)
     try:
         saved = await service.apply_import_record(
@@ -226,7 +241,9 @@ async def pricing_auto_promo_upload_apply(
         )
     except ValueError:
         await session.rollback()
-        return RedirectResponse(url="/web/pricing?upload_error=apply#recommendations", status_code=303)
+        return RedirectResponse(
+            url="/web/pricing?upload_error=apply#recommendations", status_code=303
+        )
 
 
 @router.post("/pricing/upload-auto-promo-file")
@@ -238,7 +255,9 @@ async def pricing_upload_auto_promo_file(
 ) -> RedirectResponse:
     account = await session.get(MarketplaceAccount, marketplace_account_id)
     if account is None or account.user_id != user.id or account.marketplace != Marketplace.WB:
-        return RedirectResponse(url="/web/pricing?upload_error=account#recommendations", status_code=303)
+        return RedirectResponse(
+            url="/web/pricing?upload_error=account#recommendations", status_code=303
+        )
 
     content = await file.read()
     original_filename = file.filename or "auto_promo.xlsx"
@@ -290,13 +309,13 @@ async def pricing_build_recommendations(
     total = 0
     for account in await _wb_accounts(session, user.id):
         total += len(
-            await WbAutoPromoParticipationService(
-                session
-            ).calculate_participation_recommendations(
+            await WbAutoPromoParticipationService(session).calculate_participation_recommendations(
                 account.id,
             )
         )
-    return RedirectResponse(url=f"/web/pricing?recommendations={total}#recommendations", status_code=303)
+    return RedirectResponse(
+        url=f"/web/pricing?recommendations={total}#recommendations", status_code=303
+    )
 
 
 @router.post("/pricing/prepare-apply")
@@ -431,10 +450,15 @@ async def _load_pricing_data(session: AsyncSession, user_id: int) -> PricingView
     diagnostics = await _diagnostics(session, account_ids)
     last_sync_values = [
         value
-        for value in [*(price.synced_at for price in prices), *(promo.synced_at for promo in promotions)]
+        for value in [
+            *(price.synced_at for price in prices),
+            *(promo.synced_at for promo in promotions),
+        ]
         if value is not None
     ]
-    last_sync = max(last_sync_values).strftime("%d.%m.%Y %H:%M") if last_sync_values else "нет данных"
+    last_sync = (
+        max(last_sync_values).strftime("%d.%m.%Y %H:%M") if last_sync_values else "нет данных"
+    )
 
     return PricingViewData(
         accounts=accounts,
@@ -463,8 +487,12 @@ async def _wb_accounts(session: AsyncSession, user_id: int) -> list[MarketplaceA
     return list(result.scalars().all())
 
 
-async def _promotion_counts(session: AsyncSession, account_ids: list[int]) -> dict[int, dict[str, int]]:
-    counts: dict[int, dict[str, int]] = defaultdict(lambda: {"products": 0, "conditions": 0, "recommendations": 0})
+async def _promotion_counts(
+    session: AsyncSession, account_ids: list[int]
+) -> dict[int, dict[str, int]]:
+    counts: dict[int, dict[str, int]] = defaultdict(
+        lambda: {"products": 0, "conditions": 0, "recommendations": 0}
+    )
     nomenclatures = await session.execute(
         select(WbPromotionNomenclature.wb_promotion_id, func.count(WbPromotionNomenclature.id))
         .where(WbPromotionNomenclature.marketplace_account_id.in_(account_ids))
@@ -483,7 +511,10 @@ async def _promotion_counts(session: AsyncSession, account_ids: list[int]) -> di
         counts[int(promo_id)]["conditions"] = int(count)
 
     recommendations = await session.execute(
-        select(WbAutoPromoPriceRecommendation.wb_promotion_id, func.count(WbAutoPromoPriceRecommendation.id))
+        select(
+            WbAutoPromoPriceRecommendation.wb_promotion_id,
+            func.count(WbAutoPromoPriceRecommendation.id),
+        )
         .where(WbAutoPromoPriceRecommendation.marketplace_account_id.in_(account_ids))
         .where(WbAutoPromoPriceRecommendation.wb_promotion_id.isnot(None))
         .group_by(WbAutoPromoPriceRecommendation.wb_promotion_id)
@@ -495,44 +526,57 @@ async def _promotion_counts(session: AsyncSession, account_ids: list[int]) -> di
 
 async def _diagnostics(session: AsyncSession, account_ids: list[int]) -> dict[str, Any]:
     auto_promos = await session.scalar(
-        select(func.count()).select_from(WbPromotion).where(
+        select(func.count())
+        .select_from(WbPromotion)
+        .where(
             WbPromotion.marketplace_account_id.in_(account_ids),
             WbPromotion.promotion_type == "auto",
         )
     )
     details = await session.scalar(
-        select(func.count()).select_from(WbPromotion).where(
+        select(func.count())
+        .select_from(WbPromotion)
+        .where(
             WbPromotion.marketplace_account_id.in_(account_ids),
             WbPromotion.promotion_type == "auto",
             WbPromotion.raw_payload["_details"].isnot(None),
         )
     )
     conditions = await session.scalar(
-        select(func.count()).select_from(WbAutoPromotionCondition).where(
-            WbAutoPromotionCondition.marketplace_account_id.in_(account_ids)
-        )
+        select(func.count())
+        .select_from(WbAutoPromotionCondition)
+        .where(WbAutoPromotionCondition.marketplace_account_id.in_(account_ids))
     )
     found = await session.scalar(
-        select(func.count()).select_from(WbAutoPromotionCondition).where(
+        select(func.count())
+        .select_from(WbAutoPromotionCondition)
+        .where(
             WbAutoPromotionCondition.marketplace_account_id.in_(account_ids),
             WbAutoPromotionCondition.required_price.isnot(None),
         )
     )
     missing = await session.scalar(
-        select(func.count()).select_from(WbAutoPromotionCondition).where(
+        select(func.count())
+        .select_from(WbAutoPromotionCondition)
+        .where(
             WbAutoPromotionCondition.marketplace_account_id.in_(account_ids),
             WbAutoPromotionCondition.required_price.is_(None),
         )
     )
     active_promos = await session.scalar(
-        select(func.count()).select_from(WbPromotion).where(
+        select(func.count())
+        .select_from(WbPromotion)
+        .where(
             WbPromotion.marketplace_account_id.in_(account_ids),
             WbPromotion.is_active_today.is_(True),
         )
     )
     errors = await session.execute(
         select(MarketplaceAccount.name, MarketplaceAccount.last_error_message)
-        .where(MarketplaceAccount.id.in_(account_ids), MarketplaceAccount.last_error_message.isnot(None))
+        .where(
+            MarketplaceAccount.id.in_(account_ids),
+            MarketplaceAccount.last_error_message.isnot(None),
+        )
         .limit(5)
     )
     return {
@@ -687,7 +731,11 @@ def _quick_action(action: str, label: str, *, primary: bool = False) -> str:
 
 def _kpi_grid(data: PricingViewData) -> str:
     recommendations_to_apply = sum(1 for rec in data.recommendations if rec.status == "CAN_APPLY")
-    blocked = sum(1 for rec in data.recommendations if rec.status in {"BLOCKED_BY_MRC", "BLOCKED_BY_MIN_PRICE"})
+    blocked = sum(
+        1
+        for rec in data.recommendations
+        if rec.status in {"BLOCKED_BY_MRC", "BLOCKED_BY_MIN_PRICE"}
+    )
     active_promos = sum(1 for promo in data.promotions if promo.is_active_today)
     auto_promos = sum(1 for promo in data.promotions if promo.promotion_type == "auto")
     products_with_mrc = sum(1 for product in data.products if product.mrc_price is not None)
@@ -702,8 +750,10 @@ def _kpi_grid(data: PricingViewData) -> str:
         ("!", blocked, "Заблокировано по МРЦ/minPrice", "Требует внимания", "red"),
         ("↻", data.last_sync, "Последняя синхронизация", "Цены или акции", "slate"),
     ]
-    return '<section class="pricing-kpi-grid">' + "".join(
-        f"""
+    return (
+        '<section class="pricing-kpi-grid">'
+        + "".join(
+            f"""
         <article class="pricing-card pricing-kpi pricing-accent-{accent}">
           <div class="pricing-kpi-icon">{escape(str(icon))}</div>
           <div>
@@ -713,8 +763,10 @@ def _kpi_grid(data: PricingViewData) -> str:
           </div>
         </article>
         """
-        for icon, value, label, status, accent in cards
-    ) + "</section>"
+            for icon, value, label, status, accent in cards
+        )
+        + "</section>"
+    )
 
 
 def _tabs() -> str:
@@ -728,19 +780,35 @@ def _tabs() -> str:
         ("history", "История"),
         ("diagnostics", "Диагностика"),
     ]
-    return '<nav class="pricing-tabs" aria-label="Навигация раздела">' + "".join(
-        f'<a class="{"is-active" if idx == 0 else ""}" href="#{tab_id}" data-pricing-tab="{tab_id}">{escape(label)}</a>'
-        for idx, (tab_id, label) in enumerate(tabs)
-    ) + "</nav>"
+    return (
+        '<nav class="pricing-tabs" aria-label="Навигация раздела">'
+        + "".join(
+            f'<a class="{"is-active" if idx == 0 else ""}" href="#{tab_id}" data-pricing-tab="{tab_id}">{escape(label)}</a>'
+            for idx, (tab_id, label) in enumerate(tabs)
+        )
+        + "</nav>"
+    )
 
 
 def _overview_section(data: PricingViewData) -> str:
     steps = [
         ("Цены WB загружены", bool(data.prices), "/web/pricing/sync-prices"),
         ("Акции синхронизированы", bool(data.promotions), "/web/pricing/sync-promotions"),
-        ("Условия автоакций найдены", any(c.required_price is not None for c in data.conditions), "/web/pricing/resolve-conditions"),
-        ("Участие в автоакциях рассчитано", bool(data.recommendations), "/web/pricing/build-recommendations"),
-        ("Цены готовы к применению", any(r.status == "CAN_APPLY" for r in data.recommendations), "/web/pricing/prepare-apply"),
+        (
+            "Условия автоакций найдены",
+            any(c.required_price is not None for c in data.conditions),
+            "/web/pricing/resolve-conditions",
+        ),
+        (
+            "Участие в автоакциях рассчитано",
+            bool(data.recommendations),
+            "/web/pricing/build-recommendations",
+        ),
+        (
+            "Цены готовы к применению",
+            any(r.status == "CAN_APPLY" for r in data.recommendations),
+            "/web/pricing/prepare-apply",
+        ),
     ]
     attention = _attention_items(data)
     return f"""
@@ -775,7 +843,9 @@ def _pipeline_step(index: int, title: str, done: bool, action: str) -> str:
 def _attention_items(data: PricingViewData) -> str:
     product_nm_ids = {_extract_nm_id(product) for product in data.products}
     price_nm_ids = {price.wb_nm_id for price in data.prices}
-    no_current_price = len([nm_id for nm_id in product_nm_ids if nm_id and nm_id not in price_nm_ids])
+    no_current_price = len(
+        [nm_id for nm_id in product_nm_ids if nm_id and nm_id not in price_nm_ids]
+    )
     no_mrc = sum(1 for product in data.products if product.mrc_price is None)
     no_required = sum(1 for rec in data.recommendations if rec.status == "NO_AUTO_PROMO_PRICE")
     blocked_mrc = sum(1 for rec in data.recommendations if rec.status == "BLOCKED_BY_MRC")
@@ -796,15 +866,25 @@ def _attention_items(data: PricingViewData) -> str:
         ("Возможен риск карантина WB", quarantine, "warning"),
     ]
     visible = [item for item in items if item[1] > 0]
-    return '<div class="pricing-attention-list">' + "".join(
-        f'<div class="pricing-attention {tone}"><strong>{count}</strong><span>{escape(label)}</span></div>'
-        for label, count, tone in visible
-    ) + "</div>"
+    return (
+        '<div class="pricing-attention-list">'
+        + "".join(
+            f'<div class="pricing-attention {tone}"><strong>{count}</strong><span>{escape(label)}</span></div>'
+            for label, count, tone in visible
+        )
+        + "</div>"
+    )
 
 
 def _prices_section(data: PricingViewData) -> str:
     if not data.prices:
-        return _panel("prices", "Текущие цены WB", _empty_state("Цены WB ещё не загружены", "Обновить цены WB", "/web/pricing/sync-prices"))
+        return _panel(
+            "prices",
+            "Текущие цены WB",
+            _empty_state(
+                "Цены WB ещё не загружены", "Обновить цены WB", "/web/pricing/sync-prices"
+            ),
+        )
     rows = "".join(
         f"<tr><td>{price.wb_nm_id}</td><td>{_money(price.price)}</td><td>{price.discount or 0}%</td><td>{_money(price.discounted_price)}</td><td>{_money(price.club_discounted_price)}</td><td>{_dt(price.synced_at)}</td></tr>"
         for price in data.prices
@@ -819,7 +899,13 @@ def _prices_section(data: PricingViewData) -> str:
 def _mrc_section(data: PricingViewData) -> str:
     products = [product for product in data.products if product.mrc_price is not None]
     if not products:
-        return _panel("mrc", "МРЦ и ограничения", _empty_state("МРЦ пока не задана", "Открыть старый импорт МРЦ", "/web/mrc-pricing", method="get"))
+        return _panel(
+            "mrc",
+            "МРЦ и ограничения",
+            _empty_state(
+                "МРЦ пока не задана", "Открыть старый импорт МРЦ", "/web/mrc-pricing", method="get"
+            ),
+        )
     rows = "".join(
         f"<tr><td>{_product_title(product)}</td><td>{escape(str(_extract_nm_id(product) or ''))}</td><td>{_money(product.mrc_price)}</td><td>{escape(product.seller_article or '')}</td></tr>"
         for product in products
@@ -833,8 +919,19 @@ def _mrc_section(data: PricingViewData) -> str:
 
 def _promotions_section(data: PricingViewData) -> str:
     if not data.promotions:
-        return _panel("promotions", "Акции WB", _empty_state("Акции ещё не синхронизированы", "Синхронизировать акции", "/web/pricing/sync-promotions"))
-    cards = "".join(_promotion_card(promo, data.promo_counts.get(promo.wb_promotion_id, {})) for promo in data.promotions)
+        return _panel(
+            "promotions",
+            "Акции WB",
+            _empty_state(
+                "Акции ещё не синхронизированы",
+                "Синхронизировать акции",
+                "/web/pricing/sync-promotions",
+            ),
+        )
+    cards = "".join(
+        _promotion_card(promo, data.promo_counts.get(promo.wb_promotion_id, {}))
+        for promo in data.promotions
+    )
     return _panel("promotions", "Акции WB", f'<div class="pricing-promo-grid">{cards}</div>')
 
 
@@ -863,8 +960,19 @@ def _promotion_card(promo: WbPromotion, counts: dict[str, int]) -> str:
 
 def _conditions_section(data: PricingViewData) -> str:
     if not data.conditions:
-        return _panel("conditions", "Условия автоакций", _empty_state("Условия автоакций пока не найдены", "Найти условия автоакций", "/web/pricing/resolve-conditions"))
-    rows = "".join(_condition_row(condition, data.products_by_nm.get(condition.wb_nm_id)) for condition in data.conditions)
+        return _panel(
+            "conditions",
+            "Условия автоакций",
+            _empty_state(
+                "Условия автоакций пока не найдены",
+                "Найти условия автоакций",
+                "/web/pricing/resolve-conditions",
+            ),
+        )
+    rows = "".join(
+        _condition_row(condition, data.products_by_nm.get(condition.wb_nm_id))
+        for condition in data.conditions
+    )
     return _panel(
         "conditions",
         "Условия автоакций",
@@ -905,7 +1013,9 @@ def _recommendations_section(data: PricingViewData) -> str:
             ),
         )
 
-    promotion_options = sorted({rec.promotion_name for rec in data.recommendations if rec.promotion_name})
+    promotion_options = sorted(
+        {rec.promotion_name for rec in data.recommendations if rec.promotion_name}
+    )
     filters = f"""
     <div class="pricing-action-bar">
       <input type="search" id="pricing-search" placeholder="Поиск по товару / артикулу / nmID">
@@ -923,7 +1033,10 @@ def _recommendations_section(data: PricingViewData) -> str:
       <span id="pricing-selected-count">Выбрано: 0</span>
     </div>
     """
-    rows = "".join(_recommendation_pair(row, data.products_by_id.get(row.product_id)) for row in data.recommendations)
+    rows = "".join(
+        _recommendation_pair(row, data.products_by_id.get(row.product_id))
+        for row in data.recommendations
+    )
     table = f"""
     {upload_form}
     <form id="pricing-recommendations-form" method="post" action="/web/pricing/apply" data-apply-confirm="1">
@@ -993,7 +1106,11 @@ def _recommendation_pair(row: WbAutoPromoPriceRecommendation, product: Product |
         ]
     )
     details = _recommendation_details(row, payload_text, full_price)
-    problem = "1" if row.status in {"BLOCKED_BY_MRC", "BLOCKED_BY_MIN_PRICE", "NO_AUTO_PROMO_PRICE"} else "0"
+    problem = (
+        "1"
+        if row.status in {"BLOCKED_BY_MRC", "BLOCKED_BY_MIN_PRICE", "NO_AUTO_PROMO_PRICE"}
+        else "0"
+    )
     return f"""
     <tr class="pricing-rec-row" data-search="{escape(searchable.lower())}" data-status="{escape(row.status)}" data-promo="{escape(row.promotion_name or '')}" data-can-apply="{'1' if row.status == 'CAN_APPLY' else '0'}" data-problem="{problem}" data-mrc="{row.mrc_price}" data-recommended="{row.recommended_discounted_price or 0}" data-updated="{row.id}">
       <td>{checkbox}</td>
@@ -1018,7 +1135,9 @@ def _recommendation_pair(row: WbAutoPromoPriceRecommendation, product: Product |
     """
 
 
-def _recommendation_details(row: WbAutoPromoPriceRecommendation, payload_text: str, full_price: str) -> str:
+def _recommendation_details(
+    row: WbAutoPromoPriceRecommendation, payload_text: str, full_price: str
+) -> str:
     discount_factor = "0.25"
     formula = ""
     if row.recommended_discounted_price is not None and full_price:
@@ -1048,7 +1167,16 @@ def _recommendation_details(row: WbAutoPromoPriceRecommendation, payload_text: s
 
 def _history_section(data: PricingViewData) -> str:
     if not data.history:
-        return _panel("history", "История изменений цен", _empty_state("История изменений цен пока пустая", "Открыть рекомендации", "#recommendations", method="get"))
+        return _panel(
+            "history",
+            "История изменений цен",
+            _empty_state(
+                "История изменений цен пока пустая",
+                "Открыть рекомендации",
+                "#recommendations",
+                method="get",
+            ),
+        )
     rows = "".join(
         f"<tr><td>{row.wb_nm_id}</td><td>{_money(row.old_price)}</td><td>{_money(row.new_price)}</td><td>{row.wb_price or ''}</td><td>{row.wb_discount or ''}%</td><td>{_badge(row.status, _status_tone(row.status))}</td><td>{_dt(row.created_at)}</td></tr>"
         for row in data.history
@@ -1066,7 +1194,11 @@ def _diagnostics_section(data: PricingViewData) -> str:
         f"<li><strong>{escape(name or 'WB кабинет')}</strong>: {escape(message or '')}</li>"
         for name, message in diag.get("errors", [])
     )
-    raw_blocks = "".join(_raw_payload_block(promo) for promo in data.promotions[:20] if promo.promotion_type == "auto")
+    raw_blocks = "".join(
+        _raw_payload_block(promo)
+        for promo in data.promotions[:20]
+        if promo.promotion_type == "auto"
+    )
     stats = [
         ("Найдено акций", len(data.promotions)),
         ("Автоакций", diag.get("auto_promos", 0)),
@@ -1147,9 +1279,19 @@ def _status_tone(status: str) -> str:
         return "green"
     if status in {"ALREADY_ELIGIBLE", "ALREADY_OK", "AUTO_PROMOTION_PRICE_OK"}:
         return "blue"
-    if status in {"BLOCKED_BY_MRC", "BLOCKED_BY_MIN_PRICE", "AUTO_PROMOTION_PRICE_VIOLATION", "AUTO_PROMOTION_MIN_PRICE_VIOLATION", "failed"}:
+    if status in {
+        "BLOCKED_BY_MRC",
+        "BLOCKED_BY_MIN_PRICE",
+        "AUTO_PROMOTION_PRICE_VIOLATION",
+        "AUTO_PROMOTION_MIN_PRICE_VIOLATION",
+        "failed",
+    }:
         return "red"
-    if status in {"NO_AUTO_PROMO_PRICE", "NO_REQUIRED_PRICE", "AUTO_PROMOTION_REQUIRED_PRICE_UNKNOWN"}:
+    if status in {
+        "NO_AUTO_PROMO_PRICE",
+        "NO_REQUIRED_PRICE",
+        "AUTO_PROMOTION_REQUIRED_PRICE_UNKNOWN",
+    }:
         return "amber"
     if status in {"WAITING_WB_SYNC", "AUTO_PROMOTION_WAITING_WB_SYNC"}:
         return "violet"
@@ -1167,7 +1309,9 @@ def _badge(label: str, tone: str) -> str:
 def _product_title(product: Product | None) -> str:
     if product is None:
         return '<span class="pricing-muted">Товар не найден</span>'
-    return escape(product.title or product.seller_article or product.marketplace_article or "Товар WB")
+    return escape(
+        product.title or product.seller_article or product.marketplace_article or "Товар WB"
+    )
 
 
 def _extract_nm_id(product: Product) -> int | None:
