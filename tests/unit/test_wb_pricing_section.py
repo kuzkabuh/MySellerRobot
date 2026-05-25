@@ -413,3 +413,80 @@ def test_health_route_registered() -> None:
     app = create_app()
     paths = {route.path for route in app.routes}
     assert "/health" in paths
+
+
+def test_file_import_models_exist() -> None:
+    """WbAutoPromoFileImport and WbAutoPromoFileImportRow models must exist."""
+    from app.models.domain import WbAutoPromoFileImport, WbAutoPromoFileImportRow
+
+    assert WbAutoPromoFileImport.__tablename__ == "wb_auto_promo_file_imports"
+    assert WbAutoPromoFileImportRow.__tablename__ == "wb_auto_promo_file_import_rows"
+
+    import_cols = {col.key for col in WbAutoPromoFileImport.__table__.columns}
+    expected_import_cols = {
+        "id", "user_id", "marketplace_account_id", "original_file_name",
+        "promotion_name", "status", "total_rows", "valid_rows", "error_rows",
+        "warning_rows", "created_at", "updated_at", "applied_at", "error_text",
+    }
+    assert expected_import_cols.issubset(import_cols), (
+        f"File import model missing: {expected_import_cols - import_cols}"
+    )
+
+    row_cols = {col.key for col in WbAutoPromoFileImportRow.__table__.columns}
+    expected_row_cols = {
+        "id", "import_id", "row_number", "wb_nm_id", "seller_article", "title",
+        "plan_price", "current_full_price", "current_discount_percent",
+        "current_discounted_price", "wb_upload_discount_percent", "wb_status",
+        "already_participating", "status", "message", "raw_payload",
+    }
+    assert expected_row_cols.issubset(row_cols), (
+        f"File import row model missing: {expected_row_cols - row_cols}"
+    )
+
+
+def test_file_import_tables_in_migrations() -> None:
+    """Migration chain must create wb_auto_promo_file_imports and rows tables."""
+    import pathlib
+
+    migration_dir = pathlib.Path("migrations/versions")
+    migration_sources = []
+    for f in sorted(migration_dir.glob("*.py")):
+        if f.name.startswith("__"):
+            continue
+        migration_sources.append(f.read_text())
+
+    all_migration_text = "\n".join(migration_sources)
+    assert "wb_auto_promo_file_imports" in all_migration_text
+    assert "wb_auto_promo_file_import_rows" in all_migration_text
+
+
+def test_wb_full_price_multiplier_is_4() -> None:
+    """WB full price multiplier must be 4 (75% discount)."""
+    from app.models.domain import MrcPricingSettings
+
+    multiplier_col = None
+    for col in MrcPricingSettings.__table__.columns:
+        if col.key == "full_price_multiplier":
+            multiplier_col = col
+            break
+    assert multiplier_col is not None
+    assert multiplier_col.default.arg == Decimal("4.00")
+
+
+def test_pricing_routes_all_have_safe_return_types() -> None:
+    """All pricing route handlers must have safe return type annotations."""
+    import inspect
+    from app.web.route_modules.pricing import router
+
+    for route in router.routes:
+        if not hasattr(route, "endpoint"):
+            continue
+        endpoint = route.endpoint
+        sig = inspect.signature(endpoint)
+        return_annotation = sig.return_annotation
+        if return_annotation is inspect.Signature.empty:
+            continue
+        annotation_str = str(return_annotation)
+        assert "|" not in annotation_str or "None" in annotation_str, (
+            f"Route {route.path} has unsafe union return type: {annotation_str}"
+        )

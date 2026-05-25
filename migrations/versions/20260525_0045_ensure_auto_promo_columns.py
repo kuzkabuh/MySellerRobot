@@ -1,8 +1,8 @@
-"""Ensure all auto-promo columns exist on wb_auto_promotion_conditions.
+"""Ensure all auto-promo columns and tables exist.
 
 Follow-up migration for production instances where 0044 may not have been
 applied or was partially applied. Adds any missing columns with inspector
-guards so it is safe to run multiple times.
+guards and creates missing tables so it is safe to run multiple times.
 
 Revision ID: 20260525_0045_ensure_auto_promo_columns
 Revises: 20260524_0044_auto_promo_participation_fields
@@ -21,8 +21,62 @@ depends_on = None
 def upgrade() -> None:
     conn = op.get_bind()
     inspector = sa.inspect(conn)
+    existing_tables = set(inspector.get_table_names())
 
-    # --- wb_auto_promotion_conditions ---
+    # ============================================================
+    # TABLES: ensure wb_auto_promo_file_imports and rows exist
+    # ============================================================
+
+    if "wb_auto_promo_file_imports" not in existing_tables:
+        op.create_table(
+            "wb_auto_promo_file_imports",
+            sa.Column("id", sa.Integer(), nullable=False, primary_key=True, autoincrement=True),
+            sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True),
+            sa.Column("marketplace_account_id", sa.Integer(), sa.ForeignKey("marketplace_accounts.id", ondelete="CASCADE"), nullable=False, index=True),
+            sa.Column("original_file_name", sa.String(512), nullable=True),
+            sa.Column("promotion_name", sa.String(512), nullable=True),
+            sa.Column("status", sa.String(32), nullable=False, server_default="preview"),
+            sa.Column("total_rows", sa.Integer(), nullable=False, server_default="0"),
+            sa.Column("valid_rows", sa.Integer(), nullable=False, server_default="0"),
+            sa.Column("error_rows", sa.Integer(), nullable=False, server_default="0"),
+            sa.Column("warning_rows", sa.Integer(), nullable=False, server_default="0"),
+            sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now(), onupdate=sa.func.now()),
+            sa.Column("applied_at", sa.DateTime(timezone=True), nullable=True),
+            sa.Column("error_text", sa.Text(), nullable=True),
+        )
+        op.create_index("ix_wb_auto_promo_file_imports_user_created", "wb_auto_promo_file_imports", ["user_id", "created_at"])
+        op.create_index("ix_wb_auto_promo_file_imports_marketplace_account_id", "wb_auto_promo_file_imports", ["marketplace_account_id"])
+
+    if "wb_auto_promo_file_import_rows" not in existing_tables:
+        op.create_table(
+            "wb_auto_promo_file_import_rows",
+            sa.Column("id", sa.Integer(), nullable=False, primary_key=True, autoincrement=True),
+            sa.Column("import_id", sa.Integer(), sa.ForeignKey("wb_auto_promo_file_imports.id", ondelete="CASCADE"), nullable=False, index=True),
+            sa.Column("row_number", sa.Integer(), nullable=False),
+            sa.Column("wb_nm_id", sa.BigInteger(), nullable=True, index=True),
+            sa.Column("seller_article", sa.String(255), nullable=True),
+            sa.Column("title", sa.String(1024), nullable=True),
+            sa.Column("plan_price", sa.Numeric(12, 2), nullable=True),
+            sa.Column("current_full_price", sa.Numeric(12, 2), nullable=True),
+            sa.Column("current_discount_percent", sa.Numeric(5, 2), nullable=True),
+            sa.Column("current_discounted_price", sa.Numeric(12, 2), nullable=True),
+            sa.Column("wb_upload_discount_percent", sa.Numeric(5, 2), nullable=True),
+            sa.Column("wb_status", sa.String(512), nullable=True),
+            sa.Column("already_participating", sa.Boolean(), nullable=True),
+            sa.Column("status", sa.String(32), nullable=False),
+            sa.Column("message", sa.Text(), nullable=True),
+            sa.Column("raw_payload", sa.JSON(), nullable=True),
+            sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now(), onupdate=sa.func.now()),
+        )
+        op.create_index("ix_wb_auto_promo_file_rows_import_id", "wb_auto_promo_file_import_rows", ["import_id"])
+        op.create_index("ix_wb_auto_promo_file_import_rows_wb_nm_id", "wb_auto_promo_file_import_rows", ["wb_nm_id"])
+
+    # ============================================================
+    # COLUMNS: wb_auto_promotion_conditions
+    # ============================================================
+
     condition_columns = {
         col["name"]
         for col in inspector.get_columns("wb_auto_promotion_conditions")
@@ -61,7 +115,10 @@ def upgrade() -> None:
                     sa.Column(name, col_type, nullable=nullable),
                 )
 
-    # --- wb_auto_promo_price_recommendations ---
+    # ============================================================
+    # COLUMNS: wb_auto_promo_price_recommendations
+    # ============================================================
+
     rec_columns = {
         col["name"]
         for col in inspector.get_columns("wb_auto_promo_price_recommendations")
@@ -108,7 +165,10 @@ def upgrade() -> None:
                     sa.Column(name, col_type, nullable=nullable),
                 )
 
-    # --- wb_price_change_history ---
+    # ============================================================
+    # COLUMNS: wb_price_change_history
+    # ============================================================
+
     hist_columns = {
         col["name"]
         for col in inspector.get_columns("wb_price_change_history")
@@ -151,7 +211,10 @@ def upgrade() -> None:
                     sa.Column(name, col_type, nullable=nullable),
                 )
 
-    # --- wb_product_prices ---
+    # ============================================================
+    # COLUMNS: wb_product_prices
+    # ============================================================
+
     price_columns = {
         col["name"]
         for col in inspector.get_columns("wb_product_prices")
@@ -190,6 +253,7 @@ def downgrade() -> None:
     conn = op.get_bind()
     inspector = sa.inspect(conn)
 
+    # Drop columns (safe: only if they exist)
     condition_columns = {
         col["name"]
         for col in inspector.get_columns("wb_auto_promotion_conditions")
@@ -260,3 +324,9 @@ def downgrade() -> None:
     ):
         if name in price_columns:
             op.drop_column("wb_product_prices", name)
+
+    # Drop tables (safe: only if they exist)
+    if inspector.has_table("wb_auto_promo_file_import_rows"):
+        op.drop_table("wb_auto_promo_file_import_rows")
+    if inspector.has_table("wb_auto_promo_file_imports"):
+        op.drop_table("wb_auto_promo_file_imports")
