@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     wb_base_statistics_url: str = "https://statistics-api.wildberries.ru"
 
     ozon_base_url: str = "https://api-seller.ozon.ru"
+    ozon_commissions_source_url: str = (
+        "https://seller-edu.ozon.ru/libra/commissions-tariffs/"
+        "commissions-tariffs-ozon/komissii-tovary-uslugi"
+    )
 
     # YooKassa payment settings
     yookassa_shop_id: str = ""

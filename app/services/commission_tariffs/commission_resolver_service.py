@@ -1,6 +1,6 @@
-"""version: 1.1.0
+"""version: 1.2.0
 description: Unified commission rate resolver for WB and Ozon tariff lookups.
-updated: 2026-05-20
+updated: 2026-05-31
 """
 
 import logging
@@ -18,6 +18,12 @@ from app.models.commission_tariffs import (
 from app.models.enums import Marketplace
 
 logger = logging.getLogger(__name__)
+
+OZON_LOW_PRICE_SPECIAL_RATES: dict[str, dict[str, Decimal]] = {
+    "fbo": {"up_to_100": Decimal("14"), "101_to_300": Decimal("20")},
+    "fbs": {"up_to_100": Decimal("14"), "101_to_300": Decimal("20")},
+    "fbo_fresh": {"up_to_100": Decimal("17"), "101_to_300": Decimal("23")},
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +137,37 @@ class CommissionResolverService:
                 calculation_confidence=confidence,
             )
 
+        if mp == Marketplace.OZON and effective_price is not None and effective_price <= Decimal("300"):
+            special_rate = self._get_ozon_low_price_special_rate(
+                sales_model=sales_model_lower,
+                product_price=effective_price,
+            )
+            if special_rate is not None:
+                commission_amount = (
+                    effective_price * special_rate / Decimal("100")
+                ).quantize(Decimal("0.01"))
+
+                logger.info(
+                    "ozon_low_price_special_rate_applied",
+                    extra={
+                        "sales_model": sales_model_lower,
+                        "product_price": str(effective_price),
+                        "special_rate": str(special_rate),
+                    },
+                )
+
+                return CommissionResolutionResult(
+                    commission_percent=special_rate,
+                    version_id=version.id,
+                    source="low_price_special_rule",
+                    match_status="special_rule",
+                    matched_rate_id=None,
+                    diagnostics=f"Применено специальное условие Ozon для товаров до 300 ₽: {special_rate}%",
+                    commission_base_price=effective_price,
+                    commission_amount=commission_amount,
+                    calculation_confidence="estimated",
+                )
+
         return CommissionResolutionResult(
             commission_percent=None,
             version_id=version.id,
@@ -227,3 +264,24 @@ class CommissionResolverService:
             rate = result.scalar_one_or_none()
 
         return rate
+
+    @staticmethod
+    def _get_ozon_low_price_special_rate(
+        sales_model: str,
+        product_price: Decimal,
+    ) -> Decimal | None:
+        """Get special commission rate for Ozon low-price items (up to 300 RUB).
+
+        Special conditions for FBO, FBO Fresh, FBS:
+        - up to 100 RUB: FBO/FBS 14%, FBO Fresh 17%
+        - 101-300 RUB: FBO/FBS 20%, FBO Fresh 23%
+        """
+        rates = OZON_LOW_PRICE_SPECIAL_RATES.get(sales_model)
+        if rates is None:
+            return None
+
+        if product_price <= Decimal("100"):
+            return rates.get("up_to_100")
+        elif product_price <= Decimal("300"):
+            return rates.get("101_to_300")
+        return None

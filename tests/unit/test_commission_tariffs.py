@@ -671,14 +671,24 @@ class TestOzonPageParser:
 
     def test_parse_xlsx_link(self) -> None:
         parser = OzonCommissionPageParser()
-        html = '<html><body><a href="/files/commissions.xlsx">Скачать</a></body></html>'
+        html = (
+            '<html><body>'
+            '<h2>Таблица категорий с 6 апреля 2026 г.</h2>'
+            '<p><a href="/files/commissions.xlsx">Скачать таблицу категорий</a></p>'
+            '</body></html>'
+        )
         result = parser.parse(html)
         assert result["download_url"] is not None
         assert "commissions.xlsx" in result["download_url"]
 
     def test_parse_period_label(self) -> None:
         parser = OzonCommissionPageParser()
-        html = "<html><body>Таблица категорий с 01.06.2026 по 30.06.2026</body></html>"
+        html = (
+            "<html><body>"
+            "<h2>Таблица категорий с 1 июня 2026 г.</h2>"
+            '<p><a href="/files/commissions.xlsx">Скачать таблицу категорий</a></p>'
+            "</body></html>"
+        )
         result = parser.parse(html)
         assert result["period_label"] is not None
         assert "категорий" in result["period_label"].lower()
@@ -739,3 +749,138 @@ class TestChecksTableRendering:
         html = _checks_table([check])
         assert "Скачать актуальный файл" in html
         assert "https://example.com/commissions.xlsx" in html
+
+
+class TestOzonLowPriceSpecialRates:
+    """Test special commission rates for Ozon items up to 300 RUB."""
+
+    def test_fbo_up_to_100_rub(self) -> None:
+        from app.services.commission_tariffs.commission_resolver_service import (
+            CommissionResolverService,
+        )
+
+        rate = CommissionResolverService._get_ozon_low_price_special_rate(
+            sales_model="fbo",
+            product_price=Decimal("50"),
+        )
+        assert rate == Decimal("14")
+
+    def test_fbs_up_to_100_rub(self) -> None:
+        from app.services.commission_tariffs.commission_resolver_service import (
+            CommissionResolverService,
+        )
+
+        rate = CommissionResolverService._get_ozon_low_price_special_rate(
+            sales_model="fbs",
+            product_price=Decimal("100"),
+        )
+        assert rate == Decimal("14")
+
+    def test_fbo_fresh_up_to_100_rub(self) -> None:
+        from app.services.commission_tariffs.commission_resolver_service import (
+            CommissionResolverService,
+        )
+
+        rate = CommissionResolverService._get_ozon_low_price_special_rate(
+            sales_model="fbo_fresh",
+            product_price=Decimal("99"),
+        )
+        assert rate == Decimal("17")
+
+    def test_fbo_101_to_300_rub(self) -> None:
+        from app.services.commission_tariffs.commission_resolver_service import (
+            CommissionResolverService,
+        )
+
+        rate = CommissionResolverService._get_ozon_low_price_special_rate(
+            sales_model="fbo",
+            product_price=Decimal("150"),
+        )
+        assert rate == Decimal("20")
+
+    def test_fbs_101_to_300_rub(self) -> None:
+        from app.services.commission_tariffs.commission_resolver_service import (
+            CommissionResolverService,
+        )
+
+        rate = CommissionResolverService._get_ozon_low_price_special_rate(
+            sales_model="fbs",
+            product_price=Decimal("300"),
+        )
+        assert rate == Decimal("20")
+
+    def test_fbo_fresh_101_to_300_rub(self) -> None:
+        from app.services.commission_tariffs.commission_resolver_service import (
+            CommissionResolverService,
+        )
+
+        rate = CommissionResolverService._get_ozon_low_price_special_rate(
+            sales_model="fbo_fresh",
+            product_price=Decimal("250"),
+        )
+        assert rate == Decimal("23")
+
+    def test_rfbs_not_supported(self) -> None:
+        from app.services.commission_tariffs.commission_resolver_service import (
+            CommissionResolverService,
+        )
+
+        rate = CommissionResolverService._get_ozon_low_price_special_rate(
+            sales_model="rfbs",
+            product_price=Decimal("50"),
+        )
+        assert rate is None
+
+    def test_above_300_rub_not_supported(self) -> None:
+        from app.services.commission_tariffs.commission_resolver_service import (
+            CommissionResolverService,
+        )
+
+        rate = CommissionResolverService._get_ozon_low_price_special_rate(
+            sales_model="fbo",
+            product_price=Decimal("301"),
+        )
+        assert rate is None
+
+
+class TestOzonPageParserAdvanced:
+    """Test advanced Ozon page parser scenarios."""
+
+    def test_parse_selects_latest_period(self) -> None:
+        parser = OzonCommissionPageParser()
+        html = (
+            "<html><body>"
+            "<h2>Таблица категорий с 13 марта 2026 г.</h2>"
+            '<p><a href="/files/old.xlsx">Скачать таблицу категорий</a></p>'
+            "<h2>Таблица категорий с 6 апреля 2026 г.</h2>"
+            '<p><a href="/files/new.xlsx">Скачать таблицу категорий</a></p>'
+            "</body></html>"
+        )
+        result = parser.parse(html)
+        assert result["download_url"] is not None
+        assert "new.xlsx" in result["download_url"]
+        assert "апреля" in result["period_label"].lower()
+
+    def test_parse_ignores_select_platform_link(self) -> None:
+        parser = OzonCommissionPageParser()
+        html = (
+            "<html><body>"
+            "<h2>Таблица категорий с 6 апреля 2026 г.</h2>"
+            '<p><a href="/files/regular.xlsx">Скачать таблицу категорий</a></p>'
+            '<p><a href="/files/select.xlsx">Скачать таблицу категорий на платформе Селект</a></p>'
+            "</body></html>"
+        )
+        result = parser.parse(html)
+        assert result["download_url"] is not None
+        assert "regular.xlsx" in result["download_url"]
+
+    def test_parse_extracts_active_from_date(self) -> None:
+        parser = OzonCommissionPageParser()
+        html = (
+            "<html><body>"
+            "<h2>Таблица категорий с 6 апреля 2026 г.</h2>"
+            '<p><a href="/files/commissions.xlsx">Скачать таблицу категорий</a></p>'
+            "</body></html>"
+        )
+        result = parser.parse(html)
+        assert result["active_from"] == "2026-04-06"

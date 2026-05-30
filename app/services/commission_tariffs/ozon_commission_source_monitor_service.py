@@ -1,6 +1,6 @@
-"""version: 1.0.0
+"""version: 2.0.0
 description: Ozon commission source page monitor — detects new tariff tables on the official page.
-updated: 2026-05-20
+updated: 2026-05-31
 """
 
 import hashlib
@@ -12,15 +12,26 @@ from urllib.parse import urljoin
 
 import httpx
 
+from app.core.config import get_settings
 from app.models.commission_tariffs import MarketplaceTariffSourceCheck
 from app.models.enums import Marketplace
 
 logger = logging.getLogger(__name__)
 
-OZON_COMMISSIONS_PAGE_URL = (
-    "https://seller-edu.ozon.ru/libra/commissions-tariffs/commissions-tariffs-ozon/"
-    "komissii-tovary-uslugi"
-)
+BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+    ),
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "image/avif,image/webp,*/*;q=0.8"
+    ),
+    "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+}
 
 DOWNLOAD_LINK_TEXT_PATTERN = re.compile(r"скачать\s+таблицу\s+категорий", re.IGNORECASE)
 PERIOD_PATTERN = re.compile(
@@ -39,51 +50,119 @@ class OzonCommissionPageParser:
         - period_label: str | None
         - download_url: str | None
         - file_name: str | None
+        - active_from: str | None (ISO date if detected)
         """
-        period_label = self._extract_latest_period(html_content)
-        download_url = self._extract_download_url(html_content)
-        file_name = self._extract_file_name(download_url) if download_url else None
+        blocks = self._extract_all_period_blocks(html_content)
+        if not blocks:
+            return {
+                "period_label": None,
+                "download_url": None,
+                "file_name": None,
+                "active_from": None,
+            }
 
+        latest = blocks[0]
         return {
-            "period_label": period_label,
-            "download_url": download_url,
-            "file_name": file_name,
+            "period_label": latest["period_label"],
+            "download_url": latest["download_url"],
+            "file_name": self._extract_file_name(latest["download_url"]),
+            "active_from": latest.get("active_from"),
         }
 
-    def _extract_latest_period(self, html: str) -> str | None:
-        """Find the most recent period heading on the page."""
-        blocks = re.findall(
-            r"(?:таблица\s+категорий\s+[^<]{5,80})",
-            html,
+    def _extract_all_period_blocks(self, html: str) -> list[dict[str, Any]]:
+        """Find all period blocks with their download URLs, sorted by recency."""
+        blocks = []
+        base_url = "https://seller-edu.ozon.ru"
+
+        pattern = re.compile(
+            r'Таблица\s+категорий\s+с\s+(\d{1,2})\s+([а-яё]+)\s+(\d{4})\s*г\.?'
+            r'(.*?)'
+            r'(?=Таблица\s+категорий\s+с|\Z)',
+            re.IGNORECASE | re.DOTALL,
+        )
+
+        for match in pattern.finditer(html):
+            day = int(match.group(1))
+            month_name = match.group(2).lower()
+            year = int(match.group(3))
+            block_content = match.group(4)
+
+            month = self._parse_russian_month(month_name)
+            active_from = None
+            if month:
+                try:
+                    from datetime import date
+
+                    active_from = date(year, month, day).isoformat()
+                except ValueError:
+                    pass
+
+            period_label = match.group(0).split("\n")[0].strip()[:100]
+
+            download_url = self._find_download_url_in_block(block_content, base_url)
+
+            if download_url:
+                blocks.append({
+                    "period_label": period_label,
+                    "download_url": download_url,
+                    "active_from": active_from,
+                    "sort_key": (year, month or 1, day),
+                })
+
+        blocks.sort(key=lambda b: b["sort_key"], reverse=True)
+        return blocks
+
+    def _find_download_url_in_block(self, block: str, base_url: str) -> str | None:
+        """Find the primary download URL in a period block."""
+        link_pattern = re.compile(
+            r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>([^<]*)</a>',
             re.IGNORECASE,
         )
-        if blocks:
-            return str(blocks[0].strip())
-        return None
 
-    def _extract_download_url(self, html: str) -> str | None:
-        """Find the download link for the latest commission table."""
-        for match in re.finditer(
-            r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>([^<]*скачать[^<]*)</a>',
-            html,
-            re.IGNORECASE,
-        ):
+        for match in link_pattern.finditer(block):
             url = match.group(1)
-            link_text = match.group(2)
-            if DOWNLOAD_LINK_TEXT_PATTERN.search(link_text):
+            text = match.group(2).strip()
+
+            if DOWNLOAD_LINK_TEXT_PATTERN.search(text):
+                if "селект" in text.lower() or "select" in text.lower():
+                    continue
                 if url.startswith("/"):
-                    url = urljoin("https://seller-edu.ozon.ru", url)
+                    url = urljoin(base_url, url)
                 return str(url)
-        for match in re.finditer(
+
+        for match in link_pattern.finditer(block):
+            url = match.group(1)
+            text = match.group(2).strip()
+
+            if DOWNLOAD_LINK_TEXT_PATTERN.search(text):
+                if url.startswith("/"):
+                    url = urljoin(base_url, url)
+                return str(url)
+
+        xlsx_pattern = re.compile(
             r'<a[^>]+href=["\']([^"\']*\.xlsx[^"\']*)["\']',
-            html,
             re.IGNORECASE,
-        ):
+        )
+        for match in xlsx_pattern.finditer(block):
             url = match.group(1)
             if url.startswith("/"):
-                url = urljoin("https://seller-edu.ozon.ru", url)
+                url = urljoin(base_url, url)
             return str(url)
+
         return None
+
+    @staticmethod
+    def _parse_russian_month(name: str) -> int | None:
+        """Parse Russian month name to number."""
+        months = {
+            "января": 1, "февраля": 2, "марта": 3, "апреля": 4,
+            "мая": 5, "июня": 6, "июля": 7, "августа": 8,
+            "сентября": 9, "октября": 10, "ноября": 11, "декабря": 12,
+            "январь": 1, "февраль": 2, "март": 3, "апрель": 4,
+            "май": 5, "июнь": 6, "июль": 7, "август": 8,
+            "сентябрь": 9, "октябрь": 10, "ноябрь": 11, "декабрь": 12,
+        }
+        return months.get(name.lower())
 
     @staticmethod
     def _extract_file_name(url: str | None) -> str | None:
@@ -103,55 +182,93 @@ class OzonCommissionSourceMonitorService:
         self.session = session
         self._parser = OzonCommissionPageParser()
 
-    async def check(self, url: str = OZON_COMMISSIONS_PAGE_URL) -> dict[str, Any]:
+    async def check(self, url: str | None = None) -> dict[str, Any]:
         """Fetch the page, parse it, compare with last check, and persist the result.
 
         Returns a summary dict.
         """
-        logger.info("ozon_commission_source_check_started", extra={"source_url": url})
+        if url is None:
+            url = get_settings().ozon_commissions_source_url
+
+        logger.info(
+            "ozon_commission_source_check_started",
+            extra={"source_url": url},
+        )
 
         try:
             async with httpx.AsyncClient(
                 follow_redirects=True,
                 timeout=30.0,
-                headers={"User-Agent": "MPControl/1.0 (commission-monitor)"},
+                headers=BROWSER_HEADERS,
             ) as client:
                 response = await client.get(url)
+                final_url = str(response.url)
+                status_code = response.status_code
+
+                logger.info(
+                    "ozon_commission_source_page_fetched",
+                    extra={
+                        "source_url": url,
+                        "final_url": final_url,
+                        "status_code": status_code,
+                        "content_length": len(response.content),
+                    },
+                )
+
                 response.raise_for_status()
                 html = response.text
+
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
+            final_url = str(exc.response.url)
+
             if status in (403, 404):
                 logger.warning(
                     "ozon_commission_source_unavailable",
-                    extra={"status": status, "url": url, "error": str(exc)[:300]},
+                    extra={
+                        "status": status,
+                        "url": url,
+                        "final_url": final_url,
+                        "error": str(exc)[:300],
+                    },
                 )
                 return await self._record_check(
                     url=url,
                     html_content=None,
-                    change_type="unavailable",
+                    change_type="source_unavailable",
                     error=f"HTTP {status}: {exc.response.reason_phrase or 'Forbidden/Not Found'}",
+                    source_status_code=status,
+                    source_final_url=final_url,
                 )
             elif status == 429:
                 logger.warning(
                     "ozon_commission_source_rate_limited",
-                    extra={"status": status, "url": url},
+                    extra={"status": status, "url": url, "final_url": final_url},
                 )
                 return await self._record_check(
                     url=url,
                     html_content=None,
-                    change_type="rate_limited",
+                    change_type="source_unavailable",
                     error="HTTP 429: rate limited",
+                    source_status_code=status,
+                    source_final_url=final_url,
                 )
             logger.error(
                 "ozon_commission_source_http_error",
-                extra={"status": status, "url": url, "error": str(exc)[:300]},
+                extra={
+                    "status": status,
+                    "url": url,
+                    "final_url": final_url,
+                    "error": str(exc)[:300],
+                },
             )
             return await self._record_check(
                 url=url,
                 html_content=None,
                 change_type="parse_error",
                 error=f"HTTP {status}: {str(exc)[:200]}",
+                source_status_code=status,
+                source_final_url=final_url,
             )
         except httpx.TimeoutException as exc:
             logger.error(
@@ -161,7 +278,7 @@ class OzonCommissionSourceMonitorService:
             return await self._record_check(
                 url=url,
                 html_content=None,
-                change_type="unavailable",
+                change_type="source_unavailable",
                 error=f"Timeout: {str(exc)[:200]}",
             )
         except Exception as exc:
@@ -180,6 +297,15 @@ class OzonCommissionSourceMonitorService:
 
         try:
             parsed = self._parser.parse(html)
+            logger.info(
+                "ozon_commission_source_page_parsed",
+                extra={
+                    "period_label": parsed.get("period_label"),
+                    "download_url": parsed.get("download_url"),
+                    "file_name": parsed.get("file_name"),
+                    "active_from": parsed.get("active_from"),
+                },
+            )
         except Exception as exc:
             logger.exception(
                 "ozon_commission_source_parse_error",
@@ -190,11 +316,52 @@ class OzonCommissionSourceMonitorService:
                 html_content=html,
                 page_hash=page_hash,
                 change_type="parse_error",
-                error=str(exc)[:300],
+                error=f"HTML parse error: {str(exc)[:300]}",
+                source_status_code=status_code,
+                source_final_url=final_url,
             )
 
+        file_url = parsed.get("download_url")
+        file_hash = None
+        file_status_code = None
+
+        if file_url:
+            file_result = await self._download_and_verify_file(file_url, url)
+            file_hash = file_result.get("hash")
+            file_status_code = file_result.get("status_code")
+
+            if not file_result.get("valid"):
+                logger.warning(
+                    "ozon_commission_source_file_invalid",
+                    extra={
+                        "file_url": file_url,
+                        "error": file_result.get("error"),
+                    },
+                )
+                return await self._record_check(
+                    url=url,
+                    html_content=html,
+                    page_hash=page_hash,
+                    parsed=parsed,
+                    change_type="file_unavailable",
+                    error=file_result.get("error", "File validation failed"),
+                    source_status_code=status_code,
+                    source_final_url=final_url,
+                    file_status_code=file_status_code,
+                    file_hash=file_hash,
+                )
+
         last_check = await self._get_last_successful_check()
-        change_type, has_changes = self._detect_changes(last_check, parsed)
+        change_type, has_changes = self._detect_changes(last_check, parsed, file_hash)
+
+        logger.info(
+            "ozon_commission_source_check_completed",
+            extra={
+                "change_type": change_type,
+                "has_changes": has_changes,
+                "period_label": parsed.get("period_label"),
+            },
+        )
 
         return await self._record_check(
             url=url,
@@ -203,7 +370,94 @@ class OzonCommissionSourceMonitorService:
             parsed=parsed,
             change_type=change_type,
             has_changes=has_changes,
+            source_status_code=status_code,
+            source_final_url=final_url,
+            file_status_code=file_status_code,
+            file_hash=file_hash,
         )
+
+    async def _download_and_verify_file(
+        self, file_url: str, referer_url: str
+    ) -> dict[str, Any]:
+        """Download the XLSX file and verify it's valid."""
+        logger.info(
+            "ozon_commission_source_file_download_started",
+            extra={"file_url": file_url},
+        )
+
+        headers = dict(BROWSER_HEADERS)
+        headers["Referer"] = referer_url
+
+        try:
+            async with httpx.AsyncClient(
+                follow_redirects=True,
+                timeout=60.0,
+                headers=headers,
+            ) as client:
+                response = await client.get(file_url)
+                status_code = response.status_code
+                content = response.content
+
+                logger.info(
+                    "ozon_commission_source_file_downloaded",
+                    extra={
+                        "file_url": file_url,
+                        "status_code": status_code,
+                        "content_length": len(content),
+                        "content_type": response.headers.get("content-type"),
+                    },
+                )
+
+                if status_code != 200:
+                    return {
+                        "valid": False,
+                        "status_code": status_code,
+                        "error": f"HTTP {status_code}",
+                    }
+
+                if len(content) < 100:
+                    return {
+                        "valid": False,
+                        "status_code": status_code,
+                        "error": "File too small",
+                    }
+
+                if not content.startswith(b"PK"):
+                    content_type = response.headers.get("content-type", "").lower()
+                    if "html" in content_type or content[:15].lower().startswith(b"<!doctype"):
+                        return {
+                            "valid": False,
+                            "status_code": status_code,
+                            "error": "Received HTML instead of XLSX",
+                        }
+                    return {
+                        "valid": False,
+                        "status_code": status_code,
+                        "error": "Invalid XLSX signature",
+                    }
+
+                file_hash = hashlib.sha256(content).hexdigest()
+
+                return {
+                    "valid": True,
+                    "status_code": status_code,
+                    "hash": file_hash,
+                    "size": len(content),
+                }
+
+        except Exception as exc:
+            logger.exception(
+                "ozon_commission_source_file_download_failed",
+                extra={
+                    "file_url": file_url,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc)[:300],
+                },
+            )
+            return {
+                "valid": False,
+                "error": f"{type(exc).__name__}: {str(exc)[:200]}",
+            }
 
     async def _record_check(
         self,
@@ -215,10 +469,26 @@ class OzonCommissionSourceMonitorService:
         change_type: str = "no_change",
         has_changes: bool = False,
         error: str | None = None,
+        source_status_code: int | None = None,
+        source_final_url: str | None = None,
+        file_status_code: int | None = None,
+        file_hash: str | None = None,
     ) -> dict[str, Any]:
         """Persist the check result and return a summary."""
         if parsed is None:
             parsed = {}
+
+        details = {
+            "period_label": parsed.get("period_label"),
+            "download_url": parsed.get("download_url"),
+            "file_name": parsed.get("file_name"),
+            "active_from": parsed.get("active_from"),
+            "error": error,
+            "source_status_code": source_status_code,
+            "source_final_url": source_final_url,
+            "file_status_code": file_status_code,
+            "file_hash": file_hash,
+        }
 
         check = MarketplaceTariffSourceCheck(
             marketplace=Marketplace.OZON,
@@ -230,27 +500,23 @@ class OzonCommissionSourceMonitorService:
             current_detected_file_name=parsed.get("file_name"),
             has_changes=has_changes,
             change_type=change_type,
-            details={
-                "period_label": parsed.get("period_label"),
-                "download_url": parsed.get("download_url"),
-                "file_name": parsed.get("file_name"),
-                "error": error,
-            },
+            details=details,
         )
         self.session.add(check)
         await self.session.commit()
 
         summary = {
-            "success": change_type != "parse_error",
+            "success": change_type not in ("parse_error", "source_unavailable", "file_unavailable"),
             "has_changes": has_changes,
             "change_type": change_type,
             "period_label": parsed.get("period_label"),
             "download_url": parsed.get("download_url"),
             "file_name": parsed.get("file_name"),
             "check_id": check.id,
+            "error": error,
         }
 
-        if has_changes and change_type != "parse_error":
+        if has_changes and change_type not in ("parse_error", "source_unavailable", "file_unavailable"):
             logger.info(
                 "ozon_commission_source_update_detected",
                 extra={
@@ -270,7 +536,7 @@ class OzonCommissionSourceMonitorService:
         result = await self.session.execute(
             select(Check)
             .where(Check.marketplace == Marketplace.OZON)
-            .where(Check.change_type != "parse_error")
+            .where(Check.change_type.notin_(["parse_error", "source_unavailable", "file_unavailable"]))
             .order_by(Check.checked_at.desc())
             .limit(1)
         )
@@ -280,6 +546,7 @@ class OzonCommissionSourceMonitorService:
     def _detect_changes(
         last_check: MarketplaceTariffSourceCheck | None,
         parsed: dict[str, Any],
+        file_hash: str | None = None,
     ) -> tuple[str, bool]:
         """Compare parsed data with the last check to detect changes."""
         if last_check is None:
@@ -294,5 +561,10 @@ class OzonCommissionSourceMonitorService:
             return "new_period_detected", True
         if new_url and new_url != last_url:
             return "file_url_changed", True
+
+        if file_hash and last_check.details:
+            last_hash = last_check.details.get("file_hash")
+            if last_hash and file_hash != last_hash:
+                return "file_content_changed", True
 
         return "no_change", False

@@ -141,6 +141,7 @@ async def check_ozon_commissions_web(
     change_type = result.get("change_type", "no_change")
     download_url = result.get("download_url")
     file_name = result.get("file_name")
+    error = result.get("error")
 
     status_badge = _change_type_badge(change_type)
 
@@ -153,14 +154,24 @@ async def check_ozon_commissions_web(
             f'class="button primary">📥 Скачать актуальный файл: {safe_name}</a></p>'
         )
 
+    source_url = get_settings().ozon_commissions_source_url
+    manual_link = (
+        f'<p><a href="{escape(source_url)}" target="_blank" rel="noopener">'
+        f"Открыть страницу комиссий Ozon вручную</a></p>"
+    )
+
     error_info = ""
-    if change_type in ("unavailable", "rate_limited"):
+    if change_type in ("source_unavailable", "file_unavailable"):
+        error_msg = escape(str(error or "Источник недоступен"))
         error_info = (
-            '<p>⚠️ Источник Ozon недоступен. Проверьте страницу вручную или повторите позже.</p>'
+            f'<p>⚠️ {error_msg}</p>'
+            '<p>Последняя рабочая версия комиссий сохранена и продолжает использоваться.</p>'
         )
     elif change_type == "parse_error":
+        error_msg = escape(str(error or "Ошибка парсинга"))
         error_info = (
-            '<p>⚠️ Ошибка парсинга. Формат страницы Ozon мог измениться.</p>'
+            f'<p>⚠️ Ошибка парсинга: {error_msg}</p>'
+            '<p>Формат страницы или файла Ozon мог измениться. Требуется обновление парсера.</p>'
         )
 
     return _admin_page(
@@ -171,6 +182,7 @@ async def check_ozon_commissions_web(
         f"<p>Результат: {status_badge}</p>"
         f"{download_link}"
         f"{error_info}"
+        f"{manual_link}"
         f'<a href="/web/admin/commissions" class="button">Назад</a></div>',
     )
 
@@ -349,6 +361,8 @@ def _ozon_card(
         label = "—"
         file_name = "—"
 
+    source_url = get_settings().ozon_commissions_source_url
+
     check_info = ""
     if last_check:
         period = escape(str(last_check.current_detected_period_label or "н/д"))
@@ -363,23 +377,17 @@ def _ozon_card(
                 f'<p><a href="{safe_url}" target="_blank" rel="noopener" '
                 f'class="button primary">📥 Скачать актуальный файл: {safe_name}</a></p>'
             )
-        elif last_check.change_type in ("unavailable", "rate_limited"):
+        elif last_check.change_type in ("source_unavailable", "unavailable", "rate_limited", "file_unavailable"):
             error_msg = ""
             if isinstance(last_check.details, dict) and last_check.details.get("error"):
                 error_msg = escape(str(last_check.details["error"])[:200])
             check_info += (
                 f'<p class="muted">⚠️ Источник Ozon недоступен. '
-                f"Проверьте страницу вручную или повторите проверку позже.</p>"
+                f"Последняя рабочая версия комиссий сохранена.</p>"
             )
-            if error_msg:
-                check_info += f'<details><summary>Техническая информация</summary><pre class="mono">{error_msg}</pre></details>'
-        elif last_check.change_type == "parse_error":
-            error_msg = ""
-            if isinstance(last_check.details, dict) and last_check.details.get("error"):
-                error_msg = escape(str(last_check.details["error"])[:300])
             check_info += (
-                '<p class="muted">⚠️ Ошибка парсинга. Формат страницы Ozon мог измениться. '
-                "Требуется обновление парсера.</p>"
+                f'<p><a href="{escape(source_url)}" target="_blank" rel="noopener">'
+                f"Открыть страницу комиссий Ozon вручную</a></p>"
             )
             if error_msg:
                 check_info += f'<details><summary>Техническая информация</summary><pre class="mono">{error_msg}</pre></details>'
@@ -395,6 +403,7 @@ def _ozon_card(
         f"<p><b>Статус:</b> {escape(status)}</p>"
         f"<p><b>Файл:</b> {file_name}</p>"
         f"<p><b>Ставок:</b> {rate_count}</p>"
+        f'<p><a href="{escape(source_url)}" target="_blank" rel="noopener">Открыть страницу комиссий Ozon</a></p>'
         f"{check_info}"
         "</div>"
     )
@@ -538,8 +547,11 @@ def _change_type_badge(change_type: str) -> str:
         "no_change": '<span class="badge good">Без изменений</span>',
         "new_period_detected": '<span class="badge action">Есть изменения (новый период)</span>',
         "file_url_changed": '<span class="badge action">Есть изменения (URL изменён)</span>',
+        "file_content_changed": '<span class="badge action">Есть изменения (файл обновлён)</span>',
         "parse_error": '<span class="badge bad">Ошибка парсинга</span>',
-        "unavailable": '<span class="badge">Источник недоступен</span>',
+        "source_unavailable": '<span class="badge warn">Источник недоступен</span>',
+        "file_unavailable": '<span class="badge warn">Файл недоступен</span>',
+        "unavailable": '<span class="badge warn">Источник недоступен</span>',
         "rate_limited": '<span class="badge warn">Источник временно недоступен</span>',
     }
     return mapping.get(change_type, f'<span class="badge">{escape(change_type)}</span>')
