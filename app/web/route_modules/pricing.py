@@ -88,34 +88,75 @@ async def pricing_page(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> str:
-    data = await _load_pricing_data(session, user.id)
-    return page(
-        "Цены и акции",
-        user.first_name or user.username or str(user.telegram_id),
-        _pricing_content(data),
-        active_path="/web/pricing",
-    )
+    try:
+        data = await _load_pricing_data(session, user.id)
+        return page(
+            "Цены и акции",
+            user.first_name or user.username or str(user.telegram_id),
+            _pricing_content(data),
+            active_path="/web/pricing",
+        )
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "pricing_page_failed", extra={"user_id": user.id}
+        )
+        return page(
+            "Ошибка — Цены и акции",
+            user.first_name or user.username or str(user.telegram_id),
+            '<div class="band"><h2>Не удалось загрузить раздел</h2>'
+            "<p>Ошибка уже записана в лог. Попробуйте обновить страницу позже.</p>"
+            '<p><a href="/web/" class="button primary">Вернуться на главную</a></p></div>',
+            active_path="/web/pricing",
+        )
 
 
 @router.post("/pricing/sync-prices")
-async def pricing_sync_prices(session: AsyncSession = SESSION_DEPENDENCY) -> RedirectResponse:
-    await WbPriceSyncService(session).sync_all_accounts()
-    await session.commit()
-    return RedirectResponse(url="/web/pricing?prices_synced=1#prices", status_code=303)
+async def pricing_sync_prices(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    try:
+        await WbPriceSyncService(session).sync_all_accounts()
+        await session.commit()
+        return RedirectResponse(url="/web/pricing?prices_synced=1#prices", status_code=303)
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "pricing_sync_prices_failed", extra={"user_id": user.id}
+        )
+        await session.rollback()
+        return RedirectResponse(url="/web/pricing?sync_error=1#prices", status_code=303)
 
 
 @router.post("/pricing/sync-promotions")
-async def pricing_sync_promotions(session: AsyncSession = SESSION_DEPENDENCY) -> RedirectResponse:
-    service = WbPromotionSyncService(session)
-    acquired, _message = await service.try_acquire_sync_lock()
-    if not acquired:
-        return RedirectResponse(url="/web/pricing?sync_busy=1#promotions", status_code=303)
+async def pricing_sync_promotions(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
     try:
-        await service.sync_all_accounts(all_promo=True)
-        await session.commit()
-    finally:
-        await service.release_sync_lock()
-    return RedirectResponse(url="/web/pricing?promotions_synced=1#promotions", status_code=303)
+        service = WbPromotionSyncService(session)
+        acquired, _message = await service.try_acquire_sync_lock()
+        if not acquired:
+            return RedirectResponse(url="/web/pricing?sync_busy=1#promotions", status_code=303)
+        try:
+            await service.sync_all_accounts(all_promo=True)
+            await session.commit()
+        finally:
+            await service.release_sync_lock()
+        return RedirectResponse(
+            url="/web/pricing?promotions_synced=1#promotions", status_code=303
+        )
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "pricing_sync_promotions_failed", extra={"user_id": user.id}
+        )
+        await session.rollback()
+        return RedirectResponse(url="/web/pricing?sync_error=1#promotions", status_code=303)
 
 
 @router.post("/pricing/resolve-conditions")
@@ -123,18 +164,29 @@ async def pricing_resolve_conditions(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
-    accounts = await _wb_accounts(session, user.id)
-    resolver = WbAutoPromoConditionResolver()
-    total = 0
-    for account in accounts:
-        total += len(
-            await resolver.resolve_for_account(
-                session,
-                user_id=user.id,
-                marketplace_account_id=account.id,
+    try:
+        accounts = await _wb_accounts(session, user.id)
+        resolver = WbAutoPromoConditionResolver()
+        total = 0
+        for account in accounts:
+            total += len(
+                await resolver.resolve_for_account(
+                    session,
+                    user_id=user.id,
+                    marketplace_account_id=account.id,
+                )
             )
+        return RedirectResponse(
+            url=f"/web/pricing?conditions={total}#conditions", status_code=303
         )
-    return RedirectResponse(url=f"/web/pricing?conditions={total}#conditions", status_code=303)
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "pricing_resolve_conditions_failed", extra={"user_id": user.id}
+        )
+        await session.rollback()
+        return RedirectResponse(url="/web/pricing?resolve_error=1#conditions", status_code=303)
 
 
 @router.get("/pricing/auto-promotions/upload", response_class=HTMLResponse)
@@ -315,16 +367,27 @@ async def pricing_build_recommendations(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
-    total = 0
-    for account in await _wb_accounts(session, user.id):
-        total += len(
-            await WbAutoPromoParticipationService(session).calculate_participation_recommendations(
-                account.id,
+    try:
+        total = 0
+        for account in await _wb_accounts(session, user.id):
+            total += len(
+                await WbAutoPromoParticipationService(
+                    session
+                ).calculate_participation_recommendations(account.id)
             )
+        return RedirectResponse(
+            url=f"/web/pricing?recommendations={total}#recommendations", status_code=303
         )
-    return RedirectResponse(
-        url=f"/web/pricing?recommendations={total}#recommendations", status_code=303
-    )
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "pricing_build_recommendations_failed", extra={"user_id": user.id}
+        )
+        await session.rollback()
+        return RedirectResponse(
+            url="/web/pricing?rec_error=1#recommendations", status_code=303
+        )
 
 
 @router.post("/pricing/prepare-apply")
@@ -341,29 +404,42 @@ async def pricing_apply_selected(
     if not recommendation_ids:
         return RedirectResponse(url="/web/pricing?apply_empty=1#recommendations", status_code=303)
 
-    recs = await session.execute(
-        select(WbAutoPromoPriceRecommendation).where(
-            WbAutoPromoPriceRecommendation.user_id == user.id,
-            WbAutoPromoPriceRecommendation.id.in_(recommendation_ids),
-            WbAutoPromoPriceRecommendation.status == "CAN_APPLY",
+    try:
+        recs = await session.execute(
+            select(WbAutoPromoPriceRecommendation).where(
+                WbAutoPromoPriceRecommendation.user_id == user.id,
+                WbAutoPromoPriceRecommendation.id.in_(recommendation_ids),
+                WbAutoPromoPriceRecommendation.status == "CAN_APPLY",
+            )
         )
-    )
-    by_account: dict[int, list[int]] = {}
-    for rec in recs.scalars().all():
-        by_account.setdefault(rec.marketplace_account_id, []).append(rec.id)
+        by_account: dict[int, list[int]] = {}
+        for rec in recs.scalars().all():
+            by_account.setdefault(rec.marketplace_account_id, []).append(rec.id)
 
-    applied = 0
-    for account_id, rec_ids in by_account.items():
-        account = await session.get(MarketplaceAccount, account_id)
-        if account is None or account.user_id != user.id:
-            continue
-        result = await WbAutoPromoParticipationService(session).apply_recommendations(
-            account_id,
-            rec_ids,
-            dry_run=False,
+        applied = 0
+        for account_id, rec_ids in by_account.items():
+            account = await session.get(MarketplaceAccount, account_id)
+            if account is None or account.user_id != user.id:
+                continue
+            result = await WbAutoPromoParticipationService(session).apply_recommendations(
+                account_id,
+                rec_ids,
+                dry_run=False,
+            )
+            applied += len([row for row in result if row.get("payload")])
+        return RedirectResponse(
+            url=f"/web/pricing?applied={applied}#recommendations", status_code=303
         )
-        applied += len([row for row in result if row.get("payload")])
-    return RedirectResponse(url=f"/web/pricing?applied={applied}#recommendations", status_code=303)
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "pricing_apply_selected_failed", extra={"user_id": user.id}
+        )
+        await session.rollback()
+        return RedirectResponse(
+            url="/web/pricing?apply_error=1#recommendations", status_code=303
+        )
 
 
 async def _load_pricing_data(session: AsyncSession, user_id: int) -> PricingViewData:
@@ -1311,8 +1387,8 @@ def _confidence_tone(confidence: str | None) -> str:
     return {"high": "green", "medium": "amber", "low": "gray"}.get(confidence or "", "gray")
 
 
-def _badge(label: str, tone: str) -> str:
-    return f'<span class="pricing-badge pricing-badge-{escape(tone)}">{escape(label)}</span>'
+def _badge(label: str | None, tone: str) -> str:
+    return f'<span class="pricing-badge pricing-badge-{escape(tone)}">{escape(str(label or "—"))}</span>'
 
 
 def _product_title(product: Product | None) -> str:

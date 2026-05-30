@@ -31,20 +31,32 @@ async def dashboard(
     date_from: str | None = Query(default=None),
     date_to: str | None = Query(default=None),
 ) -> str:
-    service = WebDashboardService(session)
-    data = await service.dashboard(
-        user_id=user.id,
-        timezone=user.timezone,
-        period=period,
-        marketplace=marketplace,
-        sale_model=sale_model,
-        date_from=date_from,
-        date_to=date_to,
-    )
-    subscription = await WebCabinetService(session).subscription_page(user.id, user.timezone)
-    accounts = await WebCabinetService(session).accounts_page(user.id, user.timezone)
-    content = _dashboard_welcome(user, subscription, accounts, data) + _dashboard_content(data)
-    return page("Главная", _user_display_name(user), content)
+    try:
+        service = WebDashboardService(session)
+        data = await service.dashboard(
+            user_id=user.id,
+            timezone=user.timezone,
+            period=period,
+            marketplace=marketplace,
+            sale_model=sale_model,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        subscription = await WebCabinetService(session).subscription_page(user.id, user.timezone)
+        accounts = await WebCabinetService(session).accounts_page(user.id, user.timezone)
+        content = _dashboard_welcome(user, subscription, accounts, data) + _dashboard_content(
+            data
+        )
+        return page("Главная", _user_display_name(user), content)
+    except Exception:
+        logger.exception("dashboard_failed", extra={"user_id": user.id})
+        return page(
+            "Ошибка — Главная",
+            _user_display_name(user),
+            '<div class="band"><h2>Не удалось загрузить главную страницу</h2>'
+            "<p>Ошибка уже записана в лог. Попробуйте обновить страницу позже.</p>"
+            '<p><a href="/web/" class="button primary">Обновить</a></p></div>',
+        )
 
 
 @router.get("/web", response_class=HTMLResponse, include_in_schema=False)

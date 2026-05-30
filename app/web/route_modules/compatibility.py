@@ -246,6 +246,38 @@ async def double_web_compat(
             )
         )
 
+    if normalized == "pricing":
+        return HTMLResponse(await facade.pricing_page(user=user, session=session))
+
+    if normalized == "mrc-pricing":
+        return HTMLResponse(
+            await facade.mrc_pricing_page(
+                user=user,
+                session=session,
+                page_number=_qp_int(request, "page", 1),
+                filter_type=_qp(request, "filter_type", "all"),
+                search=_qp(request, "search", ""),
+            )
+        )
+
+    if normalized == "auto-promo-prices":
+        return HTMLResponse(
+            await facade.auto_promo_prices_page(
+                user=user,
+                session=session,
+                marketplace_account_id=_qp_int(request, "marketplace_account_id", None),
+            )
+        )
+
+    if normalized == "auto-promo-import":
+        return HTMLResponse(
+            await facade.auto_promo_import_page(
+                user=user,
+                session=session,
+                marketplace_account_id=_qp_int(request, "marketplace_account_id", None),
+            )
+        )
+
     return HTMLResponse("<h1>Раздел не найден</h1>", status_code=404)
 
 

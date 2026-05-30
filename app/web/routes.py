@@ -54,6 +54,11 @@ from app.web.route_modules.commissions_admin import (
 )
 from app.web.route_modules.compatibility import double_web_compat, placeholder
 from app.web.route_modules.dashboard import dashboard, dashboard_compat
+from app.web.route_modules.mrc_pricing import (
+    auto_promo_import_page,
+    auto_promo_prices_page,
+    mrc_pricing_page,
+)
 from app.web.route_modules.operations import (
     alerts_page,
     analytics_page,
@@ -69,6 +74,7 @@ from app.web.route_modules.planning import (
     plan_fact_page,
     save_plan_fact_plan,
 )
+from app.web.route_modules.pricing import pricing_page
 from app.web.views import *
 
 router = APIRouter(prefix="/web", tags=["web"])

@@ -138,14 +138,39 @@ async def check_ozon_commissions_web(
 
     period = result.get("period_label", "н/д")
     has_changes = result.get("has_changes", False)
-    status_text = "Обнаружены изменения!" if has_changes else "Изменений нет."
+    change_type = result.get("change_type", "no_change")
+    download_url = result.get("download_url")
+    file_name = result.get("file_name")
+
+    status_badge = _change_type_badge(change_type)
+
+    download_link = ""
+    if has_changes and download_url:
+        safe_url = escape(str(download_url))
+        safe_name = escape(str(file_name or "Актуальный файл Ozon"))
+        download_link = (
+            f'<p><a href="{safe_url}" target="_blank" rel="noopener" '
+            f'class="button primary">📥 Скачать актуальный файл: {safe_name}</a></p>'
+        )
+
+    error_info = ""
+    if change_type in ("unavailable", "rate_limited"):
+        error_info = (
+            '<p>⚠️ Источник Ozon недоступен. Проверьте страницу вручную или повторите позже.</p>'
+        )
+    elif change_type == "parse_error":
+        error_info = (
+            '<p>⚠️ Ошибка парсинга. Формат страницы Ozon мог измениться.</p>'
+        )
 
     return _admin_page(
         "Комиссии маркетплейсов",
         user,
         f'<div class="band"><h2>Проверка Ozon</h2>'
         f"<p>Текущий период: {escape(str(period))}</p>"
-        f"<p>{escape(status_text)}</p>"
+        f"<p>Результат: {status_badge}</p>"
+        f"{download_link}"
+        f"{error_info}"
         f'<a href="/web/admin/commissions" class="button">Назад</a></div>',
     )
 
@@ -327,8 +352,37 @@ def _ozon_card(
     check_info = ""
     if last_check:
         period = escape(str(last_check.current_detected_period_label or "н/д"))
-        changes = "Есть изменения" if last_check.has_changes else "Без изменений"
-        check_info = f"<p><b>Последняя проверка:</b> {changes}, период: {period}</p>"
+        change_badge = _change_type_badge(last_check.change_type)
+        check_info = (
+            f"<p><b>Последняя проверка:</b> {change_badge}, период: {period}</p>"
+        )
+        if last_check.has_changes and last_check.current_detected_file_url:
+            safe_url = escape(last_check.current_detected_file_url)
+            safe_name = escape(last_check.current_detected_file_name or "Актуальный файл Ozon")
+            check_info += (
+                f'<p><a href="{safe_url}" target="_blank" rel="noopener" '
+                f'class="button primary">📥 Скачать актуальный файл: {safe_name}</a></p>'
+            )
+        elif last_check.change_type in ("unavailable", "rate_limited"):
+            error_msg = ""
+            if isinstance(last_check.details, dict) and last_check.details.get("error"):
+                error_msg = escape(str(last_check.details["error"])[:200])
+            check_info += (
+                f'<p class="muted">⚠️ Источник Ozon недоступен. '
+                f"Проверьте страницу вручную или повторите проверку позже.</p>"
+            )
+            if error_msg:
+                check_info += f'<details><summary>Техническая информация</summary><pre class="mono">{error_msg}</pre></details>'
+        elif last_check.change_type == "parse_error":
+            error_msg = ""
+            if isinstance(last_check.details, dict) and last_check.details.get("error"):
+                error_msg = escape(str(last_check.details["error"])[:300])
+            check_info += (
+                '<p class="muted">⚠️ Ошибка парсинга. Формат страницы Ozon мог измениться. '
+                "Требуется обновление парсера.</p>"
+            )
+            if error_msg:
+                check_info += f'<details><summary>Техническая информация</summary><pre class="mono">{error_msg}</pre></details>'
 
     return (
         '<div class="band">'
@@ -432,18 +486,39 @@ def _import_logs_table(logs: list[MarketplaceCommissionImportLog]) -> str:
 def _checks_table(checks: list[MarketplaceTariffSourceCheck]) -> str:
     rows = ""
     for c in checks:
-        change_label = {
-            "no_change": '<span class="badge">без изменений</span>',
-            "new_period_detected": '<span class="badge warn">новый период</span>',
-            "file_url_changed": '<span class="badge action">URL изменён</span>',
-            "parse_error": '<span class="badge bad">ошибка парсинга</span>',
-        }.get(c.change_type, f'<span class="badge">{c.change_type}</span>')
+        change_label = _change_type_badge(c.change_type)
         period = escape(str(c.current_detected_period_label or "—"))
+
+        file_cell = "—"
+        if c.current_detected_file_url:
+            safe_url = escape(c.current_detected_file_url)
+            safe_name = escape(c.current_detected_file_name or "Скачать файл")
+            file_cell = f'<a href="{safe_url}" target="_blank" rel="noopener">{safe_name}</a>'
+        elif c.current_detected_file_name:
+            file_cell = escape(c.current_detected_file_name)
+
+        actions = ""
+        if c.has_changes and c.current_detected_file_url:
+            actions = (
+                f'<a href="{escape(c.current_detected_file_url)}" target="_blank" '
+                f'rel="noopener" class="button primary">Скачать актуальный файл</a>'
+            )
+        elif c.change_type == "parse_error":
+            error_detail = ""
+            if isinstance(c.details, dict) and c.details.get("error"):
+                error_detail = escape(str(c.details["error"])[:200])
+            actions = (
+                f'<details><summary>Подробнее</summary>'
+                f'<pre class="mono">{error_detail}</pre></details>'
+            )
+
         rows += (
             "<tr>"
             f"<td>{c.checked_at.strftime('%d.%m.%Y %H:%M') if c.checked_at else '—'}</td>"
             f"<td>{period}</td>"
             f"<td>{change_label}</td>"
+            f"<td>{file_cell}</td>"
+            f"<td>{actions}</td>"
             "</tr>"
         )
 
@@ -451,8 +526,20 @@ def _checks_table(checks: list[MarketplaceTariffSourceCheck]) -> str:
         '<div class="band"><h2>🔍 История проверок Ozon</h2>'
         '<div class="table-wrap"><table class="table">'
         "<thead><tr>"
-        "<th>Дата</th><th>Период</th><th>Изменения</th>"
+        "<th>Дата</th><th>Период</th><th>Изменения</th><th>Файл</th><th>Действия</th>"
         "</tr></thead>"
         f"<tbody>{rows}</tbody>"
         "</table></div></div>"
     )
+
+
+def _change_type_badge(change_type: str) -> str:
+    mapping = {
+        "no_change": '<span class="badge good">Без изменений</span>',
+        "new_period_detected": '<span class="badge action">Есть изменения (новый период)</span>',
+        "file_url_changed": '<span class="badge action">Есть изменения (URL изменён)</span>',
+        "parse_error": '<span class="badge bad">Ошибка парсинга</span>',
+        "unavailable": '<span class="badge">Источник недоступен</span>',
+        "rate_limited": '<span class="badge warn">Источник временно недоступен</span>',
+    }
+    return mapping.get(change_type, f'<span class="badge">{escape(change_type)}</span>')

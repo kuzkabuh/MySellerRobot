@@ -609,3 +609,133 @@ class TestWbSyncNotificationFormatter:
         msg = format_wb_sync_notification(result)
         assert "Ошибка синхронизации" in msg
         assert "WBCommissionParseError" in msg
+
+
+class TestChangeTypeBadge:
+    def test_no_change_shows_green(self) -> None:
+        from app.web.route_modules.commissions_admin import _change_type_badge
+
+        badge = _change_type_badge("no_change")
+        assert "Без изменений" in badge
+        assert "good" in badge
+
+    def test_new_period_shows_action(self) -> None:
+        from app.web.route_modules.commissions_admin import _change_type_badge
+
+        badge = _change_type_badge("new_period_detected")
+        assert "Есть изменения" in badge
+        assert "action" in badge
+
+    def test_file_url_changed_shows_action(self) -> None:
+        from app.web.route_modules.commissions_admin import _change_type_badge
+
+        badge = _change_type_badge("file_url_changed")
+        assert "Есть изменения" in badge
+        assert "action" in badge
+
+    def test_parse_error_shows_red(self) -> None:
+        from app.web.route_modules.commissions_admin import _change_type_badge
+
+        badge = _change_type_badge("parse_error")
+        assert "Ошибка парсинга" in badge
+        assert "bad" in badge
+
+    def test_unavailable_shows_neutral(self) -> None:
+        from app.web.route_modules.commissions_admin import _change_type_badge
+
+        badge = _change_type_badge("unavailable")
+        assert "Источник недоступен" in badge
+        assert "unavailable" not in badge.lower().split(">")[1]
+
+    def test_rate_limited_shows_warning(self) -> None:
+        from app.web.route_modules.commissions_admin import _change_type_badge
+
+        badge = _change_type_badge("rate_limited")
+        assert "недоступен" in badge.lower()
+        assert "warn" in badge
+
+    def test_unknown_type_shows_escaped(self) -> None:
+        from app.web.route_modules.commissions_admin import _change_type_badge
+
+        badge = _change_type_badge("some_new_type")
+        assert "some_new_type" in badge
+
+
+class TestOzonPageParser:
+    def test_parse_empty_html(self) -> None:
+        parser = OzonCommissionPageParser()
+        result = parser.parse("<html><body></body></html>")
+        assert result["period_label"] is None
+        assert result["download_url"] is None
+        assert result["file_name"] is None
+
+    def test_parse_xlsx_link(self) -> None:
+        parser = OzonCommissionPageParser()
+        html = '<html><body><a href="/files/commissions.xlsx">Скачать</a></body></html>'
+        result = parser.parse(html)
+        assert result["download_url"] is not None
+        assert "commissions.xlsx" in result["download_url"]
+
+    def test_parse_period_label(self) -> None:
+        parser = OzonCommissionPageParser()
+        html = "<html><body>Таблица категорий с 01.06.2026 по 30.06.2026</body></html>"
+        result = parser.parse(html)
+        assert result["period_label"] is not None
+        assert "категорий" in result["period_label"].lower()
+
+    def test_extract_file_name_from_url(self) -> None:
+        name = OzonCommissionPageParser._extract_file_name(
+            "https://example.com/files/ozon_commissions_06042026.xlsx"
+        )
+        assert name is not None
+        assert ".xlsx" in name
+
+    def test_extract_file_name_none(self) -> None:
+        assert OzonCommissionPageParser._extract_file_name(None) is None
+
+
+class TestChecksTableRendering:
+    def test_empty_checks_renders_table(self) -> None:
+        from app.web.route_modules.commissions_admin import _checks_table
+
+        html = _checks_table([])
+        assert "История проверок" in html
+        assert "<table" in html
+
+    def test_unavailable_check_renders_russian(self) -> None:
+        from datetime import UTC, datetime
+        from unittest.mock import MagicMock
+
+        from app.web.route_modules.commissions_admin import _checks_table
+
+        check = MagicMock()
+        check.checked_at = datetime(2026, 5, 30, 12, 0, tzinfo=UTC)
+        check.current_detected_period_label = None
+        check.change_type = "unavailable"
+        check.has_changes = False
+        check.current_detected_file_url = None
+        check.current_detected_file_name = None
+        check.details = {"error": "HTTP 403: Forbidden"}
+
+        html = _checks_table([check])
+        assert "Источник недоступен" in html
+        assert "unavailable" not in html.split("<td>")[3]
+
+    def test_check_with_file_url_shows_link(self) -> None:
+        from datetime import UTC, datetime
+        from unittest.mock import MagicMock
+
+        from app.web.route_modules.commissions_admin import _checks_table
+
+        check = MagicMock()
+        check.checked_at = datetime(2026, 5, 30, 12, 0, tzinfo=UTC)
+        check.current_detected_period_label = "с 01.06.2026"
+        check.change_type = "new_period_detected"
+        check.has_changes = True
+        check.current_detected_file_url = "https://example.com/commissions.xlsx"
+        check.current_detected_file_name = "ozon_commissions.xlsx"
+        check.details = {}
+
+        html = _checks_table([check])
+        assert "Скачать актуальный файл" in html
+        assert "https://example.com/commissions.xlsx" in html
