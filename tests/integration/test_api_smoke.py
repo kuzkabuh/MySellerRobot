@@ -257,8 +257,8 @@ def test_web_shell_contains_material_design_tokens() -> None:
 
     html = page("Дашборд", "Артем", '<section class="kpi-grid"></section>')
 
-    assert "--primary" in html
-    assert "--surface" in html
+    assert "--accent" in html
+    assert "--bg-card" in html
     assert "kpi-grid" in html
     assert "dashboard-grid" in html
     assert "table-wrap" in html
@@ -402,8 +402,7 @@ def test_web_login_token_flow_renders_empty_free_dashboard(
 
     assert dashboard_response.status_code == 200
     assert "Добро пожаловать, Артем" in dashboard_response.text
-    assert "FREE" in dashboard_response.text
-    assert "Пульс бизнеса" in dashboard_response.text
+    assert "Динамика выручки" in dashboard_response.text
     assert "Wildberries / Ozon" in dashboard_response.text
     assert "Internal Server Error" not in dashboard_response.text
     assert "Раздел подготовлен" not in dashboard_response.text

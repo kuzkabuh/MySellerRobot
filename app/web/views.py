@@ -1477,7 +1477,7 @@ def _analytics_content(data: DashboardData, profit: ProfitPageData) -> str:
             </div>
             <span class="badge action">Выручка</span>
           </div>
-          {_line_chart(data.points, "revenue", "Выручка по дням", "#2563eb")}
+          {_area_chart(data.points, "revenue", "Выручка по дням", "#2563eb")}
         </section>
         <section class="premium-grid">
           <section class="premium-section">
@@ -1738,36 +1738,48 @@ def _section_subnav(active: str) -> str:
 
 
 def _dashboard_content(data: DashboardData) -> str:
+    revenue = _metric_by_label(data, "Выручка")
+    orders = _metric_by_label(data, "Заказы")
+    sales = _metric_by_label(data, "Продажи")
+    profit = _metric_by_label(data, "Плановая прибыль")
+    returns = _metric_by_label(data, "Возвраты")
+    loss = _metric_by_label(data, "Убыточные заказы")
+    margin = _metric_by_label(data, "Средняя маржа")
+    actual_profit = _metric_by_label(data, "Фактическая прибыль")
+    payout = _metric_by_label(data, "К выплате")
+    buyout_rate = _conversion_label(orders, sales)
     return f"""
       <section class="analytics-control">
         {_filters(data)}
       </section>
       <section class="premium-kpi-grid">
-        {_premium_kpi(_metric_by_label(data, "Выручка"), "Выручка за период")}
-        {_premium_kpi(_metric_by_label(data, "Заказы"), "Заказы")}
-        {_premium_kpi(_metric_by_label(data, "Продажи"), "Выкупы")}
-        {_premium_kpi(_metric_by_label(data, "Плановая прибыль"), "Плановая прибыль")}
-        {_premium_kpi(_metric_by_label(data, "Возвраты"), "Возвраты")}
-        {_premium_kpi(_metric_by_label(data, "Убыточные заказы"), "Проблемные заказы")}
-        {_premium_kpi(_metric_by_label(data, "Средняя маржа"), "Средняя маржа")}
-        {_premium_kpi(_metric_by_label(data, "Фактическая прибыль"), "Факт. прибыль")}
+        {_premium_kpi(revenue, "Выручка")}
+        {_premium_kpi(orders, "Заказы")}
+        {_premium_kpi(sales, "Продажи (выкупы)")}
+        {_premium_kpi(payout, "К выплате")}
+        {_premium_kpi(profit, "Плановая прибыль")}
+        {_premium_kpi(actual_profit, "Факт. прибыль")}
+        {_premium_kpi(margin, "Средняя маржа")}
+        {_simple_premium_kpi("Выкуп", buyout_rate, "Конверсия заказ → выкуп")}
+        {_premium_kpi(returns, "Возвраты")}
+        {_premium_kpi(loss, "Убыточные заказы")}
       </section>
       <section class="premium-grid">
         <section class="premium-section">
           <div class="section-head">
             <div>
-              <h2>Пульс бизнеса</h2>
-              <p class="muted">Выручка, заказы и прибыль за выбранный период.</p>
+              <h2>Динамика выручки</h2>
+              <p class="muted">Выручка по дням за выбранный период</p>
             </div>
-            <a class="button" href="/web/analytics">Открыть аналитику</a>
+            <a class="button" href="/web/analytics">Аналитика</a>
           </div>
-          {_line_chart(data.points, "revenue", "Выручка по дням", "#0f6f8f")}
+          {_area_chart(data.points, "revenue", "Выручка по дням", "#2563eb")}
         </section>
         <section class="premium-section">
           <div class="section-head">
             <div>
               <h2>Что требует внимания</h2>
-              <p class="muted">Критичные сигналы по синхронизации, возвратам и экономике.</p>
+              <p class="muted">Критичные сигналы за период</p>
             </div>
           </div>
           {_attention_list(data)}
@@ -1777,29 +1789,8 @@ def _dashboard_content(data: DashboardData) -> str:
         <section class="premium-section">
           <div class="section-head">
             <div>
-              <h2>Wildberries / Ozon</h2>
-              <p class="muted">Баланс бизнеса между площадками.</p>
-            </div>
-          </div>
-          {_marketplace_compare(data)}
-        </section>
-        <section class="premium-section">
-          <div class="section-head">
-            <div>
-              <h2>Последние события</h2>
-              <p class="muted">Новые заказы, отмены и возвраты за период.</p>
-            </div>
-            <a class="button" href="/web/orders">Все заказы</a>
-          </div>
-          {_recent_events(data.recent_events, data.filters.timezone)}
-        </section>
-      </section>
-      <section class="premium-grid">
-        <section class="premium-section">
-          <div class="section-head">
-            <div>
-              <h2>Операционная динамика</h2>
-              <p class="muted">Заказы, выкупы, возвраты и отмены в компактном виде.</p>
+              <h2>Заказы и выкупы</h2>
+              <p class="muted">Операционная динамика по дням</p>
             </div>
           </div>
           {_grouped_bar_chart(data.points)}
@@ -1807,8 +1798,29 @@ def _dashboard_content(data: DashboardData) -> str:
         <section class="premium-section">
           <div class="section-head">
             <div>
+              <h2>Wildberries / Ozon</h2>
+              <p class="muted">Распределение по маркетплейсам</p>
+            </div>
+          </div>
+          {_marketplace_compare(data)}
+        </section>
+      </section>
+      <section class="premium-grid">
+        <section class="premium-section">
+          <div class="section-head">
+            <div>
+              <h2>Последние события</h2>
+              <p class="muted">Новые заказы, отмены и возвраты</p>
+            </div>
+            <a class="button" href="/web/orders">Все заказы</a>
+          </div>
+          {_recent_events(data.recent_events, data.filters.timezone)}
+        </section>
+        <section class="premium-section">
+          <div class="section-head">
+            <div>
               <h2>Быстрые действия</h2>
-              <p class="muted">Переходы к разделам, которые чаще всего нужны селлеру.</p>
+              <p class="muted">Переходы к ключевым разделам</p>
             </div>
           </div>
           {_quick_actions()}
@@ -1832,21 +1844,21 @@ def _dashboard_welcome(
     return f"""
       <section class="premium-hero">
         <div class="hero-content">
-          <span class="hero-eyebrow">Центр управления бизнесом</span>
-          <h2>Добро пожаловать, {escape(user.first_name or user.username or "селлер")}! Обзор бизнеса</h2>
+          <span class="hero-eyebrow">Центр управления</span>
+          <h2>Добро пожаловать, {escape(user.first_name or user.username or "селлер")}</h2>
           <p class="hero-lead">
-            Wildberries / Ozon, заказы, выкупы, прибыль и риски собраны в одном экране,
-            чтобы за несколько секунд понять состояние магазина.
+            Wildberries и Ozon, заказы, выкупы, прибыль и контроль — всё в одном экране.
+            Используйте фильтры для анализа по периодам, маркетплейсам и моделям продаж.
           </p>
           <div class="summary-strip">
             <span><strong>{escape(_period_label(data.filters))}</strong> период</span>
             <span><strong>{escape(_sync_status(accounts))}</strong> синхронизация</span>
-            <span><strong>{accounts.active_accounts}</strong> кабинетов подключено</span>
-            <span><strong>{data_quality_hint(accounts.active_accounts)}</strong> статус работы</span>
+            <span><strong>{accounts.active_accounts}</strong> кабинетов</span>
+            <span><strong>{data_quality_hint(accounts.active_accounts)}</strong> статус</span>
           </div>
         </div>
         <div class="hero-panel">
-          <div class="hero-stat"><span>Последняя активность синхронизаций</span><strong>{escape(_last_sync_label(accounts, user.timezone))}</strong></div>
+          <div class="hero-stat"><span>Последняя синхронизация</span><strong>{escape(_last_sync_label(accounts, user.timezone))}</strong></div>
           <div class="hero-stat"><span>Тариф</span><strong>{escape(subscription.tier.name)} до {escape(expires)}</strong></div>
           <div class="hero-stat"><span>Кабинеты МП</span><strong>{accounts.active_accounts} из {subscription.tier.max_marketplace_accounts}</strong></div>
           <div class="page-actions">
@@ -2656,25 +2668,74 @@ def _format_metric_value(value: Decimal | int, suffix: str) -> str:
     return f"{value}{suffix}"
 
 
-def _line_chart(points: list[DailyPoint], attr: str, title: str, color: str) -> str:
+def _area_chart(points: list[DailyPoint], attr: str, title: str, color: str) -> str:
     values = [_point_value(point, attr) for point in points]
     if not any(values):
         return _empty_chart()
     width = 720
-    height = 220
+    height = 240
+    pad_top = 20
+    pad_bottom = 36
+    chart_h = height - pad_top - pad_bottom
     max_value = max(values) or Decimal("1")
     coords = []
     step = width / max(len(points) - 1, 1)
     for index, value in enumerate(values):
         x = Decimal(str(index * step))
-        y = Decimal(height - 30) - (value / max_value * Decimal(height - 60))
+        y = Decimal(pad_top) + chart_h - (value / max_value * Decimal(chart_h))
+        coords.append((float(x), float(y)))
+    line_points = " ".join(f"{x:.1f},{y:.1f}" for x, y in coords)
+    area_points = f"0,{pad_top + chart_h} " + line_points + f" {coords[-1][0]:.1f},{pad_top + chart_h}"
+    grid_lines = ""
+    for i in range(4):
+        gy = pad_top + chart_h * i / 3
+        grid_lines += f'<line x1="0" y1="{gy:.1f}" x2="{width}" y2="{gy:.1f}" stroke="#e2e8f0" stroke-width="0.5"/>'
+    labels = _x_labels(points, width, height)
+    fill_id = f"fill_{attr}_{abs(hash(title)) % 10000}"
+    return f"""
+      <div class="chart" role="img" aria-label="{escape(title)}">
+        <svg viewBox="0 0 {width} {height}" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="{fill_id}" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="{color}" stop-opacity="0.18"/>
+              <stop offset="100%" stop-color="{color}" stop-opacity="0.02"/>
+            </linearGradient>
+          </defs>
+          {grid_lines}
+          <polygon fill="url(#{fill_id})" points="{area_points}"/>
+          <polyline fill="none" stroke="{color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" points="{line_points}"/>
+          {labels}
+        </svg>
+      </div>
+    """
+
+
+def _line_chart(points: list[DailyPoint], attr: str, title: str, color: str) -> str:
+    values = [_point_value(point, attr) for point in points]
+    if not any(values):
+        return _empty_chart()
+    width = 720
+    height = 240
+    pad_top = 20
+    pad_bottom = 36
+    chart_h = height - pad_top - pad_bottom
+    max_value = max(values) or Decimal("1")
+    coords = []
+    step = width / max(len(points) - 1, 1)
+    for index, value in enumerate(values):
+        x = Decimal(str(index * step))
+        y = Decimal(pad_top) + chart_h - (value / max_value * Decimal(chart_h))
         coords.append(f"{float(x):.1f},{float(y):.1f}")
+    grid_lines = ""
+    for i in range(4):
+        gy = pad_top + chart_h * i / 3
+        grid_lines += f'<line x1="0" y1="{gy:.1f}" x2="{width}" y2="{gy:.1f}" stroke="#e2e8f0" stroke-width="0.5"/>'
     labels = _x_labels(points, width, height)
     return f"""
       <div class="chart" role="img" aria-label="{escape(title)}">
         <svg viewBox="0 0 {width} {height}" preserveAspectRatio="none">
-          <line x1="0" y1="{height - 30}" x2="{width}" y2="{height - 30}" stroke="#d9e0e8"/>
-          <polyline fill="none" stroke="{color}" stroke-width="4" points="{" ".join(coords)}"/>
+          {grid_lines}
+          <polyline fill="none" stroke="{color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" points="{" ".join(coords)}"/>
           {labels}
         </svg>
       </div>
@@ -2686,24 +2747,32 @@ def _bar_chart(points: list[DailyPoint], attr: str, title: str, color: str) -> s
     if not any(values):
         return _empty_chart()
     width = 720
-    height = 220
+    height = 240
+    pad_top = 20
+    pad_bottom = 36
+    chart_h = height - pad_top - pad_bottom
     max_value = max(abs(value) for value in values) or Decimal("1")
-    bar_width = max(width / max(len(points), 1) * 0.58, 4)
+    group_w = width / max(len(points), 1)
+    bar_width = max(group_w * 0.55, 4)
     bars = []
     for index, value in enumerate(values):
-        x = index * (width / max(len(points), 1)) + bar_width * 0.35
-        bar_height = abs(value) / max_value * Decimal(height - 60)
-        y = Decimal(height - 30) - bar_height if value >= 0 else Decimal(height - 30)
-        tone = color if value >= 0 else "#b42318"
+        x = index * group_w + (group_w - bar_width) / 2
+        bar_height = abs(value) / max_value * Decimal(chart_h)
+        y = Decimal(pad_top) + chart_h - bar_height if value >= 0 else Decimal(pad_top + chart_h)
+        tone = color if value >= 0 else "#dc2626"
         bars.append(
             f'<rect x="{x:.1f}" y="{float(y):.1f}" width="{bar_width:.1f}" '
-            f'height="{float(bar_height):.1f}" rx="3" fill="{tone}"/>'
+            f'height="{float(bar_height):.1f}" rx="3" fill="{tone}" opacity="0.85"/>'
         )
+    grid_lines = ""
+    for i in range(4):
+        gy = pad_top + chart_h * i / 3
+        grid_lines += f'<line x1="0" y1="{gy:.1f}" x2="{width}" y2="{gy:.1f}" stroke="#e2e8f0" stroke-width="0.5"/>'
     labels = _x_labels(points, width, height)
     return f"""
       <div class="chart" role="img" aria-label="{escape(title)}">
         <svg viewBox="0 0 {width} {height}" preserveAspectRatio="none">
-          <line x1="0" y1="{height - 30}" x2="{width}" y2="{height - 30}" stroke="#d9e0e8"/>
+          {grid_lines}
           {"".join(bars)}
           {labels}
         </svg>
@@ -2715,29 +2784,37 @@ def _grouped_bar_chart(points: list[DailyPoint]) -> str:
     if not any(point.orders or point.sales for point in points):
         return _empty_chart()
     width = 720
-    height = 220
+    height = 240
+    pad_top = 20
+    pad_bottom = 36
+    chart_h = height - pad_top - pad_bottom
     max_value = max([point.orders for point in points] + [point.sales for point in points] + [1])
     group = width / max(len(points), 1)
+    bar_w = max(group * 0.2, 3)
     bars = []
     for index, point in enumerate(points):
-        x = index * group + group * 0.25
-        order_h = point.orders / max_value * (height - 60)
-        sales_h = point.sales / max_value * (height - 60)
+        x = index * group + group * 0.22
+        order_h = point.orders / max_value * chart_h
+        sales_h = point.sales / max_value * chart_h
         bars.append(
-            f'<rect x="{x:.1f}" y="{height - 30 - order_h:.1f}" width="{group * 0.18:.1f}" '
-            f'height="{order_h:.1f}" rx="3" fill="#0f6f8f"/>'
-            f'<rect x="{x + group * 0.22:.1f}" y="{height - 30 - sales_h:.1f}" '
-            f'width="{group * 0.18:.1f}" height="{sales_h:.1f}" rx="3" fill="#147d4a"/>'
+            f'<rect x="{x:.1f}" y="{pad_top + chart_h - order_h:.1f}" width="{bar_w:.1f}" '
+            f'height="{order_h:.1f}" rx="2" fill="#2563eb" opacity="0.8"/>'
+            f'<rect x="{x + bar_w + 2:.1f}" y="{pad_top + chart_h - sales_h:.1f}" '
+            f'width="{bar_w:.1f}" height="{sales_h:.1f}" rx="2" fill="#059669" opacity="0.8"/>'
         )
+    grid_lines = ""
+    for i in range(4):
+        gy = pad_top + chart_h * i / 3
+        grid_lines += f'<line x1="0" y1="{gy:.1f}" x2="{width}" y2="{gy:.1f}" stroke="#e2e8f0" stroke-width="0.5"/>'
     return f"""
       <div class="chart" role="img" aria-label="Заказы и продажи по дням">
         <svg viewBox="0 0 {width} {height}" preserveAspectRatio="none">
-          <line x1="0" y1="{height - 30}" x2="{width}" y2="{height - 30}" stroke="#d9e0e8"/>
+          {grid_lines}
           {"".join(bars)}
           {_x_labels(points, width, height)}
         </svg>
-        <div class="legend"><span><i class="dot" style="background:#0f6f8f"></i>Заказы</span>
-        <span><i class="dot" style="background:#147d4a"></i>Продажи</span></div>
+        <div class="legend"><span><i class="dot" style="background:#2563eb"></i>Заказы</span>
+        <span><i class="dot" style="background:#059669"></i>Продажи</span></div>
       </div>
     """
 
@@ -2746,31 +2823,39 @@ def _returns_chart(points: list[DailyPoint]) -> str:
     if not any(point.returns or point.cancellations for point in points):
         return _empty_chart()
     width = 720
-    height = 220
+    height = 240
+    pad_top = 20
+    pad_bottom = 36
+    chart_h = height - pad_top - pad_bottom
     max_value = max(
         [point.returns for point in points] + [point.cancellations for point in points] + [1]
     )
     group = width / max(len(points), 1)
+    bar_w = max(group * 0.2, 3)
     bars = []
     for index, point in enumerate(points):
-        x = index * group + group * 0.25
-        returns_h = point.returns / max_value * (height - 60)
-        cancel_h = point.cancellations / max_value * (height - 60)
+        x = index * group + group * 0.22
+        returns_h = point.returns / max_value * chart_h
+        cancel_h = point.cancellations / max_value * chart_h
         bars.append(
-            f'<rect x="{x:.1f}" y="{height - 30 - returns_h:.1f}" '
-            f'width="{group * 0.18:.1f}" height="{returns_h:.1f}" rx="3" fill="#b42318"/>'
-            f'<rect x="{x + group * 0.22:.1f}" y="{height - 30 - cancel_h:.1f}" '
-            f'width="{group * 0.18:.1f}" height="{cancel_h:.1f}" rx="3" fill="#a65f00"/>'
+            f'<rect x="{x:.1f}" y="{pad_top + chart_h - returns_h:.1f}" '
+            f'width="{bar_w:.1f}" height="{returns_h:.1f}" rx="2" fill="#dc2626" opacity="0.8"/>'
+            f'<rect x="{x + bar_w + 2:.1f}" y="{pad_top + chart_h - cancel_h:.1f}" '
+            f'width="{bar_w:.1f}" height="{cancel_h:.1f}" rx="2" fill="#d97706" opacity="0.8"/>'
         )
+    grid_lines = ""
+    for i in range(4):
+        gy = pad_top + chart_h * i / 3
+        grid_lines += f'<line x1="0" y1="{gy:.1f}" x2="{width}" y2="{gy:.1f}" stroke="#e2e8f0" stroke-width="0.5"/>'
     return f"""
       <div class="chart" role="img" aria-label="Возвраты и отмены по дням">
         <svg viewBox="0 0 {width} {height}" preserveAspectRatio="none">
-          <line x1="0" y1="{height - 30}" x2="{width}" y2="{height - 30}" stroke="#d9e0e8"/>
+          {grid_lines}
           {"".join(bars)}
           {_x_labels(points, width, height)}
         </svg>
-        <div class="legend"><span><i class="dot" style="background:#b42318"></i>Возвраты</span>
-        <span><i class="dot" style="background:#a65f00"></i>Отмены</span></div>
+        <div class="legend"><span><i class="dot" style="background:#dc2626"></i>Возвраты</span>
+        <span><i class="dot" style="background:#d97706"></i>Отмены</span></div>
       </div>
     """
 
@@ -2829,8 +2914,8 @@ def _x_labels(points: list[DailyPoint], width: int, height: int) -> str:
             continue
         x = index * step
         labels.append(
-            f'<text x="{x:.1f}" y="{height - 8}" fill="#667085" font-size="11" '
-            f'text-anchor="middle">{escape(point.label)}</text>'
+            f'<text x="{x:.1f}" y="{height - 10}" fill="#94a3b8" font-size="10" '
+            f'font-weight="500" text-anchor="middle">{escape(point.label)}</text>'
         )
     return "".join(labels)
 
