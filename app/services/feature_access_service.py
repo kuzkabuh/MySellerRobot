@@ -5,9 +5,9 @@ description: Feature access checks using new subscription tier system.
 updated: 2026-05-21
 """
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
-import logging
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession

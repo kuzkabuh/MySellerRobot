@@ -6,16 +6,17 @@ updated: 2026-05-22
 
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import and_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import MarketplaceAccount, Product, WbPromotion, WbPromotionNomenclature
 from app.models.enums import Marketplace
-from app.services.pricing.mrc_pricing_settings_service import MrcPricingSettingsService, MrcSettingsResult
-from app.services.pricing.wb_mrc_price_service import WbMrcPriceService
+from app.services.pricing.mrc_pricing_settings_service import (
+    MrcPricingSettingsService,
+    MrcSettingsResult,
+)
 from app.services.wb.wb_promotions_sync_service import WbPromotionsSyncService
 
 logger = logging.getLogger(__name__)
@@ -93,23 +94,25 @@ class PromotionRecommendationsService:
         for product in products:
             wb_nm_id = _extract_nm_id(product)
             if wb_nm_id is None:
-                recommendations.append(PromotionRecommendation(
-                    product=product,
-                    wb_nm_id=None,
-                    mrc_price=product.mrc_price,
-                    current_price=None,
-                    promotion_id=None,
-                    promotion_name=None,
-                    promotion_type=None,
-                    is_auto_promo=False,
-                    in_action=False,
-                    plan_price=None,
-                    status=STATUS_NO_NM_ID,
-                    reason="Нет nmID WB",
-                    recommended_price=None,
-                    lower_bound=None,
-                    upper_bound=None,
-                ))
+                recommendations.append(
+                    PromotionRecommendation(
+                        product=product,
+                        wb_nm_id=None,
+                        mrc_price=product.mrc_price,
+                        current_price=None,
+                        promotion_id=None,
+                        promotion_name=None,
+                        promotion_type=None,
+                        is_auto_promo=False,
+                        in_action=False,
+                        plan_price=None,
+                        status=STATUS_NO_NM_ID,
+                        reason="Нет nmID WB",
+                        recommended_price=None,
+                        lower_bound=None,
+                        upper_bound=None,
+                    )
+                )
                 continue
 
             settings = await settings_service.get_settings(
@@ -141,6 +144,24 @@ class PromotionRecommendationsService:
     ) -> PromotionRecommendation:
         """Build a single recommendation for a product."""
         mrc_price = product.mrc_price
+        if mrc_price is None or mrc_price <= 0:
+            return PromotionRecommendation(
+                product=product,
+                wb_nm_id=wb_nm_id,
+                mrc_price=mrc_price,
+                current_price=None,
+                promotion_id=None,
+                promotion_name=None,
+                promotion_type=None,
+                is_auto_promo=False,
+                in_action=False,
+                plan_price=None,
+                status=STATUS_NO_MRC,
+                reason="Не задана МРЦ",
+                recommended_price=None,
+                lower_bound=None,
+                upper_bound=None,
+            )
 
         if promo_nomenclature is None:
             return PromotionRecommendation(

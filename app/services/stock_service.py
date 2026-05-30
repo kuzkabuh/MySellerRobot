@@ -288,12 +288,12 @@ class StockService:
         for snapshot in result.scalars().all():
             if snapshot.product_id not in latest_by_product:
                 latest_by_product[snapshot.product_id] = snapshot
-        product_ids = {
-            product_id for product_id in latest_by_product if product_id is not None
-        }
+        product_ids = {product_id for product_id in latest_by_product if product_id is not None}
         products_by_id = await self._products_by_id(product_ids)
         created = 0
         for snapshot in latest_by_product.values():
+            if snapshot.product_id is None:
+                continue
             if snapshot.quantity > threshold:
                 continue
             key = f"low_stock:{snapshot.product_id}:{snapshot.quantity}"

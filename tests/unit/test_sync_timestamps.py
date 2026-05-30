@@ -4,10 +4,8 @@ updated: 2026-05-20
 """
 
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 from types import SimpleNamespace
 
-from app.models.enums import Marketplace
 from app.web import routes
 
 
@@ -212,7 +210,7 @@ class TestSyncActions:
     def test_includes_all_sync_types(self) -> None:
         html = routes._sync_actions()
         for sync_type in ("orders", "sales", "stocks", "products", "wb-reports", "ozon-enrichment"):
-            assert f'/web/sync/{sync_type}' in html
+            assert f"/web/sync/{sync_type}" in html
 
 
 class TestWorkerCronConfig:

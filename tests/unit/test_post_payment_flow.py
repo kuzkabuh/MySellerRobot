@@ -102,9 +102,11 @@ class TestBasicMonthlyActivation:
             _make_result(_make_user()),
         ]
 
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class, \
-             patch("app.bot.main.create_bot") as mock_create_bot:
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.bot.main.create_bot") as mock_create_bot,
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
@@ -122,11 +124,13 @@ class TestBasicMonthlyActivation:
             mock_sub.expires_at = future
             service.subscription_service.create_subscription = AsyncMock(return_value=mock_sub)
 
-            await service.handle_payment_success({
-                "id": "yk-basic-monthly",
-                "status": "succeeded",
-                "payment_method": {"type": "bank_card"},
-            })
+            await service.handle_payment_success(
+                {
+                    "id": "yk-basic-monthly",
+                    "status": "succeeded",
+                    "payment_method": {"type": "bank_card"},
+                }
+            )
 
             service.subscription_service.create_subscription.assert_called_once_with(
                 user_id=1,
@@ -167,9 +171,11 @@ class TestBasicYearlyActivation:
             _make_result(_make_user()),
         ]
 
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class, \
-             patch("app.bot.main.create_bot") as mock_create_bot:
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.bot.main.create_bot") as mock_create_bot,
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
@@ -187,11 +193,13 @@ class TestBasicYearlyActivation:
             mock_sub.expires_at = future
             service.subscription_service.create_subscription = AsyncMock(return_value=mock_sub)
 
-            await service.handle_payment_success({
-                "id": "yk-basic-yearly",
-                "status": "succeeded",
-                "payment_method": {"type": "bank_card"},
-            })
+            await service.handle_payment_success(
+                {
+                    "id": "yk-basic-yearly",
+                    "status": "succeeded",
+                    "payment_method": {"type": "bank_card"},
+                }
+            )
 
             service.subscription_service.create_subscription.assert_called_once_with(
                 user_id=1,
@@ -230,9 +238,11 @@ class TestProMonthlyActivation:
             _make_result(_make_user()),
         ]
 
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class, \
-             patch("app.bot.main.create_bot") as mock_create_bot:
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.bot.main.create_bot") as mock_create_bot,
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
@@ -250,11 +260,13 @@ class TestProMonthlyActivation:
             mock_sub.expires_at = future
             service.subscription_service.create_subscription = AsyncMock(return_value=mock_sub)
 
-            await service.handle_payment_success({
-                "id": "yk-pro-monthly",
-                "status": "succeeded",
-                "payment_method": {"type": "bank_card"},
-            })
+            await service.handle_payment_success(
+                {
+                    "id": "yk-pro-monthly",
+                    "status": "succeeded",
+                    "payment_method": {"type": "bank_card"},
+                }
+            )
 
             call_kwargs = service.subscription_service.create_subscription.call_args.kwargs
             assert call_kwargs["tier_code"] == "pro"
@@ -288,9 +300,11 @@ class TestProYearlyActivation:
             _make_result(_make_user()),
         ]
 
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class, \
-             patch("app.bot.main.create_bot") as mock_create_bot:
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.bot.main.create_bot") as mock_create_bot,
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
@@ -308,11 +322,13 @@ class TestProYearlyActivation:
             mock_sub.expires_at = future
             service.subscription_service.create_subscription = AsyncMock(return_value=mock_sub)
 
-            await service.handle_payment_success({
-                "id": "yk-pro-yearly",
-                "status": "succeeded",
-                "payment_method": {"type": "bank_card"},
-            })
+            await service.handle_payment_success(
+                {
+                    "id": "yk-pro-yearly",
+                    "status": "succeeded",
+                    "payment_method": {"type": "bank_card"},
+                }
+            )
 
             call_kwargs = service.subscription_service.create_subscription.call_args.kwargs
             assert call_kwargs["tier_code"] == "pro"
@@ -346,9 +362,11 @@ class TestMetadataAsSourceOfTruth:
             _make_result(_make_user()),
         ]
 
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class, \
-             patch("app.bot.main.create_bot") as mock_create_bot:
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.bot.main.create_bot") as mock_create_bot,
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
@@ -365,11 +383,13 @@ class TestMetadataAsSourceOfTruth:
             mock_sub.expires_at = datetime.now(tz=UTC) + timedelta(days=365)
             service.subscription_service.create_subscription = AsyncMock(return_value=mock_sub)
 
-            await service.handle_payment_success({
-                "id": "yk-metadata-truth",
-                "status": "succeeded",
-                "payment_method": {"type": "bank_card"},
-            })
+            await service.handle_payment_success(
+                {
+                    "id": "yk-metadata-truth",
+                    "status": "succeeded",
+                    "payment_method": {"type": "bank_card"},
+                }
+            )
 
             call_kwargs = service.subscription_service.create_subscription.call_args.kwargs
             assert call_kwargs["tier_code"] == "pro"
@@ -402,8 +422,10 @@ class TestDuplicateWebhookIdempotency:
             _make_result(payment),
         ]
 
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class:
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
@@ -413,10 +435,12 @@ class TestDuplicateWebhookIdempotency:
             service = PaymentService(mock_session)
             service.subscription_service.create_subscription = AsyncMock()
 
-            await service.handle_payment_success({
-                "id": "yk-duplicate",
-                "status": "succeeded",
-            })
+            await service.handle_payment_success(
+                {
+                    "id": "yk-duplicate",
+                    "status": "succeeded",
+                }
+            )
 
             service.subscription_service.create_subscription.assert_not_called()
 
@@ -448,20 +472,24 @@ class TestReconciliationOfOldPendingPayments:
             _make_result(_make_user()),
         ]
 
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class, \
-             patch("app.bot.main.create_bot") as mock_create_bot:
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.bot.main.create_bot") as mock_create_bot,
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
             mock_settings.return_value = settings
 
             mock_yk = MagicMock()
-            mock_yk.get_payment = AsyncMock(return_value={
-                "id": "yk-recon-old",
-                "status": "succeeded",
-                "payment_method": {"type": "bank_card"},
-            })
+            mock_yk.get_payment = AsyncMock(
+                return_value={
+                    "id": "yk-recon-old",
+                    "status": "succeeded",
+                    "payment_method": {"type": "bank_card"},
+                }
+            )
             mock_yk_class.return_value = mock_yk
 
             mock_bot = MagicMock()
@@ -510,8 +538,10 @@ class TestMissingTierCodeInMetadata:
             _make_result(payment),
         ]
 
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class:
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
@@ -521,11 +551,13 @@ class TestMissingTierCodeInMetadata:
             service = PaymentService(mock_session)
             service.subscription_service.create_subscription = AsyncMock()
 
-            await service.handle_payment_success({
-                "id": "yk-no-tier",
-                "status": "succeeded",
-                "payment_method": {"type": "bank_card"},
-            })
+            await service.handle_payment_success(
+                {
+                    "id": "yk-no-tier",
+                    "status": "succeeded",
+                    "payment_method": {"type": "bank_card"},
+                }
+            )
 
             service.subscription_service.create_subscription.assert_not_called()
             assert payment.status == PaymentStatus.SUCCEEDED
@@ -558,9 +590,11 @@ class TestMissingPeriodInMetadata:
             _make_result(_make_user()),
         ]
 
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class, \
-             patch("app.bot.main.create_bot") as mock_create_bot:
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.bot.main.create_bot") as mock_create_bot,
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
@@ -577,11 +611,13 @@ class TestMissingPeriodInMetadata:
             mock_sub.expires_at = datetime.now(tz=UTC) + timedelta(days=30)
             service.subscription_service.create_subscription = AsyncMock(return_value=mock_sub)
 
-            await service.handle_payment_success({
-                "id": "yk-no-period",
-                "status": "succeeded",
-                "payment_method": {"type": "bank_card"},
-            })
+            await service.handle_payment_success(
+                {
+                    "id": "yk-no-period",
+                    "status": "succeeded",
+                    "payment_method": {"type": "bank_card"},
+                }
+            )
 
             call_kwargs = service.subscription_service.create_subscription.call_args.kwargs
             assert call_kwargs["tier_code"] == "basic"
@@ -598,8 +634,10 @@ class TestUnknownPaymentId:
             _make_result(None),
         ]
 
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class:
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
@@ -608,10 +646,12 @@ class TestUnknownPaymentId:
 
             service = PaymentService(mock_session)
 
-            await service.handle_payment_success({
-                "id": "nonexistent-payment",
-                "status": "succeeded",
-            })
+            await service.handle_payment_success(
+                {
+                    "id": "nonexistent-payment",
+                    "status": "succeeded",
+                }
+            )
 
 
 class TestPendingPaymentReuseByTierAndPeriod:
@@ -623,7 +663,7 @@ class TestPendingPaymentReuseByTierAndPeriod:
 
         Should create a NEW payment for PRO, not reuse the BASIC one.
         """
-        existing_basic = Payment(
+        Payment(
             id=100,
             user_id=1,
             provider="yookassa",
@@ -644,21 +684,25 @@ class TestPendingPaymentReuseByTierAndPeriod:
             _make_result(None),
         ]
 
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class:
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
             mock_settings.return_value = settings
 
             mock_yk = MagicMock()
-            mock_yk.create_payment = AsyncMock(return_value={
-                "id": "yk-pro-new",
-                "status": "pending",
-                "confirmation": {"confirmation_url": "https://yookassa.ru/pay/pro"},
-                "description": "Подписка MP Control — тариф PRO, 1 месяц",
-                "metadata": {},
-            })
+            mock_yk.create_payment = AsyncMock(
+                return_value={
+                    "id": "yk-pro-new",
+                    "status": "pending",
+                    "confirmation": {"confirmation_url": "https://yookassa.ru/pay/pro"},
+                    "description": "Подписка MP Control — тариф PRO, 1 месяц",
+                    "metadata": {},
+                }
+            )
             mock_yk_class.return_value = mock_yk
 
             service = PaymentService(mock_session)
@@ -682,7 +726,7 @@ class TestPendingPaymentReuseByTierAndPeriod:
 
         Should create a NEW payment for BASIC yearly.
         """
-        existing_monthly = Payment(
+        Payment(
             id=101,
             user_id=1,
             provider="yookassa",
@@ -703,21 +747,25 @@ class TestPendingPaymentReuseByTierAndPeriod:
             _make_result(None),
         ]
 
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class:
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
             mock_settings.return_value = settings
 
             mock_yk = MagicMock()
-            mock_yk.create_payment = AsyncMock(return_value={
-                "id": "yk-basic-yearly-new",
-                "status": "pending",
-                "confirmation": {"confirmation_url": "https://yookassa.ru/pay/basic-yearly"},
-                "description": "Подписка MP Control — тариф BASIC, 1 год",
-                "metadata": {},
-            })
+            mock_yk.create_payment = AsyncMock(
+                return_value={
+                    "id": "yk-basic-yearly-new",
+                    "status": "pending",
+                    "confirmation": {"confirmation_url": "https://yookassa.ru/pay/basic-yearly"},
+                    "description": "Подписка MP Control — тариф BASIC, 1 год",
+                    "metadata": {},
+                }
+            )
             mock_yk_class.return_value = mock_yk
 
             service = PaymentService(mock_session)
@@ -761,8 +809,10 @@ class TestPendingPaymentReuseByTierAndPeriod:
             _make_result(existing),
         ]
 
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class:
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
@@ -810,9 +860,11 @@ class TestBackwardCompatibleSubscriptionPeriodKey:
             _make_result(_make_user()),
         ]
 
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class, \
-             patch("app.bot.main.create_bot") as mock_create_bot:
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.bot.main.create_bot") as mock_create_bot,
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
@@ -829,11 +881,13 @@ class TestBackwardCompatibleSubscriptionPeriodKey:
             mock_sub.expires_at = datetime.now(tz=UTC) + timedelta(days=30)
             service.subscription_service.create_subscription = AsyncMock(return_value=mock_sub)
 
-            await service.handle_payment_success({
-                "id": "yk-old-key",
-                "status": "succeeded",
-                "payment_method": {"type": "bank_card"},
-            })
+            await service.handle_payment_success(
+                {
+                    "id": "yk-old-key",
+                    "status": "succeeded",
+                    "payment_method": {"type": "bank_card"},
+                }
+            )
 
             call_kwargs = service.subscription_service.create_subscription.call_args.kwargs
             assert call_kwargs["period"] == "monthly"

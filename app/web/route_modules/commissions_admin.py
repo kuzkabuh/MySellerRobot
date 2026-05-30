@@ -2,6 +2,7 @@
 description: WEB admin routes for commission tariff management.
 updated: 2026-05-20
 """
+# ruff: noqa: E501
 
 import logging
 from datetime import date
@@ -32,6 +33,10 @@ from app.web.rendering import page
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+OZON_COMMISSION_FILE_FORM = File(...)
+OZON_COMMISSION_EFFECTIVE_FROM_FORM = Form(...)
+OZON_COMMISSION_VERSION_LABEL_FORM = Form(default="")
+
 
 def _is_admin_user(user: User) -> bool:
     settings = get_settings()
@@ -39,7 +44,12 @@ def _is_admin_user(user: User) -> bool:
 
 
 def _admin_page(title: str, user: User, content: str) -> str:
-    return page(title, f"{user.first_name or user.username or 'admin'} (admin)", content, active_path="/web/admin/commissions")
+    return page(
+        title,
+        f"{user.first_name or user.username or 'admin'} (admin)",
+        content,
+        active_path="/web/admin/commissions",
+    )
 
 
 def _require_admin(user: User) -> None:
@@ -98,7 +108,9 @@ async def sync_wb_commissions_web(
     try:
         api_key = TokenCipher().decrypt(account.encrypted_api_key)
     except Exception:
-        return _admin_page("Комиссии маркетплейсов", user, "<p>Ошибка расшифровки API-ключа WB.</p>")
+        return _admin_page(
+            "Комиссии маркетплейсов", user, "<p>Ошибка расшифровки API-ключа WB.</p>"
+        )
 
     service = WbCommissionSyncService(session)
     result = await service.sync(api_key)
@@ -132,17 +144,17 @@ async def check_ozon_commissions_web(
         "Комиссии маркетплейсов",
         user,
         f'<div class="band"><h2>Проверка Ozon</h2>'
-        f'<p>Текущий период: {escape(str(period))}</p>'
-        f'<p>{escape(status_text)}</p>'
+        f"<p>Текущий период: {escape(str(period))}</p>"
+        f"<p>{escape(status_text)}</p>"
         f'<a href="/web/admin/commissions" class="button">Назад</a></div>',
     )
 
 
 @router.post("/admin/commissions/import-ozon", response_class=HTMLResponse)
 async def import_ozon_commissions_web(
-    file: UploadFile = File(...),
-    effective_from: str = Form(...),
-    version_label: str = Form(default=""),
+    file: UploadFile = OZON_COMMISSION_FILE_FORM,
+    effective_from: str = OZON_COMMISSION_EFFECTIVE_FROM_FORM,
+    version_label: str = OZON_COMMISSION_VERSION_LABEL_FORM,
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> str:
@@ -184,7 +196,7 @@ async def import_ozon_commissions_web(
         "Комиссии маркетплейсов",
         user,
         f'<div class="band"><h2>{"✅ Успех" if success else "❌ Ошибка"}</h2>'
-        f'<p>{escape(message)}</p>'
+        f"<p>{escape(message)}</p>"
         f'<a href="/web/admin/commissions" class="button">Назад</a></div>',
     )
 
@@ -205,8 +217,9 @@ async def _get_active_version_info(
         return None, 0
 
     count_result = await session.execute(
-        select(func.count(MarketplaceCommissionRate.id))
-        .where(MarketplaceCommissionRate.version_id == version.id)
+        select(func.count(MarketplaceCommissionRate.id)).where(
+            MarketplaceCommissionRate.version_id == version.id
+        )
     )
     return version, int(count_result.scalar_one() or 0)
 
@@ -244,7 +257,10 @@ async def _get_recent_checks(session: AsyncSession) -> list[MarketplaceTariffSou
 async def _get_all_versions(session: AsyncSession) -> list[MarketplaceCommissionVersion]:
     result = await session.execute(
         select(MarketplaceCommissionVersion)
-        .order_by(MarketplaceCommissionVersion.marketplace, MarketplaceCommissionVersion.effective_from.desc())
+        .order_by(
+            MarketplaceCommissionVersion.marketplace,
+            MarketplaceCommissionVersion.effective_from.desc(),
+        )
         .limit(50)
     )
     return list(result.scalars().all())
@@ -283,7 +299,7 @@ def _wb_card(version: MarketplaceCommissionVersion | None, rate_count: int) -> s
     return (
         '<div class="band">'
         '<div class="section-head">'
-        '<h2>🟣 Wildberries</h2>'
+        "<h2>🟣 Wildberries</h2>"
         '<form action="/web/admin/commissions/sync-wb" method="post">'
         '<button type="submit" class="button primary">🔄 Обновить комиссии WB</button>'
         "</form></div>"
@@ -317,7 +333,7 @@ def _ozon_card(
     return (
         '<div class="band">'
         '<div class="section-head">'
-        '<h2>🔵 Ozon</h2>'
+        "<h2>🔵 Ozon</h2>"
         '<form action="/web/admin/commissions/check-ozon" method="post">'
         '<button type="submit" class="button">🔍 Проверить страницу Ozon</button>'
         "</form></div>"
@@ -336,11 +352,11 @@ def _import_form() -> str:
         "<h2>📥 Загрузить таблицу комиссий Ozon</h2>"
         '<form action="/web/admin/commissions/import-ozon" method="post" enctype="multipart/form-data">'
         '<div class="filters">'
-        '<div><label>Файл XLSX</label>'
+        "<div><label>Файл XLSX</label>"
         '<input type="file" name="file" accept=".xlsx,.xls" required></div>'
-        '<div><label>Дата начала (ДД.ММ.ГГГГ)</label>'
+        "<div><label>Дата начала (ДД.ММ.ГГГГ)</label>"
         '<input type="text" name="effective_from" placeholder="06.04.2026" required></div>'
-        '<div><label>Название версии (опционально)</label>'
+        "<div><label>Название версии (опционально)</label>"
         '<input type="text" name="version_label" placeholder="Ozon commissions from ..."></div>'
         "</div>"
         '<button type="submit" class="button primary">Загрузить и импортировать</button>'
@@ -352,7 +368,11 @@ def _versions_table(versions: list[MarketplaceCommissionVersion]) -> str:
     rows = ""
     for v in versions:
         mp_class = "wb" if v.marketplace == Marketplace.WB else "ozon"
-        active_badge = '<span class="badge good">активна</span>' if v.is_active else '<span class="badge">архив</span>'
+        active_badge = (
+            '<span class="badge good">активна</span>'
+            if v.is_active
+            else '<span class="badge">архив</span>'
+        )
         effective_to = v.effective_to.isoformat() if v.effective_to else "—"
         rows += (
             "<tr>"

@@ -123,28 +123,20 @@ class TestCoefficientParsing:
 
 class TestBaseVolumeTariff:
     def test_under_one_liter(self) -> None:
-        tariff = _calculate_base_volume_tariff(
-            Decimal("0.5"), Decimal("46"), Decimal("14")
-        )
+        tariff = _calculate_base_volume_tariff(Decimal("0.5"), Decimal("46"), Decimal("14"))
         assert tariff == Decimal("46")
 
     def test_exactly_one_liter(self) -> None:
-        tariff = _calculate_base_volume_tariff(
-            Decimal("1.0"), Decimal("46"), Decimal("14")
-        )
+        tariff = _calculate_base_volume_tariff(Decimal("1.0"), Decimal("46"), Decimal("14"))
         assert tariff == Decimal("46")
 
     def test_over_one_liter(self) -> None:
-        tariff = _calculate_base_volume_tariff(
-            Decimal("3.0"), Decimal("46"), Decimal("14")
-        )
+        tariff = _calculate_base_volume_tariff(Decimal("3.0"), Decimal("46"), Decimal("14"))
         assert tariff == Decimal("46") + Decimal("2") * Decimal("14")
         assert tariff == Decimal("74")
 
     def test_large_volume(self) -> None:
-        tariff = _calculate_base_volume_tariff(
-            Decimal("10.0"), Decimal("46"), Decimal("14")
-        )
+        tariff = _calculate_base_volume_tariff(Decimal("10.0"), Decimal("46"), Decimal("14"))
         assert tariff == Decimal("46") + Decimal("9") * Decimal("14")
         assert tariff == Decimal("172")
 
@@ -187,21 +179,15 @@ class TestMGTLogistics:
 
 class TestKGTLogistics:
     def test_within_bounds(self) -> None:
-        logistics = _calculate_kgt_logistics(
-            Decimal("800"), Decimal("1.5")
-        )
+        logistics = _calculate_kgt_logistics(Decimal("800"), Decimal("1.5"))
         assert logistics == Decimal("1200")
 
     def test_below_minimum(self) -> None:
-        logistics = _calculate_kgt_logistics(
-            Decimal("100"), Decimal("1.0")
-        )
+        logistics = _calculate_kgt_logistics(Decimal("100"), Decimal("1.0"))
         assert logistics == Decimal("1000")
 
     def test_above_maximum(self) -> None:
-        logistics = _calculate_kgt_logistics(
-            Decimal("5000"), Decimal("1.0")
-        )
+        logistics = _calculate_kgt_logistics(Decimal("5000"), Decimal("1.0"))
         assert logistics == Decimal("3000")
 
 
@@ -212,15 +198,11 @@ class TestKGTLogistics:
 
 class TestReverseLogistics:
     def test_under_one_liter(self) -> None:
-        reverse = _calculate_reverse_logistics(
-            Decimal("0.5"), Decimal("46"), Decimal("14")
-        )
+        reverse = _calculate_reverse_logistics(Decimal("0.5"), Decimal("46"), Decimal("14"))
         assert reverse == Decimal("46")
 
     def test_over_one_liter(self) -> None:
-        reverse = _calculate_reverse_logistics(
-            Decimal("3.0"), Decimal("46"), Decimal("14")
-        )
+        reverse = _calculate_reverse_logistics(Decimal("3.0"), Decimal("46"), Decimal("14"))
         assert reverse == Decimal("74")
 
 
@@ -293,9 +275,9 @@ class TestWbLogisticsCalculatorService:
     async def test_no_tariff_returns_not_available(
         self, calculator: WbLogisticsCalculatorService, mock_session: AsyncMock
     ) -> None:
-        mock_session.execute = AsyncMock(return_value=MagicMock(
-            scalar_one_or_none=MagicMock(return_value=None)
-        ))
+        mock_session.execute = AsyncMock(
+            return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None))
+        )
         result = await calculator.calculate_planned_wb_logistics(
             order_date=datetime.now(UTC),
             sales_model="FBS",
@@ -349,9 +331,9 @@ class TestWbLogisticsTariffSyncService:
         mock_wb_client: AsyncMock,
         mock_session: AsyncMock,
     ) -> None:
-        mock_wb_client.get_box_tariffs = AsyncMock(return_value=[
-            {"warehouseName": "Хабаровск", "boxDeliveryBase": 46}
-        ])
+        mock_wb_client.get_box_tariffs = AsyncMock(
+            return_value=[{"warehouseName": "Хабаровск", "boxDeliveryBase": 46}]
+        )
         existing_version = MagicMock()
         existing_version.id = 1
         mock_result = MagicMock()

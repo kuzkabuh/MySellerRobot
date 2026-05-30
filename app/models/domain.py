@@ -97,9 +97,7 @@ class MarketplaceAccount(TimestampMixin, Base):
     last_products_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_profile_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_ozon_enrichment_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    last_wb_reports_sync_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
+    last_wb_reports_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_wb_financial_detail_sync_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )
@@ -193,9 +191,7 @@ class Product(TimestampMixin, Base):
     commission_dbs: Mapped[Decimal | None] = mapped_column("commission_dbs", Numeric(7, 4))
     commission_edbs: Mapped[Decimal | None] = mapped_column("commission_edbs", Numeric(7, 4))
     commission_pickup: Mapped[Decimal | None] = mapped_column("commission_pickup", Numeric(7, 4))
-    commission_booking: Mapped[Decimal | None] = mapped_column(
-        "commission_booking", Numeric(7, 4)
-    )
+    commission_booking: Mapped[Decimal | None] = mapped_column("commission_booking", Numeric(7, 4))
     mrc_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
@@ -366,7 +362,9 @@ class OrderItem(TimestampMixin, Base):
     )
     wb_logistics_localization_index: Mapped[Decimal | None] = mapped_column(Numeric(7, 4))
     wb_logistics_distribution_index_percent: Mapped[Decimal | None] = mapped_column(Numeric(7, 4))
-    wb_logistics_distribution_surcharge_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    wb_logistics_distribution_surcharge_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 2)
+    )
     wb_logistics_tariff_version_id: Mapped[int | None] = mapped_column(
         ForeignKey("wb_logistics_tariff_versions.id", ondelete="SET NULL")
     )
@@ -931,8 +929,12 @@ class MrcImport(TimestampMixin, Base):
     __tablename__ = "mrc_imports"
 
     id: Mapped[int_pk]
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    account_id: Mapped[int | None] = mapped_column(ForeignKey("marketplace_accounts.id", ondelete="CASCADE"), nullable=True, index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("marketplace_accounts.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     source: Mapped[str] = mapped_column(String(16), nullable=False)
     original_file_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="preview")
@@ -943,12 +945,16 @@ class MrcImport(TimestampMixin, Base):
     skipped_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     warning_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=sa.func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
     applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    rows: Mapped[list["MrcImportRow"]] = relationship(back_populates="import_record", cascade="all, delete-orphan")
+    rows: Mapped[list["MrcImportRow"]] = relationship(
+        back_populates="import_record", cascade="all, delete-orphan"
+    )
 
 
 class MrcImportRow(TimestampMixin, Base):
@@ -956,7 +962,9 @@ class MrcImportRow(TimestampMixin, Base):
     __table_args__ = (Index("ix_mrc_import_rows_import_id", "import_id"),)
 
     id: Mapped[int_pk]
-    import_id: Mapped[int] = mapped_column(ForeignKey("mrc_imports.id", ondelete="CASCADE"), nullable=False, index=True)
+    import_id: Mapped[int] = mapped_column(
+        ForeignKey("mrc_imports.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     row_number: Mapped[int] = mapped_column(Integer, nullable=False)
     product_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     wb_nm_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -966,7 +974,9 @@ class MrcImportRow(TimestampMixin, Base):
     new_mrc_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     status: Mapped[str] = mapped_column(String(64), nullable=False)
     message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=sa.func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
 
     import_record: Mapped["MrcImport"] = relationship(back_populates="rows")
 
@@ -978,38 +988,65 @@ class MrcPricingSettings(TimestampMixin, Base):
     )
 
     id: Mapped[int_pk]
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     marketplace_account_id: Mapped[int | None] = mapped_column(
         ForeignKey("marketplace_accounts.id", ondelete="CASCADE"), nullable=True, index=True
     )
     marketplace: Mapped[str] = mapped_column(String(16), nullable=False, default="wb")
-    default_discount_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=Decimal("75.00"))
-    full_price_multiplier: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=Decimal("4.00"))
-    allowed_action_price_deviation_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=Decimal("10.00"))
+    default_discount_percent: Mapped[Decimal] = mapped_column(
+        Numeric(5, 2), nullable=False, default=Decimal("75.00")
+    )
+    full_price_multiplier: Mapped[Decimal] = mapped_column(
+        Numeric(5, 2), nullable=False, default=Decimal("4.00")
+    )
+    allowed_action_price_deviation_percent: Mapped[Decimal] = mapped_column(
+        Numeric(5, 2), nullable=False, default=Decimal("10.00")
+    )
     auto_promo_check_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     auto_add_to_promotions: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    auto_price_for_auto_promotions: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=sa.func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=sa.func.now(), onupdate=sa.func.now())
+    auto_price_for_auto_promotions: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+        onupdate=sa.func.now(),
+    )
 
 
 class WbAutoPromotionCondition(TimestampMixin, Base):
     __tablename__ = "wb_auto_promotion_conditions"
     __table_args__ = (
         sa.UniqueConstraint(
-            "marketplace_account_id", "wb_promotion_id", "wb_nm_id", "source",
+            "marketplace_account_id",
+            "wb_promotion_id",
+            "wb_nm_id",
+            "source",
             name="uq_auto_promo_cond_acct_promo_nm_src",
         ),
         sa.UniqueConstraint(
-            "marketplace_account_id", "wb_nm_id", "promotion_name", "source",
+            "marketplace_account_id",
+            "wb_nm_id",
+            "promotion_name",
+            "source",
             name="uq_auto_promo_cond_acct_nm_pname_src",
         ),
         Index("ix_auto_promo_cond_account_nm", "marketplace_account_id", "wb_nm_id"),
     )
 
     id: Mapped[int_pk]
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    marketplace_account_id: Mapped[int] = mapped_column(ForeignKey("marketplace_accounts.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    marketplace_account_id: Mapped[int] = mapped_column(
+        ForeignKey("marketplace_accounts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     wb_promotion_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     wb_nm_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     seller_article: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -1037,9 +1074,7 @@ class WbAutoPromotionCondition(TimestampMixin, Base):
 
 class WbAutoPromoFileImport(TimestampMixin, Base):
     __tablename__ = "wb_auto_promo_file_imports"
-    __table_args__ = (
-        Index("ix_wb_auto_promo_file_imports_user_created", "user_id", "created_at"),
-    )
+    __table_args__ = (Index("ix_wb_auto_promo_file_imports_user_created", "user_id", "created_at"),)
 
     id: Mapped[int_pk]
     user_id: Mapped[int] = mapped_column(
@@ -1085,15 +1120,9 @@ class WbAutoPromoFileImportRow(TimestampMixin, Base):
     title: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     plan_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     current_full_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
-    current_discount_percent: Mapped[Decimal | None] = mapped_column(
-        Numeric(5, 2), nullable=True
-    )
-    current_discounted_price: Mapped[Decimal | None] = mapped_column(
-        Numeric(12, 2), nullable=True
-    )
-    wb_upload_discount_percent: Mapped[Decimal | None] = mapped_column(
-        Numeric(5, 2), nullable=True
-    )
+    current_discount_percent: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    current_discounted_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    wb_upload_discount_percent: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
     wb_status: Mapped[str | None] = mapped_column(String(512), nullable=True)
     already_participating: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -1110,9 +1139,15 @@ class WbAutoPromoPriceRecommendation(TimestampMixin, Base):
     )
 
     id: Mapped[int_pk]
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    marketplace_account_id: Mapped[int] = mapped_column(ForeignKey("marketplace_accounts.id", ondelete="CASCADE"), nullable=False, index=True)
-    product_id: Mapped[int] = mapped_column(ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    marketplace_account_id: Mapped[int] = mapped_column(
+        ForeignKey("marketplace_accounts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    product_id: Mapped[int] = mapped_column(
+        ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     wb_nm_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     wb_promotion_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     promotion_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
@@ -1157,9 +1192,15 @@ class WbPriceChangeHistory(Base):
     )
 
     id: Mapped[int_pk]
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    marketplace_account_id: Mapped[int] = mapped_column(ForeignKey("marketplace_accounts.id", ondelete="CASCADE"), nullable=False, index=True)
-    product_id: Mapped[int | None] = mapped_column(ForeignKey("products.id", ondelete="SET NULL"), nullable=True, index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    marketplace_account_id: Mapped[int] = mapped_column(
+        ForeignKey("marketplace_accounts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    product_id: Mapped[int | None] = mapped_column(
+        ForeignKey("products.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     wb_nm_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     wb_upload_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     old_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
@@ -1178,15 +1219,23 @@ class WbPriceChangeHistory(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     raw_response: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=sa.func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=sa.func.now(), onupdate=sa.func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+        onupdate=sa.func.now(),
+    )
 
 
 class WbProductPrice(Base):
     __tablename__ = "wb_product_prices"
     __table_args__ = (
         sa.UniqueConstraint(
-            "marketplace_account_id", "wb_nm_id",
+            "marketplace_account_id",
+            "wb_nm_id",
             name="uq_wb_product_prices_account_nm",
         ),
         Index("ix_wb_product_prices_account", "marketplace_account_id"),
@@ -1194,8 +1243,12 @@ class WbProductPrice(Base):
     )
 
     id: Mapped[int_pk]
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    marketplace_account_id: Mapped[int] = mapped_column(ForeignKey("marketplace_accounts.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    marketplace_account_id: Mapped[int] = mapped_column(
+        ForeignKey("marketplace_accounts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     wb_nm_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     discount: Mapped[int | None] = mapped_column(Integer, nullable=True, default=0)
@@ -1204,6 +1257,15 @@ class WbProductPrice(Base):
     club_discounted_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     currency_code: Mapped[str] = mapped_column(String(16), nullable=False, default="RUB")
     raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=sa.func.now())
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=sa.func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=sa.func.now(), onupdate=sa.func.now())
+    synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+        onupdate=sa.func.now(),
+    )

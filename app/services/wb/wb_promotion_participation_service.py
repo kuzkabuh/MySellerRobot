@@ -9,7 +9,6 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -131,7 +130,10 @@ class WbPromotionParticipationService:
             if dry_run
             else "promotion_participation_apply_started"
         )
-        logger.info(event_name, extra={"account_id": account_id, "promotion_id": promotion_id, "dry_run": dry_run})
+        logger.info(
+            event_name,
+            extra={"account_id": account_id, "promotion_id": promotion_id, "dry_run": dry_run},
+        )
 
         # Load account and promotion
         account = await self.session.get(MarketplaceAccount, account_id)
@@ -225,7 +227,9 @@ class WbPromotionParticipationService:
                 report.blocked_products += 1
 
         report.product_results = product_results
-        report.matched_products = report.eligible_products + report.blocked_products + report.already_in_action
+        report.matched_products = (
+            report.eligible_products + report.blocked_products + report.already_in_action
+        )
 
         if dry_run:
             logger.info(
@@ -247,12 +251,16 @@ class WbPromotionParticipationService:
             return report
 
         # Upload prices
-        price_upload = await self._upload_prices(client, account_id, eligible_nm_ids, product_results)
+        price_upload = await self._upload_prices(
+            client, account_id, eligible_nm_ids, product_results
+        )
         report.price_upload_id = price_upload.upload_id
         report.price_upload_status = price_upload.status
 
         if price_upload.status != "success":
-            report.errors.append(f"Загрузка цен не успешна: {price_upload.error_text or price_upload.status}")
+            report.errors.append(
+                f"Загрузка цен не успешна: {price_upload.error_text or price_upload.status}"
+            )
             return report
 
         # Check price upload status
@@ -264,9 +272,13 @@ class WbPromotionParticipationService:
             return report
 
         # Add to promotion
-        promo_upload = await self._add_to_promotion(client, promotion_id, eligible_nm_ids, upload_now)
+        promo_upload = await self._add_to_promotion(
+            client, promotion_id, eligible_nm_ids, upload_now
+        )
         report.promotion_upload_id = promo_upload.upload_id
-        report.promotion_upload_status = "already_exists" if promo_upload.already_exists else promo_upload.status
+        report.promotion_upload_status = (
+            "already_exists" if promo_upload.already_exists else promo_upload.status
+        )
 
         if promo_upload.error_text:
             report.errors.append(promo_upload.error_text)
@@ -308,7 +320,11 @@ class WbPromotionParticipationService:
                 except Exception:
                     logger.exception(
                         "wb_promotions_nomenclatures_fetch_failed",
-                        extra={"promotion_id": promotion_id, "in_action": in_action, "offset": offset},
+                        extra={
+                            "promotion_id": promotion_id,
+                            "in_action": in_action,
+                            "offset": offset,
+                        },
                     )
                     break
 
@@ -416,7 +432,10 @@ class WbPromotionParticipationService:
                 product=product,
                 nomenclature=nom,
                 eligibility_status="limited_by_min_price",
-                eligibility_reason=f"Цена ниже minPrice. Минимум: {mrc_result.final_discounted_price:.0f} ₽",
+                eligibility_reason=(
+                    "Цена ниже minPrice. Минимум: "
+                    f"{mrc_result.final_discounted_price:.0f} ₽"
+                ),
                 calculated_discounted_price=mrc_result.final_discounted_price,
                 calculated_price_before_discount=mrc_result.price_before_discount,
                 calculated_discount=mrc_result.discount_percent,
@@ -429,7 +448,10 @@ class WbPromotionParticipationService:
                 product=product,
                 nomenclature=nom,
                 eligibility_status="limited_by_mrc_rule",
-                eligibility_reason=f"Цена акции ниже 90% от МРЦ. Минимум: {mrc_result.final_discounted_price:.0f} ₽",
+                eligibility_reason=(
+                    "Цена акции ниже 90% от МРЦ. Минимум: "
+                    f"{mrc_result.final_discounted_price:.0f} ₽"
+                ),
                 calculated_discounted_price=mrc_result.final_discounted_price,
                 calculated_price_before_discount=mrc_result.price_before_discount,
                 calculated_discount=mrc_result.discount_percent,
@@ -455,7 +477,8 @@ class WbPromotionParticipationService:
                 Product.marketplace_account_id == account_id,
                 Product.marketplace == Marketplace.WB,
                 Product.is_active.is_(True),
-                (Product.marketplace_article == nm_id_str) | (Product.external_product_id == nm_id_str),
+                (Product.marketplace_article == nm_id_str)
+                | (Product.external_product_id == nm_id_str),
             )
         )
         return result.scalar_one_or_none()
@@ -473,17 +496,24 @@ class WbPromotionParticipationService:
         for result in product_results:
             if result.eligibility_status != "eligible":
                 continue
-            if result.calculated_price_before_discount is None or result.calculated_discount is None:
+            if (
+                result.calculated_price_before_discount is None
+                or result.calculated_discount is None
+            ):
                 continue
 
-            payload_items.append({
-                "id": result.wb_nm_id,
-                "price": int(result.calculated_price_before_discount.to_integral_value()),
-                "discount": int(result.calculated_discount.to_integral_value()),
-            })
+            payload_items.append(
+                {
+                    "id": result.wb_nm_id,
+                    "price": int(result.calculated_price_before_discount.to_integral_value()),
+                    "discount": int(result.calculated_discount.to_integral_value()),
+                }
+            )
 
         if not payload_items:
-            return PriceUploadResult(upload_id=None, status="no_items", error_text="Нет товаров для загрузки цен.")
+            return PriceUploadResult(
+                upload_id=None, status="no_items", error_text="Нет товаров для загрузки цен."
+            )
 
         try:
             await self._rate_limit()
@@ -492,7 +522,9 @@ class WbPromotionParticipationService:
             return PriceUploadResult(upload_id=upload_id, status="created")
         except Exception:
             logger.exception("wb_promotion_price_upload_failed", extra={"account_id": account_id})
-            return PriceUploadResult(upload_id=None, status="failed", error_text="Ошибка загрузки цен.")
+            return PriceUploadResult(
+                upload_id=None, status="failed", error_text="Ошибка загрузки цен."
+            )
 
     async def _check_price_upload_status(
         self,
@@ -505,7 +537,7 @@ class WbPromotionParticipationService:
         if upload_id is None:
             return "no_upload_id"
 
-        for attempt in range(max_attempts):
+        for _attempt in range(max_attempts):
             await self._rate_limit()
             try:
                 response = await client.get_price_upload_status(upload_id)
@@ -528,7 +560,9 @@ class WbPromotionParticipationService:
                 # Other status, keep polling
                 await asyncio.sleep(interval_seconds)
             except Exception:
-                logger.exception("wb_promotion_price_status_check_failed", extra={"upload_id": upload_id})
+                logger.exception(
+                    "wb_promotion_price_status_check_failed", extra={"upload_id": upload_id}
+                )
                 return "check_failed"
 
         return "pending_timeout"
@@ -542,7 +576,7 @@ class WbPromotionParticipationService:
     ) -> PromotionUploadResult:
         """Add products to promotion via /calendar/promotions/upload."""
         # Chunk by 1000
-        chunks = [nm_ids[i:i + 1000] for i in range(0, len(nm_ids), 1000)]
+        chunks = [nm_ids[i : i + 1000] for i in range(0, len(nm_ids), 1000)]
 
         last_result = PromotionUploadResult(upload_id=None, already_exists=False, status="failed")
 

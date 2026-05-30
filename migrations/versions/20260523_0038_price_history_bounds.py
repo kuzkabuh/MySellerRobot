@@ -5,8 +5,8 @@ Revises: 20260522_0037_fix_auto_promo_columns
 Create Date: 2026-05-23
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "20260523_0038_price_history_bounds"
 down_revision = "20260522_0037_fix_auto_promo_columns"

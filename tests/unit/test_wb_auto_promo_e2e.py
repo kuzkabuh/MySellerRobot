@@ -20,13 +20,11 @@ from app.services.pricing.wb_auto_promo_price_service import (
     STATUS_AUTO_PRICE_VIOLATION,
     STATUS_AUTO_REQUIRED_PRICE_UNKNOWN,
     STATUS_AUTO_SET_PRICE,
-    AutoPromoPriceRecommendation,
     WbAutoPromoPriceService,
 )
 from app.services.pricing.wb_price_update_service import (
     STATUS_APPLIED,
     STATUS_DRY_RUN,
-    STATUS_SKIPPED,
     WbPriceUpdateService,
 )
 
@@ -107,14 +105,16 @@ async def test_preview_price_changes_only_set_price():
     mock_settings_svc = MagicMock()
     mock_settings_svc.get_settings = AsyncMock(return_value=mock_settings)
 
-    service = WbPriceUpdateService(session)
+    WbPriceUpdateService(session)
 
     with patch(
         "app.services.pricing.mrc_pricing_settings_service.MrcPricingSettingsService",
         return_value=mock_settings_svc,
     ):
         # Test the payload calculation directly
-        from app.services.pricing.wb_price_update_service import calculate_wb_price_payload_for_target
+        from app.services.pricing.wb_price_update_service import (
+            calculate_wb_price_payload_for_target,
+        )
 
         payload = calculate_wb_price_payload_for_target(
             target_discounted_price=Decimal("846"),
@@ -175,13 +175,15 @@ async def test_apply_price_changes_confirm_sends_to_wb():
     mock_settings_svc = MagicMock()
     mock_settings_svc.get_settings = AsyncMock(return_value=mock_settings)
 
-    service = WbPriceUpdateService(session)
+    WbPriceUpdateService(session)
 
     mock_client = AsyncMock()
-    mock_client.upload_task_prices_discounts = AsyncMock(return_value={
-        "data": {"id": 123, "alreadyExists": False},
-        "error": False,
-    })
+    mock_client.upload_task_prices_discounts = AsyncMock(
+        return_value={
+            "data": {"id": 123, "alreadyExists": False},
+            "error": False,
+        }
+    )
 
     # Test the payload calculation directly
     from app.services.pricing.wb_price_update_service import calculate_wb_price_payload_for_target
@@ -274,9 +276,7 @@ async def test_recommendation_current_price_ok():
     session = AsyncMock()
 
     mock_settings_svc = MagicMock()
-    mock_settings_svc.get_settings = AsyncMock(
-        return_value=_make_settings_result(Decimal("10"))
-    )
+    mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
         "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
@@ -302,9 +302,7 @@ async def test_recommendation_mrc_violation():
     session = AsyncMock()
 
     mock_settings_svc = MagicMock()
-    mock_settings_svc.get_settings = AsyncMock(
-        return_value=_make_settings_result(Decimal("10"))
-    )
+    mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
         "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
@@ -332,9 +330,7 @@ async def test_recommendation_min_price_violation():
     session = AsyncMock()
 
     mock_settings_svc = MagicMock()
-    mock_settings_svc.get_settings = AsyncMock(
-        return_value=_make_settings_result(Decimal("10"))
-    )
+    mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
         "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
@@ -361,9 +357,7 @@ async def test_recommendation_unknown_required_price():
     session = AsyncMock()
 
     mock_settings_svc = MagicMock()
-    mock_settings_svc.get_settings = AsyncMock(
-        return_value=_make_settings_result(Decimal("10"))
-    )
+    mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
         "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
@@ -397,10 +391,9 @@ async def test_cooldown_prevents_duplicate_changes():
     service = WbPriceUpdateService(session)
 
     recent_time = datetime.now(tz=UTC)
-    with patch.object(
-        service, "_get_current_wb_price", new=AsyncMock(return_value=Decimal("930"))
-    ), patch.object(
-        service, "_get_last_price_change", new=AsyncMock(return_value=recent_time)
+    with (
+        patch.object(service, "_get_current_wb_price", new=AsyncMock(return_value=Decimal("930"))),
+        patch.object(service, "_get_last_price_change", new=AsyncMock(return_value=recent_time)),
     ):
         can_change, reason = await service._can_change_price(
             product=product,

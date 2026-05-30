@@ -9,22 +9,22 @@ Usage:
 import argparse
 import asyncio
 import logging
-from datetime import UTC, datetime
+from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import AsyncSessionFactory
-from app.models.domain import Order, OrderItem, ProfitSnapshot, SalesEvent
-from app.models.enums import Marketplace, SourceEventType
+from app.models.domain import Order, OrderItem
 
 logger = logging.getLogger(__name__)
 
 
-async def find_duplicates(session: AsyncSession) -> list[dict]:
+async def find_duplicates(session: AsyncSession) -> list[dict[str, Any]]:
     """Find WB duplicate pairs where LIVE_ORDER and STATISTICS_ORDER share the same srid."""
     result = await session.execute(
-        text("""
+        text(
+            """
             SELECT
                 live.id AS live_id,
                 live.order_external_id AS live_external_id,
@@ -47,35 +47,38 @@ async def find_duplicates(session: AsyncSession) -> list[dict]:
               AND live.source_event_type = 'LIVE_ORDER'
               AND stat.source_event_type = 'STATISTICS_ORDER'
             ORDER BY live.marketplace_account_id, live.srid
-        """)
+        """
+        )
     )
-    duplicates = []
+    duplicates: list[dict[str, Any]] = []
     for row in result:
-        duplicates.append({
-            "live_id": row.live_id,
-            "live_external_id": row.live_external_id,
-            "live_srid": row.live_srid,
-            "stat_id": row.stat_id,
-            "stat_external_id": row.stat_external_id,
-            "stat_srid": row.stat_srid,
-            "account_id": row.marketplace_account_id,
-        })
+        duplicates.append(
+            {
+                "live_id": row.live_id,
+                "live_external_id": row.live_external_id,
+                "live_srid": row.live_srid,
+                "stat_id": row.stat_id,
+                "stat_external_id": row.stat_external_id,
+                "stat_srid": row.stat_srid,
+                "account_id": row.marketplace_account_id,
+            }
+        )
     return duplicates
 
 
 async def merge_and_delete(
     session: AsyncSession,
-    dup: dict,
+    dup: dict[str, Any],
     *,
     dry_run: bool = False,
-) -> dict:
+) -> dict[str, Any]:
     """Merge statistics data into LIVE_ORDER and delete the duplicate.
 
     Returns a summary of actions taken.
     """
     live_id = dup["live_id"]
     stat_id = dup["stat_id"]
-    actions: dict = {"live_id": live_id, "stat_id": stat_id, "steps": []}
+    actions: dict[str, Any] = {"live_id": live_id, "stat_id": stat_id, "steps": []}
 
     live_order = await session.get(Order, live_id)
     stat_order = await session.get(Order, stat_id)
@@ -136,11 +139,13 @@ async def merge_and_delete(
         stat_item_ids = [item.id for item in stat_order.items]
         if stat_item_ids:
             await session.execute(
-                text("""
+                text(
+                    """
                     UPDATE profit_snapshots
                     SET order_item_id = :live_item_id
                     WHERE order_item_id = ANY(:stat_item_ids)
-                """),
+                """
+                ),
                 {
                     "live_item_id": live_order.items[0].id,
                     "stat_item_ids": stat_item_ids,
@@ -150,11 +155,13 @@ async def merge_and_delete(
 
     # Re-link sales events that reference the stat order
     await session.execute(
-        text("""
+        text(
+            """
             UPDATE sales_events
             SET related_order_id = :live_id
             WHERE related_order_id = :stat_id
-        """),
+        """
+        ),
         {"live_id": live_id, "stat_id": stat_id},
     )
     actions["steps"].append("sales_events_relinked")
@@ -173,7 +180,7 @@ async def merge_and_delete(
     return actions
 
 
-async def run_repair(*, dry_run: bool = False) -> list[dict]:
+async def run_repair(*, dry_run: bool = False) -> list[dict[str, Any]]:
     """Main repair function. Returns list of action summaries."""
     async with AsyncSessionFactory() as session:
         duplicates = await find_duplicates(session)
@@ -181,7 +188,7 @@ async def run_repair(*, dry_run: bool = False) -> list[dict]:
             "wb_duplicate_orders_repair_found",
             extra={"count": len(duplicates), "dry_run": dry_run},
         )
-        results = []
+        results: list[dict[str, Any]] = []
         for dup in duplicates:
             result = await merge_and_delete(session, dup, dry_run=dry_run)
             results.append(result)
@@ -190,7 +197,9 @@ async def run_repair(*, dry_run: bool = False) -> list[dict]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Repair WB duplicate orders")
-    parser.add_argument("--dry-run", action="store_true", help="Show what would be done without changes")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Show what would be done without changes"
+    )
     parser.add_argument("--apply", action="store_true", help="Actually apply the repair")
     args = parser.parse_args()
 

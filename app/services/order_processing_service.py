@@ -125,9 +125,7 @@ class OrderProcessingService:
                     normalized_orders, recovery_failed = fetched_orders
                 else:
                     normalized_orders = fetched_orders
-                    recovery_failed = bool(
-                        getattr(self, "_last_fetch_recovery_failed", False)
-                    )
+                    recovery_failed = bool(getattr(self, "_last_fetch_recovery_failed", False))
                 result.fetched = len(normalized_orders)
 
                 policy = await self.notification_policy.resolve(account)
@@ -157,9 +155,11 @@ class OrderProcessingService:
                                         "user_id": user_id,
                                         "marketplace": marketplace_value,
                                         "fulfillment_type": normalized.fulfillment_type,
-                                        "sale_model": normalized.sale_model.value
-                                        if normalized.sale_model
-                                        else None,
+                                        "sale_model": (
+                                            normalized.sale_model.value
+                                            if normalized.sale_model
+                                            else None
+                                        ),
                                         "order_id": existing_order.id,
                                         "order_external_id": normalized.order_external_id,
                                         "notified": existing_order.first_notified_at is not None,
@@ -176,9 +176,9 @@ class OrderProcessingService:
                                 "user_id": user_id,
                                 "marketplace": marketplace_value,
                                 "fulfillment_type": normalized.fulfillment_type,
-                                "sale_model": normalized.sale_model.value
-                                if normalized.sale_model
-                                else None,
+                                "sale_model": (
+                                    normalized.sale_model.value if normalized.sale_model else None
+                                ),
                                 "order_external_id": normalized.order_external_id,
                             },
                         )
@@ -190,9 +190,11 @@ class OrderProcessingService:
                                     "user_id": user_id,
                                     "marketplace": marketplace_value,
                                     "fulfillment_type": normalized.fulfillment_type,
-                                    "sale_model": normalized.sale_model.value
-                                    if normalized.sale_model
-                                    else None,
+                                    "sale_model": (
+                                        normalized.sale_model.value
+                                        if normalized.sale_model
+                                        else None
+                                    ),
                                     "order_id": order.id,
                                     "order_external_id": normalized.order_external_id,
                                 },
@@ -204,9 +206,11 @@ class OrderProcessingService:
                                     "user_id": user_id,
                                     "marketplace": marketplace_value,
                                     "fulfillment_type": normalized.fulfillment_type,
-                                    "sale_model": normalized.sale_model.value
-                                    if normalized.sale_model
-                                    else None,
+                                    "sale_model": (
+                                        normalized.sale_model.value
+                                        if normalized.sale_model
+                                        else None
+                                    ),
                                     "order_id": order.id,
                                     "order_external_id": normalized.order_external_id,
                                 },
@@ -260,9 +264,11 @@ class OrderProcessingService:
                             "user_id": user_id,
                             "marketplace": marketplace_value,
                             "reason": "recovery_poll_failed",
-                            "last_order_poll_at": account.last_order_poll_at.isoformat()
-                            if account.last_order_poll_at
-                            else None,
+                            "last_order_poll_at": (
+                                account.last_order_poll_at.isoformat()
+                                if account.last_order_poll_at
+                                else None
+                            ),
                         },
                     )
                 else:
@@ -356,9 +362,11 @@ class OrderProcessingService:
                         "marketplace": account.marketplace.value,
                         "window_start": window_start.isoformat(),
                         "window_end": now.isoformat(),
-                        "last_poll_at": account.last_order_poll_at.isoformat()
-                        if account.last_order_poll_at
-                        else None,
+                        "last_poll_at": (
+                            account.last_order_poll_at.isoformat()
+                            if account.last_order_poll_at
+                            else None
+                        ),
                     },
                 )
                 recovered_orders = await wb_client.get_fbs_orders(
@@ -568,8 +576,10 @@ class OrderProcessingService:
         pending = await self.orders.pending_unnotified_for_account(
             account_id=account.id,
             sale_models={
-                SaleModel.FBS, SaleModel.RFBS,
-                SaleModel.DBS, SaleModel.DBW,
+                SaleModel.FBS,
+                SaleModel.RFBS,
+                SaleModel.DBS,
+                SaleModel.DBW,
                 SaleModel.FBO,
             },
             limit=100,
@@ -735,9 +745,9 @@ def _log_normalized_order(order: NormalizedOrder, account: MarketplaceAccount) -
                 "order_external_id": order.order_external_id,
                 "requires_seller_action": order.requires_seller_action,
                 "normalized_status": order.normalized_status,
-                "source_event_type": order.source_event_type.value
-                if order.source_event_type
-                else None,
+                "source_event_type": (
+                    order.source_event_type.value if order.source_event_type else None
+                ),
             },
         )
     return order

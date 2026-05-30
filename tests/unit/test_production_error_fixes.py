@@ -415,11 +415,7 @@ class TestExtractReportRows:
     def test_payload_is_dict_with_result_key(self):
         from app.services.wb_report_service import _extract_report_rows
 
-        payload = {
-            "result": {
-                "reports": [{"reportId": "x"}]
-            }
-        }
+        payload = {"result": {"reports": [{"reportId": "x"}]}}
         result = _extract_report_rows(payload)
         assert len(result) == 1
         assert result[0]["reportId"] == "x"
@@ -427,11 +423,7 @@ class TestExtractReportRows:
     def test_payload_is_dict_with_result_items(self):
         from app.services.wb_report_service import _extract_report_rows
 
-        payload = {
-            "result": {
-                "items": [{"id": "1"}, {"id": "2"}]
-            }
-        }
+        payload = {"result": {"items": [{"id": "1"}, {"id": "2"}]}}
         result = _extract_report_rows(payload)
         assert len(result) == 2
 

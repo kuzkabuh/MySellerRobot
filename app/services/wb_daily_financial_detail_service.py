@@ -562,12 +562,16 @@ class WbDailyFinancialDetailService:
                     storage_cost=aggregated["storage_cost"],
                     return_cost=aggregated["return_cost"],
                     other_marketplace_costs=aggregated["other_marketplace_costs"],
-                    cost=CostInput(
-                        cost_price=cost.cost_price if cost else Decimal("0"),
-                        package_cost=cost.package_cost if cost else Decimal("0"),
-                        additional_cost=cost.additional_cost if cost else Decimal("0"),
-                        tax_rate=cost.tax_rate if cost else Decimal("0"),
-                    ) if cost else None,
+                    cost=(
+                        CostInput(
+                            cost_price=cost.cost_price if cost else Decimal("0"),
+                            package_cost=cost.package_cost if cost else Decimal("0"),
+                            additional_cost=cost.additional_cost if cost else Decimal("0"),
+                            tax_rate=cost.tax_rate if cost else Decimal("0"),
+                        )
+                        if cost
+                        else None
+                    ),
                     calculation_source="wb_daily_financial_detail",
                 )
             )

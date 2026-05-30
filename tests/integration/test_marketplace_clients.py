@@ -28,6 +28,7 @@ async def test_wb_get_new_fbs_orders(httpx_mock: HTTPXMock) -> None:
 @pytest.mark.asyncio
 async def test_wb_get_historical_fbs_orders(httpx_mock: HTTPXMock) -> None:
     import re
+
     httpx_mock.add_response(
         method="GET",
         url=re.compile(r"https://marketplace-api\.wildberries\.ru/api/v3/orders.*dateFrom.*dateTo"),

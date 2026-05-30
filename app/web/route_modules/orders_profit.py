@@ -39,6 +39,7 @@ from app.web.views import *
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
 @router.get("/orders", response_class=HTMLResponse)
 async def orders_page(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
@@ -98,10 +99,7 @@ async def _get_last_poll_info(
     if not rows:
         return {"last_poll_at": None, "accounts": []}
     last_poll_at = rows[0][1]
-    accounts_info = [
-        {"marketplace": mp.value, "last_poll_at": ts}
-        for mp, ts in rows
-    ]
+    accounts_info = [{"marketplace": mp.value, "last_poll_at": ts} for mp, ts in rows]
     return {"last_poll_at": last_poll_at, "accounts": accounts_info}
 
 
@@ -157,4 +155,3 @@ async def profit_page(
         content,
         active_path="/web/profit",
     )
-

@@ -2,21 +2,10 @@
 
 from decimal import Decimal
 
-import pytest
-
-from app.services.pricing.wb_auto_promo_price_service import (
-    WbAutoPromoPriceService,
-    AutoPromoPriceRecommendation,
-    STATUS_AUTO_SET_PRICE,
-    STATUS_AUTO_PRICE_OK,
-    STATUS_AUTO_REQUIRED_PRICE_UNKNOWN,
-    STATUS_AUTO_PRICE_VIOLATION,
-    STATUS_AUTO_MIN_PRICE_VIOLATION,
-)
 from app.services.pricing.wb_price_update_service import (
+    WbPricePayload,
     calculate_wb_price_payload_for_target,
     is_quarantine_risk,
-    WbPricePayload,
 )
 
 

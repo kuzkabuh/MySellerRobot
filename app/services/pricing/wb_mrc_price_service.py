@@ -7,7 +7,7 @@ updated: 2026-05-22
 import logging
 import math
 from dataclasses import dataclass
-from decimal import Decimal, ROUND_CEILING, InvalidOperation
+from decimal import ROUND_CEILING, Decimal, InvalidOperation
 
 from app.core.config import get_settings
 from app.core.exceptions import ValidationError
@@ -72,9 +72,7 @@ class WbMrcPriceService:
             else Decimal(str(settings.wb_price_before_discount_multiplier))
         )
         self.default_discount_percent = (
-            default_discount_percent
-            if default_discount_percent is not None
-            else Decimal("75")
+            default_discount_percent if default_discount_percent is not None else Decimal("75")
         )
 
     def calculate(
@@ -100,7 +98,9 @@ class WbMrcPriceService:
             ValidationError: If mrc_price is invalid.
         """
         mrc_price = self._validate_mrc_price(mrc_price)
-        effective_discount = discount_percent if discount_percent is not None else self.default_discount_percent
+        effective_discount = (
+            discount_percent if discount_percent is not None else self.default_discount_percent
+        )
 
         # Step 1: Determine final discounted price
         final_discounted_price, is_promo_applied, is_limited_by_mrc_rule = (
@@ -181,8 +181,8 @@ class WbMrcPriceService:
             raise ValidationError("МРЦ не указана", field="mrc_price")
         try:
             mrc_price = Decimal(str(mrc_price))
-        except (InvalidOperation, ValueError, TypeError):
-            raise ValidationError("Некорректное значение МРЦ", field="mrc_price")
+        except (InvalidOperation, ValueError, TypeError) as exc:
+            raise ValidationError("Некорректное значение МРЦ", field="mrc_price") from exc
         if mrc_price <= 0:
             raise ValidationError("МРЦ должна быть больше нуля", field="mrc_price")
         return mrc_price
@@ -206,9 +206,7 @@ class WbMrcPriceService:
         min_allowed_price = mrc_price * (Decimal("1") - max_discount_decimal / Decimal("100"))
 
         # Round up to ensure we don't go below the limit
-        min_allowed_price_rounded = Decimal(
-            math.ceil(min_allowed_price)
-        )
+        min_allowed_price_rounded = Decimal(math.ceil(min_allowed_price))
 
         promo_price = Decimal(str(promo_required_price))
 
@@ -234,16 +232,10 @@ class WbMrcPriceService:
         if is_limited_by_min_price:
             parts = []
             if is_limited_by_mrc_rule:
-                parts.append(
-                    "Цена акции ниже допустимого лимита МРЦ"
-                )
+                parts.append("Цена акции ниже допустимого лимита МРЦ")
             elif is_promo_applied:
-                parts.append(
-                    "Цена акции ниже минимальной цены продавца"
-                )
-            parts.append(
-                f"Цена установлена на уровне minPrice ({min_price})"
-            )
+                parts.append("Цена акции ниже минимальной цены продавца")
+            parts.append(f"Цена установлена на уровне minPrice ({min_price})")
             return ". ".join(parts)
 
         if is_limited_by_mrc_rule:

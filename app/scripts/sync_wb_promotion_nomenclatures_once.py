@@ -7,6 +7,7 @@ Usage:
     python -m app.scripts.sync_wb_promotion_nomenclatures_once --account-id 2 --limit 10
     python -m app.scripts.sync_wb_promotion_nomenclatures_once --account-id 2 --promotion-id 12345
 """
+# ruff: noqa: E402, E501
 
 import argparse
 import asyncio
@@ -19,6 +20,8 @@ from pathlib import Path
 project_root = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(project_root))
 
+from sqlalchemy import select
+
 from app.core.config import get_settings
 from app.core.db import AsyncSessionFactory
 from app.core.security import TokenCipher
@@ -26,7 +29,6 @@ from app.integrations.wb import WildberriesClient
 from app.models.domain import MarketplaceAccount, WbPromotion, WbPromotionNomenclature
 from app.models.enums import Marketplace
 from app.services.wb.wb_promotions_sync_service import WbPromotionsSyncService
-from sqlalchemy import select
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,7 +44,7 @@ async def sync_nomenclatures_once(
     all_promo: bool = True,
 ) -> dict:
     """Sync nomenclatures for a specific account."""
-    settings = get_settings()
+    get_settings()
     cipher = TokenCipher()
 
     async with AsyncSessionFactory() as session:
@@ -88,10 +90,14 @@ async def sync_nomenclatures_once(
 
         # Get active regular promotions
         now_utc = datetime.now(tz=UTC)
-        start_date = (now_utc - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-        end_date = (now_utc + timedelta(days=90)).replace(hour=23, minute=59, second=59, microsecond=0)
-        start_datetime = start_date.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-        end_datetime = end_date.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        start_date = (now_utc - timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        end_date = (now_utc + timedelta(days=90)).replace(
+            hour=23, minute=59, second=59, microsecond=0
+        )
+        start_date.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        end_date.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         if promotion_id:
             # Get specific promotion
@@ -106,12 +112,14 @@ async def sync_nomenclatures_once(
         else:
             # Get active regular promotions
             result = await session.execute(
-                select(WbPromotion).where(
+                select(WbPromotion)
+                .where(
                     WbPromotion.marketplace_account_id == account_id,
                     WbPromotion.start_datetime <= now_utc,
                     WbPromotion.end_datetime >= now_utc,
                     WbPromotion.promotion_type != "auto",
-                ).order_by(WbPromotion.wb_promotion_id)
+                )
+                .order_by(WbPromotion.wb_promotion_id)
             )
             promotions = list(result.scalars().all())
             logger.info(f"Found {len(promotions)} active regular promotions")
@@ -127,7 +135,9 @@ async def sync_nomenclatures_once(
         }
 
         for promo in promotions:
-            logger.info(f"Processing promotion: {promo.wb_promotion_id} - {promo.name or 'Unknown'}")
+            logger.info(
+                f"Processing promotion: {promo.wb_promotion_id} - {promo.name or 'Unknown'}"
+            )
 
             # Fetch nomenclatures for both in_action states
             for in_action in (True, False):
@@ -177,13 +187,17 @@ async def sync_nomenclatures_once(
                                     if isinstance(sample_value, list) and sample_value:
                                         logger.info(f"  Sample {sample_key}[0]: {sample_value[0]}")
                                     elif isinstance(sample_value, dict):
-                                        logger.info(f"  Sample {sample_value}: {dict(list(sample_value.items())[:5])}")
+                                        logger.info(
+                                            f"  Sample {sample_value}: {dict(list(sample_value.items())[:5])}"
+                                        )
                             break
 
                         # Save items
                         now_utc = datetime.now(tz=UTC)
                         for item in items_data:
-                            wb_nm_id = int(item.get("id") or item.get("nmId") or item.get("nmID") or 0)
+                            wb_nm_id = int(
+                                item.get("id") or item.get("nmId") or item.get("nmID") or 0
+                            )
                             if not wb_nm_id:
                                 logger.warning(f"  Skipping item with no nmID: {item}")
                                 continue
@@ -192,7 +206,8 @@ async def sync_nomenclatures_once(
                             result = await session.execute(
                                 select(WbPromotionNomenclature).where(
                                     WbPromotionNomenclature.marketplace_account_id == account_id,
-                                    WbPromotionNomenclature.wb_promotion_id == promo.wb_promotion_id,
+                                    WbPromotionNomenclature.wb_promotion_id
+                                    == promo.wb_promotion_id,
                                     WbPromotionNomenclature.wb_nm_id == wb_nm_id,
                                     WbPromotionNomenclature.in_action == in_action,
                                 )
@@ -219,7 +234,9 @@ async def sync_nomenclatures_once(
                                 if val in (None, "", "null"):
                                     return None
                                 try:
-                                    return Decimal(str(val).replace(",", ".")).quantize(Decimal("0.01"))
+                                    return Decimal(str(val).replace(",", ".")).quantize(
+                                        Decimal("0.01")
+                                    )
                                 except (InvalidOperation, ValueError, TypeError):
                                     return None
 
@@ -232,7 +249,9 @@ async def sync_nomenclatures_once(
                                     return None
 
                             nomenclature.current_price = _money(item.get("price"))
-                            nomenclature.currency_code = str(item.get("currencyCode") or item.get("currency") or "RUB")[:16]
+                            nomenclature.currency_code = str(
+                                item.get("currencyCode") or item.get("currency") or "RUB"
+                            )[:16]
                             nomenclature.plan_price = _money(item.get("planPrice"))
                             nomenclature.current_discount = _decimal_optional(item.get("discount"))
                             nomenclature.plan_discount = _decimal_optional(item.get("planDiscount"))
@@ -264,9 +283,16 @@ async def sync_nomenclatures_once(
 async def main():
     parser = argparse.ArgumentParser(description="Sync WB promotion nomenclatures once")
     parser.add_argument("--account-id", type=int, required=True, help="Marketplace account ID")
-    parser.add_argument("--promotion-id", type=int, default=None, help="Specific promotion ID (optional)")
+    parser.add_argument(
+        "--promotion-id", type=int, default=None, help="Specific promotion ID (optional)"
+    )
     parser.add_argument("--limit", type=int, default=100, help="Page size for API requests")
-    parser.add_argument("--all-promo", type=str, default="true", help="Use allPromo=true for full sync (default: true)")
+    parser.add_argument(
+        "--all-promo",
+        type=str,
+        default="true",
+        help="Use allPromo=true for full sync (default: true)",
+    )
     args = parser.parse_args()
 
     all_promo = args.all_promo.lower() in ("true", "1", "yes")

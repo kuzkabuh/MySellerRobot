@@ -1,5 +1,7 @@
 """version: 1.0.0
-description: Tests for production polling fixes: Ozon financial_data=None, WB recovery, partial failure.
+description: Tests for production polling fixes.
+
+Covers Ozon financial_data=None, WB recovery, and partial failure.
 updated: 2026-05-20
 """
 
@@ -11,7 +13,7 @@ import pytest
 
 from app.integrations.ozon import OzonClient
 from app.integrations.wb import WildberriesClient
-from app.models.enums import Marketplace, SaleModel
+from app.models.enums import Marketplace
 
 
 class TestOzonFinancialDataNone:
@@ -229,7 +231,6 @@ class TestPartialFailureSemantics:
     async def test_wb_live_poll_updates_timestamp_on_recovery_failure(self) -> None:
         from app.services.order_processing_service import (
             OrderProcessingService,
-            OrderPollResult,
         )
 
         mock_session = AsyncMock()
@@ -270,6 +271,7 @@ class TestPartialFailureSemantics:
         def mock_init(self, session):
             self.session = session
             from app.core.security import TokenCipher
+
             self.cipher = TokenCipher()
             self.orders = mock_repo
             self.fbo_queue = mock_fbo_queue
@@ -291,9 +293,7 @@ class TestPartialFailureSemantics:
                 ) as mock_wb_class:
                     mock_wb = MagicMock()
                     mock_wb.get_new_fbs_orders = AsyncMock(return_value=[])
-                    mock_wb.get_fbs_orders = AsyncMock(
-                        side_effect=Exception("IncorrectParameter")
-                    )
+                    mock_wb.get_fbs_orders = AsyncMock(side_effect=Exception("IncorrectParameter"))
                     mock_wb_class.return_value = mock_wb
 
                     service = OrderProcessingService(mock_session)
@@ -309,7 +309,6 @@ class TestPartialFailureSemantics:
     async def test_ozon_poll_updates_timestamp(self) -> None:
         from app.services.order_processing_service import (
             OrderProcessingService,
-            OrderPollResult,
         )
 
         mock_session = AsyncMock()
@@ -350,6 +349,7 @@ class TestPartialFailureSemantics:
         def mock_init(self, session):
             self.session = session
             from app.core.security import TokenCipher
+
             self.cipher = TokenCipher()
             self.orders = mock_repo
             self.fbo_queue = mock_fbo_queue
@@ -366,9 +366,7 @@ class TestPartialFailureSemantics:
                 "app.core.security.TokenCipher.decrypt",
                 side_effect=lambda x: f"decrypted-{x}",
             ):
-                with patch(
-                    "app.services.order_processing_service.OzonClient"
-                ) as mock_ozon_class:
+                with patch("app.services.order_processing_service.OzonClient") as mock_ozon_class:
                     mock_ozon = MagicMock()
                     mock_ozon.get_fbs_postings = AsyncMock(
                         return_value={"result": {"postings": []}}
@@ -376,9 +374,7 @@ class TestPartialFailureSemantics:
                     mock_ozon.get_fbs_unfulfilled = AsyncMock(
                         return_value={"result": {"postings": []}}
                     )
-                    mock_ozon.get_fbo_postings = AsyncMock(
-                        return_value={"result": []}
-                    )
+                    mock_ozon.get_fbo_postings = AsyncMock(return_value={"result": []})
                     mock_ozon_class.return_value = mock_ozon
 
                     service = OrderProcessingService(mock_session)
@@ -399,20 +395,14 @@ class TestMixedAccountPolling:
         from app.workers.tasks import poll_new_orders
 
         with (
-            patch(
-                "app.workers.tasks._load_account_refs"
-            ) as mock_load_refs,
-            patch(
-                "app.workers.tasks._load_account_by_id"
-            ) as mock_load_account,
-            patch(
-                "app.workers.tasks.OrderProcessingService"
-            ) as mock_service_class,
+            patch("app.workers.tasks._load_account_refs") as mock_load_refs,
+            patch("app.workers.tasks._load_account_by_id") as mock_load_account,
+            patch("app.workers.tasks.OrderProcessingService") as mock_service_class,
             patch(
                 "app.workers.tasks._deliver_new_order_notifications",
                 new_callable=AsyncMock,
                 return_value=(0, 0),
-            ) as mock_deliver,
+            ),
             patch("app.workers.tasks.Bot") as mock_bot_class,
             patch("app.workers.tasks.AsyncSessionFactory"),
         ):

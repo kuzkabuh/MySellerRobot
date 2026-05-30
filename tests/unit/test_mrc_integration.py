@@ -1,11 +1,11 @@
 """Tests for MRC pricing bot handlers, web routes, and integration."""
 
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.bot.states import MrcStates
+from app.core.exceptions import ValidationError
 from app.models.enums import FeatureCode
 from app.services.feature_access_service import _PRO_FEATURES
 from app.services.pricing.wb_mrc_price_service import WbMrcPriceService
@@ -82,7 +82,7 @@ class TestMrcPriceServiceIntegration:
         service = WbMrcPriceService()
 
         # MRC not set - ValidationError is expected
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             service.calculate(mrc_price=None)  # type: ignore[arg-type]
 
 

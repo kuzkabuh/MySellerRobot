@@ -427,21 +427,27 @@ class TestAdminTariffAssignHandler:
             async def __aexit__(self, *args):
                 pass
 
-        with patch(
-            "app.bot.handlers.subscription.UserRepository",
-            FakeUserRepo,
-        ), patch(
-            "app.bot.handlers.subscription.SubscriptionService",
-            FakeSubService,
-        ), patch(
-            "app.bot.handlers.subscription.AsyncSessionFactory",
-            FakeSessionFactory,
-        ), patch(
-            "app.bot.handlers.subscription.get_settings",
-            return_value=self._mock_settings(),
-        ), patch(
-            "app.bot.handlers.subscription._callback_message",
-            return_value=msg,
+        with (
+            patch(
+                "app.bot.handlers.subscription.UserRepository",
+                FakeUserRepo,
+            ),
+            patch(
+                "app.bot.handlers.subscription.SubscriptionService",
+                FakeSubService,
+            ),
+            patch(
+                "app.bot.handlers.subscription.AsyncSessionFactory",
+                FakeSessionFactory,
+            ),
+            patch(
+                "app.bot.handlers.subscription.get_settings",
+                return_value=self._mock_settings(),
+            ),
+            patch(
+                "app.bot.handlers.subscription._callback_message",
+                return_value=msg,
+            ),
         ):
             await admin_tariff_assign_handler(callback)
 
@@ -509,21 +515,27 @@ class TestAdminTariffAssignHandler:
             async def __aexit__(self, *args):
                 pass
 
-        with patch(
-            "app.bot.handlers.subscription.UserRepository",
-            FakeUserRepo,
-        ), patch(
-            "app.bot.handlers.subscription.SubscriptionService",
-            FakeSubService,
-        ), patch(
-            "app.bot.handlers.subscription.AsyncSessionFactory",
-            FakeSessionFactory,
-        ), patch(
-            "app.bot.handlers.subscription.get_settings",
-            return_value=self._mock_settings(),
-        ), patch(
-            "app.bot.handlers.subscription._callback_message",
-            return_value=msg,
+        with (
+            patch(
+                "app.bot.handlers.subscription.UserRepository",
+                FakeUserRepo,
+            ),
+            patch(
+                "app.bot.handlers.subscription.SubscriptionService",
+                FakeSubService,
+            ),
+            patch(
+                "app.bot.handlers.subscription.AsyncSessionFactory",
+                FakeSessionFactory,
+            ),
+            patch(
+                "app.bot.handlers.subscription.get_settings",
+                return_value=self._mock_settings(),
+            ),
+            patch(
+                "app.bot.handlers.subscription._callback_message",
+                return_value=msg,
+            ),
         ):
             await admin_tariff_assign_handler(callback)
 
@@ -596,21 +608,27 @@ class TestAdminTariffAssignHandler:
             async def __aexit__(self, *args):
                 pass
 
-        with patch(
-            "app.bot.handlers.subscription.UserRepository",
-            FakeUserRepo,
-        ), patch(
-            "app.bot.handlers.subscription.SubscriptionService",
-            FakeSubService,
-        ), patch(
-            "app.bot.handlers.subscription.AsyncSessionFactory",
-            FakeSessionFactory,
-        ), patch(
-            "app.bot.handlers.subscription.get_settings",
-            return_value=self._mock_settings(),
-        ), patch(
-            "app.bot.handlers.subscription._callback_message",
-            return_value=msg,
+        with (
+            patch(
+                "app.bot.handlers.subscription.UserRepository",
+                FakeUserRepo,
+            ),
+            patch(
+                "app.bot.handlers.subscription.SubscriptionService",
+                FakeSubService,
+            ),
+            patch(
+                "app.bot.handlers.subscription.AsyncSessionFactory",
+                FakeSessionFactory,
+            ),
+            patch(
+                "app.bot.handlers.subscription.get_settings",
+                return_value=self._mock_settings(),
+            ),
+            patch(
+                "app.bot.handlers.subscription._callback_message",
+                return_value=msg,
+            ),
         ):
             await admin_tariff_assign_handler(callback)
 
@@ -672,21 +690,27 @@ class TestAdminTariffAssignHandler:
             async def __aexit__(self, *args):
                 pass
 
-        with patch(
-            "app.bot.handlers.subscription.UserRepository",
-            FakeUserRepo,
-        ), patch(
-            "app.bot.handlers.subscription.SubscriptionService",
-            FakeSubService,
-        ), patch(
-            "app.bot.handlers.subscription.AsyncSessionFactory",
-            FakeSessionFactory,
-        ), patch(
-            "app.bot.handlers.subscription.get_settings",
-            return_value=self._mock_settings(),
-        ), patch(
-            "app.bot.handlers.subscription._callback_message",
-            return_value=msg,
+        with (
+            patch(
+                "app.bot.handlers.subscription.UserRepository",
+                FakeUserRepo,
+            ),
+            patch(
+                "app.bot.handlers.subscription.SubscriptionService",
+                FakeSubService,
+            ),
+            patch(
+                "app.bot.handlers.subscription.AsyncSessionFactory",
+                FakeSessionFactory,
+            ),
+            patch(
+                "app.bot.handlers.subscription.get_settings",
+                return_value=self._mock_settings(),
+            ),
+            patch(
+                "app.bot.handlers.subscription._callback_message",
+                return_value=msg,
+            ),
         ):
             await admin_tariff_assign_handler(callback)
 

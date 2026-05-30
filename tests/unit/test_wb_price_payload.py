@@ -2,10 +2,7 @@
 
 from decimal import Decimal
 
-import pytest
-
 from app.services.pricing.wb_price_update_service import (
-    WbPricePayload,
     calculate_wb_price_payload_for_target,
     is_quarantine_risk,
 )
@@ -47,46 +44,61 @@ def test_price_payload_rounding_adjustment():
 # Test 3: Quarantine guard - 3x lower
 def test_quarantine_risk_3x_lower():
     """old=3000, target=900 -> target <= old/3 -> quarantine risk"""
-    assert is_quarantine_risk(
-        old_discounted_price=Decimal("3000"),
-        target_discounted_price=Decimal("900"),
-    ) is True
+    assert (
+        is_quarantine_risk(
+            old_discounted_price=Decimal("3000"),
+            target_discounted_price=Decimal("900"),
+        )
+        is True
+    )
 
 
 # Test 4: Quarantine guard - just above threshold
 def test_quarantine_risk_above_threshold():
     """old=3000, target=1001 -> target > old/3 -> no quarantine risk"""
-    assert is_quarantine_risk(
-        old_discounted_price=Decimal("3000"),
-        target_discounted_price=Decimal("1001"),
-    ) is False
+    assert (
+        is_quarantine_risk(
+            old_discounted_price=Decimal("3000"),
+            target_discounted_price=Decimal("1001"),
+        )
+        is False
+    )
 
 
 # Test 5: Quarantine guard - no old price
 def test_quarantine_risk_no_old_price():
     """No old price -> no quarantine risk"""
-    assert is_quarantine_risk(
-        old_discounted_price=None,
-        target_discounted_price=Decimal("846"),
-    ) is False
+    assert (
+        is_quarantine_risk(
+            old_discounted_price=None,
+            target_discounted_price=Decimal("846"),
+        )
+        is False
+    )
 
 
 # Test 6: Quarantine guard - zero old price
 def test_quarantine_risk_zero_old_price():
     """Zero old price -> no quarantine risk"""
-    assert is_quarantine_risk(
-        old_discounted_price=Decimal("0"),
-        target_discounted_price=Decimal("846"),
-    ) is False
+    assert (
+        is_quarantine_risk(
+            old_discounted_price=Decimal("0"),
+            target_discounted_price=Decimal("846"),
+        )
+        is False
+    )
 
 
 # Test 7: Quarantine guard - exact 3x
 def test_quarantine_risk_exact_3x():
     """old=3000, target=1000 -> target == old/3 -> quarantine risk"""
-    assert is_quarantine_risk(
-        old_discounted_price=Decimal("3000"),
-        target_discounted_price=Decimal("1000"),
-    ) is True
+    assert (
+        is_quarantine_risk(
+            old_discounted_price=Decimal("3000"),
+            target_discounted_price=Decimal("1000"),
+        )
+        is True
+    )
 
 
 # Test 8: Price payload with different discount

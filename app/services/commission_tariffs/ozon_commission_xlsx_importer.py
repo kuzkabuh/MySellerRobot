@@ -327,32 +327,34 @@ class OzonCommissionXlsxImporter:
                     if commission is None:
                         continue
 
-                    rates.append({
-                        "category_name": category[:512],
-                        "product_type_name": product_type[:512] if product_type else None,
-                        "subject_name": None,
-                        "object_name": None,
-                        "sales_model": sales_model,
-                        "price_from": Decimal(str(range_info["price_from"])),
-                        "price_to": Decimal(str(range_info["price_to"])),
-                        "price_to_inclusive": range_info["inclusive"],
-                        "commission_percent": commission,
-                        "raw_payload": {
-                            "range_label": range_info["label"],
-                            "column_index": col_idx,
-                        },
-                    })
+                    rates.append(
+                        {
+                            "category_name": category[:512],
+                            "product_type_name": product_type[:512] if product_type else None,
+                            "subject_name": None,
+                            "object_name": None,
+                            "sales_model": sales_model,
+                            "price_from": Decimal(str(range_info["price_from"])),
+                            "price_to": Decimal(str(range_info["price_to"])),
+                            "price_to_inclusive": range_info["inclusive"],
+                            "commission_percent": commission,
+                            "raw_payload": {
+                                "range_label": range_info["label"],
+                                "column_index": col_idx,
+                            },
+                        }
+                    )
 
         return rates
 
     def _identify_column_groups(
         self,
-        first_row: list,
-        second_row: list,
+        first_row: list[Any],
+        second_row: list[Any],
     ) -> list[dict[str, Any]]:
         """Identify sales model groups and their price range columns."""
-        groups = []
-        current_group = None
+        groups: list[dict[str, Any]] = []
+        current_group: dict[str, Any] | None = None
 
         for idx, header in enumerate(first_row):
             header_str = str(header).strip().lower() if header else ""
@@ -393,13 +395,15 @@ class OzonCommissionXlsxImporter:
             col_idx = group["start_idx"] + 2
             for label, price_from, price_to, inclusive in range_labels:
                 if col_idx <= group["end_idx"]:
-                    group["ranges"].append({
-                        "col_idx": col_idx,
-                        "label": label,
-                        "price_from": price_from,
-                        "price_to": price_to,
-                        "inclusive": inclusive,
-                    })
+                    group["ranges"].append(
+                        {
+                            "col_idx": col_idx,
+                            "label": label,
+                            "price_from": price_from,
+                            "price_to": price_to,
+                            "inclusive": inclusive,
+                        }
+                    )
                     col_idx += 1
 
         return groups

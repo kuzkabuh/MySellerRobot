@@ -228,12 +228,18 @@ def test_orders_content_links_are_canonical() -> None:
         source_event_type="new_order",
     )
     filters = OrderWebFilters(
-        period="today", marketplace=None, sale_model=None,
+        period="today",
+        marketplace=None,
+        sale_model=None,
         local_date_from=datetime(2026, 5, 19).date(),
         local_date_to=datetime(2026, 5, 19).date(),
         date_from=datetime(2026, 5, 19, tzinfo=UTC),
         date_to=datetime(2026, 5, 19, tzinfo=UTC),
-        economy="all", status="all", sku="", sort="date", direction="desc",
+        economy="all",
+        status="all",
+        sku="",
+        sort="date",
+        direction="desc",
     )
     page_result = OrderPageResult(
         filters=filters,
@@ -291,7 +297,9 @@ def test_sales_content_has_canonical_filter_form_action() -> None:
     from app.services.web_dashboard_service import DashboardFilters
 
     filters = DashboardFilters(
-        period="30d", marketplace=None, sale_model=None,
+        period="30d",
+        marketplace=None,
+        sale_model=None,
         timezone="Europe/Moscow",
         local_date_from=datetime(2026, 4, 19).date(),
         local_date_to=datetime(2026, 5, 19).date(),
@@ -301,8 +309,11 @@ def test_sales_content_has_canonical_filter_form_action() -> None:
         previous_to=datetime(2026, 4, 18, tzinfo=UTC),
     )
     data = SimpleNamespace(
-        filters=filters, rows=[], total_quantity=0,
-        total_amount=Decimal("0"), total_profit=Decimal("0"),
+        filters=filters,
+        rows=[],
+        total_quantity=0,
+        total_amount=Decimal("0"),
+        total_profit=Decimal("0"),
     )
     html = routes._sales_content(data, "Europe/Moscow", sku="")
 
@@ -316,27 +327,43 @@ def test_plan_fact_content_has_canonical_form_actions() -> None:
     from app.services.web_orders_profit_service import OrderWebFilters
 
     plan = SimpleNamespace(
-        id=1, marketplace=MPEnum.WB,
+        id=1,
+        marketplace=MPEnum.WB,
         period_start=datetime(2026, 5, 1).date(),
         period_end=datetime(2026, 5, 31).date(),
-        revenue_plan=Decimal("10000"), profit_plan=Decimal("2000"),
-        orders_plan=50, buyouts_plan=30,
+        revenue_plan=Decimal("10000"),
+        profit_plan=Decimal("2000"),
+        orders_plan=50,
+        buyouts_plan=30,
     )
     summary = PlanFactSummary(
-        orders=10, buyouts=5, estimated_profit=Decimal("500"),
-        actual_profit=Decimal("400"), deviation=Decimal("-100"),
-        deviation_percent=Decimal("-20.00"), pending_actual=2,
+        orders=10,
+        buyouts=5,
+        estimated_profit=Decimal("500"),
+        actual_profit=Decimal("400"),
+        deviation=Decimal("-100"),
+        deviation_percent=Decimal("-20.00"),
+        pending_actual=2,
     )
     filters = OrderWebFilters(
-        period="30d", marketplace=None, sale_model=None,
+        period="30d",
+        marketplace=None,
+        sale_model=None,
         local_date_from=datetime(2026, 4, 19).date(),
         local_date_to=datetime(2026, 5, 19).date(),
         date_from=datetime(2026, 4, 19, tzinfo=UTC),
         date_to=datetime(2026, 5, 19, tzinfo=UTC),
-        economy="all", status="all", sku="", sort="deviation", direction="asc",
+        economy="all",
+        status="all",
+        sku="",
+        sort="deviation",
+        direction="asc",
     )
     data = SimpleNamespace(
-        summary=summary, rows=[], plan=plan, filters=filters,
+        summary=summary,
+        rows=[],
+        plan=plan,
+        filters=filters,
     )
     html = routes._plan_fact_content(data)
 
@@ -352,20 +379,33 @@ def test_plan_fact_content_without_plan_has_canonical_form_action() -> None:
     from app.services.web_orders_profit_service import OrderWebFilters
 
     summary = PlanFactSummary(
-        orders=0, buyouts=0, estimated_profit=Decimal("0"),
-        actual_profit=Decimal("0"), deviation=Decimal("0"),
-        deviation_percent=Decimal("0"), pending_actual=0,
+        orders=0,
+        buyouts=0,
+        estimated_profit=Decimal("0"),
+        actual_profit=Decimal("0"),
+        deviation=Decimal("0"),
+        deviation_percent=Decimal("0"),
+        pending_actual=0,
     )
     filters = OrderWebFilters(
-        period="30d", marketplace=None, sale_model=None,
+        period="30d",
+        marketplace=None,
+        sale_model=None,
         local_date_from=datetime(2026, 5, 1).date(),
         local_date_to=datetime(2026, 5, 31).date(),
         date_from=datetime(2026, 5, 1, tzinfo=UTC),
         date_to=datetime(2026, 5, 31, tzinfo=UTC),
-        economy="all", status="all", sku="", sort="deviation", direction="asc",
+        economy="all",
+        status="all",
+        sku="",
+        sort="deviation",
+        direction="asc",
     )
     data = SimpleNamespace(
-        summary=summary, rows=[], plan=None, filters=filters,
+        summary=summary,
+        rows=[],
+        plan=None,
+        filters=filters,
     )
     html = routes._plan_fact_content(data)
 
@@ -384,9 +424,12 @@ def test_break_even_content_has_canonical_form_action() -> None:
 
 def test_product_matching_content_has_canonical_form_actions() -> None:
     candidate = SimpleNamespace(
-        product_id=1, marketplace=Marketplace.WB,
-        seller_article="SKU-1", marketplace_article="MP-1",
-        title="Product", current_group=None,
+        product_id=1,
+        marketplace=Marketplace.WB,
+        seller_article="SKU-1",
+        marketplace_article="MP-1",
+        title="Product",
+        current_group=None,
     )
     html = routes._product_matching_content([candidate])
 
@@ -397,19 +440,29 @@ def test_product_matching_content_has_canonical_form_actions() -> None:
 
 def test_master_product_detail_content_has_canonical_links() -> None:
     mp_product = SimpleNamespace(
-        product_id=10, marketplace=Marketplace.WB,
-        seller_article="SKU-10", marketplace_article="MP-10",
-        title="Product", brand="Brand",
+        product_id=10,
+        marketplace=Marketplace.WB,
+        seller_article="SKU-10",
+        marketplace_article="MP-10",
+        title="Product",
+        brand="Brand",
     )
     comparison = SimpleNamespace(
-        marketplace=Marketplace.WB, orders=5, sales=3,
-        revenue=Decimal("3000"), estimated_profit=Decimal("500"),
-        actual_profit=Decimal("400"), margin_percent=Decimal("16.67"),
+        marketplace=Marketplace.WB,
+        orders=5,
+        sales=3,
+        revenue=Decimal("3000"),
+        estimated_profit=Decimal("500"),
+        actual_profit=Decimal("400"),
+        margin_percent=Decimal("16.67"),
         stock_quantity=10,
     )
     detail = SimpleNamespace(
-        title="Product", brand="Brand", category="Cat",
-        canonical_sku="SKU-1", image_url=None,
+        title="Product",
+        brand="Brand",
+        category="Cat",
+        canonical_sku="SKU-1",
+        image_url=None,
         marketplace_products=[mp_product],
         marketplace_comparison=[comparison],
         recommendations=["Check pricing"],
@@ -455,9 +508,9 @@ def test_profit_page_uses_render_page_not_shadowed_page() -> None:
         if isinstance(node, ast.AsyncFunctionDef) and node.name == "profit_page":
             for child in ast.walk(node):
                 if isinstance(child, ast.Call) and isinstance(child.func, ast.Name):
-                    assert child.func.id != "page", (
-                        "profit_page must call render_page(), not bare page()"
-                    )
+                    assert (
+                        child.func.id != "page"
+                    ), "profit_page must call render_page(), not bare page()"
 
 
 def test_nav_links_cover_all_required_sections() -> None:
@@ -489,9 +542,9 @@ def test_nav_links_are_real_anchor_tags() -> None:
     html = page("Главная", "Артем", "<main></main>")
     for _group_title, items in NAV_GROUPS:
         for _label, href in items:
-            assert f'<a href="{href}"' in html or f'<a class="active" href="{href}"' in html, (
-                f"Nav item {_label!r} is not a real <a> tag with href={href!r}"
-            )
+            assert (
+                f'<a href="{href}"' in html or f'<a class="active" href="{href}"' in html
+            ), f"Nav item {_label!r} is not a real <a> tag with href={href!r}"
 
 
 def test_page_html_contains_no_javascript_click_handlers() -> None:

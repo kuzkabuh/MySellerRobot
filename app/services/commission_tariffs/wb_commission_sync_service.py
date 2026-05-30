@@ -97,24 +97,26 @@ def _normalize_wb_tariff_entry(entry: dict[str, Any]) -> list[dict[str, Any]]:
 
         commission_percent = _safe_decimal(raw_value)
 
-        rates.append({
-            "category_name": str(category)[:512],
-            "subject_name": str(subject_name)[:512] if subject_name else None,
-            "object_name": None,
-            "product_type_name": None,
-            "sales_model": internal_model,
-            "price_from": Decimal("0"),
-            "price_to": Decimal("0"),
-            "price_to_inclusive": False,
-            "commission_percent": commission_percent,
-            "raw_payload": {
-                api_field: raw_value,
-                "parentID": parent_id,
-                "parentName": parent_name,
-                "subjectID": subject_id,
-                "subjectName": subject_name,
-            },
-        })
+        rates.append(
+            {
+                "category_name": str(category)[:512],
+                "subject_name": str(subject_name)[:512] if subject_name else None,
+                "object_name": None,
+                "product_type_name": None,
+                "sales_model": internal_model,
+                "price_from": Decimal("0"),
+                "price_to": Decimal("0"),
+                "price_to_inclusive": False,
+                "commission_percent": commission_percent,
+                "raw_payload": {
+                    api_field: raw_value,
+                    "parentID": parent_id,
+                    "parentName": parent_name,
+                    "subjectID": subject_id,
+                    "subjectName": subject_name,
+                },
+            }
+        )
 
     return rates
 
@@ -267,9 +269,9 @@ class WbCommissionSyncService:
         empty_count = 0
         for version in result.scalars().all():
             rates_result = await self.session.execute(
-                select(MarketplaceCommissionRate).where(
-                    MarketplaceCommissionRate.version_id == version.id
-                ).limit(1)
+                select(MarketplaceCommissionRate)
+                .where(MarketplaceCommissionRate.version_id == version.id)
+                .limit(1)
             )
             if rates_result.scalar_one_or_none() is None:
                 version.is_active = False

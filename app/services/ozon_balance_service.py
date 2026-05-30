@@ -44,6 +44,9 @@ class OzonBalanceService:
             },
         )
 
+        if not account.encrypted_client_id:
+            raise ValueError("Ozon Client ID is not configured")
+
         client = OzonClient(
             self.cipher.decrypt(account.encrypted_client_id),
             self.cipher.decrypt(account.encrypted_api_key),
@@ -161,9 +164,7 @@ class OzonBalanceService:
         closing_value = _decimal_or_none(closing.get("value"))
         currency = str(closing.get("currency_code") or "RUB")
 
-        opening_balance = _decimal_or_none(
-            _safe_nested_value(result, "opening_balance", "value")
-        )
+        opening_balance = _decimal_or_none(_safe_nested_value(result, "opening_balance", "value"))
         accrued = _decimal_or_none(_safe_nested_value(result, "accrued", "value"))
 
         payments = result.get("payments")

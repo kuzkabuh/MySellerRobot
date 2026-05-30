@@ -316,12 +316,14 @@ class WbAutoPromoPriceService:
         for condition in conditions:
             conditions_processed += 1
             product_result = await self.session.execute(
-                select(Product).where(
+                select(Product)
+                .where(
                     Product.marketplace_account_id == marketplace_account_id,
                     Product.marketplace == Marketplace.WB,
                     (Product.external_product_id == str(condition.wb_nm_id))
                     | (Product.marketplace_article == str(condition.wb_nm_id)),
-                ).limit(1)
+                )
+                .limit(1)
             )
             product = product_result.scalar_one_or_none()
             if product is None or product.mrc_price is None:
@@ -329,7 +331,8 @@ class WbAutoPromoPriceService:
 
             products_found += 1
             current_wb_price = await self._get_current_wb_price_from_db(
-                marketplace_account_id, condition.wb_nm_id,
+                marketplace_account_id,
+                condition.wb_nm_id,
             )
 
             rec = await self.build_recommendation(
@@ -360,10 +363,18 @@ class WbAutoPromoPriceService:
                 "recommendations_count": len(recommendations),
                 "set_price": sum(1 for r in recommendations if r.status == STATUS_AUTO_SET_PRICE),
                 "price_ok": sum(1 for r in recommendations if r.status == STATUS_AUTO_PRICE_OK),
-                "violation": sum(1 for r in recommendations if r.status == STATUS_AUTO_PRICE_VIOLATION),
-                "min_violation": sum(1 for r in recommendations if r.status == STATUS_AUTO_MIN_PRICE_VIOLATION),
-                "required_unknown": sum(1 for r in recommendations if r.status == STATUS_AUTO_REQUIRED_PRICE_UNKNOWN),
-                "current_unknown": sum(1 for r in recommendations if r.status == STATUS_AUTO_WAITING_WB_SYNC),
+                "violation": sum(
+                    1 for r in recommendations if r.status == STATUS_AUTO_PRICE_VIOLATION
+                ),
+                "min_violation": sum(
+                    1 for r in recommendations if r.status == STATUS_AUTO_MIN_PRICE_VIOLATION
+                ),
+                "required_unknown": sum(
+                    1 for r in recommendations if r.status == STATUS_AUTO_REQUIRED_PRICE_UNKNOWN
+                ),
+                "current_unknown": sum(
+                    1 for r in recommendations if r.status == STATUS_AUTO_WAITING_WB_SYNC
+                ),
             },
         )
 

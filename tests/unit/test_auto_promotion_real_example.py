@@ -12,15 +12,6 @@ Example from WB seller cabinet:
 
 from decimal import Decimal
 
-import pytest
-
-from app.services.pricing.promotion_recommendations_service import (
-    STATUS_AUTO_ALREADY_IN_ACTION,
-    STATUS_AUTO_PRICE_VIOLATION,
-    STATUS_AUTO_SET_PRICE,
-    PromotionRecommendationsService,
-)
-
 
 class TestAutoPromotionRealExample:
     """Test auto promotion logic with the real-world example nmID=345455998."""
@@ -139,7 +130,9 @@ class TestAutoPromotionRealExample:
         """
         price_before_discount = Decimal("3384")
         discount_percent = Decimal("75")
-        expected_discounted = price_before_discount * (Decimal("1") - discount_percent / Decimal("100"))
+        expected_discounted = price_before_discount * (
+            Decimal("1") - discount_percent / Decimal("100")
+        )
 
         assert expected_discounted == Decimal("846")
 

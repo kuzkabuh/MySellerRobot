@@ -7,7 +7,7 @@ import hashlib
 import logging
 import re
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urljoin
 
 import httpx
@@ -53,12 +53,12 @@ class OzonCommissionPageParser:
     def _extract_latest_period(self, html: str) -> str | None:
         """Find the most recent period heading on the page."""
         blocks = re.findall(
-            r'(?:таблица\s+категорий\s+[^<]{5,80})',
+            r"(?:таблица\s+категорий\s+[^<]{5,80})",
             html,
             re.IGNORECASE,
         )
         if blocks:
-            return blocks[0].strip()
+            return str(blocks[0].strip())
         return None
 
     def _extract_download_url(self, html: str) -> str | None:
@@ -73,7 +73,7 @@ class OzonCommissionPageParser:
             if DOWNLOAD_LINK_TEXT_PATTERN.search(link_text):
                 if url.startswith("/"):
                     url = urljoin("https://seller-edu.ozon.ru", url)
-                return url
+                return str(url)
         for match in re.finditer(
             r'<a[^>]+href=["\']([^"\']*\.xlsx[^"\']*)["\']',
             html,
@@ -82,7 +82,7 @@ class OzonCommissionPageParser:
             url = match.group(1)
             if url.startswith("/"):
                 url = urljoin("https://seller-edu.ozon.ru", url)
-            return url
+            return str(url)
         return None
 
     @staticmethod
@@ -141,7 +141,7 @@ class OzonCommissionSourceMonitorService:
                     url=url,
                     html_content=None,
                     change_type="rate_limited",
-                    error=f"HTTP 429: rate limited",
+                    error="HTTP 429: rate limited",
                 )
             logger.error(
                 "ozon_commission_source_http_error",
@@ -274,7 +274,7 @@ class OzonCommissionSourceMonitorService:
             .order_by(Check.checked_at.desc())
             .limit(1)
         )
-        return result.scalar_one_or_none()
+        return cast(MarketplaceTariffSourceCheck | None, result.scalar_one_or_none())
 
     @staticmethod
     def _detect_changes(

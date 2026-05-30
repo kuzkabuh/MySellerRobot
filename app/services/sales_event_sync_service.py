@@ -281,14 +281,17 @@ class SalesEventSyncService:
             for payload in sales:
                 if client.is_supplier_sales_return(payload):
                     sales_as_returns += 1
-                    event, created = await self._upsert_return_event(
+                    return_event, created = await self._upsert_return_event(
                         account,
                         client.normalize_supplier_return(payload),
                     )
                     result.returns_fetched += 1
                     result.returns_created += int(created)
                     result.returns_updated += int(not created)
-                    logger.debug("wb_return_event_synced", extra={"event_id": event.id})
+                    logger.debug(
+                        "wb_return_event_synced",
+                        extra={"event_id": return_event.id},
+                    )
                     continue
                 sales_as_buyouts += 1
                 row, created = await self._upsert_sale_event(
@@ -480,11 +483,14 @@ class SalesEventSyncService:
         try:
             returns_data = await client.get_returns(date_from=date_from, date_to=date_to)
             for row in self._extract_returns(returns_data):
-                event, created = await self._upsert_ozon_return_event(account, row)
+                return_event, created = await self._upsert_ozon_return_event(account, row)
                 result.returns_fetched += 1
                 result.returns_created += int(created)
                 result.returns_updated += int(not created)
-                logger.debug("ozon_return_event_synced", extra={"event_id": event.id})
+                logger.debug(
+                    "ozon_return_event_synced",
+                    extra={"event_id": return_event.id},
+                )
         except Exception as exc:
             result.failed += 1
             logger.exception(
@@ -707,7 +713,7 @@ class SalesEventSyncService:
         self,
         account: MarketplaceAccount,
         event: dict[str, object],
-    ) -> tuple[object, bool]:
+    ) -> tuple[ReturnsEvent, bool]:
         order_external_id = event.get("order_external_id")
         event_date = event.get("event_date")
         amount = event.get("amount")
@@ -770,7 +776,9 @@ class SalesEventSyncService:
                 rows = result.get("returns")
             elif isinstance(result, list):
                 rows = result
-        return [row for row in rows or [] if isinstance(row, dict)]
+        if not isinstance(rows, list):
+            return []
+        return [row for row in rows if isinstance(row, dict)]
 
     @staticmethod
     def _buyout_notifications_enabled(account: MarketplaceAccount) -> bool:

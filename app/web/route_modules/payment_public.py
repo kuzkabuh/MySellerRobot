@@ -4,6 +4,7 @@ These routes are reachable at /payment/success and /payment/cancel
 so that YooKassa can redirect users here after payment without
 requiring a WEB cabinet session.
 """
+# ruff: noqa: E501
 
 import logging
 from typing import Any
@@ -13,15 +14,16 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db import get_session
 from app.core.config import get_settings
+from app.core.db import get_session
 from app.models.enums import PaymentStatus
-from app.models.subscriptions import Payment, SubscriptionTier
+from app.models.subscriptions import Payment
 from app.services.payment_service import PaymentService
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/payment", tags=["payment-public"])
+PUBLIC_SESSION_DEPENDENCY = Depends(get_session)
 
 _PERIOD_LABELS = {"monthly": "1 месяц", "yearly": "1 год"}
 
@@ -79,8 +81,14 @@ async def _reconcile_on_return(
                 from datetime import datetime as _dt
 
                 if expires_at > _dt.now(tz=__import__("datetime", fromlist=["UTC"]).UTC):
-                    return "active", f"{tier_name} / {period_label} — до {expires_at.strftime('%d.%m.%Y')}"
-                return "expired", f"{tier_name} / {period_label} — истёк {expires_at.strftime('%d.%m.%Y')}"
+                    return (
+                        "active",
+                        f"{tier_name} / {period_label} — до {expires_at.strftime('%d.%m.%Y')}",
+                    )
+                return (
+                    "expired",
+                    f"{tier_name} / {period_label} — истёк {expires_at.strftime('%d.%m.%Y')}",
+                )
         return "pending_activation", f"{tier_code} / {period_label}"
 
     yk_data = await _fetch_payment_status_from_yookassa(payment, session)
@@ -115,7 +123,10 @@ async def _reconcile_on_return(
                 tier_name = sub.tier.name if sub.tier else tier_code
                 expires_at = sub.expires_at
                 if expires_at:
-                    return "active", f"{tier_name} / {period_label} — до {expires_at.strftime('%d.%m.%Y')}"
+                    return (
+                        "active",
+                        f"{tier_name} / {period_label} — до {expires_at.strftime('%d.%m.%Y')}",
+                    )
             return "just_activated", f"{tier_code} / {period_label}"
 
         if yk_status in {"canceled", "cancelled"}:
@@ -136,7 +147,7 @@ async def _reconcile_on_return(
 @router.get("/success", response_class=HTMLResponse)
 async def payment_success(
     request: Request,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = PUBLIC_SESSION_DEPENDENCY,
     payment_id: str | None = Query(default=None),
 ) -> HTMLResponse:
     """Public payment success page.
@@ -153,8 +164,7 @@ async def payment_success(
     )
 
     status_label = "checking"
-    status_detail = ""
-    show_bot_link = True
+    status_detail: str | None = ""
 
     if payment_id:
         try:
@@ -177,23 +187,25 @@ async def payment_success(
         status_label = "no_payment_id"
         status_detail = "Платёж обрабатывается. Подписка будет активирована автоматически."
 
+    safe_status_detail = _html(status_detail or "")
+
     status_blocks = {
         "active": (
             '<div class="icon">✅</div>'
             "<h1>Оплата подтверждена</h1>"
-            f"<p>Подписка активирована: <strong>{_html(status_detail)}</strong></p>"
+            f"<p>Подписка активирована: <strong>{safe_status_detail}</strong></p>"
             "<p>Вы можете вернуться в Telegram-бот для продолжения работы.</p>"
         ),
         "just_activated": (
             '<div class="icon">✅</div>'
             "<h1>Оплата подтверждена</h1>"
-            f"<p>Подписка активирована: <strong>{_html(status_detail)}</strong></p>"
+            f"<p>Подписка активирована: <strong>{safe_status_detail}</strong></p>"
             "<p>Вы можете вернуться в Telegram-бот для продолжения работы.</p>"
         ),
         "pending_activation": (
             '<div class="icon">⏳</div>'
             "<h1>Платёж подтверждён</h1>"
-            f"<p>Подписка: <strong>{_html(status_detail)}</strong></p>"
+            f"<p>Подписка: <strong>{safe_status_detail}</strong></p>"
             "<p>Активация завершена. Вернитесь в Telegram-бот.</p>"
         ),
         "pending": (
@@ -212,20 +224,20 @@ async def payment_success(
         "unknown_payment": (
             '<div class="icon">⚠️</div>'
             "<h1>Платёж не найден</h1>"
-            f"<p>{_html(status_detail)}</p>"
+            f"<p>{safe_status_detail}</p>"
             "<p>Откройте Telegram-бот и проверьте статус подписки.</p>"
         ),
         "no_payment_id": (
             '<div class="icon">✅</div>'
             "<h1>Платёж принят</h1>"
-            f"<p>{_html(status_detail)}</p>"
+            f"<p>{safe_status_detail}</p>"
             "<p>Подписка активируется автоматически после подтверждения платёжной системой.</p>"
             "<p><strong>Вернитесь в Telegram-бот</strong>, чтобы продолжить работу.</p>"
         ),
         "error": (
             '<div class="icon">⚠️</div>'
             "<h1>Ошибка проверки</h1>"
-            f"<p>{_html(status_detail)}</p>"
+            f"<p>{safe_status_detail}</p>"
             "<p>Откройте Telegram-бот и проверьте статус подписки.</p>"
         ),
     }
@@ -233,7 +245,11 @@ async def payment_success(
     body_content = status_blocks.get(status_label, status_blocks["no_payment_id"])
 
     settings = get_settings()
-    bot_url = f"https://t.me/{settings.bot_username}" if hasattr(settings, "bot_username") and settings.bot_username else "https://t.me/mpcontrolrobot"
+    bot_url = (
+        f"https://t.me/{settings.bot_username}"
+        if hasattr(settings, "bot_username") and settings.bot_username
+        else "https://t.me/mpcontrolrobot"
+    )
 
     return HTMLResponse(
         f"""
@@ -279,7 +295,7 @@ async def payment_success(
 @router.get("/cancel", response_class=HTMLResponse)
 async def payment_cancel(
     request: Request,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = PUBLIC_SESSION_DEPENDENCY,
     payment_id: str | None = Query(default=None),
 ) -> HTMLResponse:
     """Public payment cancel page."""
@@ -323,7 +339,11 @@ async def payment_cancel(
                         await session.flush()
                         await session.commit()
                         settings = get_settings()
-                        bot_url = f"https://t.me/{settings.bot_username}" if hasattr(settings, "bot_username") and settings.bot_username else "https://t.me/mpcontrolrobot"
+                        bot_url = (
+                            f"https://t.me/{settings.bot_username}"
+                            if hasattr(settings, "bot_username") and settings.bot_username
+                            else "https://t.me/mpcontrolrobot"
+                        )
                         return HTMLResponse(
                             f"""
                             <!DOCTYPE html>
@@ -357,7 +377,11 @@ async def payment_cancel(
             logger.exception("payment_return_cancel_reconciliation_error")
 
     settings = get_settings()
-    bot_url = f"https://t.me/{settings.bot_username}" if hasattr(settings, "bot_username") and settings.bot_username else "https://t.me/mpcontrolrobot"
+    bot_url = (
+        f"https://t.me/{settings.bot_username}"
+        if hasattr(settings, "bot_username") and settings.bot_username
+        else "https://t.me/mpcontrolrobot"
+    )
 
     return HTMLResponse(
         f"""

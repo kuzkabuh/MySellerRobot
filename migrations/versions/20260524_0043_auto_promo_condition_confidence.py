@@ -5,8 +5,8 @@ Revises: 20260524_0042_wb_price_nullable
 Create Date: 2026-05-24
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "20260524_0043_auto_promo_condition_confidence"
 down_revision = "20260524_0042_wb_price_nullable"

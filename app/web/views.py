@@ -197,7 +197,9 @@ def _placeholder_page(section: str, user: User) -> str:
     )
 
 
-def _orders_content(result: Any, timezone: str, *, last_poll_info: dict[str, object] | None = None) -> str:
+def _orders_content(
+    result: Any, timezone: str, *, last_poll_info: dict[str, object] | None = None
+) -> str:
     from app.services.web_orders_profit_service import OrderPageResult
 
     if isinstance(result, OrderPageResult):
@@ -250,7 +252,9 @@ def _orders_content(result: Any, timezone: str, *, last_poll_info: dict[str, obj
 
     range_start = (page - 1) * per_page + 1 if total_count > 0 else 0
     range_end = min(page * per_page, total_count)
-    range_text = f"Показано {range_start}–{range_end} из {total_count}" if total_count > 0 else "Нет заказов"
+    range_text = (
+        f"Показано {range_start}–{range_end} из {total_count}" if total_count > 0 else "Нет заказов"
+    )
 
     pagination_html = _render_pagination(filters, page, total_pages, per_page, total_count)
 
@@ -1212,7 +1216,9 @@ def _seller_profile_web(account: MarketplaceAccount, balance: object | None) -> 
         if account.marketplace == Marketplace.WB:
             for_withdraw = getattr(balance, "for_withdraw", None)
             parts.append(f'<div class="muted">Баланс: {_rub(current)} {escape(currency)}</div>')
-            parts.append(f'<div class="muted">К выводу: {_rub(for_withdraw)} {escape(currency)}</div>')
+            parts.append(
+                f'<div class="muted">К выводу: {_rub(for_withdraw)} {escape(currency)}</div>'
+            )
         else:
             parts.append(
                 f'<div class="muted">💰 Баланс Ozon: {_rub(current)} {escape(currency)}</div>'
@@ -2159,7 +2165,6 @@ def _filters(data: DashboardData) -> str:
 def _render_sync_freshness(last_poll_info: dict[str, object], timezone: str) -> str:
     """Render a sync freshness indicator badge for the orders page."""
     last_poll_at = last_poll_info.get("last_poll_at")
-    accounts = last_poll_info.get("accounts", [])
 
     if not last_poll_at:
         return (
@@ -2172,6 +2177,8 @@ def _render_sync_freshness(last_poll_info: dict[str, object], timezone: str) -> 
 
     now = datetime.now(tz=UTC)
     poll_dt = last_poll_at
+    if not isinstance(poll_dt, datetime):
+        return ""
     if hasattr(poll_dt, "tzinfo") and poll_dt.tzinfo is None:
         poll_dt = poll_dt.replace(tzinfo=UTC)
     age_seconds = (now - poll_dt).total_seconds()
@@ -2191,11 +2198,16 @@ def _render_sync_freshness(last_poll_info: dict[str, object], timezone: str) -> 
         label = f"Синхронизация: {age_minutes} мин назад (возможна задержка)"
 
     account_hints = []
+    accounts = last_poll_info.get("accounts", [])
+    if not isinstance(accounts, list):
+        accounts = []
     for acc in accounts[:3]:
+        if not isinstance(acc, dict):
+            continue
         mp = acc.get("marketplace", "?")
         acc_poll = acc.get("last_poll_at")
-        if acc_poll:
-            if hasattr(acc_poll, "tzinfo") and acc_poll.tzinfo is None:
+        if acc_poll and isinstance(acc_poll, datetime):
+            if acc_poll.tzinfo is None:
                 acc_poll = acc_poll.replace(tzinfo=UTC)
             acc_age = int((now - acc_poll).total_seconds() / 60)
             account_hints.append(f"{mp}: {acc_age} мин")
@@ -2274,7 +2286,7 @@ def _render_pagination(
     per_page_links = []
     for opt in per_page_options:
         if opt == per_page:
-            per_page_links.append(f'<strong>{opt}</strong>')
+            per_page_links.append(f"<strong>{opt}</strong>")
         else:
             params = {**base_params, "page": 1, "per_page": opt}
             per_page_links.append(f'<a href="/web/orders?{urlencode(params)}">{opt}</a>')

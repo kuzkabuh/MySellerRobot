@@ -148,4 +148,6 @@ class MarketplaceCommissionImportLog(TimestampMixin, Base):
     error_message: Mapped[str | None] = mapped_column(Text)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    version: Mapped[MarketplaceCommissionVersion | None] = relationship(back_populates="import_logs")
+    version: Mapped[MarketplaceCommissionVersion | None] = relationship(
+        back_populates="import_logs"
+    )

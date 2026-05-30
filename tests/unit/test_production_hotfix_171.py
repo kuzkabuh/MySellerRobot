@@ -69,9 +69,11 @@ class TestWbFbsOrdersPagination:
         from app.integrations.wb import WildberriesClient
 
         client = WildberriesClient("test-key")
-        mock_request = AsyncMock(return_value={
-            "orders": [{"id": 1}, {"id": 2}],
-        })
+        mock_request = AsyncMock(
+            return_value={
+                "orders": [{"id": 1}, {"id": 2}],
+            }
+        )
         client.marketplace.request = mock_request
 
         date_from = datetime(2026, 5, 18, 10, 0, tzinfo=UTC)
@@ -317,15 +319,18 @@ class TestRecoveryTaskExists:
 
     def test_task_function_exists(self) -> None:
         from app.workers.tasks import resend_unnotified_orders
+
         assert callable(resend_unnotified_orders)
 
     def test_task_in_worker_functions(self) -> None:
         from app.workers.settings import WorkerSettings
         from app.workers.tasks import resend_unnotified_orders
+
         assert resend_unnotified_orders in WorkerSettings.functions
 
     def test_task_in_cron_jobs(self) -> None:
         from app.workers.settings import WorkerSettings
+
         task_names = [job.coroutine.__name__ for job in WorkerSettings.cron_jobs]
         assert "resend_unnotified_orders" in task_names
 
@@ -335,11 +340,13 @@ class TestOrderModelIndex:
 
     def test_index_exists_on_model(self) -> None:
         from app.models.domain import Order
+
         index_names = [idx.name for idx in Order.__table__.indexes]
         assert "ix_orders_account_unnotified" in index_names
 
     def test_index_columns(self) -> None:
         from app.models.domain import Order
+
         for idx in Order.__table__.indexes:
             if idx.name == "ix_orders_account_unnotified":
                 cols = [c.name for c in idx.columns]
@@ -356,6 +363,7 @@ class TestSaleModelEnumColumnMapping:
 
     def test_sale_model_column_uses_values_callable(self) -> None:
         from app.models.domain import Order
+
         col = Order.__table__.c.sale_model
         assert col.type is not None
         enum_type = col.type

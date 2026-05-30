@@ -17,10 +17,7 @@ depends_on = None
 def upgrade() -> None:
     conn = op.get_bind()
     inspector = sa.inspect(conn)
-    columns = {
-        col["name"]
-        for col in inspector.get_columns("wb_auto_promo_price_recommendations")
-    }
+    columns = {col["name"] for col in inspector.get_columns("wb_auto_promo_price_recommendations")}
     table = "wb_auto_promo_price_recommendations"
     additions = [
         ("current_full_price", sa.Numeric(12, 2)),
@@ -74,8 +71,7 @@ def upgrade() -> None:
                     )
 
     condition_columns = {
-        col["name"]
-        for col in inspector.get_columns("wb_auto_promotion_conditions")
+        col["name"] for col in inspector.get_columns("wb_auto_promotion_conditions")
     }
     condition_additions = [
         ("max_auto_promo_price", sa.Numeric(12, 2)),
@@ -203,10 +199,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     conn = op.get_bind()
     inspector = sa.inspect(conn)
-    columns = {
-        col["name"]
-        for col in inspector.get_columns("wb_auto_promo_price_recommendations")
-    }
+    columns = {col["name"] for col in inspector.get_columns("wb_auto_promo_price_recommendations")}
     table = "wb_auto_promo_price_recommendations"
     for name in (
         "applied_at",
@@ -229,8 +222,7 @@ def downgrade() -> None:
             op.drop_column(table, name)
 
     condition_columns = {
-        col["name"]
-        for col in inspector.get_columns("wb_auto_promotion_conditions")
+        col["name"] for col in inspector.get_columns("wb_auto_promotion_conditions")
     }
     for name in (
         "max_auto_promo_price",

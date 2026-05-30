@@ -6,7 +6,6 @@ updated: 2026-05-22
 
 import asyncio
 import logging
-import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
@@ -72,7 +71,9 @@ class WbAutoPromotionsSyncService:
                 account_stats = await self._sync_account_auto_promotions(account)
                 stats.accounts_processed += 1
                 stats.auto_promotions_found += account_stats.auto_promotions_found
-                stats.auto_promotions_details_fetched += account_stats.auto_promotions_details_fetched
+                stats.auto_promotions_details_fetched += (
+                    account_stats.auto_promotions_details_fetched
+                )
                 stats.auto_promo_products_saved += account_stats.auto_promo_products_saved
                 stats.errors.extend(account_stats.errors)
             except Exception:
@@ -125,7 +126,7 @@ class WbAutoPromotionsSyncService:
         # Fetch details in batches (API may have limits on promotionIDs count)
         batch_size = 50
         for i in range(0, len(auto_promotions), batch_size):
-            batch = auto_promotions[i:i + batch_size]
+            batch = auto_promotions[i : i + batch_size]
             promo_ids = [p.wb_promotion_id for p in batch]
 
             try:
@@ -169,7 +170,7 @@ class WbAutoPromotionsSyncService:
     ) -> None:
         """Update promotion record with details data."""
         # Update participation stats from details
-        for key, attr in [
+        for key, _attr in [
             ("participationPercentage", None),
             ("inPromoActionLeftovers", None),
             ("inPromoActionTotal", None),
@@ -234,7 +235,9 @@ class WbAutoPromotionsSyncService:
 
             nomenclature.current_price = _money(nom_data.get("price"))
             nomenclature.plan_price = _money(
-                nom_data.get("planPrice") or nom_data.get("requiredPrice") or nom_data.get("maxPrice")
+                nom_data.get("planPrice")
+                or nom_data.get("requiredPrice")
+                or nom_data.get("maxPrice")
             )
             nomenclature.current_discount = _decimal_optional(nom_data.get("discount"))
             nomenclature.plan_discount = _decimal_optional(nom_data.get("planDiscount"))

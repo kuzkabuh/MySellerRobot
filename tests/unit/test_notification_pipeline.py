@@ -476,9 +476,11 @@ def _sale_event(marketplace: Marketplace) -> SalesEvent:
         marketplace=marketplace,
         external_event_id="sale-501",
         order_external_id="order-501",
-        event_type=SaleEventType.BUYOUT
-        if marketplace == Marketplace.WB
-        else SaleEventType.DELIVERED_TO_CUSTOMER,
+        event_type=(
+            SaleEventType.BUYOUT
+            if marketplace == Marketplace.WB
+            else SaleEventType.DELIVERED_TO_CUSTOMER
+        ),
         event_date=datetime(2026, 5, 18, 10, 0, tzinfo=UTC),
         seller_article="SKU-1",
         marketplace_article="123456",

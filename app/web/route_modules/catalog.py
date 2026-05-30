@@ -39,6 +39,7 @@ from app.web.views import *
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
 @router.get("/products", response_class=HTMLResponse)
 async def products_page(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
@@ -134,4 +135,3 @@ async def stocks_page(
         content,
         active_path="/web/stocks",
     )
-

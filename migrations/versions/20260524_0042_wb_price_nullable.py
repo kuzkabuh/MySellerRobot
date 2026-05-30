@@ -9,8 +9,8 @@ Revises: 20260524_0041_wb_price_club_discount
 Create Date: 2026-05-24
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "20260524_0042_wb_price_nullable"
 down_revision = "20260524_0041_wb_price_club_discount"

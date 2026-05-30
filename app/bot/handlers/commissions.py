@@ -52,10 +52,26 @@ def _commission_admin_keyboard():
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🔄 Обновить комиссии WB", callback_data="admin_commission:sync_wb")],
-            [InlineKeyboardButton(text="🔍 Проверить обновления Ozon", callback_data="admin_commission:check_ozon")],
-            [InlineKeyboardButton(text="📥 Загрузить таблицу Ozon", callback_data="admin_commission:import_ozon")],
-            [InlineKeyboardButton(text="📋 Текущие версии", callback_data="admin_commission:versions")],
+            [
+                InlineKeyboardButton(
+                    text="🔄 Обновить комиссии WB", callback_data="admin_commission:sync_wb"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔍 Проверить обновления Ozon", callback_data="admin_commission:check_ozon"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📥 Загрузить таблицу Ozon", callback_data="admin_commission:import_ozon"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📋 Текущие версии", callback_data="admin_commission:versions"
+                )
+            ],
             [InlineKeyboardButton(text="Назад", callback_data="admin_menu")],
         ]
     )
@@ -118,8 +134,7 @@ async def sync_wb_commissions_handler(callback: CallbackQuery) -> None:
     except Exception:
         logger.exception("commission_wb_manual_sync_failed")
         await message.edit_text(
-            "⚠️ Не удалось синхронизировать комиссии WB. "
-            "Ошибка зафиксирована в логах."
+            "⚠️ Не удалось синхронизировать комиссии WB. " "Ошибка зафиксирована в логах."
         )
 
     await callback.answer()
@@ -147,8 +162,7 @@ async def check_ozon_commissions_handler(callback: CallbackQuery) -> None:
     else:
         period = result.get("period_label", "н/д")
         await message.edit_text(
-            f"✅ Проверка завершена. Изменений нет.\n\n"
-            f"Текущий период: {period}"
+            f"✅ Проверка завершена. Изменений нет.\n\n" f"Текущий период: {period}"
         )
 
     from aiogram import Bot
@@ -191,8 +205,7 @@ async def receive_ozon_file_handler(message: Message, state: FSMContext) -> None
     await state.update_data(file_id=doc.file_id, file_name=doc.file_name)
     await state.set_state(OzonImportStates.waiting_date)
     await message.answer(
-        "Укажите дату начала действия тарифов в формате ДД.ММ.ГГГГ.\n"
-        "Например: 06.04.2026"
+        "Укажите дату начала действия тарифов в формате ДД.ММ.ГГГГ.\n" "Например: 06.04.2026"
     )
 
 
@@ -270,7 +283,10 @@ async def show_versions_handler(callback: CallbackQuery) -> None:
     async with AsyncSessionFactory() as session:
         result = await session.execute(
             select(MarketplaceCommissionVersion)
-            .order_by(MarketplaceCommissionVersion.marketplace, MarketplaceCommissionVersion.effective_from.desc())
+            .order_by(
+                MarketplaceCommissionVersion.marketplace,
+                MarketplaceCommissionVersion.effective_from.desc(),
+            )
             .limit(20)
         )
         versions = list(result.scalars().all())

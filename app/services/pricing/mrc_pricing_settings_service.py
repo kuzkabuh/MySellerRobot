@@ -127,7 +127,9 @@ class MrcPricingSettingsService:
                 "marketplace_account_id": marketplace_account_id,
                 "default_discount_percent": str(settings.default_discount_percent),
                 "full_price_multiplier": str(settings.full_price_multiplier),
-                "allowed_action_price_deviation_percent": str(settings.allowed_action_price_deviation_percent),
+                "allowed_action_price_deviation_percent": str(
+                    settings.allowed_action_price_deviation_percent
+                ),
                 "auto_promo_check_enabled": settings.auto_promo_check_enabled,
                 "auto_add_to_promotions": settings.auto_add_to_promotions,
                 "auto_price_for_auto_promotions": settings.auto_price_for_auto_promotions,
@@ -163,7 +165,10 @@ class MrcPricingSettingsService:
                 errors.append("Коэффициент полной цены должен быть от 1 до 20")
 
         if allowed_action_price_deviation_percent is not None:
-            if allowed_action_price_deviation_percent < 0 or allowed_action_price_deviation_percent > 100:
+            if (
+                allowed_action_price_deviation_percent < 0
+                or allowed_action_price_deviation_percent > 100
+            ):
                 errors.append("Допустимое отклонение должно быть от 0 до 100")
 
         return errors

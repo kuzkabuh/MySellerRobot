@@ -807,11 +807,16 @@ def test_web_plan_fact_save_accepts_canonical_and_legacy_double_post(
         "app.services.plan_fact_service.PlanFactService.compare",
         lambda *a, **kw: SimpleNamespace(
             summary=SimpleNamespace(
-                orders=0, buyouts=0, estimated_profit=Decimal("0"),
-                actual_profit=Decimal("0"), deviation=Decimal("0"),
-                deviation_percent=Decimal("0"), pending_actual=0,
+                orders=0,
+                buyouts=0,
+                estimated_profit=Decimal("0"),
+                actual_profit=Decimal("0"),
+                deviation=Decimal("0"),
+                deviation_percent=Decimal("0"),
+                pending_actual=0,
             ),
-            rows=[], plan=None,
+            rows=[],
+            plan=None,
             filters=SimpleNamespace(
                 local_date_from=datetime(2026, 5, 1).date(),
                 local_date_to=datetime(2026, 5, 31).date(),
@@ -872,18 +877,29 @@ def test_web_plan_fact_page_renders_without_double_web_prefix(
     async def fake_compare(self, **kw):  # type: ignore[no-untyped-def]
         return SimpleNamespace(
             summary=SimpleNamespace(
-                orders=0, buyouts=0, estimated_profit=Decimal("0"),
-                actual_profit=Decimal("0"), deviation=Decimal("0"),
-                deviation_percent=Decimal("0"), pending_actual=0,
+                orders=0,
+                buyouts=0,
+                estimated_profit=Decimal("0"),
+                actual_profit=Decimal("0"),
+                deviation=Decimal("0"),
+                deviation_percent=Decimal("0"),
+                pending_actual=0,
             ),
-            rows=[], plan=None,
+            rows=[],
+            plan=None,
             filters=OrderWebFilters(
-                period="30d", marketplace=None, sale_model=None,
+                period="30d",
+                marketplace=None,
+                sale_model=None,
                 local_date_from=datetime(2026, 4, 19).date(),
                 local_date_to=datetime(2026, 5, 19).date(),
                 date_from=datetime(2026, 4, 19, tzinfo=UTC),
                 date_to=datetime(2026, 5, 19, tzinfo=UTC),
-                economy="all", status="all", sku="", sort="deviation", direction="asc",
+                economy="all",
+                status="all",
+                sku="",
+                sort="deviation",
+                direction="asc",
             ),
         )
 
@@ -1024,10 +1040,14 @@ async def test_legacy_double_web_dashboard_serves_content() -> None:
     import pytest
 
     import app.web.routes as facade
+
     with pytest.MonkeyPatch().context() as mp:
         mp.setattr(facade, "dashboard", fake_dashboard)
         response = await double_web_compat(
-            section="", request=request, user=object(), session=object(),
+            section="",
+            request=request,
+            user=object(),
+            session=object(),
         )
 
     assert response.status_code == 200
@@ -1055,10 +1075,14 @@ async def test_legacy_double_web_orders_serves_content() -> None:
     import pytest
 
     import app.web.routes as facade
+
     with pytest.MonkeyPatch().context() as mp:
         mp.setattr(facade, "orders_page", fake_orders_page)
         response = await double_web_compat(
-            section="orders", request=request, user=object(), session=object(),
+            section="orders",
+            request=request,
+            user=object(),
+            session=object(),
         )
 
     assert response.status_code == 200
@@ -1089,19 +1113,23 @@ async def test_legacy_double_web_orders_passes_page_number_correctly() -> None:
     import pytest
 
     import app.web.routes as facade
+
     with pytest.MonkeyPatch().context() as mp:
         mp.setattr(facade, "orders_page", fake_orders_page)
         response = await double_web_compat(
-            section="orders", request=request, user=object(), session=object(),
+            section="orders",
+            request=request,
+            user=object(),
+            session=object(),
         )
 
     assert response.status_code == 200
     assert "page_number" in captured_kwargs, "Must use page_number parameter"
     assert captured_kwargs["page_number"] == 3
     assert captured_kwargs["per_page"] == 20
-    assert "page" not in captured_kwargs or "page_number" in captured_kwargs, (
-        "Must not pass bare 'page' kwarg that could shadow render helper"
-    )
+    assert (
+        "page" not in captured_kwargs or "page_number" in captured_kwargs
+    ), "Must not pass bare 'page' kwarg that could shadow render helper"
 
 
 @pytest.mark.asyncio
@@ -1115,7 +1143,10 @@ async def test_legacy_double_web_unknown_section_returns_404() -> None:
         query_params=OrderedDict(),
     )
     response = await double_web_compat(
-        section="unknown", request=request, user=object(), session=object(),
+        section="unknown",
+        request=request,
+        user=object(),
+        session=object(),
     )
     assert response.status_code == 404
     assert "Раздел не найден" in response.body.decode()
@@ -1141,11 +1172,13 @@ async def test_legacy_double_web_login_serves_content() -> None:
 
     async def fake_login(request, session, token):
         from fastapi.responses import HTMLResponse
+
         return HTMLResponse(f"<html>Login token={token}</html>")
 
     import pytest
 
     import app.web.route_modules.auth as auth_module
+
     with pytest.MonkeyPatch().context() as mp:
         mp.setattr(auth_module, "login", fake_login)
         response = await login_compat(request=request, session=object())
@@ -1307,9 +1340,15 @@ def test_web_logout_deletes_all_cookie_paths() -> None:
 
     async def fake_current_web_user():
         return SimpleNamespace(
-            id=1, telegram_id=123, username="test", first_name="Test",
-            timezone="Europe/Moscow", language="ru", status=UserStatus.ACTIVE,
-            notifications_enabled=True, low_margin_threshold_percent=Decimal("10"),
+            id=1,
+            telegram_id=123,
+            username="test",
+            first_name="Test",
+            timezone="Europe/Moscow",
+            language="ru",
+            status=UserStatus.ACTIVE,
+            notifications_enabled=True,
+            low_margin_threshold_percent=Decimal("10"),
             created_at=datetime(2026, 5, 17, tzinfo=UTC),
         )
 
@@ -1337,12 +1376,12 @@ def test_web_logout_deletes_all_cookie_paths() -> None:
             elif "Path=/web" in header:
                 cookie_paths.append("/web")
     assert "/" in cookie_paths, f"Logout must delete cookie with path=/, got: {set_cookie_headers}"
-    assert "/web" in cookie_paths, (
-        f"Logout must delete cookie with path=/web, got: {set_cookie_headers}"
-    )
-    assert "/web/" in cookie_paths, (
-        f"Logout must delete cookie with path=/web/, got: {set_cookie_headers}"
-    )
+    assert (
+        "/web" in cookie_paths
+    ), f"Logout must delete cookie with path=/web, got: {set_cookie_headers}"
+    assert (
+        "/web/" in cookie_paths
+    ), f"Logout must delete cookie with path=/web/, got: {set_cookie_headers}"
 
 
 def test_web_responses_have_no_cache_headers(
@@ -1352,9 +1391,15 @@ def test_web_responses_have_no_cache_headers(
     app = create_app()
 
     user = SimpleNamespace(
-        id=1, telegram_id=123, username="test", first_name="Test",
-        timezone="Europe/Moscow", language="ru", status=UserStatus.ACTIVE,
-        notifications_enabled=True, low_margin_threshold_percent=Decimal("10"),
+        id=1,
+        telegram_id=123,
+        username="test",
+        first_name="Test",
+        timezone="Europe/Moscow",
+        language="ru",
+        status=UserStatus.ACTIVE,
+        notifications_enabled=True,
+        low_margin_threshold_percent=Decimal("10"),
         created_at=datetime(2026, 5, 17, tzinfo=UTC),
     )
 
@@ -1368,7 +1413,10 @@ def test_web_responses_have_no_cache_headers(
     monkeypatch.setattr(
         "app.services.web_dashboard_service.WebDashboardService.dashboard",
         lambda self, **kwargs: SimpleNamespace(
-            kpis=[], events=[], daily=[], previous_daily=[],
+            kpis=[],
+            events=[],
+            daily=[],
+            previous_daily=[],
             filters=SimpleNamespace(),
         ),
     )
@@ -1385,9 +1433,9 @@ def test_web_responses_have_no_cache_headers(
                 f"{path} must have Cache-Control: no-store, got: "
                 f"{response.headers.get('cache-control')}"
             )
-            assert response.headers.get("pragma") == "no-cache", (
-                f"GET {path} must have Pragma: no-cache"
-            )
+            assert (
+                response.headers.get("pragma") == "no-cache"
+            ), f"GET {path} must have Pragma: no-cache"
 
     app.dependency_overrides.clear()
 
@@ -1399,9 +1447,15 @@ def test_web_placeholder_html_no_double_web(
     app = create_app()
 
     user = SimpleNamespace(
-        id=1, telegram_id=123, username="test", first_name="Test",
-        timezone="Europe/Moscow", language="ru", status=UserStatus.ACTIVE,
-        notifications_enabled=True, low_margin_threshold_percent=Decimal("10"),
+        id=1,
+        telegram_id=123,
+        username="test",
+        first_name="Test",
+        timezone="Europe/Moscow",
+        language="ru",
+        status=UserStatus.ACTIVE,
+        notifications_enabled=True,
+        low_margin_threshold_percent=Decimal("10"),
         created_at=datetime(2026, 5, 17, tzinfo=UTC),
     )
 
@@ -1423,4 +1477,3 @@ def test_web_placeholder_html_no_double_web(
     assert 'href="/web/web/' not in response.text
     assert 'action="/web/web/' not in response.text
     assert "/web/web/" not in response.text
-

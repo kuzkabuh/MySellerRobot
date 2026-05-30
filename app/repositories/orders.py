@@ -3,16 +3,22 @@ description: Order persistence, idempotency helpers, and WB srid-based deduplica
 updated: 2026-05-20
 """
 
+import logging
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-import logging
 
 from sqlalchemy import Select, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.domain import FboDigestQueue, Order, OrderItem, ProfitSnapshot
-from app.models.enums import CalculationType, FboNotificationMode, Marketplace, SaleModel, SourceEventType
+from app.models.enums import (
+    CalculationType,
+    FboNotificationMode,
+    Marketplace,
+    SaleModel,
+    SourceEventType,
+)
 from app.schemas.orders import NormalizedOrder
 
 logger = logging.getLogger(__name__)

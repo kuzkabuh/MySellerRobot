@@ -175,7 +175,9 @@ class TestUpgradeReplacesOldSubscription:
     async def test_upgrade_basic_to_pro_replaces_old(self):
         basic = _make_tier("basic", 10)
         pro = _make_tier("pro", 20)
-        active_basic = _make_subscription(basic, expires_at=datetime.now(tz=UTC) + timedelta(days=20))
+        active_basic = _make_subscription(
+            basic, expires_at=datetime.now(tz=UTC) + timedelta(days=20)
+        )
         active_basic.tier = basic
 
         session = SessionMock([ScalarResult(pro), ScalarResult(active_basic)])
@@ -237,7 +239,7 @@ class TestMultipleSubscriptionsInDB:
         basic = _make_tier("basic", 10)
         pro = _make_tier("pro", 20)
 
-        old_pro = _make_subscription(
+        _make_subscription(
             pro,
             status=SubscriptionStatus.REPLACED,
             started_at=datetime.now(tz=UTC) - timedelta(days=60),

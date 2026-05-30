@@ -95,23 +95,27 @@ class TestPaymentServiceWithReceipt:
 
     @pytest.mark.asyncio
     async def test_create_payment_passes_receipt_to_yookassa(self, mock_session, mock_tier):
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class, \
-             patch("app.services.payment_service.SubscriptionService"):
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payment_service.SubscriptionService"),
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "test_shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "test_secret"
             mock_settings.return_value = settings
 
             mock_yk = MagicMock()
-            mock_yk.create_payment = AsyncMock(return_value={
-                "id": "test-payment-id",
-                "status": "pending",
-                "amount": {"value": "490", "currency": "RUB"},
-                "confirmation": {"confirmation_url": "https://yookassa.ru/pay"},
-                "description": "Подписка MP Control — тариф BASIC, 1 месяц",
-                "metadata": {},
-            })
+            mock_yk.create_payment = AsyncMock(
+                return_value={
+                    "id": "test-payment-id",
+                    "status": "pending",
+                    "amount": {"value": "490", "currency": "RUB"},
+                    "confirmation": {"confirmation_url": "https://yookassa.ru/pay"},
+                    "description": "Подписка MP Control — тариф BASIC, 1 месяц",
+                    "metadata": {},
+                }
+            )
             mock_yk.get_payment = AsyncMock(return_value={})
             mock_yk_class.return_value = mock_yk
 
@@ -120,6 +124,7 @@ class TestPaymentServiceWithReceipt:
             mock_session.execute.return_value = mock_result
 
             from app.services.payment_service import PaymentService
+
             service = PaymentService(mock_session)
 
             payment, confirmation_url = await service.create_subscription_payment(
@@ -135,28 +140,34 @@ class TestPaymentServiceWithReceipt:
             receipt = call_kwargs["receipt"]
             assert receipt["customer"]["email"] == "user@example.com"
             assert receipt["items"][0]["amount"]["value"] == "490"
-            assert receipt["items"][0]["description"] == "Подписка MP Control — тариф BASIC, 1 месяц"
+            assert (
+                receipt["items"][0]["description"] == "Подписка MP Control — тариф BASIC, 1 месяц"
+            )
             assert confirmation_url == "https://yookassa.ru/pay"
 
     @pytest.mark.asyncio
     async def test_create_payment_receipt_amount_matches_tier_price(self, mock_session, mock_tier):
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class, \
-             patch("app.services.payment_service.SubscriptionService"):
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payment_service.SubscriptionService"),
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "test_shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "test_secret"
             mock_settings.return_value = settings
 
             mock_yk = MagicMock()
-            mock_yk.create_payment = AsyncMock(return_value={
-                "id": "test-payment-id",
-                "status": "pending",
-                "amount": {"value": "490", "currency": "RUB"},
-                "confirmation": {"confirmation_url": "https://yookassa.ru/pay"},
-                "description": "Подписка MP Control — тариф BASIC, 1 месяц",
-                "metadata": {},
-            })
+            mock_yk.create_payment = AsyncMock(
+                return_value={
+                    "id": "test-payment-id",
+                    "status": "pending",
+                    "amount": {"value": "490", "currency": "RUB"},
+                    "confirmation": {"confirmation_url": "https://yookassa.ru/pay"},
+                    "description": "Подписка MP Control — тариф BASIC, 1 месяц",
+                    "metadata": {},
+                }
+            )
             mock_yk.get_payment = AsyncMock(return_value={})
             mock_yk_class.return_value = mock_yk
 
@@ -165,6 +176,7 @@ class TestPaymentServiceWithReceipt:
             mock_session.execute.return_value = mock_result
 
             from app.services.payment_service import PaymentService
+
             service = PaymentService(mock_session)
 
             await service.create_subscription_payment(
@@ -183,23 +195,27 @@ class TestPaymentServiceWithReceipt:
     @pytest.mark.asyncio
     async def test_create_payment_returns_correct_structure(self, mock_session, mock_tier):
         """Handler expects (Payment, confirmation_url) tuple with no KeyError."""
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class, \
-             patch("app.services.payment_service.SubscriptionService"):
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payment_service.SubscriptionService"),
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "test_shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "test_secret"
             mock_settings.return_value = settings
 
             mock_yk = MagicMock()
-            mock_yk.create_payment = AsyncMock(return_value={
-                "id": "test-payment-id",
-                "status": "pending",
-                "amount": {"value": "490", "currency": "RUB"},
-                "confirmation": {"confirmation_url": "https://yookassa.ru/pay/test"},
-                "description": "Подписка MP Control — тариф BASIC, 1 месяц",
-                "metadata": {},
-            })
+            mock_yk.create_payment = AsyncMock(
+                return_value={
+                    "id": "test-payment-id",
+                    "status": "pending",
+                    "amount": {"value": "490", "currency": "RUB"},
+                    "confirmation": {"confirmation_url": "https://yookassa.ru/pay/test"},
+                    "description": "Подписка MP Control — тариф BASIC, 1 месяц",
+                    "metadata": {},
+                }
+            )
             mock_yk.get_payment = AsyncMock(return_value={})
             mock_yk_class.return_value = mock_yk
 
@@ -208,6 +224,7 @@ class TestPaymentServiceWithReceipt:
             mock_session.execute.return_value = mock_result
 
             from app.services.payment_service import PaymentService
+
             service = PaymentService(mock_session)
 
             payment, confirmation_url = await service.create_subscription_payment(
@@ -226,23 +243,27 @@ class TestPaymentServiceWithReceipt:
 
     @pytest.mark.asyncio
     async def test_create_payment_uses_human_readable_description(self, mock_session, mock_tier):
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class, \
-             patch("app.services.payment_service.SubscriptionService"):
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payment_service.SubscriptionService"),
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "test_shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "test_secret"
             mock_settings.return_value = settings
 
             mock_yk = MagicMock()
-            mock_yk.create_payment = AsyncMock(return_value={
-                "id": "test-payment-id",
-                "status": "pending",
-                "amount": {"value": "4900", "currency": "RUB"},
-                "confirmation": {"confirmation_url": "https://yookassa.ru/pay"},
-                "description": "",
-                "metadata": {},
-            })
+            mock_yk.create_payment = AsyncMock(
+                return_value={
+                    "id": "test-payment-id",
+                    "status": "pending",
+                    "amount": {"value": "4900", "currency": "RUB"},
+                    "confirmation": {"confirmation_url": "https://yookassa.ru/pay"},
+                    "description": "",
+                    "metadata": {},
+                }
+            )
             mock_yk.get_payment = AsyncMock(return_value={})
             mock_yk_class.return_value = mock_yk
 
@@ -251,6 +272,7 @@ class TestPaymentServiceWithReceipt:
             mock_session.execute.return_value = mock_result
 
             from app.services.payment_service import PaymentService
+
             service = PaymentService(mock_session)
 
             await service.create_subscription_payment(
@@ -267,9 +289,11 @@ class TestPaymentServiceWithReceipt:
     @pytest.mark.asyncio
     async def test_pending_payment_reused_instead_of_duplicate(self, mock_session, mock_tier):
         """If a PENDING payment exists, return it instead of creating a new one."""
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class, \
-             patch("app.services.payment_service.SubscriptionService"):
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payment_service.SubscriptionService"),
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "test_shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "test_secret"
@@ -287,18 +311,22 @@ class TestPaymentServiceWithReceipt:
             )
 
             mock_yk = MagicMock()
-            mock_yk.create_payment = AsyncMock(return_value={
-                "id": "new-payment-id",
-                "status": "pending",
-                "amount": {"value": "490", "currency": "RUB"},
-                "confirmation": {"confirmation_url": "https://yookassa.ru/new"},
-                "description": "",
-                "metadata": {},
-            })
-            mock_yk.get_payment = AsyncMock(return_value={
-                "id": "existing-payment-id",
-                "confirmation": {"confirmation_url": "https://yookassa.ru/existing"},
-            })
+            mock_yk.create_payment = AsyncMock(
+                return_value={
+                    "id": "new-payment-id",
+                    "status": "pending",
+                    "amount": {"value": "490", "currency": "RUB"},
+                    "confirmation": {"confirmation_url": "https://yookassa.ru/new"},
+                    "description": "",
+                    "metadata": {},
+                }
+            )
+            mock_yk.get_payment = AsyncMock(
+                return_value={
+                    "id": "existing-payment-id",
+                    "confirmation": {"confirmation_url": "https://yookassa.ru/existing"},
+                }
+            )
             mock_yk_class.return_value = mock_yk
 
             mock_result = MagicMock()
@@ -306,6 +334,7 @@ class TestPaymentServiceWithReceipt:
             mock_session.execute.return_value = mock_result
 
             from app.services.payment_service import PaymentService
+
             service = PaymentService(mock_session)
 
             payment, confirmation_url = await service.create_subscription_payment(
@@ -324,23 +353,27 @@ class TestPaymentServiceWithReceipt:
     @pytest.mark.asyncio
     async def test_no_keyerror_on_yookassa_response(self, mock_session, mock_tier):
         """Accessing yookassa_payment['id'] must not raise KeyError."""
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class, \
-             patch("app.services.payment_service.SubscriptionService"):
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payment_service.SubscriptionService"),
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "test_shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "test_secret"
             mock_settings.return_value = settings
 
             mock_yk = MagicMock()
-            mock_yk.create_payment = AsyncMock(return_value={
-                "id": "319e5edc-000f-5001-9000-1674598f11a2",
-                "status": "pending",
-                "amount": {"value": "490", "currency": "RUB"},
-                "confirmation": {"confirmation_url": "https://yookassa.ru/pay"},
-                "description": "Подписка MP Control — тариф BASIC, 1 месяц",
-                "metadata": {},
-            })
+            mock_yk.create_payment = AsyncMock(
+                return_value={
+                    "id": "319e5edc-000f-5001-9000-1674598f11a2",
+                    "status": "pending",
+                    "amount": {"value": "490", "currency": "RUB"},
+                    "confirmation": {"confirmation_url": "https://yookassa.ru/pay"},
+                    "description": "Подписка MP Control — тариф BASIC, 1 месяц",
+                    "metadata": {},
+                }
+            )
             mock_yk.get_payment = AsyncMock(return_value={})
             mock_yk_class.return_value = mock_yk
 
@@ -349,6 +382,7 @@ class TestPaymentServiceWithReceipt:
             mock_session.execute.return_value = mock_result
 
             from app.services.payment_service import PaymentService
+
             service = PaymentService(mock_session)
 
             payment, confirmation_url = await service.create_subscription_payment(

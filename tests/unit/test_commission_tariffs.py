@@ -10,8 +10,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.services.commission_tariffs.admin_notifications import (
-    format_ozon_import_notification,
-    format_ozon_monitor_notification,
     format_wb_sync_notification,
 )
 from app.services.commission_tariffs.commission_resolver_service import (
@@ -224,7 +222,9 @@ class TestCommissionResolverService:
     @pytest.mark.asyncio
     async def test_not_found_without_versions(self) -> None:
         session = AsyncMock()
-        session.execute = AsyncMock(return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None)))
+        session.execute = AsyncMock(
+            return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None))
+        )
         resolver = CommissionResolverService(session)
         result = await resolver.get_commission_rate(
             marketplace="WB",
@@ -244,11 +244,13 @@ class TestCommissionResolverService:
         mock_rate_result = MagicMock()
         mock_rate_result.scalar_one_or_none = MagicMock(return_value=None)
 
-        session.execute = AsyncMock(side_effect=[
-            MagicMock(scalar_one_or_none=MagicMock(return_value=mock_version)),
-            mock_rate_result,
-            mock_rate_result,
-        ])
+        session.execute = AsyncMock(
+            side_effect=[
+                MagicMock(scalar_one_or_none=MagicMock(return_value=mock_version)),
+                mock_rate_result,
+                mock_rate_result,
+            ]
+        )
 
         resolver = CommissionResolverService(session)
         result = await resolver.get_commission_rate(
@@ -276,10 +278,12 @@ class TestWbCommissionResolver:
         mock_found = MagicMock()
         mock_found.scalar_one_or_none = MagicMock(return_value=mock_fbs_rate)
 
-        session.execute = AsyncMock(side_effect=[
-            MagicMock(scalar_one_or_none=MagicMock(return_value=mock_version)),
-            mock_found,
-        ])
+        session.execute = AsyncMock(
+            side_effect=[
+                MagicMock(scalar_one_or_none=MagicMock(return_value=mock_version)),
+                mock_found,
+            ]
+        )
 
         resolver = CommissionResolverService(session)
         result = await resolver.get_commission_rate(
@@ -305,10 +309,12 @@ class TestWbCommissionResolver:
         mock_found = MagicMock()
         mock_found.scalar_one_or_none = MagicMock(return_value=mock_fbw_rate)
 
-        session.execute = AsyncMock(side_effect=[
-            MagicMock(scalar_one_or_none=MagicMock(return_value=mock_version)),
-            mock_found,
-        ])
+        session.execute = AsyncMock(
+            side_effect=[
+                MagicMock(scalar_one_or_none=MagicMock(return_value=mock_version)),
+                mock_found,
+            ]
+        )
 
         resolver = CommissionResolverService(session)
         result = await resolver.get_commission_rate(
@@ -333,7 +339,9 @@ class TestWbSyncNoChanges:
         mock_version.id = 1
         mock_version.source_file_sha256 = "abc123"
 
-        session.execute = AsyncMock(return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=mock_version)))
+        session.execute = AsyncMock(
+            return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=mock_version))
+        )
 
         service = WbCommissionSyncService(session)
 
@@ -409,9 +417,7 @@ class TestWbSyncNoChanges:
 
         service = WbCommissionSyncService(session)
 
-        with patch.object(
-            service, "_get_active_version", return_value=None
-        ):
+        with patch.object(service, "_get_active_version", return_value=None):
             with patch(
                 "app.services.commission_tariffs.wb_commission_sync_service.WildberriesClient"
             ) as mock_client_cls:
@@ -438,9 +444,7 @@ class TestWbSyncNoChanges:
 
         service = WbCommissionSyncService(session)
 
-        with patch.object(
-            service, "_get_active_version", return_value=None
-        ):
+        with patch.object(service, "_get_active_version", return_value=None):
             with patch(
                 "app.services.commission_tariffs.wb_commission_sync_service.WildberriesClient"
             ) as mock_client_cls:
@@ -515,7 +519,9 @@ class TestOzonMonitorDetectsChanges:
             "file_name": "new.xlsx",
         }
 
-        change_type, has_changes = OzonCommissionSourceMonitorService._detect_changes(last_check, parsed)
+        change_type, has_changes = OzonCommissionSourceMonitorService._detect_changes(
+            last_check, parsed
+        )
         assert has_changes is True
         assert change_type == "new_period_detected"
 
@@ -534,7 +540,9 @@ class TestOzonMonitorDetectsChanges:
             "file_name": "file.xlsx",
         }
 
-        change_type, has_changes = OzonCommissionSourceMonitorService._detect_changes(last_check, parsed)
+        change_type, has_changes = OzonCommissionSourceMonitorService._detect_changes(
+            last_check, parsed
+        )
         assert has_changes is False
         assert change_type == "no_change"
 
@@ -553,7 +561,9 @@ class TestOzonMonitorDetectsChanges:
             "file_name": "new.xlsx",
         }
 
-        change_type, has_changes = OzonCommissionSourceMonitorService._detect_changes(last_check, parsed)
+        change_type, has_changes = OzonCommissionSourceMonitorService._detect_changes(
+            last_check, parsed
+        )
         assert has_changes is True
         assert change_type == "file_url_changed"
 

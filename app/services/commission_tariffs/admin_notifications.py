@@ -69,14 +69,10 @@ def format_wb_sync_notification(result: dict[str, Any]) -> str:
         )
     error = result.get("error", "Неизвестная ошибка")
     error_type = result.get("error_type", "")
-    return (
-        "⚠️ <b>Ошибка синхронизации комиссий WB</b>\n\n"
-        f"Тип: {error_type}\n"
-        f"Ошибка: {error}"
-    )
+    return "⚠️ <b>Ошибка синхронизации комиссий WB</b>\n\n" f"Тип: {error_type}\n" f"Ошибка: {error}"
 
 
-def format_ozon_monitor_notification(result: dict[str, Any]) -> str:
+def format_ozon_monitor_notification(result: dict[str, Any]) -> str | None:
     """Format an Ozon monitor result into an admin notification."""
     if result.get("has_changes"):
         period = result.get("period_label", "н/д")

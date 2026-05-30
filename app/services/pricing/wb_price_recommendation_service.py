@@ -193,6 +193,8 @@ class WbPriceRecommendationService:
 
         recommendations: list[WbPriceRecommendation] = []
         for product in products_result.scalars().all():
+            if product.mrc_price is None:
+                continue
             wb_nm_id = self._extract_nm_id(product)
             if wb_nm_id is None:
                 continue

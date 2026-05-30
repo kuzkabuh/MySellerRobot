@@ -16,9 +16,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute(
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS payment_email VARCHAR(255)"
-    )
+    op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS payment_email VARCHAR(255)")
 
 
 def downgrade() -> None:

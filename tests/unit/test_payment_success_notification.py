@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.models.enums import PaymentStatus
-from app.models.subscriptions import Payment, SubscriptionTier
 
 
 class TestPaymentSuccessNotification:
@@ -77,11 +76,15 @@ class TestPaymentSuccessNotification:
         return payment
 
     @pytest.mark.asyncio
-    async def test_first_payment_sends_notification(self, mock_session, mock_tier, mock_user, mock_subscription, mock_payment):
+    async def test_first_payment_sends_notification(
+        self, mock_session, mock_tier, mock_user, mock_subscription, mock_payment
+    ):
         """First successful payment should send notification."""
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class, \
-             patch("app.services.payment_service.SubscriptionService"):
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payment_service.SubscriptionService"),
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "test_shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "test_secret"
@@ -97,6 +100,7 @@ class TestPaymentSuccessNotification:
             mock_session.execute.return_value = mock_result
 
             from app.services.payment_service import PaymentService
+
             service = PaymentService(mock_session)
 
             with patch("app.bot.main.create_bot") as mock_create_bot:
@@ -137,6 +141,7 @@ class TestPaymentSuccessNotification:
         mock_payment.success_notification_sent_at = datetime.now(tz=UTC)
 
         from app.services.payment_service import PaymentService
+
         service = PaymentService(mock_session)
 
         with patch("app.bot.main.create_bot") as mock_create_bot:
@@ -154,11 +159,15 @@ class TestPaymentSuccessNotification:
             mock_bot.send_message.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_notification_sets_timestamp(self, mock_session, mock_tier, mock_user, mock_subscription, mock_payment):
+    async def test_notification_sets_timestamp(
+        self, mock_session, mock_tier, mock_user, mock_subscription, mock_payment
+    ):
         """After successful notification, success_notification_sent_at should be set."""
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class, \
-             patch("app.services.payment_service.SubscriptionService"):
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payment_service.SubscriptionService"),
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "test_shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "test_secret"
@@ -174,6 +183,7 @@ class TestPaymentSuccessNotification:
             mock_session.execute.return_value = mock_result
 
             from app.services.payment_service import PaymentService
+
             service = PaymentService(mock_session)
 
             with patch("app.bot.main.create_bot") as mock_create_bot:
@@ -230,6 +240,7 @@ class TestReceiptTracking:
         }
 
         from app.services.payment_service import PaymentService
+
         service = PaymentService(mock_session)
 
         await service._save_receipt_info(payment, yookassa_data)
@@ -251,6 +262,7 @@ class TestReceiptTracking:
         }
 
         from app.services.payment_service import PaymentService
+
         service = PaymentService(mock_session)
 
         await service._save_receipt_info(payment, yookassa_data)
@@ -267,26 +279,31 @@ class TestReceiptTracking:
         payment.receipt_id = "receipt-123"
         payment.receipt_status = "pending"
 
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class, \
-             patch("app.services.payment_service.SubscriptionService"):
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payment_service.SubscriptionService"),
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "test_shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "test_secret"
             mock_settings.return_value = settings
 
             mock_yk = MagicMock()
-            mock_yk.get_payment = AsyncMock(return_value={
-                "id": "test-payment-id",
-                "status": "succeeded",
-                "receipt": {
-                    "id": "receipt-123",
+            mock_yk.get_payment = AsyncMock(
+                return_value={
+                    "id": "test-payment-id",
                     "status": "succeeded",
-                },
-            })
+                    "receipt": {
+                        "id": "receipt-123",
+                        "status": "succeeded",
+                    },
+                }
+            )
             mock_yk_class.return_value = mock_yk
 
             from app.services.payment_service import PaymentService
+
             service = PaymentService(mock_session)
 
             status = await service._fetch_receipt_status(payment)
@@ -306,9 +323,11 @@ class TestReceiptKeyboard:
         mock_session.execute = AsyncMock()
         mock_session.flush = AsyncMock()
 
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class, \
-             patch("app.services.payment_service.SubscriptionService"):
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payment_service.SubscriptionService"),
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "test_shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "test_secret"
@@ -340,21 +359,26 @@ class TestMaskEmail:
 
     def test_mask_email_standard(self):
         from app.bot.handlers.subscription import _mask_email
+
         assert _mask_email("user@example.com") == "u***r@example.com"
 
     def test_mask_email_short(self):
         from app.bot.handlers.subscription import _mask_email
+
         assert _mask_email("ab@example.com") == "a***@example.com"
 
     def test_mask_email_single_char(self):
         from app.bot.handlers.subscription import _mask_email
+
         result = _mask_email("a@example.com")
         assert result == "a***@example.com"
 
     def test_mask_email_empty(self):
         from app.bot.handlers.subscription import _mask_email
+
         assert _mask_email("") == ""
 
     def test_mask_email_no_at(self):
         from app.bot.handlers.subscription import _mask_email
+
         assert _mask_email("invalid") == "invalid"

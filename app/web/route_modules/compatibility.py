@@ -1,7 +1,7 @@
-# ruff: noqa: E501
+# ruff: noqa: E501, B008
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, File, Form, Request
 from fastapi.responses import HTMLResponse, Response
@@ -12,6 +12,9 @@ from app.web.views import _placeholder_page
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+OZON_COMMISSION_FILE_FORM = File(...)
+OZON_COMMISSION_EFFECTIVE_FROM_FORM = Form(...)
 
 
 def _qp(request: Request, name: str, default: str = "") -> str:
@@ -47,7 +50,7 @@ async def double_web_compat(
     section: str,
     request: Request,
     user: User = CURRENT_WEB_USER_DEPENDENCY,
-    session: Any = SESSION_DEPENDENCY,  # type: ignore[assignment]
+    session: Any = SESSION_DEPENDENCY,
 ) -> Response:
     """Serve cabinet pages when a reverse proxy prepends /web upstream.
 
@@ -162,7 +165,9 @@ async def double_web_compat(
         except (ValueError, IndexError):
             return HTMLResponse("<h1>Товар не найден</h1>", status_code=404)
         return HTMLResponse(
-            await facade.product_detail_page(master_product_id=product_id, user=user, session=session)
+            await facade.product_detail_page(
+                master_product_id=product_id, user=user, session=session
+            )
         )
 
     if normalized == "product-matching":
@@ -248,31 +253,48 @@ async def double_web_compat(
 async def double_web_sync_wb(
     request: Request,
     user: User = CURRENT_WEB_USER_DEPENDENCY,
-    session: Any = SESSION_DEPENDENCY,  # type: ignore[assignment]
+    session: Any = SESSION_DEPENDENCY,
 ) -> Response:
     facade = _facade()
-    return await facade.sync_wb_commissions_web(request=request, user=user, session=session)
+    return cast(
+        Response,
+        await facade.sync_wb_commissions_web(request=request, user=user, session=session),
+    )
 
 
-@router.post("/web/admin/commissions/check-ozon", response_class=HTMLResponse, include_in_schema=False)
+@router.post(
+    "/web/admin/commissions/check-ozon", response_class=HTMLResponse, include_in_schema=False
+)
 async def double_web_check_ozon(
     request: Request,
     user: User = CURRENT_WEB_USER_DEPENDENCY,
-    session: Any = SESSION_DEPENDENCY,  # type: ignore[assignment]
+    session: Any = SESSION_DEPENDENCY,
 ) -> Response:
     facade = _facade()
-    return await facade.check_ozon_commissions_web(request=request, user=user, session=session)
+    return cast(
+        Response,
+        await facade.check_ozon_commissions_web(request=request, user=user, session=session),
+    )
 
 
-@router.post("/web/admin/commissions/import-ozon", response_class=HTMLResponse, include_in_schema=False)
+@router.post(
+    "/web/admin/commissions/import-ozon", response_class=HTMLResponse, include_in_schema=False
+)
 async def double_web_import_ozon(
     request: Request,
-    file: Any = File(...),
-    effective_from: Any = Form(...),
+    file: Any = OZON_COMMISSION_FILE_FORM,
+    effective_from: Any = OZON_COMMISSION_EFFECTIVE_FROM_FORM,
     user: User = CURRENT_WEB_USER_DEPENDENCY,
-    session: Any = SESSION_DEPENDENCY,  # type: ignore[assignment]
+    session: Any = SESSION_DEPENDENCY,
 ) -> Response:
     facade = _facade()
-    return await facade.import_ozon_commissions_web(
-        request=request, file=file, effective_from=effective_from, user=user, session=session,
+    return cast(
+        Response,
+        await facade.import_ozon_commissions_web(
+            request=request,
+            file=file,
+            effective_from=effective_from,
+            user=user,
+            session=session,
+        ),
     )

@@ -1,7 +1,5 @@
 """Regression test for _load_mrc_page_data with active auto promotions."""
 
-import pytest
-
 
 def test_unbound_local_error_is_fixed():
     """Verify that has_active_auto_promotions is defined before use.
@@ -15,6 +13,7 @@ def test_unbound_local_error_is_fixed():
     This test verifies the source code structure.
     """
     import inspect
+
     from app.web.route_modules.mrc_pricing import _load_mrc_page_data
 
     source = inspect.getsource(_load_mrc_page_data)
@@ -38,12 +37,10 @@ def test_unbound_local_error_is_fixed():
         if "if has_active_auto_promotions" in stripped and first_usage_idx is None:
             first_usage_idx = idx
 
-    assert first_assignment_idx is not None, (
-        "has_active_auto_promotions must be assigned in the function"
-    )
-    assert first_usage_idx is not None, (
-        "has_active_auto_promotions must be used in the function"
-    )
+    assert (
+        first_assignment_idx is not None
+    ), "has_active_auto_promotions must be assigned in the function"
+    assert first_usage_idx is not None, "has_active_auto_promotions must be used in the function"
     assert first_assignment_idx < first_usage_idx, (
         f"has_active_auto_promotions must be assigned (line {first_assignment_idx}) "
         f"before it is used (line {first_usage_idx})"
@@ -53,6 +50,7 @@ def test_unbound_local_error_is_fixed():
 def test_safe_defaults_are_present():
     """Verify safe defaults are declared at the start of the function."""
     import inspect
+
     from app.web.route_modules.mrc_pricing import _load_mrc_page_data
 
     source = inspect.getsource(_load_mrc_page_data)
@@ -70,6 +68,7 @@ def test_safe_defaults_are_present():
 def test_stats_queries_before_product_enrichment():
     """Verify that promotion stats are queried before product enrichment loop."""
     import inspect
+
     from app.web.route_modules.mrc_pricing import _load_mrc_page_data
 
     source = inspect.getsource(_load_mrc_page_data)
@@ -86,9 +85,7 @@ def test_stats_queries_before_product_enrichment():
 
     assert stats_query_idx is not None, "Stats query marker not found"
     assert enrichment_idx is not None, "Enrichment marker not found"
-    assert stats_query_idx < enrichment_idx, (
-        "Stats queries must come before product enrichment"
-    )
+    assert stats_query_idx < enrichment_idx, "Stats queries must come before product enrichment"
 
 
 def test_wb_nm_id_for_product_no_name_error():
@@ -104,6 +101,7 @@ def test_wb_nm_id_for_product_no_name_error():
     This test verifies the source code does not contain an undefined reference.
     """
     import inspect
+
     from app.web.route_modules.mrc_pricing import _mrc_pricing_content
 
     source = inspect.getsource(_mrc_pricing_content)
@@ -116,14 +114,17 @@ def test_wb_nm_id_for_product_no_name_error():
     )
 
     # Should also handle the case when nm_id is None
-    assert "nmID не найден" in source or "nm_id is None" in source or "if wb_nm_id_for_product" in source, (
-        "Code should handle missing nmID gracefully"
-    )
+    assert (
+        "nmID не найден" in source
+        or "nm_id is None" in source
+        or "if wb_nm_id_for_product" in source
+    ), "Code should handle missing nmID gracefully"
 
 
 def test_extract_nm_id_from_external_product_id():
     """Verify _extract_nm_id extracts nmID from external_product_id."""
     from unittest.mock import MagicMock
+
     from app.web.route_modules.mrc_pricing import _extract_nm_id
 
     product = MagicMock()
@@ -137,6 +138,7 @@ def test_extract_nm_id_from_external_product_id():
 def test_extract_nm_id_from_marketplace_article_fallback():
     """Verify _extract_nm_id falls back to marketplace_article."""
     from unittest.mock import MagicMock
+
     from app.web.route_modules.mrc_pricing import _extract_nm_id
 
     product = MagicMock()
@@ -158,6 +160,7 @@ def test_wb_product_price_import_in_auto_promo_service():
     Fix: move the import to the top-level imports block.
     """
     import inspect
+
     from app.services.pricing.wb_auto_promo_price_service import (
         WbAutoPromoPriceService,
         WbProductPrice,
@@ -169,6 +172,6 @@ def test_wb_product_price_import_in_auto_promo_service():
     # Verify the import is at module level (top-level), not inside a method
     source = inspect.getsource(WbAutoPromoPriceService)
     # The method should NOT contain a local import of WbProductPrice
-    assert "from app.models.domain import WbProductPrice" not in source, (
-        "WbProductPrice must be imported at module level, not inside a method"
-    )
+    assert (
+        "from app.models.domain import WbProductPrice" not in source
+    ), "WbProductPrice must be imported at module level, not inside a method"

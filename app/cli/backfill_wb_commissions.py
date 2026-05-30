@@ -272,14 +272,10 @@ async def _run(dry_run: bool) -> None:
                 extra={"account_id": account.id, "tariff_count": len(tariffs)},
             )
 
-            products_updated = await _update_product_commissions(
-                session, account, tariffs, dry_run
-            )
+            products_updated = await _update_product_commissions(session, account, tariffs, dry_run)
             total_products_updated += products_updated
 
-            items_recalculated = await _recalculate_order_items(
-                session, account, dry_run
-            )
+            items_recalculated = await _recalculate_order_items(session, account, dry_run)
             total_items_recalculated += items_recalculated
 
         if not dry_run:

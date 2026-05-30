@@ -8,9 +8,6 @@ import pytest
 
 from app.services.pricing.wb_price_update_service import (
     STATUS_APPLIED,
-    STATUS_DRY_RUN,
-    STATUS_FAILED,
-    STATUS_SKIPPED,
     WbPriceUpdateService,
 )
 
@@ -133,10 +130,9 @@ async def test_price_already_equals_recommended():
 
     service = WbPriceUpdateService(session)
 
-    with patch.object(
-        service, "_get_current_wb_price", new=AsyncMock(return_value=Decimal("846"))
-    ), patch.object(
-        service, "_get_last_price_change", new=AsyncMock(return_value=None)
+    with (
+        patch.object(service, "_get_current_wb_price", new=AsyncMock(return_value=Decimal("846"))),
+        patch.object(service, "_get_last_price_change", new=AsyncMock(return_value=None)),
     ):
         can_change, reason = await service._can_change_price(
             product=product,
@@ -164,10 +160,9 @@ async def test_price_changed_recently_cooldown():
     service = WbPriceUpdateService(session)
 
     recent_time = datetime.now(tz=UTC) - timedelta(hours=2)
-    with patch.object(
-        service, "_get_current_wb_price", new=AsyncMock(return_value=Decimal("930"))
-    ), patch.object(
-        service, "_get_last_price_change", new=AsyncMock(return_value=recent_time)
+    with (
+        patch.object(service, "_get_current_wb_price", new=AsyncMock(return_value=Decimal("930"))),
+        patch.object(service, "_get_last_price_change", new=AsyncMock(return_value=recent_time)),
     ):
         can_change, reason = await service._can_change_price(
             product=product,
@@ -194,10 +189,9 @@ async def test_valid_price_change_passes_all_checks():
 
     service = WbPriceUpdateService(session)
 
-    with patch.object(
-        service, "_get_current_wb_price", new=AsyncMock(return_value=Decimal("930"))
-    ), patch.object(
-        service, "_get_last_price_change", new=AsyncMock(return_value=None)
+    with (
+        patch.object(service, "_get_current_wb_price", new=AsyncMock(return_value=Decimal("930"))),
+        patch.object(service, "_get_last_price_change", new=AsyncMock(return_value=None)),
     ):
         can_change, reason = await service._can_change_price(
             product=product,

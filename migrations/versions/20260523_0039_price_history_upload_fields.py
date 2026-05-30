@@ -6,8 +6,8 @@ Revises: 20260523_0038_price_history_bounds
 Create Date: 2026-05-23
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "20260523_0039_price_history_upload_fields"
 down_revision = "20260523_0038_price_history_bounds"
@@ -72,7 +72,15 @@ def downgrade() -> None:
     inspector = sa.inspect(conn)
     col_names = {col["name"] for col in inspector.get_columns("wb_price_change_history")}
 
-    for col in ("updated_at", "raw_response", "raw_payload", "final_discounted_price",
-                "wb_discount", "wb_price", "target_discounted_price", "wb_upload_id"):
+    for col in (
+        "updated_at",
+        "raw_response",
+        "raw_payload",
+        "final_discounted_price",
+        "wb_discount",
+        "wb_price",
+        "target_discounted_price",
+        "wb_upload_id",
+    ):
         if col in col_names:
             op.drop_column("wb_price_change_history", col)

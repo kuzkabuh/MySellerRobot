@@ -84,14 +84,10 @@ class StockForecastService:
             key=lambda row: (row.days_until_stockout is None, row.days_until_stockout or 999999),
         )
 
-    async def _batch_products(
-        self, product_ids: set[int]
-    ) -> dict[int, Product]:
+    async def _batch_products(self, product_ids: set[int]) -> dict[int, Product]:
         if not product_ids:
             return {}
-        result = await self.session.execute(
-            select(Product).where(Product.id.in_(product_ids))
-        )
+        result = await self.session.execute(select(Product).where(Product.id.in_(product_ids)))
         return {p.id: p for p in result.scalars().all()}
 
     async def _batch_daily_sales(
@@ -113,9 +109,7 @@ class StockForecastService:
             .where(SalesEvent.event_date >= since)
             .group_by(SalesEvent.product_id)
         )
-        return {
-            pid: Decimal(total) / Decimal("30") for pid, total in result.all()
-        }
+        return {pid: Decimal(total) / Decimal("30") for pid, total in result.all()}
 
     async def _batch_average_prices(
         self,

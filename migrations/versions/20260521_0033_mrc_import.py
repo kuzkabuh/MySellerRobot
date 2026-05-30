@@ -4,6 +4,7 @@ Revision ID: 20260521_0033_mrc_import
 Revises: 20260521_0032_mrc_feature_flag
 Create Date: 2026-05-21
 """
+# ruff: noqa: E501
 
 from collections.abc import Sequence
 
@@ -27,8 +28,18 @@ def upgrade() -> None:
         op.create_table(
             "mrc_imports",
             sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
-            sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
-            sa.Column("account_id", sa.Integer(), sa.ForeignKey("marketplace_accounts.id", ondelete="CASCADE"), nullable=True),
+            sa.Column(
+                "user_id",
+                sa.Integer(),
+                sa.ForeignKey("users.id", ondelete="CASCADE"),
+                nullable=False,
+            ),
+            sa.Column(
+                "account_id",
+                sa.Integer(),
+                sa.ForeignKey("marketplace_accounts.id", ondelete="CASCADE"),
+                nullable=True,
+            ),
             sa.Column("source", sa.String(16), nullable=False),
             sa.Column("original_file_name", sa.String(512), nullable=True),
             sa.Column("status", sa.String(32), nullable=False, server_default="preview"),
@@ -39,8 +50,18 @@ def upgrade() -> None:
             sa.Column("skipped_rows", sa.Integer(), nullable=False, server_default="0"),
             sa.Column("warning_rows", sa.Integer(), nullable=False, server_default="0"),
             sa.Column("error_rows", sa.Integer(), nullable=False, server_default="0"),
-            sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                nullable=False,
+                server_default=sa.func.now(),
+            ),
+            sa.Column(
+                "updated_at",
+                sa.DateTime(timezone=True),
+                nullable=False,
+                server_default=sa.func.now(),
+            ),
             sa.Column("applied_at", sa.DateTime(timezone=True), nullable=True),
             sa.Column("error_text", sa.Text(), nullable=True),
             sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True),
@@ -58,7 +79,12 @@ def upgrade() -> None:
         op.create_table(
             "mrc_import_rows",
             sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
-            sa.Column("import_id", sa.Integer(), sa.ForeignKey("mrc_imports.id", ondelete="CASCADE"), nullable=False),
+            sa.Column(
+                "import_id",
+                sa.Integer(),
+                sa.ForeignKey("mrc_imports.id", ondelete="CASCADE"),
+                nullable=False,
+            ),
             sa.Column("row_number", sa.Integer(), nullable=False),
             sa.Column("product_id", sa.Integer(), nullable=True),
             sa.Column("wb_nm_id", sa.Integer(), nullable=True),
@@ -68,8 +94,18 @@ def upgrade() -> None:
             sa.Column("new_mrc_price", sa.Numeric(12, 2), nullable=True),
             sa.Column("status", sa.String(64), nullable=False),
             sa.Column("message", sa.Text(), nullable=True),
-            sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                nullable=False,
+                server_default=sa.func.now(),
+            ),
+            sa.Column(
+                "updated_at",
+                sa.DateTime(timezone=True),
+                nullable=False,
+                server_default=sa.func.now(),
+            ),
         )
     else:
         # Table exists but may be missing columns from partial run
@@ -80,8 +116,9 @@ def upgrade() -> None:
             )
 
     # Create indexes explicitly (only if they don't exist)
-    existing_indexes = {idx["name"] for idx in inspector.get_indexes("mrc_imports")} | \
-                       {idx["name"] for idx in inspector.get_indexes("mrc_import_rows")}
+    existing_indexes = {idx["name"] for idx in inspector.get_indexes("mrc_imports")} | {
+        idx["name"] for idx in inspector.get_indexes("mrc_import_rows")
+    }
 
     if "ix_mrc_imports_user_id" not in existing_indexes:
         op.create_index("ix_mrc_imports_user_id", "mrc_imports", ["user_id"])

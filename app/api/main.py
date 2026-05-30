@@ -232,7 +232,7 @@ def create_app() -> FastAPI:
         return await fastapi_http_exception_handler(request, exc)
 
     @app.get("/favicon.ico", include_in_schema=False)
-    async def favicon() -> FileResponse:
+    async def favicon() -> Response:
         path = Path("logo.png")
         if await asyncio.to_thread(path.exists):
             return FileResponse(path, media_type="image/x-icon")

@@ -183,19 +183,23 @@ async def pricing_auto_promo_upload_preview(
             promotion_name=promotion_name.strip() if promotion_name else None,
         )
         await session.commit()
-        return page(
-            "Предпросмотр условий автоакции",
-            user.first_name or user.username or str(user.telegram_id),
-            _auto_promo_preview_page(preview, rows, marketplace_account_id),
-            active_path="/web/pricing",
+        return HTMLResponse(
+            page(
+                "Предпросмотр условий автоакции",
+                user.first_name or user.username or str(user.telegram_id),
+                _auto_promo_preview_page(preview, rows, marketplace_account_id),
+                active_path="/web/pricing",
+            )
         )
     except ValueError as exc:
         await session.rollback()
-        return page(
-            "Ошибка загрузки",
-            user.first_name or user.username or str(user.telegram_id),
-            f'<section class="pricing-page"><div class="pricing-card"><h2>Ошибка</h2><p>{escape(str(exc))}</p><a class="pricing-button pricing-button-primary" href="/web/pricing/auto-promotions/upload">Назад к загрузке</a></div></section>',
-            active_path="/web/pricing",
+        return HTMLResponse(
+            page(
+                "Ошибка загрузки",
+                user.first_name or user.username or str(user.telegram_id),
+                f'<section class="pricing-page"><div class="pricing-card"><h2>Ошибка</h2><p>{escape(str(exc))}</p><a class="pricing-button pricing-button-primary" href="/web/pricing/auto-promotions/upload">Назад к загрузке</a></div></section>',
+                active_path="/web/pricing",
+            )
         )
     finally:
         _remove_temp_file(tmp_path)
@@ -1339,8 +1343,9 @@ def _money(value: object) -> str:
 def _dt(value: object) -> str:
     if value is None:
         return ""
-    if hasattr(value, "strftime"):
-        return escape(value.strftime("%d.%m.%Y %H:%M"))
+    strftime = getattr(value, "strftime", None)
+    if callable(strftime):
+        return escape(str(strftime("%d.%m.%Y %H:%M")))
     return escape(str(value))
 
 

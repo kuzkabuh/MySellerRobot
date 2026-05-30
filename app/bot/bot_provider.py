@@ -4,8 +4,8 @@ updated: 2026-05-21
 """
 
 import logging
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties

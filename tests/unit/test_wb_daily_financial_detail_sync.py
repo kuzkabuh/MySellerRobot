@@ -273,7 +273,8 @@ class TestPagination:
                     MockClient.return_value = mock_client
 
                     counters = await service.sync_account_for_date(
-                        account, date(2026, 3, 17),
+                        account,
+                        date(2026, 3, 17),
                     )
 
         assert call_count == 3
@@ -521,6 +522,7 @@ class TestSnapshotUpsert:
         counters = SyncCounters()
 
         from app.schemas.profit import ProfitResult
+
         result = ProfitResult(
             gross_revenue=Decimal("1490"),
             expected_payout=Decimal("1200"),
@@ -562,6 +564,7 @@ class TestSnapshotUpsert:
         counters = SyncCounters()
 
         from app.schemas.profit import ProfitResult
+
         result = ProfitResult(
             gross_revenue=Decimal("2000"),
             expected_payout=Decimal("1600"),

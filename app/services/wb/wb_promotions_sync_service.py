@@ -13,9 +13,9 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, tzinfo
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, cast
 
 from redis.asyncio import Redis
 from sqlalchemy import select
@@ -33,6 +33,8 @@ from app.models.domain import (
 from app.models.enums import Marketplace
 from app.services.pricing.wb_auto_promo_condition_resolver import (
     WbAutoPromoConditionDTO as AutoPromoConditionDTO,
+)
+from app.services.pricing.wb_auto_promo_condition_resolver import (
     WbAutoPromoConditionResolver,
 )
 
@@ -91,6 +93,7 @@ class WbPromotionsSyncService:
         """Get Redis client, creating one if needed."""
         if self.redis is None:
             from redis.asyncio import Redis as AsyncRedis
+
             self.redis = AsyncRedis.from_url(
                 self.settings.redis_url,
                 encoding="utf-8",
@@ -123,7 +126,9 @@ class WbPromotionsSyncService:
                     return False, f"Синхронизация уже запускалась. Подождите {remaining} сек."
 
             # Try to acquire lock
-            acquired = await redis.set(PROMOTIONS_SYNC_LOCK_KEY, "1", ex=PROMOTIONS_SYNC_LOCK_TTL, nx=True)
+            acquired = await redis.set(
+                PROMOTIONS_SYNC_LOCK_KEY, "1", ex=PROMOTIONS_SYNC_LOCK_TTL, nx=True
+            )
             if not acquired:
                 return False, "Синхронизация уже выполняется. Подождите завершения."
 
@@ -172,15 +177,21 @@ class WbPromotionsSyncService:
 
         # Determine extended date range in UTC: yesterday to 90 days ahead
         sync_tz_name = self.settings.wb_promotions_sync_timezone
+        sync_tz: tzinfo
         try:
             from zoneinfo import ZoneInfo
+
             sync_tz = ZoneInfo(sync_tz_name)
         except Exception:
             sync_tz = UTC
 
         now_in_sync_tz = datetime.now(tz=sync_tz)
-        start_date = (now_in_sync_tz - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-        end_date = (now_in_sync_tz + timedelta(days=90)).replace(hour=23, minute=59, second=59, microsecond=0)
+        start_date = (now_in_sync_tz - timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        end_date = (now_in_sync_tz + timedelta(days=90)).replace(
+            hour=23, minute=59, second=59, microsecond=0
+        )
 
         # Convert to UTC ISO format for WB API
         start_datetime = start_date.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -388,9 +399,7 @@ class WbPromotionsSyncService:
                         },
                     )
             except Exception:
-                error_msg = (
-                    f"Failed to fetch nomenclatures for promotion {promo.wb_promotion_id}"
-                )
+                error_msg = f"Failed to fetch nomenclatures for promotion {promo.wb_promotion_id}"
                 stats.errors.append(error_msg)
                 logger.exception(
                     "wb_promotions_nomenclatures_sync_failed",
@@ -464,7 +473,7 @@ class WbPromotionsSyncService:
         # Fetch details in batches
         batch_size = 50
         for i in range(0, len(auto_promotion_ids), batch_size):
-            batch_ids = auto_promotion_ids[i:i + batch_size]
+            batch_ids = auto_promotion_ids[i : i + batch_size]
 
             # Rate limiting
             elapsed = time.monotonic() - last_request_time
@@ -567,7 +576,9 @@ class WbPromotionsSyncService:
                 )
 
                 for nom_data in nomenclatures:
-                    wb_nm_id = int(nom_data.get("id") or nom_data.get("nmId") or nom_data.get("nmID") or 0)
+                    wb_nm_id = int(
+                        nom_data.get("id") or nom_data.get("nmId") or nom_data.get("nmID") or 0
+                    )
                     if not wb_nm_id:
                         continue
 
@@ -650,7 +661,9 @@ class WbPromotionsSyncService:
 
         nomenclature.current_price = _money(item_data.get("price"))
         nomenclature.plan_price = _money(
-            item_data.get("planPrice") or item_data.get("requiredPrice") or item_data.get("maxPrice")
+            item_data.get("planPrice")
+            or item_data.get("requiredPrice")
+            or item_data.get("maxPrice")
         )
         nomenclature.current_discount = _decimal_optional(item_data.get("discount"))
         nomenclature.plan_discount = _decimal_optional(item_data.get("planDiscount"))
@@ -782,7 +795,9 @@ class WbPromotionsSyncService:
                     offset=offset,
                 )
             except Exception:
-                logger.exception("wb_promotions_fetch_failed", extra={"offset": offset, "all_promo": all_promo})
+                logger.exception(
+                    "wb_promotions_fetch_failed", extra={"offset": offset, "all_promo": all_promo}
+                )
                 break
 
             # Parse official format: {"data": {"promotions": [...]}}
@@ -804,7 +819,11 @@ class WbPromotionsSyncService:
 
             if raw_count == 0:
                 response_keys = list(response.keys()) if isinstance(response, dict) else []
-                data_keys = list(response.get("data", {}).keys()) if isinstance(response.get("data"), dict) else []
+                data_keys = (
+                    list(response.get("data", {}).keys())
+                    if isinstance(response.get("data"), dict)
+                    else []
+                )
                 log_extra["response_keys"] = response_keys
                 log_extra["data_keys"] = data_keys
                 log_extra["response_preview"] = _safe_response_preview(response)
@@ -829,9 +848,7 @@ class WbPromotionsSyncService:
         now_utc: datetime,
     ) -> WbPromotion:
         """Upsert a single WB promotion."""
-        wb_promotion_id = int(
-            promo_data.get("id") or promo_data.get("promotionId") or 0
-        )
+        wb_promotion_id = int(promo_data.get("id") or promo_data.get("promotionId") or 0)
         if not wb_promotion_id:
             raise ValueError("Missing promotion ID in WB response")
 
@@ -851,21 +868,15 @@ class WbPromotionsSyncService:
             )
             self.session.add(promo)
 
-        promo.name = str(
-            promo_data.get("name") or promo_data.get("title") or ""
-        )[:512]
-        promo.promotion_type = str(
-            promo_data.get("type") or promo_data.get("promoType") or ""
-        )[:64]
+        promo.name = str(promo_data.get("name") or promo_data.get("title") or "")[:512]
+        promo.promotion_type = str(promo_data.get("type") or promo_data.get("promoType") or "")[:64]
         promo.start_datetime = _parse_datetime(
             promo_data.get("startDateTime") or promo_data.get("startDate")
         )
         promo.end_datetime = _parse_datetime(
             promo_data.get("endDateTime") or promo_data.get("endDate")
         )
-        promo.is_active_today = _is_active_today(
-            promo.start_datetime, promo.end_datetime, now_utc
-        )
+        promo.is_active_today = _is_active_today(promo.start_datetime, promo.end_datetime, now_utc)
         promo.raw_payload = promo_data
         promo.synced_at = now_utc
 
@@ -947,11 +958,6 @@ class WbPromotionsSyncService:
                             },
                         )
                         break
-                    error_msg = (
-                        f"Failed to fetch nomenclatures for promotion "
-                        f"{wb_promotion_id}, in_action={in_action}, "
-                        f"offset={offset}"
-                    )
                     logger.warning(
                         "wb_promotions_nomenclatures_fetch_failed",
                         extra={
@@ -1072,9 +1078,9 @@ class WbPromotionsSyncService:
             self.session.add(nomenclature)
 
         nomenclature.current_price = _money(item_data.get("price"))
-        nomenclature.currency_code = (
-            str(item_data.get("currencyCode") or item_data.get("currency") or "RUB")[:16]
-        )
+        nomenclature.currency_code = str(
+            item_data.get("currencyCode") or item_data.get("currency") or "RUB"
+        )[:16]
         nomenclature.plan_price = _money(item_data.get("planPrice"))
         nomenclature.current_discount = _decimal_optional(item_data.get("discount"))
         nomenclature.plan_discount = _decimal_optional(item_data.get("planDiscount"))
@@ -1120,7 +1126,8 @@ class WbPromotionsSyncService:
                 WbPromotion,
                 and_(
                     WbPromotion.wb_promotion_id == WbPromotionNomenclature.wb_promotion_id,
-                    WbPromotion.marketplace_account_id == WbPromotionNomenclature.marketplace_account_id,
+                    WbPromotion.marketplace_account_id
+                    == WbPromotionNomenclature.marketplace_account_id,
                 ),
             )
             .where(
@@ -1152,7 +1159,7 @@ class WbPromotionsSyncService:
                 },
             )
 
-        return rows[0][0]
+        return cast(WbPromotionNomenclature, rows[0][0])
 
 
 def _parse_datetime(value: Any) -> datetime | None:
@@ -1286,7 +1293,9 @@ def _extract_nomenclatures_list(response: dict[str, Any]) -> list[dict[str, Any]
 def _safe_response_preview(response: Any, max_len: int = 1000) -> str:
     """Create a safe preview of response without tokens."""
     if isinstance(response, dict):
-        safe = {k: v for k, v in response.items() if "token" not in k.lower() and "key" not in k.lower()}
+        safe = {
+            k: v for k, v in response.items() if "token" not in k.lower() and "key" not in k.lower()
+        }
         preview = str(safe)
     else:
         preview = str(response)
@@ -1411,9 +1420,15 @@ def _extract_required_price_from_item(item: dict[str, Any]) -> Decimal | None:
     10. price — current price (fallback, only if nothing else found)
     """
     price_keys = [
-        "planPrice", "requiredPrice", "maxPrice",
-        "actionPrice", "participationPrice", "targetPrice",
-        "thresholdPrice", "autoActionPrice", "discountPrice",
+        "planPrice",
+        "requiredPrice",
+        "maxPrice",
+        "actionPrice",
+        "participationPrice",
+        "targetPrice",
+        "thresholdPrice",
+        "autoActionPrice",
+        "discountPrice",
     ]
 
     for key in price_keys:

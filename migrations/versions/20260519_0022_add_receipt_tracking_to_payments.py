@@ -6,6 +6,7 @@ Create Date: 2026-05-19
 
 non-destructive: adds nullable columns with no default
 """
+# ruff: noqa: E501
 
 from alembic import op
 
@@ -19,12 +20,8 @@ def upgrade() -> None:
     op.execute(
         "ALTER TABLE payments ADD COLUMN IF NOT EXISTS success_notification_sent_at TIMESTAMP WITH TIME ZONE"
     )
-    op.execute(
-        "ALTER TABLE payments ADD COLUMN IF NOT EXISTS receipt_id VARCHAR(128)"
-    )
-    op.execute(
-        "ALTER TABLE payments ADD COLUMN IF NOT EXISTS receipt_status VARCHAR(32)"
-    )
+    op.execute("ALTER TABLE payments ADD COLUMN IF NOT EXISTS receipt_id VARCHAR(128)")
+    op.execute("ALTER TABLE payments ADD COLUMN IF NOT EXISTS receipt_status VARCHAR(32)")
 
 
 def downgrade() -> None:

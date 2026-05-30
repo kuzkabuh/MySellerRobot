@@ -23,10 +23,7 @@ def upgrade() -> None:
     conn = op.get_bind()
     inspector = sa.inspect(conn)
 
-    columns = [
-        col["name"]
-        for col in inspector.get_columns("wb_auto_promo_price_recommendations")
-    ]
+    columns = [col["name"] for col in inspector.get_columns("wb_auto_promo_price_recommendations")]
 
     if "promotion_name" not in columns:
         op.add_column(
@@ -35,12 +32,11 @@ def upgrade() -> None:
         )
 
     # Also ensure wb_auto_promotion_conditions has all expected columns
-    cond_columns = [
-        col["name"]
-        for col in inspector.get_columns("wb_auto_promotion_conditions")
-    ]
+    cond_columns = [col["name"] for col in inspector.get_columns("wb_auto_promotion_conditions")]
     expected_cond = [
-        "title", "promotion_name", "is_participating",
+        "title",
+        "promotion_name",
+        "is_participating",
     ]
     for col_name in expected_cond:
         if col_name not in cond_columns:
@@ -57,10 +53,7 @@ def upgrade() -> None:
                 )
 
     # Ensure wb_price_change_history has source column
-    hist_columns = [
-        col["name"]
-        for col in inspector.get_columns("wb_price_change_history")
-    ]
+    hist_columns = [col["name"] for col in inspector.get_columns("wb_price_change_history")]
     if "source" not in hist_columns:
         op.add_column(
             "wb_price_change_history",
@@ -78,23 +71,16 @@ def downgrade() -> None:
     inspector = sa.inspect(conn)
 
     rec_columns = [
-        col["name"]
-        for col in inspector.get_columns("wb_auto_promo_price_recommendations")
+        col["name"] for col in inspector.get_columns("wb_auto_promo_price_recommendations")
     ]
     if "promotion_name" in rec_columns:
         op.drop_column("wb_auto_promo_price_recommendations", "promotion_name")
 
-    cond_columns = [
-        col["name"]
-        for col in inspector.get_columns("wb_auto_promotion_conditions")
-    ]
+    cond_columns = [col["name"] for col in inspector.get_columns("wb_auto_promotion_conditions")]
     for col_name in ("title", "promotion_name", "is_participating"):
         if col_name in cond_columns:
             op.drop_column("wb_auto_promotion_conditions", col_name)
 
-    hist_columns = [
-        col["name"]
-        for col in inspector.get_columns("wb_price_change_history")
-    ]
+    hist_columns = [col["name"] for col in inspector.get_columns("wb_price_change_history")]
     if "source" in hist_columns:
         op.drop_column("wb_price_change_history", "source")

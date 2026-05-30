@@ -198,7 +198,7 @@ class WbLogisticsCalculatorService:
             )
 
         tariff_rate, version_id = await self._find_tariff_rate(
-            warehouse_name=warehouse_name,
+            warehouse_name=warehouse_name or "",
             sales_model=sales_model,
             order_date=order_date,
         )
@@ -345,7 +345,7 @@ class WbLogisticsCalculatorService:
             )
 
         tariff_rate, version_id = await self._find_tariff_rate(
-            warehouse_name=warehouse_name,
+            warehouse_name=warehouse_name or "",
             sales_model=sales_model,
             order_date=order_date,
         )

@@ -97,7 +97,9 @@ async def test_free_tier_allows_multi_account() -> None:
     """FREE tier should allow MULTI_ACCOUNT (always True)."""
     tier = _make_tier(code="free", name="FREE")
 
-    result = await FeatureAccessService(FakeSession(tier)).can_use_feature(1, FeatureCode.MULTI_ACCOUNT)
+    result = await FeatureAccessService(FakeSession(tier)).can_use_feature(
+        1, FeatureCode.MULTI_ACCOUNT
+    )
 
     assert result.allowed is True
 
@@ -128,7 +130,9 @@ async def test_basic_tier_allows_basic_features() -> None:
         feature_analytics=False,
     )
 
-    result = await FeatureAccessService(FakeSession(tier)).can_use_feature(1, FeatureCode.MULTI_ACCOUNT)
+    result = await FeatureAccessService(FakeSession(tier)).can_use_feature(
+        1, FeatureCode.MULTI_ACCOUNT
+    )
 
     assert result.allowed is True
 

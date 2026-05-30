@@ -5,17 +5,15 @@ updated: 2026-05-20
 """
 
 from datetime import UTC, datetime
-from decimal import Decimal
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from zoneinfo import ZoneInfo
 
 import pytest
 
 from app.integrations.wb import WildberriesClient
-from app.models.domain import Order, OrderItem
+from app.models.domain import Order
 from app.models.enums import Marketplace, SaleModel, SourceEventType
-from app.schemas.orders import NormalizedOrder, NormalizedOrderItem
 
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 
@@ -164,7 +162,8 @@ class TestWBDeduplication:
         result1 = await repo.upsert(user_id=1, account_id=1, normalized=live)
         assert result1[1] is True
 
-        # Second call: find by srid → merge (2 execute calls: external_id returns None, srid finds it)
+        # Second call: find by srid → merge.
+        # Two execute calls: external_id returns None, srid finds it.
         result2 = await repo.upsert(user_id=1, account_id=1, normalized=stats)
         assert result2[1] is False
         assert result2[0].id == 1
@@ -508,7 +507,9 @@ class TestRepairDuplicates:
 
         session = AsyncMock()
         session.execute = AsyncMock(return_value=mock_result)
-        session.get = AsyncMock(side_effect=lambda model, pk: {1: live_order, 2: stat_order}.get(pk))
+        session.get = AsyncMock(
+            side_effect=lambda model, pk: {1: live_order, 2: stat_order}.get(pk)
+        )
         session.delete = AsyncMock()
         session.commit = AsyncMock()
 

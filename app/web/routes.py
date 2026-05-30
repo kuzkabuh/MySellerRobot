@@ -3,6 +3,7 @@
 The endpoint implementations live in app.web.route_modules.*. This module keeps the
 historic public import path (`app.web.routes`) stable for FastAPI registration and tests.
 """
+
 # ruff: noqa: F401, F403
 
 from fastapi import APIRouter
@@ -45,6 +46,12 @@ from app.web.route_modules.catalog import (
     products_page,
     stocks_page,
 )
+from app.web.route_modules.commissions_admin import (
+    check_ozon_commissions_web,
+    commissions_admin_page,
+    import_ozon_commissions_web,
+    sync_wb_commissions_web,
+)
 from app.web.route_modules.compatibility import double_web_compat, placeholder
 from app.web.route_modules.dashboard import dashboard, dashboard_compat
 from app.web.route_modules.operations import (
@@ -61,12 +68,6 @@ from app.web.route_modules.planning import (
     delete_plan_fact_plan,
     plan_fact_page,
     save_plan_fact_plan,
-)
-from app.web.route_modules.commissions_admin import (
-    check_ozon_commissions_web,
-    commissions_admin_page,
-    import_ozon_commissions_web,
-    sync_wb_commissions_web,
 )
 from app.web.views import *
 

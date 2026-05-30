@@ -9,7 +9,8 @@ updated: 2026-05-23
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from decimal import Decimal, ROUND_CEILING, ROUND_HALF_UP
+from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,6 +56,7 @@ WB_UPLOAD_STATUS_MAP = {
 @dataclass(slots=True)
 class WbPricePayload:
     """Calculated price/discount payload for WB upload."""
+
     nm_id: int
     price: int
     discount: int
@@ -79,7 +81,9 @@ def calculate_wb_price_payload_for_target(
     if discount_factor <= 0:
         discount_factor = Decimal("0.25")
 
-    price_before_discount = (target_discounted_price / discount_factor).to_integral_value(rounding=ROUND_CEILING)
+    price_before_discount = (target_discounted_price / discount_factor).to_integral_value(
+        rounding=ROUND_CEILING
+    )
     price_int = int(price_before_discount)
 
     final_price = Decimal(str(price_int)) * discount_factor
@@ -118,7 +122,7 @@ class WbPriceUpdateService:
         user_id: int,
         marketplace_account_id: int,
         status_filter: str = "AUTO_PROMOTION_SET_PRICE",
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Prepare a preview of price changes without applying them."""
         from app.services.pricing.mrc_pricing_settings_service import MrcPricingSettingsService
 
@@ -148,8 +152,11 @@ class WbPriceUpdateService:
         )
         recommendations = list(recs_result.scalars().all())
 
-        preview: list[dict] = []
+        preview: list[dict[str, Any]] = []
         for rec in recommendations:
+            recommended_price = rec.recommended_price
+            if recommended_price is None:
+                continue
             product_result = await self.session.execute(
                 select(Product).where(Product.id == rec.product_id)
             )
@@ -160,39 +167,45 @@ class WbPriceUpdateService:
             current_price = await self._get_current_wb_price(product)
             can_change, skip_reason = await self._can_change_price(
                 product=product,
-                new_price=rec.recommended_price,
+                new_price=recommended_price,
                 rec=rec,
             )
 
             payload = calculate_wb_price_payload_for_target(
-                target_discounted_price=rec.recommended_price,
+                target_discounted_price=recommended_price,
                 discount_percent=discount_percent,
                 nm_id=rec.wb_nm_id,
             )
 
-            quarantine_risk = is_quarantine_risk(current_price, rec.recommended_price)
+            quarantine_risk = is_quarantine_risk(current_price, recommended_price)
 
-            preview.append({
-                "product_id": product.id,
-                "wb_nm_id": rec.wb_nm_id,
-                "seller_article": product.seller_article,
-                "title": product.title,
-                "promotion_name": rec.promotion_name,
-                "mrc_price": rec.mrc_price,
-                "current_wb_price": current_price,
-                "required_price": rec.required_price,
-                "recommended_price": rec.recommended_price,
-                "min_price": rec.min_price,
-                "mrc_lower_bound": rec.mrc_lower_bound,
-                "mrc_upper_bound": rec.mrc_upper_bound,
-                "can_change": can_change and not quarantine_risk,
-                "skip_reason": "Карантин WB: новая цена в 3+ раза ниже старой" if quarantine_risk else skip_reason,
-                "quarantine_risk": quarantine_risk,
-                "wb_price": payload.price,
-                "wb_discount": payload.discount,
-                "final_discounted_price": payload.final_discounted_price,
-                "recommendation_id": rec.id,
-            })
+            preview.append(
+                {
+                    "product_id": product.id,
+                    "wb_nm_id": rec.wb_nm_id,
+                    "seller_article": product.seller_article,
+                    "title": product.title,
+                    "promotion_name": rec.promotion_name,
+                    "mrc_price": rec.mrc_price,
+                    "current_wb_price": current_price,
+                    "required_price": rec.required_price,
+                    "recommended_price": recommended_price,
+                    "min_price": rec.min_price,
+                    "mrc_lower_bound": rec.mrc_lower_bound,
+                    "mrc_upper_bound": rec.mrc_upper_bound,
+                    "can_change": can_change and not quarantine_risk,
+                    "skip_reason": (
+                        "Карантин WB: новая цена в 3+ раза ниже старой"
+                        if quarantine_risk
+                        else skip_reason
+                    ),
+                    "quarantine_risk": quarantine_risk,
+                    "wb_price": payload.price,
+                    "wb_discount": payload.discount,
+                    "final_discounted_price": payload.final_discounted_price,
+                    "recommendation_id": rec.id,
+                }
+            )
 
         return preview
 
@@ -204,7 +217,7 @@ class WbPriceUpdateService:
         product_ids: list[int] | None = None,
         dry_run: bool = True,
         source: str = SOURCE_MANUAL,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Apply price changes for selected products."""
         from app.services.pricing.mrc_pricing_settings_service import MrcPricingSettingsService
 
@@ -215,29 +228,26 @@ class WbPriceUpdateService:
         )
         discount_percent = settings.default_discount_percent or Decimal("75")
 
-        query = (
-            select(WbAutoPromoPriceRecommendation)
-            .where(
-                WbAutoPromoPriceRecommendation.user_id == user_id,
-                WbAutoPromoPriceRecommendation.marketplace_account_id
-                == marketplace_account_id,
-                WbAutoPromoPriceRecommendation.status == "AUTO_PROMOTION_SET_PRICE",
-                WbAutoPromoPriceRecommendation.recommended_price.isnot(None),
-            )
+        query = select(WbAutoPromoPriceRecommendation).where(
+            WbAutoPromoPriceRecommendation.user_id == user_id,
+            WbAutoPromoPriceRecommendation.marketplace_account_id == marketplace_account_id,
+            WbAutoPromoPriceRecommendation.status == "AUTO_PROMOTION_SET_PRICE",
+            WbAutoPromoPriceRecommendation.recommended_price.isnot(None),
         )
         if product_ids:
-            query = query.where(
-                WbAutoPromoPriceRecommendation.product_id.in_(product_ids)
-            )
+            query = query.where(WbAutoPromoPriceRecommendation.product_id.in_(product_ids))
 
         recs_result = await self.session.execute(query)
         recommendations = list(recs_result.scalars().all())
 
-        results: list[dict] = []
-        upload_items: list[dict] = []
-        upload_context: list[dict] = []
+        results: list[dict[str, Any]] = []
+        upload_items: list[dict[str, Any]] = []
+        upload_context: list[dict[str, Any]] = []
 
         for rec in recommendations:
+            recommended_price = rec.recommended_price
+            if recommended_price is None:
+                continue
             product_result = await self.session.execute(
                 select(Product).where(Product.id == rec.product_id)
             )
@@ -248,7 +258,7 @@ class WbPriceUpdateService:
             current_price = await self._get_current_wb_price(product)
             can_change, skip_reason = await self._can_change_price(
                 product=product,
-                new_price=rec.recommended_price,
+                new_price=recommended_price,
                 rec=rec,
             )
 
@@ -259,7 +269,7 @@ class WbPriceUpdateService:
                     product_id=product.id,
                     wb_nm_id=rec.wb_nm_id,
                     old_price=current_price,
-                    new_price=rec.recommended_price,
+                    new_price=recommended_price,
                     status=STATUS_SKIPPED,
                     error=skip_reason,
                     dry_run=dry_run,
@@ -276,15 +286,17 @@ class WbPriceUpdateService:
                         "reason": skip_reason,
                     },
                 )
-                results.append({
-                    "product_id": product.id,
-                    "wb_nm_id": rec.wb_nm_id,
-                    "status": STATUS_SKIPPED,
-                    "reason": skip_reason,
-                })
+                results.append(
+                    {
+                        "product_id": product.id,
+                        "wb_nm_id": rec.wb_nm_id,
+                        "status": STATUS_SKIPPED,
+                        "reason": skip_reason,
+                    }
+                )
                 continue
 
-            quarantine_risk = is_quarantine_risk(current_price, rec.recommended_price)
+            quarantine_risk = is_quarantine_risk(current_price, recommended_price)
             if quarantine_risk and source == SOURCE_AUTO:
                 skip_reason = "Карантин WB: новая цена в 3+ раза ниже старой"
                 await self._record_history(
@@ -293,7 +305,7 @@ class WbPriceUpdateService:
                     product_id=product.id,
                     wb_nm_id=rec.wb_nm_id,
                     old_price=current_price,
-                    new_price=rec.recommended_price,
+                    new_price=recommended_price,
                     status=STATUS_QUARANTINE,
                     error=skip_reason,
                     dry_run=dry_run,
@@ -302,17 +314,19 @@ class WbPriceUpdateService:
                     mrc_lower_bound=rec.mrc_lower_bound,
                     mrc_upper_bound=rec.mrc_upper_bound,
                 )
-                results.append({
-                    "product_id": product.id,
-                    "wb_nm_id": rec.wb_nm_id,
-                    "status": STATUS_QUARANTINE,
-                    "reason": skip_reason,
-                })
+                results.append(
+                    {
+                        "product_id": product.id,
+                        "wb_nm_id": rec.wb_nm_id,
+                        "status": STATUS_QUARANTINE,
+                        "reason": skip_reason,
+                    }
+                )
                 continue
 
             if dry_run:
                 payload = calculate_wb_price_payload_for_target(
-                    target_discounted_price=rec.recommended_price,
+                    target_discounted_price=recommended_price,
                     discount_percent=discount_percent,
                     nm_id=rec.wb_nm_id,
                 )
@@ -322,7 +336,7 @@ class WbPriceUpdateService:
                     product_id=product.id,
                     wb_nm_id=rec.wb_nm_id,
                     old_price=current_price,
-                    new_price=rec.recommended_price,
+                    new_price=recommended_price,
                     status=STATUS_DRY_RUN,
                     dry_run=True,
                     source=source,
@@ -332,21 +346,23 @@ class WbPriceUpdateService:
                     wb_price=payload.price,
                     wb_discount=payload.discount,
                     final_discounted_price=payload.final_discounted_price,
-                    target_discounted_price=rec.recommended_price,
+                    target_discounted_price=recommended_price,
                 )
-                results.append({
-                    "product_id": product.id,
-                    "wb_nm_id": rec.wb_nm_id,
-                    "status": STATUS_DRY_RUN,
-                    "old_price": current_price,
-                    "new_price": rec.recommended_price,
-                    "wb_price": payload.price,
-                    "wb_discount": payload.discount,
-                })
+                results.append(
+                    {
+                        "product_id": product.id,
+                        "wb_nm_id": rec.wb_nm_id,
+                        "status": STATUS_DRY_RUN,
+                        "old_price": current_price,
+                        "new_price": recommended_price,
+                        "wb_price": payload.price,
+                        "wb_discount": payload.discount,
+                    }
+                )
                 continue
 
             payload = calculate_wb_price_payload_for_target(
-                target_discounted_price=rec.recommended_price,
+                target_discounted_price=recommended_price,
                 discount_percent=discount_percent,
                 nm_id=rec.wb_nm_id,
             )
@@ -355,30 +371,34 @@ class WbPriceUpdateService:
                 "wb_price_payload_calculated",
                 extra={
                     "wb_nm_id": rec.wb_nm_id,
-                    "target_price": str(rec.recommended_price),
+                    "target_price": str(recommended_price),
                     "wb_price": payload.price,
                     "wb_discount": payload.discount,
                     "final_price": str(payload.final_discounted_price),
                 },
             )
 
-            upload_items.append({
-                "nmID": rec.wb_nm_id,
-                "price": payload.price,
-                "discount": payload.discount,
-            })
-            upload_context.append({
-                "product_id": product.id,
-                "wb_nm_id": rec.wb_nm_id,
-                "old_price": current_price,
-                "target_discounted_price": rec.recommended_price,
-                "wb_price": payload.price,
-                "wb_discount": payload.discount,
-                "final_discounted_price": payload.final_discounted_price,
-                "min_price": rec.min_price,
-                "mrc_lower_bound": rec.mrc_lower_bound,
-                "mrc_upper_bound": rec.mrc_upper_bound,
-            })
+            upload_items.append(
+                {
+                    "nmID": rec.wb_nm_id,
+                    "price": payload.price,
+                    "discount": payload.discount,
+                }
+            )
+            upload_context.append(
+                {
+                    "product_id": product.id,
+                    "wb_nm_id": rec.wb_nm_id,
+                    "old_price": current_price,
+                    "target_discounted_price": recommended_price,
+                    "wb_price": payload.price,
+                    "wb_discount": payload.discount,
+                    "final_discounted_price": payload.final_discounted_price,
+                    "min_price": rec.min_price,
+                    "mrc_lower_bound": rec.mrc_lower_bound,
+                    "mrc_upper_bound": rec.mrc_upper_bound,
+                }
+            )
 
             if len(upload_items) >= MAX_UPLOAD_ITEMS:
                 batch_results = await self._execute_upload(
@@ -411,13 +431,13 @@ class WbPriceUpdateService:
         user_id: int,
         marketplace_account_id: int,
         wb_api_key: str,
-        upload_items: list[dict],
-        upload_context: list[dict],
+        upload_items: list[dict[str, Any]],
+        upload_context: list[dict[str, Any]],
         source: str,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Execute a batch upload to WB /api/v2/upload/task."""
         client = WildberriesClient(api_key=wb_api_key)
-        results: list[dict] = []
+        results: list[dict[str, Any]] = []
 
         logger.info(
             "wb_price_upload_started",
@@ -469,12 +489,14 @@ class WbPriceUpdateService:
                         raw_payload=upload_items,
                         raw_response=raw_response,
                     )
-                    results.append({
-                        "product_id": ctx["product_id"],
-                        "wb_nm_id": ctx["wb_nm_id"],
-                        "status": STATUS_UPLOAD_ERROR,
-                        "error": error_text,
-                    })
+                    results.append(
+                        {
+                            "product_id": ctx["product_id"],
+                            "wb_nm_id": ctx["wb_nm_id"],
+                            "status": STATUS_UPLOAD_ERROR,
+                            "error": error_text,
+                        }
+                    )
                 return results
 
             logger.info(
@@ -503,7 +525,9 @@ class WbPriceUpdateService:
                     wb_nm_id=ctx["wb_nm_id"],
                     old_price=ctx["old_price"],
                     new_price=ctx["target_discounted_price"],
-                    status=STATUS_APPLIED if upload_status == "processed_success" else upload_status,
+                    status=(
+                        STATUS_APPLIED if upload_status == "processed_success" else upload_status
+                    ),
                     dry_run=False,
                     source=source,
                     min_price=ctx["min_price"],
@@ -517,16 +541,22 @@ class WbPriceUpdateService:
                     raw_payload=upload_items,
                     raw_response=raw_response,
                 )
-                results.append({
-                    "product_id": ctx["product_id"],
-                    "wb_nm_id": ctx["wb_nm_id"],
-                    "status": STATUS_APPLIED if upload_status == "processed_success" else upload_status,
-                    "upload_id": upload_id,
-                    "old_price": ctx["old_price"],
-                    "new_price": ctx["target_discounted_price"],
-                    "wb_price": ctx["wb_price"],
-                    "wb_discount": ctx["wb_discount"],
-                })
+                results.append(
+                    {
+                        "product_id": ctx["product_id"],
+                        "wb_nm_id": ctx["wb_nm_id"],
+                        "status": (
+                            STATUS_APPLIED
+                            if upload_status == "processed_success"
+                            else upload_status
+                        ),
+                        "upload_id": upload_id,
+                        "old_price": ctx["old_price"],
+                        "new_price": ctx["target_discounted_price"],
+                        "wb_price": ctx["wb_price"],
+                        "wb_discount": ctx["wb_discount"],
+                    }
+                )
 
         except Exception as exc:
             logger.exception(
@@ -556,12 +586,14 @@ class WbPriceUpdateService:
                     target_discounted_price=ctx["target_discounted_price"],
                     raw_payload=upload_items,
                 )
-                results.append({
-                    "product_id": ctx["product_id"],
-                    "wb_nm_id": ctx["wb_nm_id"],
-                    "status": STATUS_FAILED,
-                    "error": str(exc),
-                })
+                results.append(
+                    {
+                        "product_id": ctx["product_id"],
+                        "wb_nm_id": ctx["wb_nm_id"],
+                        "status": STATUS_FAILED,
+                        "error": str(exc),
+                    }
+                )
 
         return results
 
@@ -595,7 +627,11 @@ class WbPriceUpdateService:
                             "attempt": attempt + 1,
                         },
                     )
-                    if status_text in ("processed_success", "processed_partial", "processed_all_errors"):
+                    if status_text in (
+                        "processed_success",
+                        "processed_partial",
+                        "processed_all_errors",
+                    ):
                         return status_text
 
                 await asyncio.sleep(UPLOAD_STATUS_POLL_INTERVAL)
@@ -622,16 +658,10 @@ class WbPriceUpdateService:
             return False, f"Цена {new_price} ниже minPrice ({rec.min_price})"
 
         if rec.mrc_lower_bound and new_price < rec.mrc_lower_bound:
-            return False, (
-                f"Цена {new_price} ниже нижней границы МРЦ "
-                f"({rec.mrc_lower_bound})"
-            )
+            return False, (f"Цена {new_price} ниже нижней границы МРЦ " f"({rec.mrc_lower_bound})")
 
         if rec.mrc_upper_bound and new_price > rec.mrc_upper_bound:
-            return False, (
-                f"Цена {new_price} выше верхней границы МРЦ "
-                f"({rec.mrc_upper_bound})"
-            )
+            return False, (f"Цена {new_price} выше верхней границы МРЦ " f"({rec.mrc_upper_bound})")
 
         last_change = await self._get_last_price_change(
             product.marketplace_account_id,
@@ -709,8 +739,7 @@ class WbPriceUpdateService:
         result = await self.session.execute(
             select(WbPriceChangeHistory.created_at)
             .where(
-                WbPriceChangeHistory.marketplace_account_id
-                == marketplace_account_id,
+                WbPriceChangeHistory.marketplace_account_id == marketplace_account_id,
                 WbPriceChangeHistory.wb_nm_id == wb_nm_id,
                 WbPriceChangeHistory.status.in_([STATUS_APPLIED, STATUS_DRY_RUN]),
             )
@@ -739,8 +768,8 @@ class WbPriceUpdateService:
         wb_discount: int | None = None,
         final_discounted_price: Decimal | None = None,
         target_discounted_price: Decimal | None = None,
-        raw_payload: dict | None = None,
-        raw_response: dict | None = None,
+        raw_payload: Any = None,
+        raw_response: dict[str, Any] | None = None,
     ) -> None:
         """Record a price change in history."""
         record = WbPriceChangeHistory(

@@ -84,13 +84,9 @@ class PaymentService:
                 "yookassa_invalid_credentials",
                 extra={"detail": "shop_id or secret_key is empty"},
             )
-            raise RuntimeError(
-                "Платёжная система не настроена. Обратитесь к администратору."
-            )
+            raise RuntimeError("Платёжная система не настроена. Обратитесь к администратору.")
 
-    def _generate_idempotence_key(
-        self, *, user_id: int, tier_code: str, period: str
-    ) -> str:
+    def _generate_idempotence_key(self, *, user_id: int, tier_code: str, period: str) -> str:
         """Generate a unique YooKassa idempotence key."""
         return uuid.uuid4().hex
 
@@ -202,7 +198,8 @@ class PaymentService:
         self.session.add(payment)
         await self.session.flush()
 
-        confirmation_url = payment.payment_metadata["confirmation_url"]
+        payment_metadata = payment.payment_metadata or {}
+        confirmation_url = str(payment_metadata.get("confirmation_url", ""))
 
         logger.info(
             "payment_created",
@@ -526,9 +523,7 @@ class PaymentService:
                     "tier_code": tier_code,
                     "period": period,
                     "expires_at": (
-                        subscription.expires_at.isoformat()
-                        if subscription.expires_at
-                        else None
+                        subscription.expires_at.isoformat() if subscription.expires_at else None
                     ),
                 },
             )
@@ -586,12 +581,12 @@ class PaymentService:
         try:
             yk_data = await self.yookassa.get_payment(payment.provider_payment_id)
             receipt_data = yk_data.get("receipt")
-            if receipt_data:
+            if isinstance(receipt_data, dict):
                 status = receipt_data.get("status") or receipt_data.get("registration_status")
-                if status:
+                if isinstance(status, str) and status:
                     payment.receipt_status = status
                     await self.session.flush()
-                return status
+                    return status
         except Exception as e:
             logger.warning(
                 "payment_receipt_status_fetch_failed",
@@ -601,13 +596,13 @@ class PaymentService:
                     "error": str(e),
                 },
             )
-        return payment.receipt_status
+        return payment.receipt_status if isinstance(payment.receipt_status, str) else None
 
     async def _send_payment_success_notification(
         self,
         *,
         payment: Payment,
-        subscription,
+        subscription: Any,
         tier_code: str,
         period: str,
     ) -> None:
@@ -725,7 +720,7 @@ class PaymentService:
                 },
             )
 
-    def _build_payment_success_keyboard(self, payment_id: int):
+    def _build_payment_success_keyboard(self, payment_id: int) -> Any:
         """Build inline keyboard for payment success message."""
         from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -897,7 +892,12 @@ class PaymentService:
         """Fetch confirmation URL from YooKassa for an existing payment."""
         try:
             payment_data = await self.yookassa.get_payment(provider_payment_id)
-            return payment_data.get("confirmation", {}).get("confirmation_url")
+            confirmation = payment_data.get("confirmation")
+            if isinstance(confirmation, dict):
+                confirmation_url = confirmation.get("confirmation_url")
+                if isinstance(confirmation_url, str):
+                    return confirmation_url
+            return None
         except Exception:
             logger.warning(
                 "payment_confirmation_url_fetch_failed",

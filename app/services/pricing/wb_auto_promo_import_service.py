@@ -9,6 +9,7 @@ import csv
 import io
 import logging
 import tempfile
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
@@ -112,6 +113,8 @@ class WbAutoPromoImportService:
         """Generate an Excel template for auto promotion conditions import."""
         wb = Workbook()
         ws = wb.active
+        if ws is None:
+            raise RuntimeError("Excel workbook has no active worksheet")
         ws.title = "Условия автоакций"
 
         headers = [
@@ -126,16 +129,18 @@ class WbAutoPromoImportService:
         ]
         ws.append(headers)
 
-        ws.append([
-            345455998,
-            "ARTICLE-001",
-            "Пример товара",
-            "Автоакция WB",
-            980,
-            1000,
-            "нет",
-            "Пример строки",
-        ])
+        ws.append(
+            [
+                345455998,
+                "ARTICLE-001",
+                "Пример товара",
+                "Автоакция WB",
+                980,
+                1000,
+                "нет",
+                "Пример строки",
+            ]
+        )
 
         tmp = Path(tempfile.gettempdir()) / f"auto_promo_template_{user_id}.xlsx"
         wb.save(str(tmp))
@@ -164,11 +169,19 @@ class WbAutoPromoImportService:
         try:
             if suffix in (".xlsx", ".xlsm"):
                 return await self._parse_xlsx(
-                    file_path, user_id, marketplace_account_id, source, original_file_name,
+                    file_path,
+                    user_id,
+                    marketplace_account_id,
+                    source,
+                    original_file_name,
                 )
             elif suffix == ".csv":
                 return await self._parse_csv(
-                    file_path, user_id, marketplace_account_id, source, original_file_name,
+                    file_path,
+                    user_id,
+                    marketplace_account_id,
+                    source,
+                    original_file_name,
                 )
             else:
                 raise ValueError("Файл должен быть .xlsx или .csv")
@@ -196,9 +209,14 @@ class WbAutoPromoImportService:
         wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
         try:
             ws = wb["Отчёт по скидкам"] if "Отчёт по скидкам" in wb.sheetnames else wb.active
+            if ws is None:
+                raise ValueError("Excel-файл не содержит листов")
             return await self._process_rows(
                 ws.iter_rows(values_only=True),
-                user_id, marketplace_account_id, source, original_file_name,
+                user_id,
+                marketplace_account_id,
+                source,
+                original_file_name,
             )
         finally:
             wb.close()
@@ -218,12 +236,16 @@ class WbAutoPromoImportService:
         rows_iter = iter(reader)
 
         return await self._process_rows(
-            rows_iter, user_id, marketplace_account_id, source, original_file_name,
+            rows_iter,
+            user_id,
+            marketplace_account_id,
+            source,
+            original_file_name,
         )
 
     async def _process_rows(
         self,
-        rows_iter,
+        rows_iter: Iterator[Sequence[Any]],
         user_id: int,
         marketplace_account_id: int,
         source: str,
@@ -267,9 +289,7 @@ class WbAutoPromoImportService:
             wb_upload_discount_percent = self._parse_decimal(
                 row_data.get("wb_upload_discount_percent")
             )
-            current_discounted_price = self._parse_decimal(
-                row_data.get("current_discounted_price")
-            )
+            current_discounted_price = self._parse_decimal(row_data.get("current_discounted_price"))
             if current_discounted_price is None:
                 current_discounted_price = self._discounted_price(
                     current_full_price,
@@ -300,18 +320,17 @@ class WbAutoPromoImportService:
                 status = "error"
                 message = "Плановая цена для акции <= 0"
                 error_count += 1
-            elif required_price is None and (
-                fallback_price is None or fallback_price <= 0
-            ):
+            elif required_price is None and (fallback_price is None or fallback_price <= 0):
                 status = "error"
                 message = (
-                    "Плановая цена не указана, а загружаемую скидку нельзя "
-                    "пересчитать в цену"
+                    "Плановая цена не указана, а загружаемую скидку нельзя " "пересчитать в цену"
                 )
                 error_count += 1
             else:
                 product = await self._find_product_by_nm_id(
-                    marketplace_account_id, wb_nm_id, products_cache,
+                    marketplace_account_id,
+                    wb_nm_id,
+                    products_cache,
                 )
                 if product is None:
                     status = "warning"
@@ -320,47 +339,53 @@ class WbAutoPromoImportService:
                 else:
                     valid_count += 1
 
-            preview_rows.append({
-                "row_num": row_idx,
-                "wb_nm_id": wb_nm_id,
-                "seller_article": seller_article or None,
-                "title": title or None,
-                "promotion_name": promotion_name or None,
-                "required_price": required_price,
-                "current_wb_price": current_wb_price,
-                "current_full_price": current_full_price,
-                "current_discount": current_discount,
-                "current_discounted_price": current_discounted_price,
-                "wb_upload_discount_percent": wb_upload_discount_percent,
-                "fallback_discounted_price": fallback_price,
-                "condition_type": condition_type,
-                "wb_status": wb_status or None,
-                "is_participating": is_participating,
-                "product_id": product.id if product else None,
-                "status": status,
-                "message": message,
-                "raw_payload": {
+            preview_rows.append(
+                {
                     "row_num": row_idx,
+                    "wb_nm_id": wb_nm_id,
+                    "seller_article": seller_article or None,
+                    "title": title or None,
+                    "promotion_name": promotion_name or None,
+                    "required_price": required_price,
+                    "current_wb_price": current_wb_price,
+                    "current_full_price": current_full_price,
+                    "current_discount": current_discount,
+                    "current_discounted_price": current_discounted_price,
+                    "wb_upload_discount_percent": wb_upload_discount_percent,
+                    "fallback_discounted_price": fallback_price,
+                    "condition_type": condition_type,
                     "wb_status": wb_status or None,
-                    "plan_price": str(required_price) if required_price is not None else None,
-                    "current_full_price": str(current_full_price)
-                    if current_full_price is not None
-                    else None,
-                    "current_discount": str(current_discount)
-                    if current_discount is not None
-                    else None,
-                    "current_discounted_price": str(current_discounted_price)
-                    if current_discounted_price is not None
-                    else None,
-                    "wb_upload_discount_percent": str(wb_upload_discount_percent)
-                    if wb_upload_discount_percent is not None
-                    else None,
-                    "fallback_discounted_price": str(fallback_price)
-                    if fallback_price is not None
-                    else None,
-                    "wb_upload_discount_is_diagnostic": required_price is not None,
-                },
-            })
+                    "is_participating": is_participating,
+                    "product_id": product.id if product else None,
+                    "status": status,
+                    "message": message,
+                    "raw_payload": {
+                        "row_num": row_idx,
+                        "wb_status": wb_status or None,
+                        "plan_price": str(required_price) if required_price is not None else None,
+                        "current_full_price": (
+                            str(current_full_price) if current_full_price is not None else None
+                        ),
+                        "current_discount": (
+                            str(current_discount) if current_discount is not None else None
+                        ),
+                        "current_discounted_price": (
+                            str(current_discounted_price)
+                            if current_discounted_price is not None
+                            else None
+                        ),
+                        "wb_upload_discount_percent": (
+                            str(wb_upload_discount_percent)
+                            if wb_upload_discount_percent is not None
+                            else None
+                        ),
+                        "fallback_discounted_price": (
+                            str(fallback_price) if fallback_price is not None else None
+                        ),
+                        "wb_upload_discount_is_diagnostic": required_price is not None,
+                    },
+                }
+            )
 
         total_rows = len(preview_rows)
         preview = AutoPromoImportPreview(
@@ -416,8 +441,7 @@ class WbAutoPromoImportService:
 
             existing = await self.session.execute(
                 select(WbAutoPromotionCondition).where(
-                    WbAutoPromotionCondition.marketplace_account_id
-                    == marketplace_account_id,
+                    WbAutoPromotionCondition.marketplace_account_id == marketplace_account_id,
                     WbAutoPromotionCondition.wb_nm_id == wb_nm_id,
                     WbAutoPromotionCondition.source == "file_import",
                     WbAutoPromotionCondition.promotion_name
@@ -476,12 +500,14 @@ class WbAutoPromoImportService:
             return cache[wb_nm_id]
 
         result = await self.session.execute(
-            select(Product).where(
+            select(Product)
+            .where(
                 Product.marketplace_account_id == marketplace_account_id,
                 Product.marketplace == "wb",
                 (Product.external_product_id == str(wb_nm_id))
                 | (Product.marketplace_article == str(wb_nm_id)),
-            ).limit(1)
+            )
+            .limit(1)
         )
         product = result.scalar_one_or_none()
         if product:
@@ -489,7 +515,7 @@ class WbAutoPromoImportService:
         return product
 
     @staticmethod
-    def _resolve_headers(raw_headers: tuple) -> dict[int, str]:
+    def _resolve_headers(raw_headers: Sequence[Any]) -> dict[int, str]:
         """Map raw header strings to technical column names."""
         result: dict[int, str] = {}
         for idx, h in enumerate(raw_headers):

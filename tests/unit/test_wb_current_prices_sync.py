@@ -1,8 +1,7 @@
 """Tests for WB current prices sync service and response parsing."""
 
-import pytest
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from app.services.wb.wb_current_prices_sync_service import WbCurrentPricesSyncService
 

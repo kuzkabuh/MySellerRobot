@@ -37,9 +37,7 @@ class WildberriesClient:
         self.analytics = AsyncApiClient(settings.wb_base_analytics_url, marketplace="Wildberries")
         self.finance = AsyncApiClient(settings.wb_base_finance_url, marketplace="Wildberries")
         self.statistics = AsyncApiClient(settings.wb_base_statistics_url, marketplace="Wildberries")
-        self.calendar = AsyncApiClient(
-            settings.wb_base_calendar_url, marketplace="Wildberries"
-        )
+        self.calendar = AsyncApiClient(settings.wb_base_calendar_url, marketplace="Wildberries")
         self.discounts_prices = AsyncApiClient(
             settings.wb_base_discounts_prices_url, marketplace="Wildberries"
         )
@@ -629,7 +627,7 @@ class WildberriesClient:
                     "wb_prices_filter_failed",
                     extra={"error_text": error_text, "nm_ids_count": len(nm_ids)},
                 )
-                return response
+                return cast(dict[str, Any], response)
 
             list_goods = response.get("data", {}).get("listGoods", [])
             if not isinstance(list_goods, list):
@@ -648,7 +646,7 @@ class WildberriesClient:
                 extra={"nm_ids_count": len(nm_ids), "goods_found": len(list_goods)},
             )
 
-            return response
+            return cast(dict[str, Any], response)
         except Exception as exc:
             logger.exception(
                 "wb_prices_filter_failed",

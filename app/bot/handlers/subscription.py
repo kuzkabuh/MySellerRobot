@@ -6,6 +6,7 @@ updated: 2026-05-16
 
 import logging
 from html import escape as html_escape
+from typing import Any
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
@@ -57,7 +58,7 @@ def _html(value: object | None, fallback: str = "—") -> str:
     return html_escape(str(value), quote=False)
 
 
-async def _safe_edit_text(message: Message, text: str, **kwargs) -> None:
+async def _safe_edit_text(message: Message, text: str, **kwargs: Any) -> None:
     """Safely edit message text, falling back to answer if edit fails."""
     try:
         await message.edit_text(text, **kwargs)
@@ -327,10 +328,7 @@ async def handle_payment_email_input(message: Message, state: FSMContext) -> Non
     """Handle user email input for payment receipt."""
     email = (message.text or "").strip()
     if not email or "@" not in email or "." not in email.split("@")[-1]:
-        await message.answer(
-            "Пожалуйста, введите корректный e-mail.\n\n"
-            "Пример: example@mail.ru"
-        )
+        await message.answer("Пожалуйста, введите корректный e-mail.\n\n" "Пример: example@mail.ru")
         return
 
     data = await state.get_data()
@@ -343,6 +341,10 @@ async def handle_payment_email_input(message: Message, state: FSMContext) -> Non
         return
 
     async with AsyncSessionFactory() as session:
+        if message.from_user is None:
+            await message.answer("Не удалось определить пользователя.")
+            await state.clear()
+            return
         user_repo = UserRepository(session)
         user = await user_repo.get_by_telegram_id(message.from_user.id)
         if not user:
@@ -374,7 +376,7 @@ async def _process_payment(
     *,
     callback: CallbackQuery | None,
     message: Message,
-    user,
+    user: Any,
     tier_code: str,
     period: str,
 ) -> None:
@@ -601,9 +603,7 @@ async def show_receipt_status(callback: CallbackQuery) -> None:
         customer_email = user.payment_email or ""
         masked_email = _mask_email(customer_email) if customer_email else "не указан"
 
-        paid_at_str = format_datetime_for_user(
-            payment.paid_at, user.timezone, "%d.%m.%Y %H:%M"
-        )
+        paid_at_str = format_datetime_for_user(payment.paid_at, user.timezone, "%d.%m.%Y %H:%M")
 
         if receipt_status == "succeeded":
             text = (

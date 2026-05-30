@@ -49,12 +49,18 @@ async def test_poll_new_orders_uses_isolated_sessions() -> None:
     session_call_index = [0]
 
     account1 = SimpleNamespace(
-        id=1, marketplace=Marketplace.WB, user_id=1,
-        last_error_at=None, last_error_message=None,
+        id=1,
+        marketplace=Marketplace.WB,
+        user_id=1,
+        last_error_at=None,
+        last_error_message=None,
     )
     account2 = SimpleNamespace(
-        id=2, marketplace=Marketplace.OZON, user_id=1,
-        last_error_at=None, last_error_message=None,
+        id=2,
+        marketplace=Marketplace.OZON,
+        user_id=1,
+        last_error_at=None,
+        last_error_message=None,
     )
 
     poll_results = []
@@ -64,10 +70,16 @@ async def test_poll_new_orders_uses_isolated_sessions() -> None:
             raise RuntimeError("API error for account 1")
         poll_results.append(account.id)
         return SimpleNamespace(
-            fetched=1, created=1, duplicated=0, queued_digest=0,
-            skipped_by_policy=0, skipped_without_user=0,
-            skipped_without_items=0, retried_unnotified=0,
-            recovered_unnotified=0, notifications=[],
+            fetched=1,
+            created=1,
+            duplicated=0,
+            queued_digest=0,
+            skipped_by_policy=0,
+            skipped_without_user=0,
+            skipped_without_items=0,
+            retried_unnotified=0,
+            recovered_unnotified=0,
+            notifications=[],
             notification_count=0,
         )
 
@@ -77,10 +89,14 @@ async def test_poll_new_orders_uses_isolated_sessions() -> None:
         idx = session_call_index[0]
         session_call_index[0] += 1
         if idx == 0:
-            s._execute_results.append(FakeResult([
-                (1, Marketplace.WB, 1),
-                (2, Marketplace.OZON, 1),
-            ]))
+            s._execute_results.append(
+                FakeResult(
+                    [
+                        (1, Marketplace.WB, 1),
+                        (2, Marketplace.OZON, 1),
+                    ]
+                )
+            )
         elif idx == 1:
             s._execute_results.append(FakeResult([account1]))
         elif idx == 2:
@@ -110,6 +126,7 @@ async def test_poll_new_orders_uses_isolated_sessions() -> None:
                     mock_bot.return_value.session.close = AsyncMock()
 
                     from app.workers.tasks import poll_new_orders
+
                     await poll_new_orders({})
 
     assert len(sessions) >= 2
@@ -123,8 +140,11 @@ async def test_sync_products_survives_rollback_and_continues() -> None:
     session_call_index = [0]
 
     account = SimpleNamespace(
-        id=10, marketplace=Marketplace.WB, user_id=5,
-        last_error_at=None, last_error_message=None,
+        id=10,
+        marketplace=Marketplace.WB,
+        user_id=5,
+        last_error_at=None,
+        last_error_message=None,
     )
 
     async def fake_sync_account_products(account):
@@ -136,9 +156,13 @@ async def test_sync_products_survives_rollback_and_continues() -> None:
         idx = session_call_index[0]
         session_call_index[0] += 1
         if idx == 0:
-            s._execute_results.append(FakeResult([
-                (10, Marketplace.WB, 5),
-            ]))
+            s._execute_results.append(
+                FakeResult(
+                    [
+                        (10, Marketplace.WB, 5),
+                    ]
+                )
+            )
         elif idx == 1:
             s._execute_results.append(FakeResult([account]))
         return s
@@ -163,6 +187,7 @@ async def test_sync_products_survives_rollback_and_continues() -> None:
 
             with patch("app.workers.tasks.get_settings"):
                 from app.workers.tasks import sync_products
+
                 await sync_products({})
 
     assert len(sessions) >= 1

@@ -88,6 +88,8 @@ class WbPriceApplyService:
 
         preview: list[dict[str, Any]] = []
         for rec in result.scalars().all():
+            if rec.recommended_price is None:
+                continue
             payload = self.build_payload(
                 nm_id=rec.wb_nm_id,
                 recommended_price=rec.recommended_price,

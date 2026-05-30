@@ -341,7 +341,6 @@ def test_full_price_equals_discounted_divided_by_factor() -> None:
 
 def test_full_price_calculation_with_75_discount() -> None:
     """With 75% discount, full_price is calculated from discounted_price / 0.25."""
-    from decimal import ROUND_CEILING
 
     cases = [
         (Decimal("100"), 400),
@@ -356,5 +355,7 @@ def test_full_price_calculation_with_75_discount() -> None:
             discount=Decimal("75"),
             max_discounted_price=discounted,
         )
-        assert payload.price == expected_full, f"{discounted}: expected {expected_full}, got {payload.price}"
+        assert (
+            payload.price == expected_full
+        ), f"{discounted}: expected {expected_full}, got {payload.price}"
         assert payload.discount == 75

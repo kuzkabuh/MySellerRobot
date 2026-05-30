@@ -31,8 +31,20 @@ def upgrade() -> None:
         op.create_table(
             "wb_auto_promo_file_imports",
             sa.Column("id", sa.Integer(), nullable=False, primary_key=True, autoincrement=True),
-            sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True),
-            sa.Column("marketplace_account_id", sa.Integer(), sa.ForeignKey("marketplace_accounts.id", ondelete="CASCADE"), nullable=False, index=True),
+            sa.Column(
+                "user_id",
+                sa.Integer(),
+                sa.ForeignKey("users.id", ondelete="CASCADE"),
+                nullable=False,
+                index=True,
+            ),
+            sa.Column(
+                "marketplace_account_id",
+                sa.Integer(),
+                sa.ForeignKey("marketplace_accounts.id", ondelete="CASCADE"),
+                nullable=False,
+                index=True,
+            ),
             sa.Column("original_file_name", sa.String(512), nullable=True),
             sa.Column("promotion_name", sa.String(512), nullable=True),
             sa.Column("status", sa.String(32), nullable=False, server_default="preview"),
@@ -40,19 +52,44 @@ def upgrade() -> None:
             sa.Column("valid_rows", sa.Integer(), nullable=False, server_default="0"),
             sa.Column("error_rows", sa.Integer(), nullable=False, server_default="0"),
             sa.Column("warning_rows", sa.Integer(), nullable=False, server_default="0"),
-            sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now(), onupdate=sa.func.now()),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                nullable=False,
+                server_default=sa.func.now(),
+            ),
+            sa.Column(
+                "updated_at",
+                sa.DateTime(timezone=True),
+                nullable=False,
+                server_default=sa.func.now(),
+                onupdate=sa.func.now(),
+            ),
             sa.Column("applied_at", sa.DateTime(timezone=True), nullable=True),
             sa.Column("error_text", sa.Text(), nullable=True),
         )
-        op.create_index("ix_wb_auto_promo_file_imports_user_created", "wb_auto_promo_file_imports", ["user_id", "created_at"])
-        op.create_index("ix_wb_auto_promo_file_imports_marketplace_account_id", "wb_auto_promo_file_imports", ["marketplace_account_id"])
+        op.create_index(
+            "ix_wb_auto_promo_file_imports_user_created",
+            "wb_auto_promo_file_imports",
+            ["user_id", "created_at"],
+        )
+        op.create_index(
+            "ix_wb_auto_promo_file_imports_marketplace_account_id",
+            "wb_auto_promo_file_imports",
+            ["marketplace_account_id"],
+        )
 
     if "wb_auto_promo_file_import_rows" not in existing_tables:
         op.create_table(
             "wb_auto_promo_file_import_rows",
             sa.Column("id", sa.Integer(), nullable=False, primary_key=True, autoincrement=True),
-            sa.Column("import_id", sa.Integer(), sa.ForeignKey("wb_auto_promo_file_imports.id", ondelete="CASCADE"), nullable=False, index=True),
+            sa.Column(
+                "import_id",
+                sa.Integer(),
+                sa.ForeignKey("wb_auto_promo_file_imports.id", ondelete="CASCADE"),
+                nullable=False,
+                index=True,
+            ),
             sa.Column("row_number", sa.Integer(), nullable=False),
             sa.Column("wb_nm_id", sa.BigInteger(), nullable=True, index=True),
             sa.Column("seller_article", sa.String(255), nullable=True),
@@ -67,19 +104,35 @@ def upgrade() -> None:
             sa.Column("status", sa.String(32), nullable=False),
             sa.Column("message", sa.Text(), nullable=True),
             sa.Column("raw_payload", sa.JSON(), nullable=True),
-            sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now(), onupdate=sa.func.now()),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                nullable=False,
+                server_default=sa.func.now(),
+            ),
+            sa.Column(
+                "updated_at",
+                sa.DateTime(timezone=True),
+                nullable=False,
+                server_default=sa.func.now(),
+                onupdate=sa.func.now(),
+            ),
         )
-        op.create_index("ix_wb_auto_promo_file_rows_import_id", "wb_auto_promo_file_import_rows", ["import_id"])
-        op.create_index("ix_wb_auto_promo_file_import_rows_wb_nm_id", "wb_auto_promo_file_import_rows", ["wb_nm_id"])
+        op.create_index(
+            "ix_wb_auto_promo_file_rows_import_id", "wb_auto_promo_file_import_rows", ["import_id"]
+        )
+        op.create_index(
+            "ix_wb_auto_promo_file_import_rows_wb_nm_id",
+            "wb_auto_promo_file_import_rows",
+            ["wb_nm_id"],
+        )
 
     # ============================================================
     # COLUMNS: wb_auto_promotion_conditions
     # ============================================================
 
     condition_columns = {
-        col["name"]
-        for col in inspector.get_columns("wb_auto_promotion_conditions")
+        col["name"] for col in inspector.get_columns("wb_auto_promotion_conditions")
     }
     condition_table = "wb_auto_promotion_conditions"
 
@@ -120,8 +173,7 @@ def upgrade() -> None:
     # ============================================================
 
     rec_columns = {
-        col["name"]
-        for col in inspector.get_columns("wb_auto_promo_price_recommendations")
+        col["name"] for col in inspector.get_columns("wb_auto_promo_price_recommendations")
     }
     rec_table = "wb_auto_promo_price_recommendations"
 
@@ -169,10 +221,7 @@ def upgrade() -> None:
     # COLUMNS: wb_price_change_history
     # ============================================================
 
-    hist_columns = {
-        col["name"]
-        for col in inspector.get_columns("wb_price_change_history")
-    }
+    hist_columns = {col["name"] for col in inspector.get_columns("wb_price_change_history")}
     hist_table = "wb_price_change_history"
 
     hist_additions = [
@@ -215,10 +264,7 @@ def upgrade() -> None:
     # COLUMNS: wb_product_prices
     # ============================================================
 
-    price_columns = {
-        col["name"]
-        for col in inspector.get_columns("wb_product_prices")
-    }
+    price_columns = {col["name"] for col in inspector.get_columns("wb_product_prices")}
     price_table = "wb_product_prices"
 
     price_additions = [
@@ -255,8 +301,7 @@ def downgrade() -> None:
 
     # Drop columns (safe: only if they exist)
     condition_columns = {
-        col["name"]
-        for col in inspector.get_columns("wb_auto_promotion_conditions")
+        col["name"] for col in inspector.get_columns("wb_auto_promotion_conditions")
     }
     for name in (
         "condition_type",
@@ -271,8 +316,7 @@ def downgrade() -> None:
             op.drop_column("wb_auto_promotion_conditions", name)
 
     rec_columns = {
-        col["name"]
-        for col in inspector.get_columns("wb_auto_promo_price_recommendations")
+        col["name"] for col in inspector.get_columns("wb_auto_promo_price_recommendations")
     }
     for name in (
         "applied_at",
@@ -294,10 +338,7 @@ def downgrade() -> None:
         if name in rec_columns:
             op.drop_column("wb_auto_promo_price_recommendations", name)
 
-    hist_columns = {
-        col["name"]
-        for col in inspector.get_columns("wb_price_change_history")
-    }
+    hist_columns = {col["name"] for col in inspector.get_columns("wb_price_change_history")}
     for name in (
         "updated_at",
         "raw_response",
@@ -314,10 +355,7 @@ def downgrade() -> None:
         if name in hist_columns:
             op.drop_column("wb_price_change_history", name)
 
-    price_columns = {
-        col["name"]
-        for col in inspector.get_columns("wb_product_prices")
-    }
+    price_columns = {col["name"] for col in inspector.get_columns("wb_product_prices")}
     for name in (
         "club_discounted_price",
         "club_discount",

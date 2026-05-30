@@ -192,7 +192,9 @@ async def mrc_with_mrc_handler(callback: CallbackQuery) -> None:
 
         if not products:
             text = "📦 <b>Товары с МРЦ</b>\n\nУ вас пока нет товаров с заполненной МРЦ."
-            await safe_edit_text(callback.message, text, reply_markup=mrc_back_menu(), parse_mode="HTML")
+            await safe_edit_text(
+                callback.message, text, reply_markup=mrc_back_menu(), parse_mode="HTML"
+            )
             return
 
         lines = ["📦 <b>Товары с МРЦ</b> (первые 20):\n"]
@@ -208,7 +210,9 @@ async def mrc_with_mrc_handler(callback: CallbackQuery) -> None:
             )
 
         text = "\n\n".join(lines)
-        await safe_edit_text(callback.message, text, reply_markup=mrc_back_menu(), parse_mode="HTML")
+        await safe_edit_text(
+            callback.message, text, reply_markup=mrc_back_menu(), parse_mode="HTML"
+        )
     except Exception:
         logger.exception("mrc_with_mrc_failed")
         await safe_edit_text(
@@ -235,10 +239,7 @@ async def mrc_without_mrc_handler(callback: CallbackQuery) -> None:
                 .where(Product.user_id == user_id)
                 .where(Product.marketplace == Marketplace.WB)
                 .where(Product.is_active.is_(True))
-                .where(
-                    (Product.mrc_price.is_(None))
-                    | (Product.mrc_price <= 0)
-                )
+                .where((Product.mrc_price.is_(None)) | (Product.mrc_price <= 0))
                 .order_by(Product.seller_article)
                 .limit(20)
             )
@@ -246,7 +247,9 @@ async def mrc_without_mrc_handler(callback: CallbackQuery) -> None:
 
         if not products:
             text = "✅ <b>Отлично!</b>\n\nУ вас все товары WB имеют заполненную МРЦ."
-            await safe_edit_text(callback.message, text, reply_markup=mrc_back_menu(), parse_mode="HTML")
+            await safe_edit_text(
+                callback.message, text, reply_markup=mrc_back_menu(), parse_mode="HTML"
+            )
             return
 
         lines = ["⚠️ <b>Товары без МРЦ</b> (первые 20):\n"]
@@ -255,12 +258,13 @@ async def mrc_without_mrc_handler(callback: CallbackQuery) -> None:
             article = p.seller_article or "—"
             title = (p.title or "Без названия")[:40]
             lines.append(
-                f"• <b>{escape(title)}</b>\n"
-                f"  Артикул: {escape(article)} | nmID: {nm_id}"
+                f"• <b>{escape(title)}</b>\n" f"  Артикул: {escape(article)} | nmID: {nm_id}"
             )
 
         text = "\n\n".join(lines)
-        await safe_edit_text(callback.message, text, reply_markup=mrc_back_menu(), parse_mode="HTML")
+        await safe_edit_text(
+            callback.message, text, reply_markup=mrc_back_menu(), parse_mode="HTML"
+        )
     except Exception:
         logger.exception("mrc_without_mrc_failed")
         await safe_edit_text(
@@ -287,7 +291,9 @@ async def mrc_promos_today_handler(callback: CallbackQuery) -> None:
         async with AsyncSessionFactory() as session:
             result = await session.execute(
                 select(WbPromotion)
-                .join(MarketplaceAccount, MarketplaceAccount.id == WbPromotion.marketplace_account_id)
+                .join(
+                    MarketplaceAccount, MarketplaceAccount.id == WbPromotion.marketplace_account_id
+                )
                 .where(MarketplaceAccount.user_id == user_id)
                 .where(WbPromotion.start_datetime <= now_utc)
                 .where(WbPromotion.end_datetime >= now_utc)
@@ -297,7 +303,9 @@ async def mrc_promos_today_handler(callback: CallbackQuery) -> None:
 
             sync_result = await session.execute(
                 select(WbPromotion.synced_at)
-                .join(MarketplaceAccount, MarketplaceAccount.id == WbPromotion.marketplace_account_id)
+                .join(
+                    MarketplaceAccount, MarketplaceAccount.id == WbPromotion.marketplace_account_id
+                )
                 .where(MarketplaceAccount.user_id == user_id)
                 .where(WbPromotion.synced_at.isnot(None))
                 .order_by(WbPromotion.synced_at.desc())
@@ -308,7 +316,10 @@ async def mrc_promos_today_handler(callback: CallbackQuery) -> None:
         if not promotions:
             last_sync_text = ""
             if last_sync:
-                last_sync_text = f"\nПоследняя синхронизация: {format_datetime_for_user(last_sync, 'Europe/Moscow')}"
+                last_sync_text = (
+                    "\nПоследняя синхронизация: "
+                    f"{format_datetime_for_user(last_sync, 'Europe/Moscow')}"
+                )
 
             text = (
                 "🎯 <b>Акции Wildberries на сегодня</b>\n\n"
@@ -316,17 +327,33 @@ async def mrc_promos_today_handler(callback: CallbackQuery) -> None:
                 f"{last_sync_text}\n\n"
                 "Нажмите «Синхронизировать акции», чтобы обновить данные."
             )
-            await safe_edit_text(callback.message, text, reply_markup=mrc_back_menu(), parse_mode="HTML")
+            await safe_edit_text(
+                callback.message, text, reply_markup=mrc_back_menu(), parse_mode="HTML"
+            )
             return
 
         lines = ["🎯 <b>Акции Wildberries на сегодня</b>\n"]
         if last_sync:
-            lines.append(f"Последняя синхронизация: {format_datetime_for_user(last_sync, 'Europe/Moscow')}\n")
+            lines.append(
+                f"Последняя синхронизация: {format_datetime_for_user(last_sync, 'Europe/Moscow')}\n"
+            )
 
         for i, promo in enumerate(promotions, 1):
-            start_str = format_datetime_for_user(promo.start_datetime, "Europe/Moscow", "%d.%m.%Y") if promo.start_datetime else "—"
-            end_str = format_datetime_for_user(promo.end_datetime, "Europe/Moscow", "%d.%m.%Y") if promo.end_datetime else "—"
-            promo_type = "Авто" if promo.promotion_type and promo.promotion_type.lower() == "auto" else "Обычная"
+            start_str = (
+                format_datetime_for_user(promo.start_datetime, "Europe/Moscow", "%d.%m.%Y")
+                if promo.start_datetime
+                else "—"
+            )
+            end_str = (
+                format_datetime_for_user(promo.end_datetime, "Europe/Moscow", "%d.%m.%Y")
+                if promo.end_datetime
+                else "—"
+            )
+            promo_type = (
+                "Авто"
+                if promo.promotion_type and promo.promotion_type.lower() == "auto"
+                else "Обычная"
+            )
 
             lines.append(
                 f"<b>{i}. {escape(promo.name or 'Без названия')}</b>\n"
@@ -356,7 +383,12 @@ async def mrc_promos_today_handler(callback: CallbackQuery) -> None:
 
             for idx, chunk in enumerate(chunks):
                 if idx == 0:
-                    await safe_edit_text(callback.message, chunk, reply_markup=mrc_back_menu() if len(chunks) == 1 else None, parse_mode="HTML")
+                    await safe_edit_text(
+                        callback.message,
+                        chunk,
+                        reply_markup=mrc_back_menu() if len(chunks) == 1 else None,
+                        parse_mode="HTML",
+                    )
                 else:
                     async with bot_session() as bot:
                         await bot.send_message(
@@ -366,7 +398,9 @@ async def mrc_promos_today_handler(callback: CallbackQuery) -> None:
                             parse_mode="HTML",
                         )
         else:
-            await safe_edit_text(callback.message, text, reply_markup=mrc_back_menu(), parse_mode="HTML")
+            await safe_edit_text(
+                callback.message, text, reply_markup=mrc_back_menu(), parse_mode="HTML"
+            )
     except Exception:
         logger.exception("mrc_promos_today_failed")
         await safe_edit_text(
@@ -434,7 +468,9 @@ async def _run_promotions_sync(callback: CallbackQuery, all_promo: bool) -> None
         if stats.errors:
             text += f"\n\n⚠️ Ошибки: {len(stats.errors)}"
 
-        await safe_edit_text(callback.message, text, reply_markup=mrc_back_menu(), parse_mode="HTML")
+        await safe_edit_text(
+            callback.message, text, reply_markup=mrc_back_menu(), parse_mode="HTML"
+        )
     except Exception:
         logger.exception("mrc_sync_promos_failed")
         await safe_edit_text(
@@ -452,8 +488,7 @@ async def mrc_search_handler(callback: CallbackQuery, state: FSMContext) -> None
         await state.set_state(MrcStates.waiting_for_article)
         await safe_edit_text(
             callback.message,
-            "🔍 <b>Поиск товара</b>\n\n"
-            "Введите артикул продавца или nmID товара WB:",
+            "🔍 <b>Поиск товара</b>\n\n" "Введите артикул продавца или nmID товара WB:",
             reply_markup=mrc_back_menu(),
             parse_mode="HTML",
         )
@@ -537,7 +572,9 @@ async def mrc_article_handler(message: Message, state: FSMContext) -> None:
     nm_id = product.marketplace_article or product.external_product_id or "—"
     article = product.seller_article or "—"
     title = product.title or "Без названия"
-    mrc_val = f"{product.mrc_price:.0f} ₽" if product.mrc_price and product.mrc_price > 0 else "не задана"
+    mrc_val = (
+        f"{product.mrc_price:.0f} ₽" if product.mrc_price and product.mrc_price > 0 else "не задана"
+    )
 
     await message.answer(
         f"📦 <b>{escape(title)}</b>\n\n"
@@ -559,7 +596,8 @@ async def mrc_price_handler(message: Message, state: FSMContext) -> None:
         mrc_decimal = Decimal(raw_value)
     except (InvalidOperation, ValueError):
         await message.answer(
-            "❌ Некорректное число. Введите МРЦ в виде числа, например: <b>699</b> или <b>699.50</b>",
+            "❌ Некорректное число. Введите МРЦ в виде числа, "
+            "например: <b>699</b> или <b>699.50</b>",
             reply_markup=mrc_back_menu(),
             parse_mode="HTML",
         )
@@ -578,7 +616,9 @@ async def mrc_price_handler(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     product_id = data.get("product_id")
     if not product_id:
-        await message.answer("❌ Ошибка: товар не найден. Начните заново.", reply_markup=mrc_back_menu())
+        await message.answer(
+            "❌ Ошибка: товар не найден. Начните заново.", reply_markup=mrc_back_menu()
+        )
         await state.clear()
         return
 
@@ -608,7 +648,11 @@ async def mrc_price_handler(message: Message, state: FSMContext) -> None:
                 wb_nm_id=wb_nm_id,
             )
 
-        promo_required_price = promo_nomenclature.plan_price if promo_nomenclature and promo_nomenclature.plan_price else None
+        promo_required_price = (
+            promo_nomenclature.plan_price
+            if promo_nomenclature and promo_nomenclature.plan_price
+            else None
+        )
         result = mrc_service.calculate(
             mrc_price=mrc_decimal,
             promo_required_price=promo_required_price,
@@ -670,7 +714,11 @@ async def mrc_edit_handler(callback: CallbackQuery, state: FSMContext) -> None:
         nm_id = product.marketplace_article or product.external_product_id or "—"
         article = product.seller_article or "—"
         title = product.title or "Без названия"
-        mrc_val = f"{product.mrc_price:.0f} ₽" if product.mrc_price and product.mrc_price > 0 else "не задана"
+        mrc_val = (
+            f"{product.mrc_price:.0f} ₽"
+            if product.mrc_price and product.mrc_price > 0
+            else "не задана"
+        )
 
         await safe_edit_text(
             callback.message,
@@ -702,7 +750,7 @@ async def mrc_limits_report_handler(callback: CallbackQuery) -> None:
 
         from datetime import UTC, datetime
 
-        now_utc = datetime.now(tz=UTC)
+        datetime.now(tz=UTC)
         mrc_service = WbMrcPriceService()
 
         async with AsyncSessionFactory() as session:
@@ -732,7 +780,11 @@ async def mrc_limits_report_handler(callback: CallbackQuery) -> None:
                         wb_nm_id=wb_nm_id,
                     )
 
-                promo_required_price = promo_nomenclature.plan_price if promo_nomenclature and promo_nomenclature.plan_price else None
+                promo_required_price = (
+                    promo_nomenclature.plan_price
+                    if promo_nomenclature and promo_nomenclature.plan_price
+                    else None
+                )
                 calc_result = mrc_service.calculate(
                     mrc_price=p.mrc_price,
                     promo_required_price=promo_required_price,
@@ -779,7 +831,9 @@ async def mrc_limits_report_handler(callback: CallbackQuery) -> None:
                 )
 
         text = "\n".join(lines)
-        await safe_edit_text(callback.message, text, reply_markup=mrc_back_menu(), parse_mode="HTML")
+        await safe_edit_text(
+            callback.message, text, reply_markup=mrc_back_menu(), parse_mode="HTML"
+        )
     except Exception:
         logger.exception("mrc_limits_report_failed")
         await safe_edit_text(
@@ -816,7 +870,11 @@ async def mrc_recalc_handler(callback: CallbackQuery) -> None:
                     wb_nm_id=wb_nm_id,
                 )
 
-            promo_required_price = promo_nomenclature.plan_price if promo_nomenclature and promo_nomenclature.plan_price else None
+            promo_required_price = (
+                promo_nomenclature.plan_price
+                if promo_nomenclature and promo_nomenclature.plan_price
+                else None
+            )
             result = mrc_service.calculate(
                 mrc_price=product.mrc_price,
                 promo_required_price=promo_required_price,
@@ -826,13 +884,18 @@ async def mrc_recalc_handler(callback: CallbackQuery) -> None:
         if promo_nomenclature:
             promo_text = f"Да — {promo_nomenclature.plan_price:.0f} ₽"
 
+        limit_label = (
+            "Да"
+            if result.is_limited_by_mrc_rule or result.is_limited_by_min_price
+            else "Нет"
+        )
         text = (
             f"🔄 <b>Пересчёт цены</b>\n\n"
             f"МРЦ: <b>{result.mrc_price:.0f} ₽</b>\n"
             f"Итоговая цена со скидкой: <b>{result.final_discounted_price:.0f} ₽</b>\n"
             f"Цена до скидки WB: <b>{result.price_before_discount:.0f} ₽</b>\n"
             f"Акция WB: {promo_text}\n"
-            f"Ограничение: {'Да' if result.is_limited_by_mrc_rule or result.is_limited_by_min_price else 'Нет'}\n\n"
+            f"Ограничение: {limit_label}\n\n"
             f"📝 {result.reason}"
         )
 
@@ -972,8 +1035,9 @@ async def mrc_import_file_handler(message: Message, state: FSMContext) -> None:
 
         max_size = get_settings().mrc_import_max_file_size_mb * 1024 * 1024
         if doc.file_size and doc.file_size > max_size:
+            max_size_mb = get_settings().mrc_import_max_file_size_mb
             await message.answer(
-                f"❌ Файл слишком большой. Максимум: {get_settings().mrc_import_max_file_size_mb} МБ.",
+                f"❌ Файл слишком большой. Максимум: {max_size_mb} МБ.",
                 reply_markup=mrc_back_menu(),
                 parse_mode="HTML",
             )
@@ -991,7 +1055,9 @@ async def mrc_import_file_handler(message: Message, state: FSMContext) -> None:
 
         async with AsyncSessionFactory() as session:
             service = MrcImportService(session)
-            preview = await service.create_preview(tmp_path, user_id, source="bot", original_file_name=doc.file_name)
+            preview = await service.create_preview(
+                tmp_path, user_id, source="bot", original_file_name=doc.file_name
+            )
             rows = await service.get_import_rows(preview.import_id, user_id)
 
         await state.update_data(import_id=preview.import_id)
@@ -1036,9 +1102,12 @@ async def mrc_import_file_handler(message: Message, state: FSMContext) -> None:
             parse_mode="HTML",
         )
     except Exception:
-        logger.exception("mrc_import_file_handler_failed", extra={"user_id": user_id or message.from_user.id})
+        logger.exception(
+            "mrc_import_file_handler_failed", extra={"user_id": user_id or message.from_user.id}
+        )
         await message.answer(
-            "❌ Не удалось прочитать Excel-файл. Скачайте новый шаблон и заполните колонку new_mrc_price.",
+            "❌ Не удалось прочитать Excel-файл. Скачайте новый шаблон "
+            "и заполните колонку new_mrc_price.",
             reply_markup=mrc_back_menu(),
         )
 
@@ -1085,7 +1154,11 @@ async def mrc_import_confirm_handler(callback: CallbackQuery, state: FSMContext)
         error_msg = str(exc)
         logger.warning(
             "mrc_import_confirm_validation_error",
-            extra={"user_id": user_id or callback.from_user.id, "import_id": import_id, "error": error_msg},
+            extra={
+                "user_id": user_id or callback.from_user.id,
+                "import_id": import_id,
+                "error": error_msg,
+            },
         )
         await safe_edit_text(
             callback.message,
@@ -1095,7 +1168,10 @@ async def mrc_import_confirm_handler(callback: CallbackQuery, state: FSMContext)
         )
         await state.clear()
     except Exception:
-        logger.exception("mrc_import_confirm_failed", extra={"user_id": user_id or callback.from_user.id, "import_id": import_id})
+        logger.exception(
+            "mrc_import_confirm_failed",
+            extra={"user_id": user_id or callback.from_user.id, "import_id": import_id},
+        )
         await safe_edit_text(
             callback.message,
             "❌ Не удалось сохранить МРЦ из-за ошибки базы данных. Ошибка записана в лог.",
@@ -1154,7 +1230,11 @@ async def mrc_settings_handler(callback: CallbackQuery) -> None:
 
         discount_str = f"{settings.default_discount_percent:.0f}%"
         multiplier_val = settings.full_price_multiplier
-        multiplier_str = f"{multiplier_val:.0f}" if multiplier_val == multiplier_val.to_integral_value() else str(multiplier_val)
+        multiplier_str = (
+            f"{multiplier_val:.0f}"
+            if multiplier_val == multiplier_val.to_integral_value()
+            else str(multiplier_val)
+        )
         deviation_str = f"{settings.allowed_action_price_deviation_percent:.0f}%"
         auto_check = "вкл" if settings.auto_promo_check_enabled else "выкл"
         auto_add = "вкл" if settings.auto_add_to_promotions else "выкл"
@@ -1172,7 +1252,10 @@ async def mrc_settings_handler(callback: CallbackQuery) -> None:
         )
 
         from app.bot.keyboards.main import mrc_settings_keyboard
-        await safe_edit_text(callback.message, text, reply_markup=mrc_settings_keyboard(), parse_mode="HTML")
+
+        await safe_edit_text(
+            callback.message, text, reply_markup=mrc_settings_keyboard(), parse_mode="HTML"
+        )
     except Exception:
         logger.exception("mrc_settings_failed")
         await safe_edit_text(
@@ -1362,7 +1445,9 @@ async def mrc_settings_deviation_input_handler(message: Message, state: FSMConte
 
     async with AsyncSessionFactory() as session:
         settings_service = MrcPricingSettingsService(session)
-        await settings_service.update_settings(user_id=user_id, allowed_action_price_deviation_percent=value)
+        await settings_service.update_settings(
+            user_id=user_id, allowed_action_price_deviation_percent=value
+        )
         await session.commit()
 
     await message.answer(

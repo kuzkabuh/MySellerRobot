@@ -39,6 +39,7 @@ from app.web.views import *
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
 @router.get("/plan-fact", response_class=HTMLResponse)
 async def plan_fact_page(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
@@ -157,4 +158,3 @@ async def break_even_page(
         content,
         active_path="/web/break-even",
     )
-

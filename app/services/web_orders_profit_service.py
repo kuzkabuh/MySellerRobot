@@ -191,10 +191,13 @@ class WebOrdersProfitService:
         )
         base_query = _apply_order_page_filters(base_query, filters)
 
-        count_query = select(func.count(func.distinct(Order.id))).select_from(Order).join(
-            OrderItem, OrderItem.order_id == Order.id
-        ).where(Order.user_id == user_id).where(Order.order_date >= filters.date_from).where(
-            Order.order_date <= filters.date_to
+        count_query = (
+            select(func.count(func.distinct(Order.id)))
+            .select_from(Order)
+            .join(OrderItem, OrderItem.order_id == Order.id)
+            .where(Order.user_id == user_id)
+            .where(Order.order_date >= filters.date_from)
+            .where(Order.order_date <= filters.date_to)
         )
         count_query = _apply_order_page_filters(count_query, filters, count_distinct=True)
         count_result = await self.session.execute(count_query)

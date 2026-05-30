@@ -16,7 +16,7 @@ from app.models.domain import (
     ProductCostHistory,
     ProfitSnapshot,
 )
-from app.models.enums import CalculationType, EconomyConfidence, ExpenseSource, Marketplace
+from app.models.enums import CalculationType, Marketplace
 from app.repositories.orders import OrderRepository
 from app.repositories.products import ProductRepository
 from app.schemas.orders import NormalizedOrder
@@ -188,9 +188,7 @@ class OrderProfitService:
                 return product.marketplace_commission_rate
 
         order_date = (
-            order.order_date.date()
-            if hasattr(order.order_date, "date")
-            else order.order_date
+            order.order_date.date() if hasattr(order.order_date, "date") else order.order_date
         )
 
         if order.marketplace == Marketplace.OZON:

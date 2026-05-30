@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -146,7 +146,11 @@ class TestPromotionsSyncServiceIntegration:
     async def test_sync_no_accounts(self) -> None:
         """Sync with no accounts should return empty stats."""
         mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=MagicMock(scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[])))))
+        mock_session.execute = AsyncMock(
+            return_value=MagicMock(
+                scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[])))
+            )
+        )
 
         service = WbPromotionsSyncService(mock_session)
         stats = await service.sync_all_accounts()
@@ -319,7 +323,9 @@ class TestSyncAllPromoMode:
         """sync_all_accounts should accept all_promo parameter."""
         mock_session = AsyncMock()
         mock_session.execute = AsyncMock(
-            return_value=MagicMock(scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[]))))
+            return_value=MagicMock(
+                scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[])))
+            )
         )
 
         service = WbPromotionsSyncService(mock_session)

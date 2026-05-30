@@ -4,7 +4,7 @@ import asyncio
 import csv
 import io
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -141,6 +141,7 @@ class WbAutoPromoFileImportService:
         self._validate_file(file_path)
         suffix = file_path.suffix.lower()
         try:
+            raw_rows: Sequence[Iterable[Any]]
             if suffix in (".xlsx", ".xlsm"):
                 raw_rows = await asyncio.to_thread(self._read_xlsx_rows, file_path)
             elif suffix == ".csv":
@@ -241,8 +242,7 @@ class WbAutoPromoFileImportService:
                 continue
             existing = await self.session.execute(
                 select(WbAutoPromotionCondition).where(
-                    WbAutoPromotionCondition.marketplace_account_id
-                    == marketplace_account_id,
+                    WbAutoPromotionCondition.marketplace_account_id == marketplace_account_id,
                     WbAutoPromotionCondition.wb_nm_id == row.wb_nm_id,
                     WbAutoPromotionCondition.source == "wb_file",
                     WbAutoPromotionCondition.promotion_name == (promotion_name or ""),
@@ -308,6 +308,8 @@ class WbAutoPromoFileImportService:
         wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
         try:
             ws = wb[REPORT_SHEET_NAME] if REPORT_SHEET_NAME in wb.sheetnames else wb.active
+            if ws is None:
+                raise ValueError("Excel-файл не содержит листов")
             return list(ws.iter_rows(values_only=True))
         finally:
             wb.close()
@@ -317,7 +319,7 @@ class WbAutoPromoFileImportService:
         content = file_path.read_text(encoding="utf-8-sig")
         return list(csv.reader(io.StringIO(content)))
 
-    def _parse_rows(self, raw_rows: list[Iterable[Any]]) -> list[AutoPromoFileRow]:
+    def _parse_rows(self, raw_rows: Sequence[Iterable[Any]]) -> list[AutoPromoFileRow]:
         iterator = iter(raw_rows)
         headers = next(iterator, None)
         if headers is None:
@@ -337,10 +339,7 @@ class WbAutoPromoFileImportService:
         values: tuple[Any, ...],
         mapping: dict[int, str],
     ) -> AutoPromoFileRow:
-        data = {
-            key: values[idx] if idx < len(values) else None
-            for idx, key in mapping.items()
-        }
+        data = {key: values[idx] if idx < len(values) else None for idx, key in mapping.items()}
         current_full_price = self.parse_decimal(data.get("current_full_price"))
         current_discount = self.parse_decimal(data.get("current_discount_percent"))
         current_discounted = self.discounted_price(current_full_price, current_discount)

@@ -346,9 +346,7 @@ class WebCabinetService:
             configured_count=len(rows) - missing,
         )
 
-    async def _batch_latest_costs(
-        self, product_ids: list[int]
-    ) -> dict[int, ProductCostHistory]:
+    async def _batch_latest_costs(self, product_ids: list[int]) -> dict[int, ProductCostHistory]:
         if not product_ids:
             return {}
         subq = (
@@ -388,7 +386,11 @@ class WebCabinetService:
                 & (StockSnapshot.snapshot_at == subq.c.max_snapshot_at),
             )
         )
-        return dict(result.all())
+        return {
+            product_id: quantity
+            for product_id, quantity in result.all()
+            if product_id is not None
+        }
 
     async def _batch_order_counts(self, product_ids: list[int]) -> dict[int, int]:
         if not product_ids:
@@ -398,7 +400,7 @@ class WebCabinetService:
             .where(OrderItem.product_id.in_(product_ids))
             .group_by(OrderItem.product_id)
         )
-        return dict(result.all())
+        return {product_id: count for product_id, count in result.all() if product_id is not None}
 
     async def _latest_wb_report(
         self,
@@ -574,7 +576,7 @@ def subscription_status(active_subscription: UserSubscription | None) -> str:
         return "FREE"
     if active_subscription.is_trial or active_subscription.status == SubscriptionStatus.TRIAL:
         return "TRIAL"
-    return active_subscription.status.value
+    return str(active_subscription.status.value)
 
 
 def _decimal(value: object) -> Decimal:

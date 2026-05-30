@@ -19,7 +19,9 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     op.add_column(
         "subscription_tiers",
-        sa.Column("feature_mrc_pricing", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+        sa.Column(
+            "feature_mrc_pricing", sa.Boolean(), nullable=False, server_default=sa.text("false")
+        ),
     )
 
 

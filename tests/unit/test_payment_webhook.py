@@ -72,19 +72,24 @@ class TestWebhookPaymentSucceeded:
             _make_result(user),
         ]
 
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class, \
-             patch("app.bot.main.create_bot") as mock_create_bot:
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.bot.main.create_bot") as mock_create_bot,
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
             mock_settings.return_value = settings
 
             mock_yk = MagicMock()
-            mock_yk.get_payment = AsyncMock(return_value={
-                "id": "yk-123", "status": "succeeded",
-                "payment_method": {"type": "bank_card"},
-            })
+            mock_yk.get_payment = AsyncMock(
+                return_value={
+                    "id": "yk-123",
+                    "status": "succeeded",
+                    "payment_method": {"type": "bank_card"},
+                }
+            )
             mock_yk_class.return_value = mock_yk
 
             mock_bot = MagicMock()
@@ -98,12 +103,14 @@ class TestWebhookPaymentSucceeded:
             mock_sub.expires_at = datetime.now(tz=UTC)
             service.subscription_service.create_subscription = AsyncMock(return_value=mock_sub)
 
-            await service.handle_payment_success({
-                "id": "yk-123",
-                "status": "succeeded",
-                "paid": True,
-                "payment_method": {"type": "bank_card"},
-            })
+            await service.handle_payment_success(
+                {
+                    "id": "yk-123",
+                    "status": "succeeded",
+                    "paid": True,
+                    "payment_method": {"type": "bank_card"},
+                }
+            )
 
             assert payment.status == PaymentStatus.SUCCEEDED
             assert payment.paid_at is not None
@@ -133,18 +140,23 @@ class TestWebhookPaymentSucceeded:
             _make_result(user),
         ]
 
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class, \
-             patch("app.bot.main.create_bot") as mock_create_bot:
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.bot.main.create_bot") as mock_create_bot,
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
             mock_settings.return_value = settings
 
             mock_yk = MagicMock()
-            mock_yk.get_payment = AsyncMock(return_value={
-                "id": "yk-456", "status": "succeeded",
-            })
+            mock_yk.get_payment = AsyncMock(
+                return_value={
+                    "id": "yk-456",
+                    "status": "succeeded",
+                }
+            )
             mock_yk_class.return_value = mock_yk
 
             mock_bot = MagicMock()
@@ -188,8 +200,10 @@ class TestWebhookPaymentSucceeded:
             _make_result(payment),
         ]
 
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class:
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
@@ -209,8 +223,10 @@ class TestWebhookPaymentSucceeded:
             _make_result(None),
         ]
 
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class:
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
@@ -242,17 +258,22 @@ class TestWebhookPaymentCanceled:
             _make_result(payment),
         ]
 
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class:
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
             mock_settings.return_value = settings
 
             mock_yk = MagicMock()
-            mock_yk.get_payment = AsyncMock(return_value={
-                "id": "yk-cancel", "status": "canceled",
-            })
+            mock_yk.get_payment = AsyncMock(
+                return_value={
+                    "id": "yk-cancel",
+                    "status": "canceled",
+                }
+            )
             mock_yk_class.return_value = mock_yk
 
             service = PaymentService(mock_session)
@@ -290,19 +311,24 @@ class TestReconciliation:
             _make_result(user),
         ]
 
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class, \
-             patch("app.bot.main.create_bot") as mock_create_bot:
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.bot.main.create_bot") as mock_create_bot,
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
             mock_settings.return_value = settings
 
             mock_yk = MagicMock()
-            mock_yk.get_payment = AsyncMock(return_value={
-                "id": "yk-recon", "status": "succeeded",
-                "payment_method": {"type": "bank_card"},
-            })
+            mock_yk.get_payment = AsyncMock(
+                return_value={
+                    "id": "yk-recon",
+                    "status": "succeeded",
+                    "payment_method": {"type": "bank_card"},
+                }
+            )
             mock_yk_class.return_value = mock_yk
 
             mock_bot = MagicMock()
@@ -339,17 +365,22 @@ class TestReconciliation:
             _make_result(payment),
         ]
 
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class:
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
             mock_settings.return_value = settings
 
             mock_yk = MagicMock()
-            mock_yk.get_payment = AsyncMock(return_value={
-                "id": "yk-recon-cancel", "status": "canceled",
-            })
+            mock_yk.get_payment = AsyncMock(
+                return_value={
+                    "id": "yk-recon-cancel",
+                    "status": "canceled",
+                }
+            )
             mock_yk_class.return_value = mock_yk
 
             service = PaymentService(mock_session)
@@ -363,8 +394,10 @@ class TestReconciliation:
     async def test_reconciliation_no_pending_payments(self, mock_session):
         mock_session.execute.return_value = _make_list_result([])
 
-        with patch("app.services.payment_service.get_settings") as mock_settings, \
-             patch("app.services.payment_service.YooKassaClient") as mock_yk_class:
+        with (
+            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+        ):
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"

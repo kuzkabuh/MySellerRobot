@@ -26,9 +26,7 @@ TARIFF_SOURCE = "wb_api"
 
 def _compute_version_hash(payload: list[dict[str, Any]]) -> str:
     """Compute SHA-256 hash of normalized tariff payload for change detection."""
-    normalized = sorted(
-        json.dumps(entry, sort_keys=True, default=str) for entry in payload
-    )
+    normalized = sorted(json.dumps(entry, sort_keys=True, default=str) for entry in payload)
     combined = "\n".join(normalized).encode("utf-8")
     return hashlib.sha256(combined).hexdigest()
 

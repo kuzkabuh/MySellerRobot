@@ -125,12 +125,22 @@ async def test_consume_login_token_creates_web_session() -> None:
 
 
 def test_canonical_web_base_url_strips_trailing_web() -> None:
-    assert WebAuthService._canonical_web_base_url("https://example.com/web") == "https://example.com"
-    assert WebAuthService._canonical_web_base_url("https://example.com/web/") == "https://example.com"
-    assert WebAuthService._canonical_web_base_url("https://example.com/web/web") == "https://example.com"
+    assert (
+        WebAuthService._canonical_web_base_url("https://example.com/web") == "https://example.com"
+    )
+    assert (
+        WebAuthService._canonical_web_base_url("https://example.com/web/") == "https://example.com"
+    )
+    assert (
+        WebAuthService._canonical_web_base_url("https://example.com/web/web")
+        == "https://example.com"
+    )
     assert WebAuthService._canonical_web_base_url("https://example.com") == "https://example.com"
     assert WebAuthService._canonical_web_base_url("https://example.com/") == "https://example.com"
-    assert WebAuthService._canonical_web_base_url("https://app.mpcontrol.online/web") == "https://app.mpcontrol.online"
+    assert (
+        WebAuthService._canonical_web_base_url("https://app.mpcontrol.online/web")
+        == "https://app.mpcontrol.online"
+    )
 
 
 def test_login_link_path_is_canonical() -> None:

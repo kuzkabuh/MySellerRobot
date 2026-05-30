@@ -154,9 +154,10 @@ def test_get_sync_any_type_redirects_to_accounts(
                 cookies={WEB_SESSION_COOKIE: cookie},
                 follow_redirects=False,
             )
-            assert response.status_code in (302, 303), (
-                f"GET /web/sync/{sync_type} returned {response.status_code}"
-            )
+            assert response.status_code in (
+                302,
+                303,
+            ), f"GET /web/sync/{sync_type} returned {response.status_code}"
             assert "/web/accounts" in response.headers.get("location", "")
 
     app.dependency_overrides.clear()

@@ -161,7 +161,7 @@ class WbCurrentPricesSyncService:
 
         # Fetch prices in chunks
         for i in range(0, len(nm_ids), GOODS_FILTER_CHUNK_SIZE):
-            chunk = nm_ids[i:i + GOODS_FILTER_CHUNK_SIZE]
+            chunk = nm_ids[i : i + GOODS_FILTER_CHUNK_SIZE]
 
             try:
                 response = await client.get_goods_prices_by_nm_ids(chunk)
@@ -269,13 +269,25 @@ class WbCurrentPricesSyncService:
 
             # Calculate discounted price if not provided
             discounted_price = self._parse_discounted_price(item)
-            if discounted_price is None and price is not None and discount is not None and discount > 0:
+            if (
+                discounted_price is None
+                and price is not None
+                and discount is not None
+                and discount > 0
+            ):
                 discounted_price = price * (Decimal("1") - Decimal(str(discount)) / Decimal("100"))
                 discounted_price = discounted_price.quantize(Decimal("0.01"))
 
             club_discounted_price = self._parse_club_discounted_price(item)
-            if club_discounted_price is None and club_discount is not None and club_discount > 0 and price is not None:
-                club_discounted_price = price * (Decimal("1") - Decimal(str(club_discount)) / Decimal("100"))
+            if (
+                club_discounted_price is None
+                and club_discount is not None
+                and club_discount > 0
+                and price is not None
+            ):
+                club_discounted_price = price * (
+                    Decimal("1") - Decimal(str(club_discount)) / Decimal("100")
+                )
                 club_discounted_price = club_discounted_price.quantize(Decimal("0.01"))
 
             sizes = item.get("sizes")
@@ -302,9 +314,9 @@ class WbCurrentPricesSyncService:
                         "wb_nm_id": nm_id,
                         "discount": discount,
                         "sizes_count": sizes_count,
-                        "discounted_price": str(discounted_price)
-                        if discounted_price is not None
-                        else "null",
+                        "discounted_price": (
+                            str(discounted_price) if discounted_price is not None else "null"
+                        ),
                     },
                 )
 
@@ -315,9 +327,9 @@ class WbCurrentPricesSyncService:
                     "wb_nm_id": nm_id,
                     "price": str(price) if price is not None else "null",
                     "discount": discount,
-                    "discounted_price": str(discounted_price)
-                    if discounted_price is not None
-                    else "null",
+                    "discounted_price": (
+                        str(discounted_price) if discounted_price is not None else "null"
+                    ),
                     "sizes_count": sizes_count,
                 },
             )

@@ -828,13 +828,33 @@ def mrc_menu() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="📦 Товары с МРЦ", callback_data="mrc:with_mrc")],
             [InlineKeyboardButton(text="⚠️ Без МРЦ", callback_data="mrc:without_mrc")],
             [InlineKeyboardButton(text="🎯 Акции WB сегодня", callback_data="mrc:promos_today")],
-            [InlineKeyboardButton(text="🔄 Синхронизировать акции", callback_data="mrc:sync_promos")],
-            [InlineKeyboardButton(text="🔍 Расширенная проверка акций", callback_data="mrc:sync_promos_all")],
+            [
+                InlineKeyboardButton(
+                    text="🔄 Синхронизировать акции", callback_data="mrc:sync_promos"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔍 Расширенная проверка акций", callback_data="mrc:sync_promos_all"
+                )
+            ],
             [InlineKeyboardButton(text="🔍 Найти товар", callback_data="mrc:search")],
             [InlineKeyboardButton(text="✏️ Изменить МРЦ", callback_data="mrc:set")],
-            [InlineKeyboardButton(text="📥 Скачать шаблон МРЦ", callback_data="mrc:template_download")],
-            [InlineKeyboardButton(text="📤 Загрузить МРЦ из файла", callback_data="mrc:import_upload")],
-            [InlineKeyboardButton(text="📊 Отчёт по ограничениям", callback_data="mrc:limits_report")],
+            [
+                InlineKeyboardButton(
+                    text="📥 Скачать шаблон МРЦ", callback_data="mrc:template_download"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📤 Загрузить МРЦ из файла", callback_data="mrc:import_upload"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📊 Отчёт по ограничениям", callback_data="mrc:limits_report"
+                )
+            ],
             [InlineKeyboardButton(text="⚙️ Настройки МРЦ", callback_data="mrc:settings")],
             [InlineKeyboardButton(text="🌐 Открыть в web-кабинете", callback_data="web_cabinet")],
             [InlineKeyboardButton(text="◀️ Назад", callback_data="back_main")],
@@ -852,7 +872,9 @@ def mrc_back_menu() -> InlineKeyboardMarkup:
     )
 
 
-def mrc_product_card_keyboard(product_id: int, wb_nm_id: int | None, web_url: str | None = None) -> InlineKeyboardMarkup:
+def mrc_product_card_keyboard(
+    product_id: int, wb_nm_id: int | None, web_url: str | None = None
+) -> InlineKeyboardMarkup:
     """Клавиатура карточки товара МРЦ."""
     buttons: list[list[InlineKeyboardButton]] = [
         [InlineKeyboardButton(text="✏️ Изменить МРЦ", callback_data=f"mrc:edit:{product_id}")],
@@ -879,8 +901,16 @@ def mrc_settings_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Процент скидки WB", callback_data="mrc:settings:discount")],
-            [InlineKeyboardButton(text="Коэффициент полной цены", callback_data="mrc:settings:multiplier")],
-            [InlineKeyboardButton(text="Допуск цены акции", callback_data="mrc:settings:deviation")],
+            [
+                InlineKeyboardButton(
+                    text="Коэффициент полной цены", callback_data="mrc:settings:multiplier"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Допуск цены акции", callback_data="mrc:settings:deviation"
+                )
+            ],
             [InlineKeyboardButton(text="◀️ Назад к МРЦ", callback_data="mrc_menu")],
         ]
     )

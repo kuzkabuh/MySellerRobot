@@ -9,6 +9,7 @@ from decimal import Decimal
 from html import escape
 from ipaddress import ip_address
 from types import SimpleNamespace
+from typing import Any
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -95,7 +96,7 @@ def _html(value: object | None, fallback: str = "н/д") -> str:
     return escape(str(value), quote=False)
 
 
-async def _safe_edit_text(message: Message, text: str, **kwargs) -> None:
+async def _safe_edit_text(message: Message, text: str, **kwargs: Any) -> None:
     try:
         await message.edit_text(text, **kwargs)
     except Exception as e:
@@ -400,8 +401,7 @@ async def callback_handler(callback: CallbackQuery, state: FSMContext) -> None:
             extra={"callback_data": data, "telegram_id": callback.from_user.id},
         )
         await message.answer(
-            "Действие раздела МРЦ пока не обработано. "
-            "Обновите меню и попробуйте ещё раз."
+            "Действие раздела МРЦ пока не обработано. " "Обновите меню и попробуйте ещё раз."
         )
     else:
         logger.warning(
@@ -474,8 +474,9 @@ async def _profile_text(user_id: int) -> str:
         wb_count = sum(1 for account in active_accounts if account.marketplace.value == "WB")
         ozon_count = sum(1 for account in active_accounts if account.marketplace.value == "OZON")
         notifications = "включены" if user and user.notifications_enabled else "отключены"
+        timezone = user.timezone if user else "Europe/Moscow"
         expires_at = (
-            format_user_dt(active_subscription.expires_at, user.timezone).split(",")[0]
+            format_user_dt(active_subscription.expires_at, timezone).split(",")[0]
             if active_subscription and active_subscription.expires_at
             else "без активного платного периода"
         )
@@ -642,8 +643,7 @@ async def _orders_text(user_id: int, mode: str = "orders:last10") -> str:
 
     mode_hint = {
         "orders:today": (
-            f"Показываю 10 последних заказов за сегодня "
-            f"(всего найдено: {total_count})."
+            f"Показываю 10 последних заказов за сегодня " f"(всего найдено: {total_count})."
         ),
         "orders:fbs": (
             f"Показываю 10 последних FBS / rFBS заказов, "
@@ -1021,7 +1021,7 @@ def _commission_detail_label(economics: PlannedEconomics) -> str:
     return f"🏷 Комиссия маркетплейса: {rub(economics.commission)}"
 
 
-def _commission_source_detail_label(source) -> str:
+def _commission_source_detail_label(source: Any) -> str:
     from app.models.enums import ExpenseSource
 
     labels = {
@@ -1035,7 +1035,7 @@ def _commission_source_detail_label(source) -> str:
     return labels.get(source, "Комиссия маркетплейса")
 
 
-def _commission_source_tariff_label(source) -> str:
+def _commission_source_tariff_label(source: Any) -> str:
     from app.models.enums import ExpenseSource
 
     labels = {
@@ -1260,9 +1260,10 @@ class AdminReconcileStates(StatesGroup):
 @router.message(Command("admin_reconcile_subs"))
 async def admin_reconcile_subscriptions(message: Message) -> None:
     """Admin command to detect and fix inconsistent subscription states."""
-    if not _is_admin_telegram(message.from_user.id):
+    if message.from_user is None or not _is_admin_telegram(message.from_user.id):
         await message.answer("Доступно только администраторам.")
         return
+    admin_telegram_id = message.from_user.id
 
     async with AsyncSessionFactory() as session:
         result = await session.execute(
@@ -1312,9 +1313,7 @@ async def admin_reconcile_subscriptions(message: Message) -> None:
         if not users_with_multiple:
             lines.append("✅ Проблем не обнаружено.")
         else:
-            lines.append(
-                f"Пользователей с несколькими подписками: {len(users_with_multiple)}"
-            )
+            lines.append(f"Пользователей с несколькими подписками: {len(users_with_multiple)}")
             lines.append("")
             if issues_found:
                 lines.append("<b>Обнаруженные проблемы:</b>")
@@ -1339,7 +1338,7 @@ async def admin_reconcile_subscriptions(message: Message) -> None:
         logger.info(
             "admin_reconcile_subscriptions_completed",
             extra={
-                "admin_telegram_id": message.from_user.id,
+                "admin_telegram_id": admin_telegram_id,
                 "users_checked": len(users_with_multiple),
                 "subscriptions_fixed": len(fixed),
             },
@@ -1349,9 +1348,10 @@ async def admin_reconcile_subscriptions(message: Message) -> None:
 @router.message(Command("admin_fix_payment_urls"))
 async def admin_fix_payment_urls(message: Message) -> None:
     """Admin command to fix payment confirmation URLs for pending payments."""
-    if not _is_admin_telegram(message.from_user.id):
+    if message.from_user is None or not _is_admin_telegram(message.from_user.id):
         await message.answer("Доступно только администраторам.")
         return
+    admin_telegram_id = message.from_user.id
 
     async with AsyncSessionFactory() as session:
         result = await session.execute(
@@ -1394,7 +1394,7 @@ async def admin_fix_payment_urls(message: Message) -> None:
         logger.info(
             "admin_fix_payment_urls_completed",
             extra={
-                "admin_telegram_id": message.from_user.id,
+                "admin_telegram_id": admin_telegram_id,
                 "pending_payments": len(pending_payments),
                 "urls_fixed": fixed_count,
             },

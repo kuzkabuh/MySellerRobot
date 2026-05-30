@@ -269,9 +269,7 @@ class TestWbProductPriceParsing:
     def test_parse_price_from_sizes(self):
         item = {
             "nmID": 581624275,
-            "sizes": [
-                {"sizeID": 1, "price": 10072, "discountedPrice": 2518}
-            ],
+            "sizes": [{"sizeID": 1, "price": 10072, "discountedPrice": 2518}],
             "discount": 75,
         }
         assert WbCurrentPricesSyncService._parse_price(item) == Decimal("10072")
@@ -279,9 +277,7 @@ class TestWbProductPriceParsing:
     def test_parse_discounted_price_from_sizes(self):
         item = {
             "nmID": 581624275,
-            "sizes": [
-                {"sizeID": 1, "price": 10072, "discountedPrice": 2518}
-            ],
+            "sizes": [{"sizeID": 1, "price": 10072, "discountedPrice": 2518}],
         }
         assert WbCurrentPricesSyncService._parse_discounted_price(item) == Decimal("2518")
 
@@ -471,11 +467,7 @@ class TestExtractAutoPromoRequiredPrices:
             extract_auto_promo_required_prices,
         )
 
-        detail = {
-            "items": [
-                {"nmID": 33333333, "targetPrice": 750}
-            ]
-        }
+        detail = {"items": [{"nmID": 33333333, "targetPrice": 750}]}
 
         conditions = extract_auto_promo_required_prices(detail=detail)
 
@@ -489,13 +481,7 @@ class TestExtractAutoPromoRequiredPrices:
             extract_auto_promo_required_prices,
         )
 
-        detail = {
-            "data": {
-                "products": [
-                    {"id": 44444444, "participationPrice": 880}
-                ]
-            }
-        }
+        detail = {"data": {"products": [{"id": 44444444, "participationPrice": 880}]}}
 
         conditions = extract_auto_promo_required_prices(detail=detail)
 

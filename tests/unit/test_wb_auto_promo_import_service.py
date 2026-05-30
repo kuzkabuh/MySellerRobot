@@ -86,19 +86,21 @@ async def test_import_conditions_from_file():
 
     service = WbAutoPromoImportService(session)
 
-    preview_rows = [{
-        "row_num": 2,
-        "wb_nm_id": 345455998,
-        "seller_article": "2461.RoeRue",
-        "title": "Test Product",
-        "promotion_name": "Модная распродажа",
-        "required_price": Decimal("846"),
-        "current_wb_price": Decimal("930"),
-        "is_participating": False,
-        "product_id": None,
-        "status": "valid",
-        "message": None,
-    }]
+    preview_rows = [
+        {
+            "row_num": 2,
+            "wb_nm_id": 345455998,
+            "seller_article": "2461.RoeRue",
+            "title": "Test Product",
+            "promotion_name": "Модная распродажа",
+            "required_price": Decimal("846"),
+            "current_wb_price": Decimal("930"),
+            "is_participating": False,
+            "product_id": None,
+            "status": "valid",
+            "message": None,
+        }
+    ]
 
     saved = await service.apply_import(
         preview_rows,
@@ -131,10 +133,16 @@ async def test_preview_valid_row_finds_product():
     with patch.object(
         WbAutoPromoImportService, "_find_product_by_nm_id", new=AsyncMock(return_value=mock_product)
     ):
-        headers = ["nmID", "Артикул продавца", "Название товара", "Название автоакции",
-                   "Цена для участия", "Текущая цена WB", "Участвует"]
-        rows = [[345455998, "2461.RoeRue", "Test Product", "Модная распродажа",
-                 846, 930, "нет"]]
+        headers = [
+            "nmID",
+            "Артикул продавца",
+            "Название товара",
+            "Название автоакции",
+            "Цена для участия",
+            "Текущая цена WB",
+            "Участвует",
+        ]
+        rows = [[345455998, "2461.RoeRue", "Test Product", "Модная распродажа", 846, 930, "нет"]]
 
         file_path = _create_excel_file(rows, headers)
 
@@ -276,25 +284,27 @@ async def test_wb_discount_report_uses_plan_price_as_auto_promo_price():
         new=AsyncMock(return_value=mock_product),
     ):
         file_path = _create_wb_discount_report(
-            [[
-                "нет",
-                "Brand",
-                "Cream",
-                "Крем Wai Ora",
-                "SUP-1",
-                303892412,
-                "barcode",
-                "",
-                "",
-                "",
-                "",
-                446,
-                1820,
-                "RUB",
-                75,
-                76,
-                "Можно участвовать",
-            ]]
+            [
+                [
+                    "нет",
+                    "Brand",
+                    "Cream",
+                    "Крем Wai Ora",
+                    "SUP-1",
+                    303892412,
+                    "barcode",
+                    "",
+                    "",
+                    "",
+                    "",
+                    446,
+                    1820,
+                    "RUB",
+                    75,
+                    76,
+                    "Можно участвовать",
+                ]
+            ]
         )
 
         preview, rows = await service.create_preview(
@@ -328,27 +338,29 @@ async def test_wb_discount_report_apply_persists_upload_discount_as_diagnostic()
     session.add = MagicMock()
     session.flush = AsyncMock()
     service = WbAutoPromoImportService(session)
-    preview_rows = [{
-        "row_num": 2,
-        "wb_nm_id": 303892412,
-        "seller_article": "SUP-1",
-        "title": "Крем Wai Ora",
-        "promotion_name": None,
-        "required_price": Decimal("446"),
-        "current_wb_price": Decimal("455"),
-        "current_full_price": Decimal("1820"),
-        "current_discount": Decimal("75"),
-        "current_discounted_price": Decimal("455"),
-        "wb_upload_discount_percent": Decimal("76"),
-        "fallback_discounted_price": Decimal("436.80"),
-        "condition_type": "max_price",
-        "wb_status": "Можно участвовать",
-        "is_participating": False,
-        "product_id": 303,
-        "status": "valid",
-        "message": None,
-        "raw_payload": {"wb_upload_discount_is_diagnostic": True},
-    }]
+    preview_rows = [
+        {
+            "row_num": 2,
+            "wb_nm_id": 303892412,
+            "seller_article": "SUP-1",
+            "title": "Крем Wai Ora",
+            "promotion_name": None,
+            "required_price": Decimal("446"),
+            "current_wb_price": Decimal("455"),
+            "current_full_price": Decimal("1820"),
+            "current_discount": Decimal("75"),
+            "current_discounted_price": Decimal("455"),
+            "wb_upload_discount_percent": Decimal("76"),
+            "fallback_discounted_price": Decimal("436.80"),
+            "condition_type": "max_price",
+            "wb_status": "Можно участвовать",
+            "is_participating": False,
+            "product_id": 303,
+            "status": "valid",
+            "message": None,
+            "raw_payload": {"wb_upload_discount_is_diagnostic": True},
+        }
+    ]
 
     saved = await service.apply_import(preview_rows, user_id=1, marketplace_account_id=2)
 
@@ -421,10 +433,16 @@ async def test_import_from_csv_file():
     with patch.object(
         WbAutoPromoImportService, "_find_product_by_nm_id", new=AsyncMock(return_value=mock_product)
     ):
-        headers = ["nmID", "Артикул продавца", "Название товара", "Название автоакции",
-                   "Цена для участия", "Текущая цена WB", "Участвует"]
-        rows = [[345455998, "2461.RoeRue", "Test Product", "Модная распродажа",
-                 846, 930, "нет"]]
+        headers = [
+            "nmID",
+            "Артикул продавца",
+            "Название товара",
+            "Название автоакции",
+            "Цена для участия",
+            "Текущая цена WB",
+            "Участвует",
+        ]
+        rows = [[345455998, "2461.RoeRue", "Test Product", "Модная распродажа", 846, 930, "нет"]]
 
         file_path = _create_csv_file(rows, headers)
 

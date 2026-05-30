@@ -70,9 +70,7 @@ async def test_real_example_set_price():
     session = AsyncMock()
 
     mock_settings_svc = MagicMock()
-    mock_settings_svc.get_settings = AsyncMock(
-        return_value=_make_settings_result(Decimal("10"))
-    )
+    mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
         "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
@@ -106,9 +104,7 @@ async def test_auto_already_ok():
     session = AsyncMock()
 
     mock_settings_svc = MagicMock()
-    mock_settings_svc.get_settings = AsyncMock(
-        return_value=_make_settings_result(Decimal("10"))
-    )
+    mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
         "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
@@ -138,9 +134,7 @@ async def test_mrc_violation():
     session = AsyncMock()
 
     mock_settings_svc = MagicMock()
-    mock_settings_svc.get_settings = AsyncMock(
-        return_value=_make_settings_result(Decimal("10"))
-    )
+    mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
         "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
@@ -173,9 +167,7 @@ async def test_min_price_violation_before_mrc():
     session = AsyncMock()
 
     mock_settings_svc = MagicMock()
-    mock_settings_svc.get_settings = AsyncMock(
-        return_value=_make_settings_result(Decimal("10"))
-    )
+    mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
         "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
@@ -208,9 +200,7 @@ async def test_min_price_violation_takes_precedence_over_mrc():
     session = AsyncMock()
 
     mock_settings_svc = MagicMock()
-    mock_settings_svc.get_settings = AsyncMock(
-        return_value=_make_settings_result(Decimal("10"))
-    )
+    mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
         "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
@@ -241,9 +231,7 @@ async def test_auto_active_without_condition():
     session = AsyncMock()
 
     mock_settings_svc = MagicMock()
-    mock_settings_svc.get_settings = AsyncMock(
-        return_value=_make_settings_result(Decimal("10"))
-    )
+    mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
         "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
@@ -274,9 +262,7 @@ async def test_price_above_upper_bound():
     session = AsyncMock()
 
     mock_settings_svc = MagicMock()
-    mock_settings_svc.get_settings = AsyncMock(
-        return_value=_make_settings_result(Decimal("10"))
-    )
+    mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
         "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
@@ -306,9 +292,7 @@ async def test_current_below_required_is_ok():
     session = AsyncMock()
 
     mock_settings_svc = MagicMock()
-    mock_settings_svc.get_settings = AsyncMock(
-        return_value=_make_settings_result(Decimal("10"))
-    )
+    mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
         "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
@@ -355,9 +339,7 @@ async def test_required_price_zero():
     session = AsyncMock()
 
     mock_settings_svc = MagicMock()
-    mock_settings_svc.get_settings = AsyncMock(
-        return_value=_make_settings_result(Decimal("10"))
-    )
+    mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
         "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",

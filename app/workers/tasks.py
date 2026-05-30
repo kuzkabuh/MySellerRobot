@@ -75,19 +75,17 @@ class AccountRef:
     user_id: int
 
 
-async def _load_account_refs(async_session_factory) -> list[AccountRef]:
+async def _load_account_refs(async_session_factory: Any) -> list[AccountRef]:
     async with async_session_factory() as session:
         result = await session.execute(
             select(
                 MarketplaceAccount.id,
                 MarketplaceAccount.marketplace,
                 MarketplaceAccount.user_id,
-            )
-            .where(MarketplaceAccount.is_active.is_(True))
+            ).where(MarketplaceAccount.is_active.is_(True))
         )
         return [
-            AccountRef(id=row[0], marketplace=row[1].value, user_id=row[2])
-            for row in result.all()
+            AccountRef(id=row[0], marketplace=row[1].value, user_id=row[2]) for row in result.all()
         ]
 
 
@@ -351,8 +349,8 @@ async def sync_sale_events(ctx: dict[str, Any]) -> None:
             sale_service = SalesEventSyncService(session)
             notifications = await sale_service.pending_notifications(limit=100)
             await _deliver_sale_notifications(session, sale_service, notifier, notifications)
-            lifecycle_notifications = (
-                await sale_service.pending_order_lifecycle_notifications(limit=100)
+            lifecycle_notifications = await sale_service.pending_order_lifecycle_notifications(
+                limit=100
             )
             await _deliver_order_lifecycle_notifications(
                 session,
@@ -980,10 +978,7 @@ async def _load_account_refs_wb(session: AsyncSession) -> list[AccountRef]:
         .where(MarketplaceAccount.is_active.is_(True))
         .where(MarketplaceAccount.marketplace == Marketplace.WB)
     )
-    return [
-        AccountRef(id=row[0], marketplace=row[1].value, user_id=row[2])
-        for row in result.all()
-    ]
+    return [AccountRef(id=row[0], marketplace=row[1].value, user_id=row[2]) for row in result.all()]
 
 
 async def _load_account_refs_ozon(session: AsyncSession) -> list[AccountRef]:
@@ -992,10 +987,7 @@ async def _load_account_refs_ozon(session: AsyncSession) -> list[AccountRef]:
         .where(MarketplaceAccount.is_active.is_(True))
         .where(MarketplaceAccount.marketplace == Marketplace.OZON)
     )
-    return [
-        AccountRef(id=row[0], marketplace=row[1].value, user_id=row[2])
-        for row in result.all()
-    ]
+    return [AccountRef(id=row[0], marketplace=row[1].value, user_id=row[2]) for row in result.all()]
 
 
 async def sync_wb_commissions(ctx: dict[str, Any]) -> None:

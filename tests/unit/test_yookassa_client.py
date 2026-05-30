@@ -1,7 +1,6 @@
 """Tests for YooKassa client data extraction."""
 
-from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from app.integrations.yookassa import _payment_to_dict
 

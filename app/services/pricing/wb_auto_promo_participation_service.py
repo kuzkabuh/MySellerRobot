@@ -422,9 +422,9 @@ class WbAutoPromoParticipationService:
 
         response: dict[str, Any] | None = None
         if upload_items and not dry_run:
-            response = await WildberriesClient(
-                api_key=api_key
-            ).upload_task_prices_discounts(upload_items)
+            response = await WildberriesClient(api_key=api_key).upload_task_prices_discounts(
+                upload_items
+            )
 
         for rec in recs:
             status = STATUS_APPLIED if not dry_run else "dry_run"
@@ -505,9 +505,7 @@ class WbAutoPromoParticipationService:
             wb_nm_id=rec.wb_nm_id,
             old_price=rec.current_discounted_price,
             new_price=(
-                rec.recommended_discounted_price
-                or rec.current_discounted_price
-                or Decimal("0")
+                rec.recommended_discounted_price or rec.current_discounted_price or Decimal("0")
             ),
             target_discounted_price=rec.recommended_discounted_price,
             wb_price=int(rec.recommended_full_price) if rec.recommended_full_price else None,
@@ -524,26 +522,34 @@ class WbAutoPromoParticipationService:
             raw_payload={
                 "promotion_id": rec.wb_promotion_id,
                 "promotion_name": rec.promotion_name,
-                "old_full_price": str(rec.current_full_price)
-                if rec.current_full_price is not None
-                else None,
+                "old_full_price": (
+                    str(rec.current_full_price) if rec.current_full_price is not None else None
+                ),
                 "old_discount": rec.current_discount,
                 "condition_type": rec.condition_type,
-                "wb_condition_discount_percent": str(rec.wb_condition_discount_percent)
-                if rec.wb_condition_discount_percent is not None
-                else None,
-                "candidate_discounted_price": str(rec.candidate_discounted_price)
-                if rec.candidate_discounted_price is not None
-                else None,
-                "new_full_price": str(rec.recommended_full_price)
-                if rec.recommended_full_price is not None
-                else None,
+                "wb_condition_discount_percent": (
+                    str(rec.wb_condition_discount_percent)
+                    if rec.wb_condition_discount_percent is not None
+                    else None
+                ),
+                "candidate_discounted_price": (
+                    str(rec.candidate_discounted_price)
+                    if rec.candidate_discounted_price is not None
+                    else None
+                ),
+                "new_full_price": (
+                    str(rec.recommended_full_price)
+                    if rec.recommended_full_price is not None
+                    else None
+                ),
                 "new_discount": rec.recommended_discount,
                 "payload": {
                     "nmID": rec.wb_nm_id,
-                    "price": int(rec.recommended_full_price)
-                    if rec.recommended_full_price is not None
-                    else None,
+                    "price": (
+                        int(rec.recommended_full_price)
+                        if rec.recommended_full_price is not None
+                        else None
+                    ),
                     "discount": rec.recommended_discount,
                 },
             },
@@ -625,9 +631,7 @@ class WbAutoPromoParticipationService:
             return None
         if wb_condition_discount_percent < 0 or wb_condition_discount_percent >= 100:
             return None
-        return current_full_price * (
-            Decimal("1") - wb_condition_discount_percent / Decimal("100")
-        )
+        return current_full_price * (Decimal("1") - wb_condition_discount_percent / Decimal("100"))
 
     @staticmethod
     def _extract_nm_id(product: Product) -> int | None:

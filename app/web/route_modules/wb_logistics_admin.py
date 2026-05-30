@@ -46,7 +46,7 @@ async def wb_logistics_admin(
         .order_by(WbLogisticsTariffVersion.tariff_date.desc())
         .limit(20)
     )
-    versions = versions_result.scalars().all()
+    versions = list(versions_result.scalars().all())
 
     active_version = None
     for v in versions:
@@ -80,10 +80,12 @@ async def sync_wb_logistics(
     from app.models.enums import Marketplace
 
     account_result = await session.execute(
-        select(MarketplaceAccount).where(
+        select(MarketplaceAccount)
+        .where(
             MarketplaceAccount.marketplace == Marketplace.WB,
             MarketplaceAccount.is_active.is_(True),
-        ).limit(1)
+        )
+        .limit(1)
     )
     account = account_result.scalar_one_or_none()
 
@@ -140,7 +142,7 @@ def _render_admin_page(
     active_html = ""
     if active_version:
         synced = active_version.synced_at.strftime("%Y-%m-%d %H:%M")
-        h = active_version.version_hash[:16]
+        h = (active_version.version_hash or "")[:16]
         active_html = (
             f'<div class="card active">'
             f"<h3>Активная версия</h3>"
@@ -156,7 +158,7 @@ def _render_admin_page(
     for v in versions:
         status = "✅ активна" if v.is_active else "архив"
         synced = v.synced_at.strftime("%Y-%m-%d %H:%M")
-        h = v.version_hash[:12]
+        h = (v.version_hash or "")[:12]
         rows += (
             f"<tr><td>{v.tariff_date}</td><td>{synced}</td>"
             f"<td>{v.rows_count}</td><td>{status}</td>"
@@ -205,7 +207,4 @@ def _sync_message(request: Request) -> str:
         text = "Синхронизация завершилась с ошибкой."
     color = "#065f46" if status in {"new_version", "no_changes"} else "#991b1b"
     background = "#ecfdf5" if status in {"new_version", "no_changes"} else "#fef2f2"
-    return (
-        f'<div class="card" style="background:{background};color:{color};">'
-        f"{text}</div>"
-    )
+    return f'<div class="card" style="background:{background};color:{color};">' f"{text}</div>"
