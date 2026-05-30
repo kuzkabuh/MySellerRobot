@@ -1144,7 +1144,7 @@ async def check_auto_promo_prices(ctx: dict[str, Any]) -> None:
     Runs every 30 minutes. For accounts with auto_price_for_auto_promotions enabled,
     builds recommendations and applies only safe price changes.
     """
-    from app.core.security import decrypt_value
+    from app.core.security import TokenCipher
     from app.models.domain import MrcPricingSettings
     from app.services.pricing.wb_auto_promo_price_service import (
         STATUS_AUTO_MIN_PRICE_VIOLATION,
@@ -1182,6 +1182,7 @@ async def check_auto_promo_prices(ctx: dict[str, Any]) -> None:
             total_violation = 0
             total_min_price_violation = 0
             total_unknown = 0
+            cipher = TokenCipher()
 
             for settings in settings_list:
                 if settings.marketplace_account_id is None:
@@ -1221,7 +1222,7 @@ async def check_auto_promo_prices(ctx: dict[str, Any]) -> None:
                     account = account_result.scalar_one_or_none()
                     if account and account.encrypted_api_key:
                         try:
-                            api_key = decrypt_value(account.encrypted_api_key)
+                            api_key = cipher.decrypt(account.encrypted_api_key)
                             results = await price_update_service.apply_price_changes(
                                 user_id=settings.user_id,
                                 marketplace_account_id=settings.marketplace_account_id,

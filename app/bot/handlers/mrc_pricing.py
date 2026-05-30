@@ -14,22 +14,21 @@ from pathlib import Path
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State
-from aiogram.types import CallbackQuery, ContentType, FSInputFile, Message
+from aiogram.types import CallbackQuery, FSInputFile, Message
 from sqlalchemy import or_, select
 
+from app.bot.bot_provider import bot_session
 from app.bot.keyboards.main import (
     mrc_back_menu,
     mrc_import_confirm_keyboard,
     mrc_menu,
     mrc_product_card_keyboard,
-    web_cabinet_link,
 )
 from app.bot.states import MrcStates
 from app.core.config import get_settings
 from app.core.db import AsyncSessionFactory
 from app.core.security import TokenCipher
-from app.models.domain import MarketplaceAccount, Product, WbPromotion, WbPromotionNomenclature
+from app.models.domain import MarketplaceAccount, Product, WbPromotion
 from app.models.enums import Marketplace
 from app.repositories.users import UserRepository
 from app.services.feature_access_service import FeatureAccessService, FeatureCode
