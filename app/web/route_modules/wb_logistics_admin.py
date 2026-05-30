@@ -34,6 +34,7 @@ def _require_admin(user: User) -> None:
 
 @router.get("/admin/wb-logistics", response_class=HTMLResponse)
 async def wb_logistics_admin(
+    request: Request,
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> str:
@@ -62,12 +63,11 @@ async def wb_logistics_admin(
         )
         rates_count = rates_result.scalar() or 0
 
-    return _render_admin_page(versions, active_version, rates_count)
+    return _render_admin_page(versions, active_version, rates_count, _sync_message(request))
 
 
 @router.post("/admin/wb-logistics/sync")
 async def sync_wb_logistics(
-    request: Request,
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
@@ -88,23 +88,28 @@ async def sync_wb_logistics(
     account = account_result.scalar_one_or_none()
 
     if account is None:
-        request.session["_wb_logistics_sync_msg"] = "Нет подключённых кабинетов WB"
-        return RedirectResponse(url="/admin/wb-logistics", status_code=303)
+        return RedirectResponse(
+            url="/admin/wb-logistics?sync_status=error&sync_msg=no_wb_account",
+            status_code=303,
+        )
 
     try:
         api_key = TokenCipher().decrypt(account.encrypted_api_key)
     except Exception:
-        request.session["_wb_logistics_sync_msg"] = "Ошибка расшифровки API-ключа WB"
-        return RedirectResponse(url="/admin/wb-logistics", status_code=303)
+        return RedirectResponse(
+            url="/admin/wb-logistics?sync_status=error&sync_msg=decrypt_failed",
+            status_code=303,
+        )
 
     wb_client = WildberriesClient(api_key=api_key)
     sync_service = WbLogisticsTariffSyncService(session, wb_client)
     result = await sync_service.sync()
     await session.commit()
 
-    request.session["_wb_logistics_sync_msg"] = result["message"]
-    request.session["_wb_logistics_sync_status"] = result["status"]
-    return RedirectResponse(url="/admin/wb-logistics", status_code=303)
+    return RedirectResponse(
+        url=f"/admin/wb-logistics?sync_status={result['status']}",
+        status_code=303,
+    )
 
 
 _CSS = (
@@ -129,6 +134,7 @@ def _render_admin_page(
     versions: list[WbLogisticsTariffVersion],
     active_version: WbLogisticsTariffVersion | None,
     rates_count: int,
+    sync_message: str,
 ) -> str:
     """Render HTML admin page for WB logistics tariffs."""
     active_html = ""
@@ -167,6 +173,7 @@ def _render_admin_page(
         f"<style>{_CSS}</style></head><body>"
         "<h1>🚚 Тарифы логистики WB</h1>"
         "<p>Управление тарифами коробочной доставки Wildberries.</p>"
+        f"{sync_message}"
         f"{active_html}"
         '<form method="post" action="/admin/wb-logistics/sync">'
         '<button type="submit" class="btn">🔄 Синхронизировать тарифы</button>'
@@ -178,4 +185,27 @@ def _render_admin_page(
         "</tr></thead><tbody>"
         f"{tbody}"
         "</tbody></table></body></html>"
+    )
+
+
+def _sync_message(request: Request) -> str:
+    status = request.query_params.get("sync_status")
+    msg = request.query_params.get("sync_msg")
+    if not status:
+        return ""
+    if msg == "no_wb_account":
+        text = "Нет подключённых кабинетов Wildberries."
+    elif msg == "decrypt_failed":
+        text = "Не удалось расшифровать API-ключ Wildberries."
+    elif status == "new_version":
+        text = "Тарифы Wildberries синхронизированы."
+    elif status == "no_changes":
+        text = "Тарифы Wildberries не изменились."
+    else:
+        text = "Синхронизация завершилась с ошибкой."
+    color = "#065f46" if status in {"new_version", "no_changes"} else "#991b1b"
+    background = "#ecfdf5" if status in {"new_version", "no_changes"} else "#fef2f2"
+    return (
+        f'<div class="card" style="background:{background};color:{color};">'
+        f"{text}</div>"
     )

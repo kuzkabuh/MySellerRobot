@@ -48,6 +48,7 @@ from app.web.rendering import page
 router = APIRouter()
 RECOMMENDATION_IDS_FORM = Form(default=[])
 AUTO_PROMO_UPLOAD_FILE = File(...)
+MAX_AUTO_PROMO_UPLOAD_SIZE_BYTES = 15 * 1024 * 1024
 
 
 @dataclass(slots=True)
@@ -166,7 +167,7 @@ async def pricing_auto_promo_upload_preview(
             url="/web/pricing?upload_error=account#recommendations", status_code=303
         )
     content = await file.read()
-    if len(content) > 15 * 1024 * 1024:
+    if len(content) > MAX_AUTO_PROMO_UPLOAD_SIZE_BYTES:
         return RedirectResponse(
             url="/web/pricing?upload_error=file_size#recommendations", status_code=303
         )
@@ -260,6 +261,10 @@ async def pricing_upload_auto_promo_file(
         )
 
     content = await file.read()
+    if len(content) > MAX_AUTO_PROMO_UPLOAD_SIZE_BYTES:
+        return RedirectResponse(
+            url="/web/pricing?upload_error=file_size#recommendations", status_code=303
+        )
     original_filename = file.filename or "auto_promo.xlsx"
     suffix = Path(original_filename).suffix.lower()
     if suffix not in (".xlsx", ".xlsm", ".csv"):
