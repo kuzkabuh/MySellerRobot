@@ -1166,6 +1166,7 @@ def test_bot_dispatcher_factory_registers_routers_without_polling() -> None:
         "navigation",
         "accounts",
         "costs",
+        "mrc_pricing",
         "subscription",
         "commission_admin",
         "wb_logistics_admin",
@@ -1336,8 +1337,12 @@ def test_web_logout_deletes_all_cookie_paths() -> None:
             elif "Path=/web" in header:
                 cookie_paths.append("/web")
     assert "/" in cookie_paths, f"Logout must delete cookie with path=/, got: {set_cookie_headers}"
-    assert "/web" in cookie_paths, f"Logout must delete cookie with path=/web, got: {set_cookie_headers}"
-    assert "/web/" in cookie_paths, f"Logout must delete cookie with path=/web/, got: {set_cookie_headers}"
+    assert "/web" in cookie_paths, (
+        f"Logout must delete cookie with path=/web, got: {set_cookie_headers}"
+    )
+    assert "/web/" in cookie_paths, (
+        f"Logout must delete cookie with path=/web/, got: {set_cookie_headers}"
+    )
 
 
 def test_web_responses_have_no_cache_headers(
@@ -1376,7 +1381,9 @@ def test_web_responses_have_no_cache_headers(
             response = client.get(path)
             assert response.status_code == 200, f"GET {path} should return 200"
             assert response.headers.get("cache-control", "").startswith("no-store"), (
-                f"GET {path} must have Cache-Control: no-store, got: {response.headers.get('cache-control')}"
+                "GET "
+                f"{path} must have Cache-Control: no-store, got: "
+                f"{response.headers.get('cache-control')}"
             )
             assert response.headers.get("pragma") == "no-cache", (
                 f"GET {path} must have Pragma: no-cache"

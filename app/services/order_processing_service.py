@@ -119,7 +119,15 @@ class OrderProcessingService:
 
             try:
                 logger.info("order_poll_started")
-                normalized_orders, recovery_failed = await self._fetch_orders(account)
+                self._last_fetch_recovery_failed = False
+                fetched_orders = await self._fetch_orders(account)
+                if isinstance(fetched_orders, tuple):
+                    normalized_orders, recovery_failed = fetched_orders
+                else:
+                    normalized_orders = fetched_orders
+                    recovery_failed = bool(
+                        getattr(self, "_last_fetch_recovery_failed", False)
+                    )
                 result.fetched = len(normalized_orders)
 
                 policy = await self.notification_policy.resolve(account)
@@ -240,11 +248,11 @@ class OrderProcessingService:
 
                 await self._append_saved_unnotified(account, policy, result)
 
-                now = datetime.now(tz=UTC)
-                account.last_order_poll_at = now
-                account.last_orders_sync_at = now
-
                 if recovery_failed:
+                    if account.last_order_poll_at is None:
+                        now = datetime.now(tz=UTC)
+                        account.last_order_poll_at = now
+                        account.last_orders_sync_at = now
                     logger.warning(
                         "order_poll_completed_with_recovery_warning",
                         extra={
@@ -252,10 +260,15 @@ class OrderProcessingService:
                             "user_id": user_id,
                             "marketplace": marketplace_value,
                             "reason": "recovery_poll_failed",
-                            "last_order_poll_at": now.isoformat(),
+                            "last_order_poll_at": account.last_order_poll_at.isoformat()
+                            if account.last_order_poll_at
+                            else None,
                         },
                     )
                 else:
+                    now = datetime.now(tz=UTC)
+                    account.last_order_poll_at = now
+                    account.last_orders_sync_at = now
                     account.last_success_sync_at = now
                     logger.info(
                         "order_poll_timestamp_updated",
@@ -299,8 +312,12 @@ class OrderProcessingService:
                     details={"account_id": account_id},
                 ) from exc
 
-    async def _fetch_orders(self, account: MarketplaceAccount) -> tuple[list[NormalizedOrder], bool]:
-        """Fetch orders from marketplace. Returns (orders, recovery_failed)."""
+    async def _fetch_orders(self, account: MarketplaceAccount) -> list[NormalizedOrder]:
+        """Fetch orders from marketplace.
+
+        The recovery flag is stored on the service for compatibility with tests and
+        older monkeypatches that expect this method to return only the order list.
+        """
         if account.marketplace == Marketplace.WB:
             api_key = self.cipher.decrypt(account.encrypted_api_key)
             wb_client = WildberriesClient(api_key)
@@ -386,7 +403,8 @@ class OrderProcessingService:
                         "marketplace": account.marketplace.value,
                     },
                 )
-            return normalized_orders, recovery_failed
+            self._last_fetch_recovery_failed = recovery_failed
+            return normalized_orders
 
         api_key = self.cipher.decrypt(account.encrypted_api_key)
         client_id = self.cipher.decrypt(account.encrypted_client_id or "")
@@ -474,7 +492,8 @@ class OrderProcessingService:
                 "total_orders": len(normalized_fbs) + len(normalized_fbo),
             },
         )
-        return normalized_fbs + normalized_fbo, False
+        self._last_fetch_recovery_failed = False
+        return normalized_fbs + normalized_fbo
 
     async def _queue_fbo_digest(
         self,

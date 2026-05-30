@@ -5,9 +5,11 @@ updated: 2026-05-21
 """
 
 import logging
+import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 from html import escape as html_escape
+from inspect import isawaitable
 from typing import Any
 
 from sqlalchemy import select, text
@@ -89,16 +91,8 @@ class PaymentService:
     def _generate_idempotence_key(
         self, *, user_id: int, tier_code: str, period: str
     ) -> str:
-        """Generate a deterministic idempotence key for payment creation.
-
-        Uses a stable hash of user_id + tier_code + period so that
-        retrying the same payment request reuses the original YooKassa
-        payment instead of creating a duplicate.
-        """
-        import hashlib
-
-        raw = f"yk-sub-{user_id}-{tier_code}-{period}"
-        return hashlib.sha256(raw.encode()).hexdigest()[:32]
+        """Generate a unique YooKassa idempotence key."""
+        return uuid.uuid4().hex
 
     async def create_subscription_payment(
         self,
@@ -621,7 +615,7 @@ class PaymentService:
 
         Idempotent: checks success_notification_sent_at to avoid duplicates.
         """
-        from app.bot.bot_provider import bot_session
+        from app.bot.main import create_bot
         from app.utils.datetime import format_datetime_for_user
 
         if payment.success_notification_sent_at is not None:
@@ -696,8 +690,18 @@ class PaymentService:
 
             keyboard = self._build_payment_success_keyboard(payment.id)
 
-            async with bot_session() as bot:
-                await bot.send_message(user.telegram_id, text, parse_mode="HTML", reply_markup=keyboard)
+            bot = create_bot()
+            try:
+                await bot.send_message(
+                    user.telegram_id,
+                    text,
+                    parse_mode="HTML",
+                    reply_markup=keyboard,
+                )
+            finally:
+                close_result = bot.session.close()
+                if isawaitable(close_result):
+                    await close_result
 
             payment.success_notification_sent_at = datetime.now(tz=UTC)
             await self.session.flush()

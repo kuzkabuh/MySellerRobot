@@ -8,10 +8,8 @@ Covers:
 - send_sale_completed photo fallback
 """
 
-from datetime import UTC, datetime, timedelta
-from decimal import Decimal
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -55,17 +53,16 @@ class TestWbFbsOrdersPagination:
     """Verify WB get_fbs_orders builds correct query params and handles pagination."""
 
     @pytest.mark.asyncio
-    async def test_date_format_uses_z_suffix(self) -> None:
-        from app.integrations.wb import WildberriesClient
+    async def test_date_format_uses_explicit_utc_offset(self) -> None:
 
         date_from = datetime(2026, 5, 18, 10, 0, tzinfo=UTC)
         date_to = datetime(2026, 5, 18, 12, 0, tzinfo=UTC)
 
-        expected_from = "2026-05-18T10:00:00Z"
-        expected_to = "2026-05-18T12:00:00Z"
+        expected_from = "2026-05-18T10:00:00+00:00"
+        expected_to = "2026-05-18T12:00:00+00:00"
 
-        assert date_from.strftime("%Y-%m-%dT%H:%M:%SZ") == expected_from
-        assert date_to.strftime("%Y-%m-%dT%H:%M:%SZ") == expected_to
+        assert date_from.strftime("%Y-%m-%dT%H:%M:%S+00:00") == expected_from
+        assert date_to.strftime("%Y-%m-%dT%H:%M:%S+00:00") == expected_to
 
     @pytest.mark.asyncio
     async def test_single_page_fetch(self) -> None:
@@ -84,8 +81,8 @@ class TestWbFbsOrdersPagination:
         assert len(result) == 2
         mock_request.assert_called_once()
         call_params = mock_request.call_args[1]["params"]
-        assert call_params["dateFrom"] == "2026-05-18T10:00:00Z"
-        assert call_params["dateTo"] == "2026-05-18T12:00:00Z"
+        assert call_params["dateFrom"] == "2026-05-18T10:00:00+00:00"
+        assert call_params["dateTo"] == "2026-05-18T12:00:00+00:00"
         assert call_params["limit"] == 1000
         assert "next" not in call_params
 
@@ -244,7 +241,6 @@ class TestMissingGreenletSafety:
         account = MagicMock()
         account.id = 42
         account.marketplace = Marketplace.WB
-        account.marketplace.value = "WB"
         account.user_id = 7
 
         with pytest.raises(IntegrationError) as exc_info:

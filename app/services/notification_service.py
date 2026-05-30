@@ -179,7 +179,12 @@ class NotificationService:
                         "marketplace": marketplace.value if marketplace else None,
                     },
                 )
-        await self.bot.send_message(telegram_id, text, parse_mode=parse_mode, reply_markup=keyboard)
+        await self.bot.send_message(
+            telegram_id,
+            text=text,
+            parse_mode=parse_mode,
+            reply_markup=keyboard,
+        )
 
     async def send_order_lifecycle_event(
         self,

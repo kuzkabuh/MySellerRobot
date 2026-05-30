@@ -9,12 +9,9 @@ from aiogram.types import InlineKeyboardMarkup
 
 from app.bot.handlers.common import SUPPORTED_TIMEZONES, _is_public_web_url, _timezone_text
 from app.bot.keyboards.main import (
-    accounts_list_menu,
-    accounts_menu,
     admin_deploy_menu,
     admin_menu,
-    confirm_delete_account,
-    confirm_deploy_update,
+    admin_tariff_select_menu,
     control_menu,
     costs_menu,
     low_margin_threshold_menu,
@@ -22,13 +19,10 @@ from app.bot.keyboards.main import (
     mrc_menu,
     notification_settings_menu,
     orders_menu,
+    profile_menu,
     profit_menu,
     sale_notification_settings_menu,
     settings_menu,
-    subscription_current_menu_v2,
-    subscription_menu,
-    subscription_pricing_menu_v2,
-    subscription_tier_detail_menu_v2,
     summary_menu,
     sync_menu,
     timezone_menu,

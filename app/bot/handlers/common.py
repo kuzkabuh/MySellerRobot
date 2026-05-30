@@ -7,7 +7,9 @@ import logging
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from html import escape
+from ipaddress import ip_address
 from types import SimpleNamespace
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from aiogram import F, Router
@@ -1012,7 +1014,9 @@ def _commission_detail_label(economics: PlannedEconomics) -> str:
         percent = (economics.commission_rate * Decimal("100")).quantize(Decimal("1"))
         if economics.commission_is_baseline:
             source = _commission_source_detail_label(economics.commission_source)
-            return f"🏷 {source}: {rub(economics.commission)} ({percent}%)"
+            tariff = _commission_source_tariff_label(economics.commission_source)
+            suffix = f", {tariff}" if tariff else ""
+            return f"🏷 {source}: {rub(economics.commission)} ({percent}%{suffix})"
         return f"🏷 Комиссия маркетплейса: {rub(economics.commission)} ({percent}%)"
     return f"🏷 Комиссия маркетплейса: {rub(economics.commission)}"
 
@@ -1029,6 +1033,19 @@ def _commission_source_detail_label(source) -> str:
         ExpenseSource.UNKNOWN: "Комиссия маркетплейса",
     }
     return labels.get(source, "Комиссия маркетплейса")
+
+
+def _commission_source_tariff_label(source) -> str:
+    from app.models.enums import ExpenseSource
+
+    labels = {
+        ExpenseSource.WB_TARIFF_API: "тариф WB",
+        ExpenseSource.OZON_TARIFF_DB: "тариф Ozon",
+        ExpenseSource.OZON_FINANCIAL_DATA: "фин. данные Ozon",
+        ExpenseSource.FINANCIAL_REPORT: "фин. отчёт",
+        ExpenseSource.FALLBACK_DEFAULT: "предварительно",
+    }
+    return labels.get(source, "")
 
 
 def _logistics_detail_label(economics: PlannedEconomics) -> str:
@@ -1087,9 +1104,28 @@ async def _send_web_cabinet_link(message: Message, user_id: int) -> None:
 def _is_public_web_url(url: str) -> bool:
     """Check if URL is safe for public use.
 
-    Delegates to settings.is_safe_web_url for consistent validation.
+    Telegram login buttons must use a host reachable from the user's device.
     """
-    return get_settings().is_safe_web_url(url)
+    if not get_settings().is_safe_web_url(url):
+        return False
+
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+
+    hostname = parsed.hostname
+    if not hostname:
+        return False
+    if hostname.lower() == "localhost":
+        return False
+
+    try:
+        host_ip = ip_address(hostname)
+    except ValueError:
+        return True
+
+    return not (host_ip.is_loopback or host_ip.is_private or host_ip.is_unspecified)
 
 
 async def _handle_admin_callback(callback: CallbackQuery, message: Message, data: str) -> None:

@@ -127,8 +127,8 @@ class WildberriesClient:
         page_count = 0
 
         while True:
-            date_from_str = date_from.strftime("%Y-%m-%dT%H:%M:%S+00:00")
-            date_to_str = date_to.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+            date_from_str = date_from.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+            date_to_str = date_to.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S+00:00")
 
             params: dict[str, Any] = {
                 "dateFrom": date_from_str,
@@ -278,7 +278,8 @@ class WildberriesClient:
         Response contains per-warehouse tariff data with fields:
         - warehouseName, geoName
         - boxDeliveryBase, boxDeliveryLiter, boxDeliveryCoefExpr (FBO)
-        - boxDeliveryMarketplaceBase, boxDeliveryMarketplaceLiter, boxDeliveryMarketplaceCoefExpr (FBS)
+        - boxDeliveryMarketplaceBase, boxDeliveryMarketplaceLiter,
+          boxDeliveryMarketplaceCoefExpr (FBS)
         """
 
         params: dict[str, str] = {}

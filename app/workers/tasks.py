@@ -4,18 +4,22 @@ updated: 2026-05-21
 """
 
 import logging
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from aiogram import Bot
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.bot.bot_provider import bot_session
+from app.core.config import get_settings
 from app.core.db import AsyncSessionFactory
 from app.models.domain import AlertEvent, MarketplaceAccount, User
 from app.models.enums import Marketplace, SaleModel
@@ -44,6 +48,22 @@ logger = logging.getLogger(__name__)
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 
 _PERMANENT_FAILURE_TYPES = (TelegramForbiddenError,)
+
+
+@asynccontextmanager
+async def bot_session() -> AsyncGenerator[Bot, None]:
+    settings = get_settings()
+    bot = Bot(
+        token=settings.bot_token.get_secret_value(),
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+    )
+    try:
+        yield bot
+    finally:
+        try:
+            await bot.session.close()
+        except Exception:
+            logger.exception("worker_bot_session_close_failed")
 
 
 @dataclass(slots=True)
@@ -93,7 +113,9 @@ async def poll_new_orders(ctx: dict[str, Any]) -> None:
                     account = await _load_account_by_id(session, ref.id)
                     if account is None:
                         continue
-                    poll_result = await OrderProcessingService(session).poll_account_with_stats(account)
+                    poll_result = await OrderProcessingService(session).poll_account_with_stats(
+                        account
+                    )
                     sent, failed = await _deliver_new_order_notifications(
                         session,
                         notifier,
@@ -164,7 +186,10 @@ async def send_daily_reports(ctx: dict[str, Any]) -> None:
                 payload = await service.build_payload(user.id, report_date)
                 if not payload:
                     continue
-                await bot.send_message(user.telegram_id, service.format_report(report_date, payload))
+                await bot.send_message(
+                    user.telegram_id,
+                    service.format_report(report_date, payload),
+                )
 
 
 async def check_fbs_deadlines(ctx: dict[str, Any]) -> None:
@@ -291,11 +316,9 @@ async def sync_sale_events(ctx: dict[str, Any]) -> None:
                             "failed": sync_result.failed,
                         },
                     )
-                    order_notifications = (
-                        await OrderProcessingService(session).collect_saved_unnotified_notifications(
-                            account
-                        )
-                    )
+                    order_notifications = await OrderProcessingService(
+                        session
+                    ).collect_saved_unnotified_notifications(account)
                     sent, failed = await _deliver_new_order_notifications(
                         session,
                         notifier,
@@ -1121,19 +1144,19 @@ async def check_auto_promo_prices(ctx: dict[str, Any]) -> None:
     Runs every 30 minutes. For accounts with auto_price_for_auto_promotions enabled,
     builds recommendations and applies only safe price changes.
     """
-    from app.core.security import TokenCipher, decrypt_value
+    from app.core.security import decrypt_value
     from app.models.domain import MrcPricingSettings
     from app.services.pricing.wb_auto_promo_price_service import (
-        WbAutoPromoPriceService,
-        STATUS_AUTO_SET_PRICE,
-        STATUS_AUTO_PRICE_OK,
-        STATUS_AUTO_REQUIRED_PRICE_UNKNOWN,
-        STATUS_AUTO_PRICE_VIOLATION,
         STATUS_AUTO_MIN_PRICE_VIOLATION,
+        STATUS_AUTO_PRICE_OK,
+        STATUS_AUTO_PRICE_VIOLATION,
+        STATUS_AUTO_REQUIRED_PRICE_UNKNOWN,
+        STATUS_AUTO_SET_PRICE,
+        WbAutoPromoPriceService,
     )
     from app.services.pricing.wb_price_update_service import (
-        WbPriceUpdateService,
         SOURCE_AUTO,
+        WbPriceUpdateService,
     )
 
     async with AsyncSessionFactory() as session:
@@ -1164,9 +1187,11 @@ async def check_auto_promo_prices(ctx: dict[str, Any]) -> None:
                 if settings.marketplace_account_id is None:
                     continue
 
-                recommendations = await auto_price_service.build_recommendations_for_active_auto_promos(
-                    user_id=settings.user_id,
-                    marketplace_account_id=settings.marketplace_account_id,
+                recommendations = (
+                    await auto_price_service.build_recommendations_for_active_auto_promos(
+                        user_id=settings.user_id,
+                        marketplace_account_id=settings.marketplace_account_id,
+                    )
                 )
 
                 for rec in recommendations:
