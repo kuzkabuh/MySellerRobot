@@ -46,6 +46,13 @@ class Settings(BaseSettings):
         "https://seller-edu.ozon.ru/libra/commissions-tariffs/"
         "commissions-tariffs-ozon/komissii-tovary-uslugi"
     )
+    ozon_commissions_fetch_mode: str = "auto"
+    ozon_commissions_browser_fallback_enabled: bool = True
+    ozon_commissions_browser_headless: bool = True
+    ozon_commissions_browser_timeout_seconds: int = 60
+    ozon_commissions_download_dir: str = "/app/runtime/ozon_commissions"
+    ozon_commissions_cookie_enabled: bool = False
+    ozon_commissions_cookie_file: str = "/app/runtime/secret/ozon_seller_edu_cookies.json"
 
     # YooKassa payment settings
     yookassa_shop_id: str = ""

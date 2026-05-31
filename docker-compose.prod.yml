@@ -77,7 +77,8 @@ services:
     env_file: .env
     volumes:
       - ./logs:/app/logs
-      - ./runtime:/opt/mpcontrol/runtime:ro
+      - ./runtime:/opt/mpcontrol/runtime
+      - ./runtime:/app/runtime
       - ./logs:/opt/mpcontrol/logs:ro
       - ./backups:/opt/mpcontrol/backups:ro
       - ./VERSION:/opt/mpcontrol/VERSION:ro

@@ -10,17 +10,21 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # Устанавливаем системные зависимости,
-# необходимые для сборки Python-пакетов
+# необходимые для сборки Python-пакетов и Playwright
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Сначала копируем весь проект,
+# Сначала копируем всё проект,
 # чтобы pip видел папку app/
 COPY . .
 
 # Устанавливаем зависимости и сам проект
 RUN pip install --no-cache-dir ".[dev]"
+
+# Устанавливаем Playwright Chromium для browser fallback
+RUN python -m playwright install chromium \
+    && python -m playwright install-deps chromium
 
 # Запуск API-сервиса
 CMD ["uvicorn", "app.api.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

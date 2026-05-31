@@ -118,6 +118,7 @@ class MarketplaceTariffSourceCheck(TimestampMixin, Base):
     current_detected_file_name: Mapped[str | None] = mapped_column(String(255))
     has_changes: Mapped[bool] = mapped_column(Boolean, default=False)
     change_type: Mapped[str] = mapped_column(String(64), default="no_change")
+    fetch_method: Mapped[str | None] = mapped_column(String(32), default="http")
     details: Mapped[dict[str, Any] | None] = mapped_column(JsonType)
 
 

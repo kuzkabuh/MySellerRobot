@@ -1,4 +1,4 @@
-"""version: 2.0.0
+"""version: 3.0.0
 description: Ozon commission source page monitor — detects new tariff tables on the official page.
 updated: 2026-05-31
 """
@@ -15,22 +15,43 @@ import httpx
 from app.core.config import get_settings
 from app.models.commission_tariffs import MarketplaceTariffSourceCheck
 from app.models.enums import Marketplace
+from app.utils.log_sanitizer import sanitize_headers
 
 logger = logging.getLogger(__name__)
 
 BROWSER_HEADERS = {
     "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/146.0.0.0 YaBrowser/26.4.0.0 Safari/537.36"
     ),
     "Accept": (
         "text/html,application/xhtml+xml,application/xml;q=0.9,"
         "image/avif,image/webp,*/*;q=0.8"
     ),
-    "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
+    "Accept-Language": "ru,en;q=0.9",
     "Accept-Encoding": "gzip, deflate, br",
     "Cache-Control": "no-cache",
     "Pragma": "no-cache",
+    "Referer": "https://seller-edu.ozon.ru/",
+    "sec-ch-ua": '"Chromium";v="146", "Not-A.Brand";v="24", "YaBrowser";v="26.4", "Yowser";v="2.5"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    "sec-fetch-dest": "document",
+    "sec-fetch-mode": "navigate",
+    "sec-fetch-site": "same-origin",
+    "sec-fetch-user": "?1",
+    "upgrade-insecure-requests": "1",
+}
+
+API_HEADERS = {
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "ru,en;q=0.9",
+    "x-o3-app-name": "seller-edu-center",
+    "x-o3-app-version": "release/2026-05-29-01",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-origin",
 }
 
 DOWNLOAD_LINK_TEXT_PATTERN = re.compile(r"скачать\s+таблицу\s+категорий", re.IGNORECASE)
@@ -185,16 +206,60 @@ class OzonCommissionSourceMonitorService:
     async def check(self, url: str | None = None) -> dict[str, Any]:
         """Fetch the page, parse it, compare with last check, and persist the result.
 
+        Tries HTTP first. On 403/404, falls back to browser if enabled.
         Returns a summary dict.
         """
+        settings = get_settings()
         if url is None:
-            url = get_settings().ozon_commissions_source_url
+            url = settings.ozon_commissions_source_url
+
+        fetch_mode = settings.ozon_commissions_fetch_mode
 
         logger.info(
             "ozon_commission_source_check_started",
-            extra={"source_url": url},
+            extra={"source_url": url, "fetch_mode": fetch_mode},
         )
 
+        if fetch_mode == "browser":
+            return await self._check_via_browser(url)
+
+        if fetch_mode == "manual":
+            return await self._record_check(
+                url=url,
+                html_content=None,
+                change_type="manual_mode",
+                error="Ручной режим: автоматическая проверка отключена",
+                fetch_method="manual",
+            )
+
+        http_result = await self._check_via_http(url)
+
+        if http_result is not None:
+            return http_result
+
+        if fetch_mode == "http":
+            return await self._record_check(
+                url=url,
+                html_content=None,
+                change_type="source_unavailable",
+                error="HTTP-режим недоступен, browser fallback отключён",
+                fetch_method="http",
+            )
+
+        if settings.ozon_commissions_browser_fallback_enabled:
+            logger.info("ozon_commission_source_http_failed_trying_browser")
+            return await self._check_via_browser(url)
+
+        return await self._record_check(
+            url=url,
+            html_content=None,
+            change_type="source_unavailable",
+            error="HTTP-режим недоступен, browser fallback отключён",
+            fetch_method="http",
+        )
+
+    async def _check_via_http(self, url: str) -> dict[str, Any] | None:
+        """Try HTTP fetch. Returns None if 403/404 (caller should try browser fallback)."""
         try:
             async with httpx.AsyncClient(
                 follow_redirects=True,
@@ -215,6 +280,17 @@ class OzonCommissionSourceMonitorService:
                     },
                 )
 
+                if status_code in (403, 404):
+                    logger.warning(
+                        "ozon_commission_source_http_blocked",
+                        extra={
+                            "status": status_code,
+                            "url": url,
+                            "final_url": final_url,
+                        },
+                    )
+                    return None
+
                 response.raise_for_status()
                 html = response.text
 
@@ -223,24 +299,9 @@ class OzonCommissionSourceMonitorService:
             final_url = str(exc.response.url)
 
             if status in (403, 404):
-                logger.warning(
-                    "ozon_commission_source_unavailable",
-                    extra={
-                        "status": status,
-                        "url": url,
-                        "final_url": final_url,
-                        "error": str(exc)[:300],
-                    },
-                )
-                return await self._record_check(
-                    url=url,
-                    html_content=None,
-                    change_type="source_unavailable",
-                    error=f"HTTP {status}: {exc.response.reason_phrase or 'Forbidden/Not Found'}",
-                    source_status_code=status,
-                    source_final_url=final_url,
-                )
-            elif status == 429:
+                return None
+
+            if status == 429:
                 logger.warning(
                     "ozon_commission_source_rate_limited",
                     extra={"status": status, "url": url, "final_url": final_url},
@@ -252,6 +313,7 @@ class OzonCommissionSourceMonitorService:
                     error="HTTP 429: rate limited",
                     source_status_code=status,
                     source_final_url=final_url,
+                    fetch_method="http",
                 )
             logger.error(
                 "ozon_commission_source_http_error",
@@ -269,6 +331,7 @@ class OzonCommissionSourceMonitorService:
                 error=f"HTTP {status}: {str(exc)[:200]}",
                 source_status_code=status,
                 source_final_url=final_url,
+                fetch_method="http",
             )
         except httpx.TimeoutException as exc:
             logger.error(
@@ -280,6 +343,7 @@ class OzonCommissionSourceMonitorService:
                 html_content=None,
                 change_type="source_unavailable",
                 error=f"Timeout: {str(exc)[:200]}",
+                fetch_method="http",
             )
         except Exception as exc:
             logger.exception(
@@ -291,6 +355,7 @@ class OzonCommissionSourceMonitorService:
                 html_content=None,
                 change_type="parse_error",
                 error=str(exc)[:300],
+                fetch_method="http",
             )
 
         page_hash = hashlib.sha256(html.encode("utf-8")).hexdigest()
@@ -319,6 +384,7 @@ class OzonCommissionSourceMonitorService:
                 error=f"HTML parse error: {str(exc)[:300]}",
                 source_status_code=status_code,
                 source_final_url=final_url,
+                fetch_method="http",
             )
 
         file_url = parsed.get("download_url")
@@ -349,6 +415,7 @@ class OzonCommissionSourceMonitorService:
                     source_final_url=final_url,
                     file_status_code=file_status_code,
                     file_hash=file_hash,
+                    fetch_method="http",
                 )
 
         last_check = await self._get_last_successful_check()
@@ -360,6 +427,7 @@ class OzonCommissionSourceMonitorService:
                 "change_type": change_type,
                 "has_changes": has_changes,
                 "period_label": parsed.get("period_label"),
+                "fetch_method": "http",
             },
         )
 
@@ -374,6 +442,60 @@ class OzonCommissionSourceMonitorService:
             source_final_url=final_url,
             file_status_code=file_status_code,
             file_hash=file_hash,
+            fetch_method="http",
+        )
+
+    async def _check_via_browser(self, url: str) -> dict[str, Any]:
+        """Fallback check via Playwright browser."""
+        from app.services.commission_tariffs.ozon_commission_browser_fetcher import (
+            fetch_ozon_commissions_via_browser,
+        )
+
+        result = await fetch_ozon_commissions_via_browser(url)
+
+        if not result.ok:
+            return await self._record_check(
+                url=url,
+                html_content=None,
+                change_type="source_unavailable" if result.status == "source_unavailable" else "file_unavailable",
+                error=result.message,
+                source_final_url=result.final_url,
+                fetch_method="browser",
+                technical_details=result.technical_details,
+            )
+
+        parsed = {
+            "period_label": result.period_label,
+            "download_url": result.file_url,
+            "file_name": result.filename,
+            "active_from": result.active_from.isoformat() if result.active_from else None,
+        }
+
+        last_check = await self._get_last_successful_check()
+        change_type, has_changes = self._detect_changes(last_check, parsed, result.file_hash)
+
+        logger.info(
+            "ozon_commission_source_browser_check_completed",
+            extra={
+                "change_type": change_type,
+                "has_changes": has_changes,
+                "period_label": result.period_label,
+                "fetch_method": "browser",
+            },
+        )
+
+        return await self._record_check(
+            url=url,
+            html_content=None,
+            page_hash=result.file_hash,
+            parsed=parsed,
+            change_type=change_type,
+            has_changes=has_changes,
+            source_final_url=result.final_url,
+            file_hash=result.file_hash,
+            fetch_method="browser",
+            local_file_path=result.local_file_path,
+            file_bytes=result.file_bytes,
         )
 
     async def _download_and_verify_file(
@@ -405,6 +527,7 @@ class OzonCommissionSourceMonitorService:
                         "status_code": status_code,
                         "content_length": len(content),
                         "content_type": response.headers.get("content-type"),
+                        "response_headers": sanitize_headers(dict(response.headers)),
                     },
                 )
 
@@ -473,6 +596,10 @@ class OzonCommissionSourceMonitorService:
         source_final_url: str | None = None,
         file_status_code: int | None = None,
         file_hash: str | None = None,
+        fetch_method: str = "http",
+        technical_details: str | None = None,
+        local_file_path: str | None = None,
+        file_bytes: bytes | None = None,
     ) -> dict[str, Any]:
         """Persist the check result and return a summary."""
         if parsed is None:
@@ -488,6 +615,9 @@ class OzonCommissionSourceMonitorService:
             "source_final_url": source_final_url,
             "file_status_code": file_status_code,
             "file_hash": file_hash,
+            "fetch_method": fetch_method,
+            "technical_details": technical_details,
+            "local_file_path": local_file_path,
         }
 
         check = MarketplaceTariffSourceCheck(
@@ -501,28 +631,39 @@ class OzonCommissionSourceMonitorService:
             has_changes=has_changes,
             change_type=change_type,
             details=details,
+            fetch_method=fetch_method,
         )
         self.session.add(check)
         await self.session.commit()
 
+        period_label = parsed.get("period_label")
+
         summary = {
-            "success": change_type not in ("parse_error", "source_unavailable", "file_unavailable"),
+            "success": change_type not in (
+                "parse_error", "source_unavailable", "file_unavailable", "manual_mode"
+            ),
             "has_changes": has_changes,
             "change_type": change_type,
-            "period_label": parsed.get("period_label"),
+            "period_label": period_label,
             "download_url": parsed.get("download_url"),
             "file_name": parsed.get("file_name"),
             "check_id": check.id,
             "error": error,
+            "fetch_method": fetch_method,
+            "local_file_path": local_file_path,
+            "file_bytes": file_bytes,
         }
 
-        if has_changes and change_type not in ("parse_error", "source_unavailable", "file_unavailable"):
+        if has_changes and change_type not in (
+            "parse_error", "source_unavailable", "file_unavailable", "manual_mode"
+        ):
             logger.info(
                 "ozon_commission_source_update_detected",
                 extra={
                     "change_type": change_type,
-                    "period_label": parsed.get("period_label"),
+                    "period_label": period_label,
                     "download_url": parsed.get("download_url"),
+                    "fetch_method": fetch_method,
                 },
             )
 

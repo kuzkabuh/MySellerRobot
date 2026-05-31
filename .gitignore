@@ -38,6 +38,10 @@ logs/
 postgres_data/
 redis_data/
 
+# Runtime secrets and downloads
+runtime/secret/
+runtime/ozon_commissions/
+
 # Test and cache
 .coverage
 htmlcov/

@@ -1,9 +1,11 @@
-"""version: 1.0.0
+"""version: 2.0.0
 description: WEB admin routes for commission tariff management.
-updated: 2026-05-20
+updated: 2026-05-31
 """
 # ruff: noqa: E501
 
+import hashlib
+import json
 import logging
 from datetime import date
 from html import escape
@@ -27,6 +29,7 @@ from app.services.commission_tariffs.ozon_commission_source_monitor_service impo
 )
 from app.services.commission_tariffs.ozon_commission_xlsx_importer import OzonCommissionXlsxImporter
 from app.services.commission_tariffs.wb_commission_sync_service import WbCommissionSyncService
+from app.services.commission_tariffs.xlsx_validator import validate_xlsx_file
 from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY
 from app.web.rendering import page
 
@@ -136,12 +139,13 @@ async def check_ozon_commissions_web(
     service = OzonCommissionSourceMonitorService(session)
     result = await service.check()
 
-    period = result.get("period_label", "н/д")
+    period = result.get("period_label") or "Период не определён"
     has_changes = result.get("has_changes", False)
     change_type = result.get("change_type", "no_change")
     download_url = result.get("download_url")
     file_name = result.get("file_name")
     error = result.get("error")
+    fetch_method = result.get("fetch_method", "http")
 
     status_badge = _change_type_badge(change_type)
 
@@ -155,10 +159,8 @@ async def check_ozon_commissions_web(
         )
 
     source_url = get_settings().ozon_commissions_source_url
-    manual_link = (
-        f'<p><a href="{escape(source_url)}" target="_blank" rel="noopener">'
-        f"Открыть страницу комиссий Ozon вручную</a></p>"
-    )
+
+    method_info = _fetch_method_label(fetch_method)
 
     error_info = ""
     if change_type in ("source_unavailable", "file_unavailable"):
@@ -166,6 +168,7 @@ async def check_ozon_commissions_web(
         error_info = (
             f'<p>⚠️ {error_msg}</p>'
             '<p>Последняя рабочая версия комиссий сохранена и продолжает использоваться.</p>'
+            '<p>Вы можете открыть страницу Ozon вручную или загрузить XLSX-файл вручную.</p>'
         )
     elif change_type == "parse_error":
         error_msg = escape(str(error or "Ошибка парсинга"))
@@ -173,6 +176,20 @@ async def check_ozon_commissions_web(
             f'<p>⚠️ Ошибка парсинга: {error_msg}</p>'
             '<p>Формат страницы или файла Ozon мог измениться. Требуется обновление парсера.</p>'
         )
+    elif change_type == "manual_mode":
+        error_info = (
+            '<p>Автоматическая проверка отключена. Используйте ручную загрузку XLSX.</p>'
+        )
+
+    buttons = (
+        f'<div class="filters">'
+        f'<a href="{escape(source_url)}" target="_blank" rel="noopener" class="button">'
+        f'Открыть страницу Ozon</a>'
+        f'<form action="/web/admin/commissions/check-ozon" method="post" style="display:inline">'
+        f'<button type="submit" class="button">Повторить проверку</button></form>'
+        f'<a href="/web/admin/commissions#manual-upload" class="button">Загрузить XLSX вручную</a>'
+        f'</div>'
+    )
 
     return _admin_page(
         "Комиссии маркетплейсов",
@@ -180,10 +197,11 @@ async def check_ozon_commissions_web(
         f'<div class="band"><h2>Проверка Ozon</h2>'
         f"<p>Текущий период: {escape(str(period))}</p>"
         f"<p>Результат: {status_badge}</p>"
+        f"<p>Способ получения: {method_info}</p>"
         f"{download_link}"
         f"{error_info}"
-        f"{manual_link}"
-        f'<a href="/web/admin/commissions" class="button">Назад</a></div>',
+        f"{buttons}"
+        f'<p><a href="/web/admin/commissions" class="button">Назад</a></p></div>',
     )
 
 
@@ -365,10 +383,15 @@ def _ozon_card(
 
     check_info = ""
     if last_check:
-        period = escape(str(last_check.current_detected_period_label or "н/д"))
+        period_raw = last_check.current_detected_period_label
+        period = escape(period_raw if period_raw else "Период не определён")
         change_badge = _change_type_badge(last_check.change_type)
+        fetch_method = getattr(last_check, "fetch_method", None) or "http"
+        method_badge = _fetch_method_label(fetch_method)
         check_info = (
-            f"<p><b>Последняя проверка:</b> {change_badge}, период: {period}</p>"
+            f"<p><b>Последняя проверка:</b> {change_badge}</p>"
+            f"<p><b>Период:</b> {period}</p>"
+            f"<p><b>Способ:</b> {method_badge}</p>"
         )
         if last_check.has_changes and last_check.current_detected_file_url:
             safe_url = escape(last_check.current_detected_file_url)
@@ -382,12 +405,16 @@ def _ozon_card(
             if isinstance(last_check.details, dict) and last_check.details.get("error"):
                 error_msg = escape(str(last_check.details["error"])[:200])
             check_info += (
-                f'<p class="muted">⚠️ Источник Ozon недоступен. '
+                f'<p class="muted">⚠️ Автоматическая проверка не смогла получить файл комиссий Ozon. '
                 f"Последняя рабочая версия комиссий сохранена.</p>"
             )
             check_info += (
-                f'<p><a href="{escape(source_url)}" target="_blank" rel="noopener">'
-                f"Открыть страницу комиссий Ozon вручную</a></p>"
+                f'<div class="filters">'
+                f'<a href="{escape(source_url)}" target="_blank" rel="noopener" class="button">'
+                f"Открыть страницу Ozon</a>"
+                f'<a href="/web/admin/commissions/manual-upload" class="button">'
+                f"Загрузить XLSX вручную</a>"
+                f"</div>"
             )
             if error_msg:
                 check_info += f'<details><summary>Техническая информация</summary><pre class="mono">{error_msg}</pre></details>'
@@ -411,8 +438,11 @@ def _ozon_card(
 
 def _import_form() -> str:
     return (
-        '<div class="band">'
+        '<div class="band" id="manual-upload">'
         "<h2>📥 Загрузить таблицу комиссий Ozon</h2>"
+        '<p><a href="/web/admin/commissions/manual-upload" class="button primary">'
+        'Ручная загрузка с preview</a></p>'
+        '<details><summary>Быстрая загрузка (без preview)</summary>'
         '<form action="/web/admin/commissions/import-ozon" method="post" enctype="multipart/form-data">'
         '<div class="filters">'
         "<div><label>Файл XLSX</label>"
@@ -423,7 +453,7 @@ def _import_form() -> str:
         '<input type="text" name="version_label" placeholder="Ozon commissions from ..."></div>'
         "</div>"
         '<button type="submit" class="button primary">Загрузить и импортировать</button>'
-        "</form></div>"
+        "</form></details></div>"
     )
 
 
@@ -496,7 +526,10 @@ def _checks_table(checks: list[MarketplaceTariffSourceCheck]) -> str:
     rows = ""
     for c in checks:
         change_label = _change_type_badge(c.change_type)
-        period = escape(str(c.current_detected_period_label or "—"))
+        period_raw = c.current_detected_period_label
+        period = escape(period_raw if period_raw else "Период не определён")
+        fetch_method = getattr(c, "fetch_method", None) or "http"
+        method_badge = _fetch_method_label(fetch_method)
 
         file_cell = "—"
         if c.current_detected_file_url:
@@ -526,6 +559,7 @@ def _checks_table(checks: list[MarketplaceTariffSourceCheck]) -> str:
             f"<td>{c.checked_at.strftime('%d.%m.%Y %H:%M') if c.checked_at else '—'}</td>"
             f"<td>{period}</td>"
             f"<td>{change_label}</td>"
+            f"<td>{method_badge}</td>"
             f"<td>{file_cell}</td>"
             f"<td>{actions}</td>"
             "</tr>"
@@ -535,11 +569,286 @@ def _checks_table(checks: list[MarketplaceTariffSourceCheck]) -> str:
         '<div class="band"><h2>🔍 История проверок Ozon</h2>'
         '<div class="table-wrap"><table class="table">'
         "<thead><tr>"
-        "<th>Дата</th><th>Период</th><th>Изменения</th><th>Файл</th><th>Действия</th>"
+        "<th>Дата</th><th>Период</th><th>Изменения</th><th>Способ</th><th>Файл</th><th>Действия</th>"
         "</tr></thead>"
         f"<tbody>{rows}</tbody>"
         "</table></div></div>"
     )
+
+
+@router.get("/admin/commissions/manual-upload", response_class=HTMLResponse)
+async def manual_upload_page(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    _require_admin(user)
+    return _admin_page("Ручная загрузка комиссий Ozon", user, _manual_upload_form())
+
+
+@router.post("/admin/commissions/manual-upload/preview", response_class=HTMLResponse)
+async def manual_upload_preview(
+    file: UploadFile = OZON_COMMISSION_FILE_FORM,
+    effective_from: str = OZON_COMMISSION_EFFECTIVE_FROM_FORM,
+    version_label: str = OZON_COMMISSION_VERSION_LABEL_FORM,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    _require_admin(user)
+
+    if not file.filename or not file.filename.lower().endswith((".xlsx", ".xls")):
+        return _admin_page(
+            "Ручная загрузка комиссий Ozon",
+            user,
+            '<div class="band"><h2>Ошибка</h2><p>Файл должен быть в формате .xlsx</p>'
+            '<a href="/web/admin/commissions/manual-upload" class="button">Назад</a></div>',
+        )
+
+    try:
+        parts = effective_from.strip().split(".")
+        eff_date = date(int(parts[2]), int(parts[1]), int(parts[0]))
+    except Exception:
+        return _admin_page(
+            "Ручная загрузка комиссий Ozon",
+            user,
+            '<div class="band"><h2>Ошибка</h2><p>Неверный формат даты. Используйте ДД.ММ.ГГГГ</p>'
+            '<a href="/web/admin/commissions/manual-upload" class="button">Назад</a></div>',
+        )
+
+    file_bytes = await file.read()
+
+    validation = validate_xlsx_file(file_bytes=file_bytes, file_name=file.filename)
+    if not validation.valid:
+        return _admin_page(
+            "Ручная загрузка комиссий Ozon",
+            user,
+            f'<div class="band"><h2>Файл невалидный</h2>'
+            f'<p>Статус: {escape(validation.status)}</p>'
+            f'<p>{escape(validation.message or "")}</p>'
+            f'<a href="/web/admin/commissions/manual-upload" class="button">Назад</a></div>',
+        )
+
+    file_hash = hashlib.sha256(file_bytes).hexdigest()
+
+    importer = OzonCommissionXlsxImporter(session)
+    existing = await importer._find_import_by_sha256(file_hash)
+    if existing and existing.status == "imported":
+        return _admin_page(
+            "Ручная загрузка комиссий Ozon",
+            user,
+            f'<div class="band"><h2>Дубликат</h2>'
+            f'<p>Этот файл уже был импортирован ранее (ID: {existing.id}).</p>'
+            f'<a href="/web/admin/commissions" class="button">Назад</a></div>',
+        )
+
+    import openpyxl
+    from io import BytesIO
+
+    wb = openpyxl.load_workbook(BytesIO(file_bytes), data_only=True)
+    sheet = importer._find_sheet(wb)
+    rates_count = 0
+    if sheet:
+        rates_data = importer._parse_rates(sheet)
+        rates_count = len(rates_data)
+    wb.close()
+
+    active_version = await importer._get_active_ozon_version()
+    diff_summary = {}
+    if active_version and rates_count > 0:
+        temp_version_label = f"preview_{file_hash[:8]}"
+        preview_result = await importer.validate_and_import(
+            file_bytes=file_bytes,
+            file_name=file.filename,
+            effective_from=eff_date,
+            version_label=temp_version_label,
+            uploaded_by_user_id=user.id,
+        )
+        if preview_result.get("success"):
+            diff_summary = preview_result.get("diff_summary", {})
+            preview_version_id = preview_result.get("version_id")
+            if preview_version_id:
+                await _deactivate_version(session, preview_version_id)
+                if active_version:
+                    await _reactivate_version(session, active_version.id)
+
+    preview_html = _render_preview(
+        file_name=file.filename,
+        file_size=len(file_bytes),
+        file_hash=file_hash,
+        effective_from=eff_date,
+        version_label=version_label,
+        rates_count=rates_count,
+        diff_summary=diff_summary,
+        sheet_names=validation.sheet_names,
+    )
+
+    return _admin_page("Ручная загрузка комиссий Ozon", user, preview_html)
+
+
+@router.post("/admin/commissions/manual-upload/apply", response_class=HTMLResponse)
+async def manual_upload_apply(
+    file: UploadFile = OZON_COMMISSION_FILE_FORM,
+    effective_from: str = OZON_COMMISSION_EFFECTIVE_FROM_FORM,
+    version_label: str = OZON_COMMISSION_VERSION_LABEL_FORM,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    _require_admin(user)
+
+    if not file.filename or not file.filename.lower().endswith((".xlsx", ".xls")):
+        return _admin_page(
+            "Ручная загрузка комиссий Ozon",
+            user,
+            '<div class="band"><h2>Ошибка</h2><p>Файл должен быть в формате .xlsx</p>'
+            '<a href="/web/admin/commissions" class="button">Назад</a></div>',
+        )
+
+    try:
+        parts = effective_from.strip().split(".")
+        eff_date = date(int(parts[2]), int(parts[1]), int(parts[0]))
+    except Exception:
+        return _admin_page(
+            "Ручная загрузка комиссий Ozon",
+            user,
+            '<div class="band"><h2>Ошибка</h2><p>Неверный формат даты.</p>'
+            '<a href="/web/admin/commissions" class="button">Назад</a></div>',
+        )
+
+    file_bytes = await file.read()
+
+    validation = validate_xlsx_file(file_bytes=file_bytes, file_name=file.filename)
+    if not validation.valid:
+        return _admin_page(
+            "Ручная загрузка комиссий Ozon",
+            user,
+            f'<div class="band"><h2>Файл невалидный</h2>'
+            f'<p>{escape(validation.message or "")}</p>'
+            f'<a href="/web/admin/commissions" class="button">Назад</a></div>',
+        )
+
+    importer = OzonCommissionXlsxImporter(session)
+    result = await importer.validate_and_import(
+        file_bytes=file_bytes,
+        file_name=file.filename,
+        effective_from=eff_date,
+        version_label=version_label or None,
+        uploaded_by_user_id=user.id,
+    )
+
+    message = result.get("message", "Импорт завершён.")
+    success = result.get("success", False)
+
+    return _admin_page(
+        "Ручная загрузка комиссий Ozon",
+        user,
+        f'<div class="band"><h2>{"✅ Успех" if success else "❌ Ошибка"}</h2>'
+        f"<p>{escape(message)}</p>"
+        f'<a href="/web/admin/commissions" class="button">Назад</a></div>',
+    )
+
+
+async def _deactivate_version(session: AsyncSession, version_id: int) -> None:
+    from sqlalchemy import update
+
+    await session.execute(
+        update(MarketplaceCommissionVersion)
+        .where(MarketplaceCommissionVersion.id == version_id)
+        .values(is_active=False)
+    )
+    await session.flush()
+
+
+async def _reactivate_version(session: AsyncSession, version_id: int) -> None:
+    from sqlalchemy import update
+
+    await session.execute(
+        update(MarketplaceCommissionVersion)
+        .where(MarketplaceCommissionVersion.id == version_id)
+        .values(is_active=True, effective_to=None)
+    )
+    await session.flush()
+
+
+def _manual_upload_form() -> str:
+    return (
+        '<div class="band" id="manual-upload">'
+        "<h2>📥 Ручная загрузка файла комиссий Ozon</h2>"
+        '<form action="/web/admin/commissions/manual-upload/preview" method="post" enctype="multipart/form-data">'
+        '<div class="filters">'
+        "<div><label>Файл XLSX</label>"
+        '<input type="file" name="file" accept=".xlsx,.xls" required></div>'
+        "<div><label>Дата начала (ДД.ММ.ГГГГ)</label>"
+        '<input type="text" name="effective_from" placeholder="06.04.2026" required></div>'
+        "<div><label>Название версии (опционально)</label>"
+        '<input type="text" name="version_label" placeholder="Ozon commissions from ..."></div>'
+        "</div>"
+        '<button type="submit" class="button primary">Предпросмотр</button>'
+        "</form>"
+        '<p class="muted">Файл будет проверен и показан preview перед активацией.</p>'
+        '<p><a href="/web/admin/commissions" class="button">Назад</a></p>'
+        "</div>"
+    )
+
+
+def _render_preview(
+    *,
+    file_name: str,
+    file_size: int,
+    file_hash: str,
+    effective_from: date,
+    version_label: str,
+    rates_count: int,
+    diff_summary: dict,
+    sheet_names: list[str] | None = None,
+) -> str:
+    diff_parts = []
+    if diff_summary:
+        added = diff_summary.get("added", 0)
+        removed = diff_summary.get("removed", 0)
+        changed = diff_summary.get("changed", 0)
+        if added:
+            diff_parts.append(f'<span class="badge good">+{added} добавлено</span>')
+        if removed:
+            diff_parts.append(f'<span class="badge bad">-{removed} удалено</span>')
+        if changed:
+            diff_parts.append(f'<span class="badge action">~{changed} изменено</span>')
+    diff_html = " ".join(diff_parts) if diff_parts else '<span class="badge">Нет изменений</span>'
+
+    sheets_html = ""
+    if sheet_names:
+        sheets_html = f"<p><b>Листы:</b> {escape(', '.join(sheet_names))}</p>"
+
+    return (
+        f'<div class="band"><h2>Preview файла комиссий</h2>'
+        f"<p><b>Файл:</b> {escape(file_name)}</p>"
+        f"<p><b>Размер:</b> {file_size:,} байт</p>"
+        f"<p><b>SHA256:</b> <code>{file_hash[:16]}...</code></p>"
+        f"<p><b>Дата начала:</b> {effective_from.isoformat()}</p>"
+        f"<p><b>Ставок:</b> {rates_count}</p>"
+        f"{sheets_html}"
+        f"<p><b>Изменения:</b> {diff_html}</p>"
+        f'<form action="/web/admin/commissions/manual-upload/apply" method="post" enctype="multipart/form-data">'
+        f'<input type="hidden" name="effective_from" value="{effective_from.strftime("%d.%m.%Y")}">'
+        f'<input type="hidden" name="version_label" value="{escape(version_label)}">'
+        f'<input type="hidden" name="file" value="">'
+        f'<p class="muted">Для активации загрузите тот же файл повторно:</p>'
+        f'<div class="filters">'
+        f"<div><label>Файл XLSX (тот же)</label>"
+        f'<input type="file" name="file" accept=".xlsx,.xls" required></div>'
+        f"</div>"
+        f'<button type="submit" class="button primary">Активировать версию</button>'
+        f"</form>"
+        f'<p><a href="/web/admin/commissions" class="button">Отмена</a></p>'
+        f"</div>"
+    )
+
+
+def _fetch_method_label(method: str) -> str:
+    mapping = {
+        "http": '<span class="badge good">HTTP</span>',
+        "browser": '<span class="badge action">Browser (Playwright)</span>',
+        "manual": '<span class="badge">Ручной</span>',
+    }
+    return mapping.get(method, f'<span class="badge">{escape(method)}</span>')
 
 
 def _change_type_badge(change_type: str) -> str:
@@ -553,5 +862,7 @@ def _change_type_badge(change_type: str) -> str:
         "file_unavailable": '<span class="badge warn">Файл недоступен</span>',
         "unavailable": '<span class="badge warn">Источник недоступен</span>',
         "rate_limited": '<span class="badge warn">Источник временно недоступен</span>',
+        "manual_mode": '<span class="badge">Ручной режим</span>',
+        "browser_fallback": '<span class="badge action">Browser fallback</span>',
     }
     return mapping.get(change_type, f'<span class="badge">{escape(change_type)}</span>')

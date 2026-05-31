@@ -74,13 +74,34 @@ def format_wb_sync_notification(result: dict[str, Any]) -> str:
 
 def format_ozon_monitor_notification(result: dict[str, Any]) -> str | None:
     """Format an Ozon monitor result into an admin notification."""
+    change_type = result.get("change_type", "no_change")
+    fetch_method = result.get("fetch_method", "http")
+
     if result.get("has_changes"):
-        period = result.get("period_label", "н/д")
+        period = result.get("period_label") or "Период не определён"
+        method_label = {"http": "HTTP", "browser": "Browser", "manual": "Manual"}.get(
+            fetch_method, fetch_method
+        )
         return (
             "🔔 <b>Обнаружено обновление таблицы комиссий Ozon</b>\n\n"
             f"Новый период: {period}\n"
+            f"Способ: {method_label}\n"
             f"Требуется загрузить новый XLSX-файл через WEB-админку или бот."
         )
+
+    if change_type in ("source_unavailable", "file_unavailable"):
+        error = result.get("error", "")
+        method_label = {"http": "HTTP", "browser": "Browser", "manual": "Manual"}.get(
+            fetch_method, fetch_method
+        )
+        return (
+            "⚠️ <b>Источник комиссий Ozon недоступен</b>\n\n"
+            f"Способ: {method_label}\n"
+            f"Ошибка: {error}\n"
+            "Последняя рабочая версия комиссий сохранена.\n"
+            "Загрузите XLSX вручную через WEB-админку."
+        )
+
     return None
 
 
