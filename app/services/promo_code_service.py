@@ -22,6 +22,7 @@ from app.models.promo_codes import (
     PromoCodeUsage,
 )
 from app.models.subscriptions import SubscriptionTier
+from app.services.tariff_service import TariffService
 
 logger = logging.getLogger(__name__)
 
@@ -312,6 +313,17 @@ class PromoCodeService:
                     "Промокод доступен только новым пользователям",
                     reason="not_new_user",
                 )
+
+        tariff_price = TariffService.get_available_periods(tariff).get(period)
+        if (
+            promo.min_order_amount is not None
+            and tariff_price is not None
+            and tariff_price < promo.min_order_amount
+        ):
+            raise PromoValidationError(
+                "Промокод доступен только для большей суммы заказа",
+                reason="min_order_amount",
+            )
 
         return promo
 

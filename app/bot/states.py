@@ -26,6 +26,25 @@ class AdminTariffStates(StatesGroup):
     waiting_for_user_id = State()
 
 
+class AdminPanelStates(StatesGroup):
+    waiting_for_tariff_price = State()
+    waiting_for_tariff_limit = State()
+    waiting_for_promo_code = State()
+    waiting_for_promo_name = State()
+    waiting_for_promo_type = State()
+    waiting_for_promo_value = State()
+    waiting_for_promo_tariffs = State()
+    waiting_for_promo_periods = State()
+    waiting_for_promo_total_limit = State()
+    waiting_for_promo_user_limit = State()
+    waiting_for_promo_expires = State()
+    waiting_for_promo_new_users = State()
+    waiting_for_promo_confirm = State()
+    waiting_for_promo_search = State()
+    waiting_for_promo_limit_edit = State()
+    waiting_for_promo_expires_edit = State()
+
+
 class PaymentStates(StatesGroup):
     waiting_for_email = State()
     pending_tier_code = State()

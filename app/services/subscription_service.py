@@ -148,6 +148,59 @@ class SubscriptionService:
         )
         return subscription
 
+    async def create_bonus_subscription(
+        self,
+        *,
+        user_id: int,
+        tier_code: str,
+        days: int,
+        payment_provider: str | None = None,
+        payment_id: str | None = None,
+    ) -> UserSubscription:
+        """Create a promo-funded subscription for an arbitrary number of days."""
+        if days < 1:
+            raise ValueError("Bonus subscription days must be positive")
+
+        tier = await self.get_tier_by_code(tier_code)
+        if not tier:
+            raise ValueError(f"Tier {tier_code} not found")
+
+        now = datetime.now(tz=UTC)
+        active_subscription = await self.get_active_subscription(user_id)
+        if active_subscription:
+            active_subscription.status = SubscriptionStatus.REPLACED
+            active_subscription.cancelled_at = now
+            active_subscription.auto_renew = False
+
+        subscription = UserSubscription(
+            user_id=user_id,
+            tier_id=tier.id,
+            status=SubscriptionStatus.ACTIVE,
+            started_at=now,
+            expires_at=now + timedelta(days=days),
+            period="bonus",
+            is_trial=False,
+            trial_ends_at=None,
+            payment_provider=payment_provider,
+            payment_id=payment_id,
+            auto_renew=False,
+            created_at=now,
+            updated_at=now,
+        )
+        self.session.add(subscription)
+        await self.session.flush()
+
+        logger.info(
+            "bonus_subscription_created",
+            extra={
+                "user_id": user_id,
+                "tier_code": tier_code,
+                "days": days,
+                "subscription_id": subscription.id,
+            },
+        )
+        return subscription
+
     async def start_trial(
         self,
         *,
@@ -295,6 +348,7 @@ class SubscriptionService:
         result = await self.session.execute(
             select(SubscriptionTier)
             .where(SubscriptionTier.is_active.is_(True))
+            .where(SubscriptionTier.is_public.is_(True))
             .order_by(SubscriptionTier.sort_order)
         )
         return list(result.scalars().all())

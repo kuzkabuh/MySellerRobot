@@ -12,6 +12,7 @@ from aiogram.fsm.storage.redis import RedisStorage
 from aiogram.types import BotCommand
 
 from app.bot.handlers.accounts import router as accounts_router
+from app.bot.handlers.admin_panel import router as admin_panel_router
 from app.bot.handlers.commissions import router as commissions_router
 from app.bot.handlers.common import router as common_router
 from app.bot.handlers.costs import router as costs_router
@@ -34,6 +35,9 @@ BOT_COMMANDS: tuple[BotCommand, ...] = (
     BotCommand(command="accounts", description="Подключённые кабинеты WB и Ozon"),
     BotCommand(command="sync", description="Запустить синхронизацию"),
     BotCommand(command="subscription", description="Подписка и тарифы"),
+    BotCommand(command="admin", description="Админ-панель"),
+    BotCommand(command="tariffs", description="Админ: управление тарифами"),
+    BotCommand(command="promocodes", description="Админ: управление промокодами"),
     BotCommand(command="settings", description="Настройки бота"),
     BotCommand(command="low_margin", description="Настроить порог низкой маржи"),
     BotCommand(command="help", description="Помощь по боту"),
@@ -67,6 +71,7 @@ def create_dispatcher(storage: RedisStorage | None = None) -> Dispatcher:
         costs_router,
         mrc_router,
         subscription_router,
+        admin_panel_router,
         commissions_router,
         wb_logistics_router,
         common_router,

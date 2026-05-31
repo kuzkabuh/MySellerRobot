@@ -140,7 +140,11 @@ class PaymentService:
         else:
             final_amount = amount
 
-        existing = await self._find_pending_payment(user_id, tier_code=tier_code, period=period)
+        existing = None
+        if promo_code_usage_id is None and not discount_amount:
+            existing = await self._find_pending_payment(
+                user_id, tier_code=tier_code, period=period
+            )
         if existing:
             logger.info(
                 "payment_reused_pending",
@@ -176,6 +180,7 @@ class PaymentService:
             metadata["discount_amount"] = str(discount_amount)
         if original_amount is not None:
             metadata["original_amount"] = str(original_amount)
+        metadata["final_amount"] = str(final_amount)
 
         idempotence_key = self._generate_idempotence_key(
             user_id=user_id, tier_code=tier_code, period=period

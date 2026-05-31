@@ -201,6 +201,7 @@ def test_known_callback_buttons_have_common_handler_contract() -> None:
         "profit:",
         "control:",
         "admin:",
+        "ap:",
         "admin_deploy:",
         "timezone:set:",
         "low_margin:set:",

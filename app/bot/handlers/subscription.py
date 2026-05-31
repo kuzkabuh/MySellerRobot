@@ -5,6 +5,7 @@ updated: 2026-05-16
 """
 
 import logging
+from decimal import Decimal
 from html import escape as html_escape
 from typing import Any
 
@@ -532,9 +533,7 @@ async def handle_payment_confirmation(callback: CallbackQuery, state: FSMContext
             await callback.answer("Пользователь не найден", show_alert=True)
             return
 
-        if free_days and final_amount == "0":
-            from decimal import Decimal
-
+        if promo_code_usage_id and final_amount == "0":
             from app.services.promo_code_service import PromoCodeService
 
             sub_service = SubscriptionService(session)
@@ -543,15 +542,25 @@ async def handle_payment_confirmation(callback: CallbackQuery, state: FSMContext
                 await callback.answer("Тариф не найден", show_alert=True)
                 return
 
-            subscription = await sub_service.create_subscription(
-                user_id=user.id,
-                tier_code=tier_code,
-                period=period,
-                is_trial=True,
-                trial_days=int(free_days),
-                payment_provider="promo_code",
-                payment_id=None,
-            )
+            if free_days:
+                subscription = await sub_service.create_bonus_subscription(
+                    user_id=user.id,
+                    tier_code=tier_code,
+                    days=int(free_days),
+                    payment_provider="promo_code",
+                    payment_id=None,
+                )
+                period_line = f"Бесплатный период: <b>{free_days} дней</b>"
+            else:
+                subscription = await sub_service.create_subscription(
+                    user_id=user.id,
+                    tier_code=tier_code,
+                    period=period,
+                    is_trial=False,
+                    payment_provider="promo_code",
+                    payment_id=None,
+                )
+                period_line = "Промокод покрыл стоимость периода полностью"
 
             promo_service = PromoCodeService(session)
             await promo_service.confirm_usage(
@@ -568,7 +577,7 @@ async def handle_payment_confirmation(callback: CallbackQuery, state: FSMContext
             text = (
                 f"🎉 <b>Подписка активирована!</b>\n\n"
                 f"Тариф: <b>{_html(tier.name)}</b>\n"
-                f"Бесплатный период: <b>{free_days} дней</b>\n"
+                f"{period_line}\n"
                 f"Действует до: <b>{_html(expires_str)}</b>"
             )
             keyboard = InlineKeyboardMarkup(
@@ -604,7 +613,7 @@ async def handle_payment_confirmation(callback: CallbackQuery, state: FSMContext
             await callback.answer()
             return
 
-        new_state_data: dict[str, str] = {"tier_code": tier_code, "period": period}
+        new_state_data: dict[str, Any] = {"tier_code": tier_code, "period": period}
         if promo_code_usage_id:
             new_state_data["promo_code_usage_id"] = promo_code_usage_id
         if discount_amount:

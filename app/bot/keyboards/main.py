@@ -139,6 +139,10 @@ def control_menu() -> InlineKeyboardMarkup:
 def admin_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📦 Тарифы", callback_data="ap:tariffs"),
+                InlineKeyboardButton(text="🎟 Промокоды", callback_data="ap:promos"),
+            ],
             [InlineKeyboardButton(text="👥 Пользователи", callback_data="admin:users")],
             [InlineKeyboardButton(text="🏪 Подключённые кабинеты", callback_data="admin:accounts")],
             [
