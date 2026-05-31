@@ -429,15 +429,22 @@ class PaymentService:
             )
             return
 
-        if yookassa_data is None or not yookassa_data.get("status"):
-            try:
-                yookassa_data = await self.yookassa.get_payment(payment_id)
-            except Exception as e:
-                logger.exception(
-                    "payment_verification_error",
-                    extra={"payment_id": payment.id, "error": str(e)},
-                )
-                return
+        try:
+            provider_payment = await self.yookassa.get_payment(payment_id)
+        except Exception as e:
+            logger.exception(
+                "payment_verification_error",
+                extra={"payment_id": payment.id, "error": str(e), "source": source},
+            )
+            return
+
+        webhook_payment_method = (yookassa_data or {}).get("payment_method")
+        yookassa_data = {
+            **(yookassa_data or {}),
+            **provider_payment,
+        }
+        if webhook_payment_method and "payment_method" not in yookassa_data:
+            yookassa_data["payment_method"] = webhook_payment_method
 
         verified_status = yookassa_data.get("status")
         if verified_status != "succeeded":

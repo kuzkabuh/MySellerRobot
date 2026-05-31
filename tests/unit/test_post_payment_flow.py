@@ -76,6 +76,18 @@ def _make_user(telegram_id=12345, timezone="Europe/Moscow"):
     return user
 
 
+def _make_succeeded_yookassa_mock():
+    client = MagicMock()
+    client.get_payment = AsyncMock(
+        side_effect=lambda payment_id: {
+            "id": payment_id,
+            "status": "succeeded",
+            "payment_method": {"type": "bank_card"},
+        }
+    )
+    return client
+
+
 class TestBasicMonthlyActivation:
     """Test 1: BASIC monthly payment activates correct subscription."""
 
@@ -111,7 +123,7 @@ class TestBasicMonthlyActivation:
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
             mock_settings.return_value = settings
-            mock_yk_class.return_value = MagicMock()
+            mock_yk_class.return_value = _make_succeeded_yookassa_mock()
             mock_bot = MagicMock()
             mock_bot.send_message = AsyncMock()
             mock_create_bot.return_value = mock_bot
@@ -180,7 +192,7 @@ class TestBasicYearlyActivation:
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
             mock_settings.return_value = settings
-            mock_yk_class.return_value = MagicMock()
+            mock_yk_class.return_value = _make_succeeded_yookassa_mock()
             mock_bot = MagicMock()
             mock_bot.send_message = AsyncMock()
             mock_create_bot.return_value = mock_bot
@@ -247,7 +259,7 @@ class TestProMonthlyActivation:
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
             mock_settings.return_value = settings
-            mock_yk_class.return_value = MagicMock()
+            mock_yk_class.return_value = _make_succeeded_yookassa_mock()
             mock_bot = MagicMock()
             mock_bot.send_message = AsyncMock()
             mock_create_bot.return_value = mock_bot
@@ -309,7 +321,7 @@ class TestProYearlyActivation:
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
             mock_settings.return_value = settings
-            mock_yk_class.return_value = MagicMock()
+            mock_yk_class.return_value = _make_succeeded_yookassa_mock()
             mock_bot = MagicMock()
             mock_bot.send_message = AsyncMock()
             mock_create_bot.return_value = mock_bot
@@ -371,7 +383,7 @@ class TestMetadataAsSourceOfTruth:
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
             mock_settings.return_value = settings
-            mock_yk_class.return_value = MagicMock()
+            mock_yk_class.return_value = _make_succeeded_yookassa_mock()
             mock_bot = MagicMock()
             mock_bot.send_message = AsyncMock()
             mock_create_bot.return_value = mock_bot
@@ -430,7 +442,7 @@ class TestDuplicateWebhookIdempotency:
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
             mock_settings.return_value = settings
-            mock_yk_class.return_value = MagicMock()
+            mock_yk_class.return_value = _make_succeeded_yookassa_mock()
 
             service = PaymentService(mock_session)
             service.subscription_service.create_subscription = AsyncMock()
@@ -546,7 +558,7 @@ class TestMissingTierCodeInMetadata:
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
             mock_settings.return_value = settings
-            mock_yk_class.return_value = MagicMock()
+            mock_yk_class.return_value = _make_succeeded_yookassa_mock()
 
             service = PaymentService(mock_session)
             service.subscription_service.create_subscription = AsyncMock()
@@ -599,7 +611,7 @@ class TestMissingPeriodInMetadata:
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
             mock_settings.return_value = settings
-            mock_yk_class.return_value = MagicMock()
+            mock_yk_class.return_value = _make_succeeded_yookassa_mock()
             mock_bot = MagicMock()
             mock_bot.send_message = AsyncMock()
             mock_create_bot.return_value = mock_bot
@@ -642,7 +654,7 @@ class TestUnknownPaymentId:
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
             mock_settings.return_value = settings
-            mock_yk_class.return_value = MagicMock()
+            mock_yk_class.return_value = _make_succeeded_yookassa_mock()
 
             service = PaymentService(mock_session)
 
@@ -817,7 +829,7 @@ class TestPendingPaymentReuseByTierAndPeriod:
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
             mock_settings.return_value = settings
-            mock_yk_class.return_value = MagicMock()
+            mock_yk_class.return_value = _make_succeeded_yookassa_mock()
 
             service = PaymentService(mock_session)
 
@@ -869,7 +881,7 @@ class TestBackwardCompatibleSubscriptionPeriodKey:
             settings.yookassa_shop_id = "shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "key"
             mock_settings.return_value = settings
-            mock_yk_class.return_value = MagicMock()
+            mock_yk_class.return_value = _make_succeeded_yookassa_mock()
             mock_bot = MagicMock()
             mock_bot.send_message = AsyncMock()
             mock_create_bot.return_value = mock_bot

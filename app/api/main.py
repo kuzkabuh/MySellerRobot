@@ -71,10 +71,17 @@ def _sanitize_headers(headers: dict[str, str]) -> dict[str, str]:
     return result
 
 
+def _read_app_version() -> str:
+    path = Path("VERSION")
+    if not path.exists():
+        return "0.0.0"
+    return path.read_text(encoding="utf-8").strip() or "0.0.0"
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging(settings)
-    app = FastAPI(title="Seller Profit Bot API", version="1.7.2", debug=settings.app_debug)
+    app = FastAPI(title="Seller Profit Bot API", version=_read_app_version(), debug=settings.app_debug)
     app.include_router(web_router)
     app.include_router(webhooks_router)
     app.include_router(payment_public_router)

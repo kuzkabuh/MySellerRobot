@@ -142,6 +142,38 @@ async def test_payment_success_rejected_if_verification_fails(payment_service, m
 
 
 @pytest.mark.asyncio
+async def test_payment_success_rejects_unverified_webhook_status(payment_service, mock_session):
+    """Webhook status alone must not activate a subscription."""
+    payment = Payment(
+        id=1,
+        user_id=100,
+        provider="yookassa",
+        provider_payment_id="test_payment_123",
+        amount=Decimal("490"),
+        currency="RUB",
+        status=PaymentStatus.PENDING,
+        payment_metadata={"tier_code": "basic", "period": "monthly", "user_id": "100"},
+    )
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = payment
+    mock_session.execute.return_value = mock_result
+
+    payment_service.yookassa.get_payment = AsyncMock(
+        return_value={"id": "test_payment_123", "status": "pending"}
+    )
+    payment_service.subscription_service.create_subscription = AsyncMock()
+
+    yookassa_data = {"id": "test_payment_123", "status": "succeeded"}
+
+    await payment_service.handle_payment_success(yookassa_data)
+
+    payment_service.yookassa.get_payment.assert_called_once_with("test_payment_123")
+    payment_service.subscription_service.create_subscription.assert_not_called()
+    assert payment.status == PaymentStatus.PENDING
+
+
+@pytest.mark.asyncio
 async def test_cancel_does_not_override_succeeded_payment(payment_service, mock_session):
     """Cancelled webhook should not override already succeeded payment."""
     payment = Payment(

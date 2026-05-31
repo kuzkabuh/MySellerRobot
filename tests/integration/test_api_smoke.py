@@ -6,6 +6,7 @@ updated: 2026-05-17
 import importlib.util
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -249,7 +250,7 @@ def test_create_app() -> None:
     app = create_app()
 
     assert app.title == "Seller Profit Bot API"
-    assert app.version == "1.7.2"
+    assert app.version == Path("VERSION").read_text(encoding="utf-8").strip()
 
 
 def test_web_shell_contains_material_design_tokens() -> None:
@@ -1210,6 +1211,7 @@ def test_bot_dispatcher_factory_registers_routers_without_polling() -> None:
         "costs",
         "mrc_pricing",
         "subscription",
+        "admin_panel",
         "commission_admin",
         "wb_logistics_admin",
         "common",

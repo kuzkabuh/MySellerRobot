@@ -3,6 +3,8 @@ description: Tests for subscription and payment infrastructure.
 updated: 2026-05-17
 """
 
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from app.api.main import create_app
@@ -15,7 +17,7 @@ def test_api_imports_successfully() -> None:
     app = create_app()
     assert app is not None
     assert app.title == "Seller Profit Bot API"
-    assert app.version == "1.7.2"
+    assert app.version == Path("VERSION").read_text(encoding="utf-8").strip()
 
 
 def test_bot_imports_successfully() -> None:
