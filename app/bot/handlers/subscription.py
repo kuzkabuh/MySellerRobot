@@ -20,7 +20,6 @@ from app.bot.keyboards.main import (
     subscription_cancel_confirm_menu,
     subscription_current_menu_v2,
     subscription_menu,
-    subscription_payment_confirm_menu,
     subscription_payments_menu,
     subscription_pricing_menu_v2,
     subscription_tier_detail_menu_v2,
@@ -238,8 +237,8 @@ async def show_tier_details(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data.startswith("subscription:pay:"))
-async def handle_payment_initiation(callback: CallbackQuery) -> None:
-    """Handle payment initiation."""
+async def handle_payment_initiation(callback: CallbackQuery, state: FSMContext) -> None:
+    """Handle payment initiation — show price and offer promo code input."""
     message = _callback_message(callback)
     if not callback.from_user or not message or not callback.data:
         return
@@ -285,15 +284,226 @@ async def handle_payment_initiation(callback: CallbackQuery) -> None:
             f"Тариф: <b>{_html(tier.name)}</b>\n"
             f"Период: {period_text}\n"
             f"Сумма: <b>{amount} ₽</b>\n\n"
-            "После оплаты подписка активируется автоматически."
+            "Есть промокод? Введите его или продолжите без него."
         )
 
-        await _safe_edit_text(
-            message,
-            text,
-            reply_markup=subscription_payment_confirm_menu(tier_code, period, f"{amount} ₽"),
+        await state.update_data(
+            tier_code=tier_code,
+            period=period,
+            original_amount=str(amount),
         )
+        await state.set_state(PaymentStates.waiting_for_promo_code)
+
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="✅ Продолжить без промокода",
+                        callback_data=f"subscription:pay_confirm:{tier_code}:{period}",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="◀️ Назад",
+                        callback_data=f"subscription:tier:{tier_code}",
+                    )
+                ],
+            ]
+        )
+
+        await _safe_edit_text(message, text, reply_markup=keyboard)
         await callback.answer()
+
+
+@router.message(PaymentStates.waiting_for_promo_code)
+async def handle_promo_code_input(message: Message, state: FSMContext) -> None:
+    """Handle promo code input during payment flow."""
+    from decimal import Decimal
+
+    from app.models.enums import PromoType
+    from app.services.promo_code_service import PromoCodeService, PromoValidationError
+
+    code = (message.text or "").strip()
+    if not code:
+        await message.answer("Введите промокод или нажмите «Пропустить».")
+        return
+
+    data = await state.get_data()
+    tier_code = data.get("tier_code")
+    period = data.get("period")
+    original_amount_str = data.get("original_amount", "0")
+
+    if not tier_code or not period:
+        await message.answer("Ошибка: данные платежа не найдены. Начните заново.")
+        await state.clear()
+        return
+
+    original_amount = Decimal(original_amount_str)
+
+    async with AsyncSessionFactory() as session:
+        if message.from_user is None:
+            await message.answer("Не удалось определить пользователя.")
+            await state.clear()
+            return
+
+        user_repo = UserRepository(session)
+        user = await user_repo.get_by_telegram_id(message.from_user.id)
+        if not user:
+            await message.answer("Пользователь не найден.")
+            await state.clear()
+            return
+
+        sub_service = SubscriptionService(session)
+        tier = await sub_service.get_tier_by_code(tier_code)
+        if not tier:
+            await message.answer("Тариф не найден. Начните заново.")
+            await state.clear()
+            return
+
+        promo_service = PromoCodeService(session)
+        try:
+            promo = await promo_service.validate(
+                user=user, tariff=tier, period=period, code=code
+            )
+        except PromoValidationError as e:
+            keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="✅ Продолжить без промокода",
+                            callback_data=f"subscription:pay_confirm:{tier_code}:{period}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="◀️ Назад",
+                            callback_data=f"subscription:tier:{tier_code}",
+                        )
+                    ],
+                ]
+            )
+            await message.answer(
+                f"❌ {_html(str(e))}\n\n"
+                f"Вы можете продолжить без промокода.",
+                reply_markup=keyboard,
+            )
+            return
+
+        discount_amount, free_days = await promo_service.calculate_discount(
+            tariff_price=original_amount, promo=promo
+        )
+
+        if promo.promo_type == PromoType.FREE_DAYS and free_days:
+            usage = await promo_service.reserve_usage(
+                user=user,
+                promo=promo,
+                tariff=tier,
+                period=period,
+                original_amount=original_amount,
+                discount_amount=original_amount,
+                final_amount=Decimal("0"),
+                free_days_applied=free_days,
+            )
+            await session.commit()
+
+            await state.update_data(
+                promo_code_usage_id=str(usage.id),
+                discount_amount=str(original_amount),
+                final_amount="0",
+                free_days=str(free_days),
+            )
+
+            text = (
+                f"🎉 <b>Промокод применён: {_html(promo.code)}</b>\n\n"
+                f"Вы получите <b>{free_days} дней</b> бесплатного доступа "
+                f"к тарифу <b>{_html(tier.name)}</b>.\n\n"
+                f"К оплате: <b>0 ₽</b>"
+            )
+            keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="✅ Активировать",
+                            callback_data=f"subscription:pay_confirm:{tier_code}:{period}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="◀️ Назад",
+                            callback_data=f"subscription:tier:{tier_code}",
+                        )
+                    ],
+                ]
+            )
+            await message.answer(text, reply_markup=keyboard)
+            return
+
+        final_amount = max(original_amount - discount_amount, Decimal("0"))
+
+        usage = await promo_service.reserve_usage(
+            user=user,
+            promo=promo,
+            tariff=tier,
+            period=period,
+            original_amount=original_amount,
+            discount_amount=discount_amount,
+            final_amount=final_amount,
+        )
+        await session.commit()
+
+        await state.update_data(
+            promo_code_usage_id=str(usage.id),
+            discount_amount=str(discount_amount),
+            final_amount=str(final_amount),
+        )
+
+        text = (
+            f"🎉 <b>Промокод применён: {_html(promo.code)}</b>\n\n"
+            f"Стоимость тарифа: {original_amount} ₽\n"
+            f"Скидка: {discount_amount} ₽\n"
+            f"К оплате: <b>{final_amount} ₽</b>"
+        )
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="✅ Перейти к оплате",
+                        callback_data=f"subscription:pay_confirm:{tier_code}:{period}",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="◀️ Назад",
+                        callback_data=f"subscription:tier:{tier_code}",
+                    )
+                ],
+            ]
+        )
+        await message.answer(text, reply_markup=keyboard)
+
+
+@router.message(PaymentStates.waiting_for_promo_code, Command("cancel", "skip"))
+async def skip_promo_code(message: Message, state: FSMContext) -> None:
+    """Skip promo code input and proceed to payment."""
+    data = await state.get_data()
+    tier_code = data.get("tier_code")
+    period = data.get("period")
+    if not tier_code or not period:
+        await message.answer("Ошибка: данные платежа не найдены. Начните заново.")
+        await state.clear()
+        return
+    await state.clear()
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Перейти к оплате",
+                    callback_data=f"subscription:pay_confirm:{tier_code}:{period}",
+                )
+            ]
+        ]
+    )
+    await message.answer("Продолжаем без промокода.", reply_markup=keyboard)
 
 
 @router.callback_query(F.data.startswith("subscription:pay_confirm:"))
@@ -307,11 +517,78 @@ async def handle_payment_confirmation(callback: CallbackQuery, state: FSMContext
     tier_code = parts[2]
     period = parts[3]
 
+    state_data = await state.get_data()
+    promo_code_usage_id = state_data.get("promo_code_usage_id")
+    discount_amount = state_data.get("discount_amount")
+    final_amount = state_data.get("final_amount")
+    free_days = state_data.get("free_days")
+
+    await state.clear()
+
     async with AsyncSessionFactory() as session:
         user_repo = UserRepository(session)
         user = await user_repo.get_by_telegram_id(callback.from_user.id)
         if not user:
             await callback.answer("Пользователь не найден", show_alert=True)
+            return
+
+        if free_days and final_amount == "0":
+            from decimal import Decimal
+
+            from app.services.promo_code_service import PromoCodeService
+
+            sub_service = SubscriptionService(session)
+            tier = await sub_service.get_tier_by_code(tier_code)
+            if not tier:
+                await callback.answer("Тариф не найден", show_alert=True)
+                return
+
+            subscription = await sub_service.create_subscription(
+                user_id=user.id,
+                tier_code=tier_code,
+                period=period,
+                is_trial=True,
+                trial_days=int(free_days),
+                payment_provider="promo_code",
+                payment_id=None,
+            )
+
+            promo_service = PromoCodeService(session)
+            await promo_service.confirm_usage(
+                usage_id=int(promo_code_usage_id),
+                subscription_id=subscription.id,
+            )
+            await session.commit()
+
+            expires_str = (
+                subscription.expires_at.strftime("%d.%m.%Y")
+                if subscription.expires_at
+                else "—"
+            )
+            text = (
+                f"🎉 <b>Подписка активирована!</b>\n\n"
+                f"Тариф: <b>{_html(tier.name)}</b>\n"
+                f"Бесплатный период: <b>{free_days} дней</b>\n"
+                f"Действует до: <b>{_html(expires_str)}</b>"
+            )
+            keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="💳 Моя подписка",
+                            callback_data="subscription:current",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="🏠 Главное меню",
+                            callback_data="back_main",
+                        )
+                    ],
+                ]
+            )
+            await _safe_edit_text(message, text, reply_markup=keyboard)
+            await callback.answer()
             return
 
         if user.payment_email:
@@ -321,12 +598,20 @@ async def handle_payment_confirmation(callback: CallbackQuery, state: FSMContext
                 user=user,
                 tier_code=tier_code,
                 period=period,
+                promo_code_usage_id=int(promo_code_usage_id) if promo_code_usage_id else None,
+                discount_amount=Decimal(discount_amount) if discount_amount else None,
             )
             await callback.answer()
             return
 
-        await state.update_data(tier_code=tier_code, period=period)
+        new_state_data: dict[str, str] = {"tier_code": tier_code, "period": period}
+        if promo_code_usage_id:
+            new_state_data["promo_code_usage_id"] = promo_code_usage_id
+        if discount_amount:
+            new_state_data["discount_amount"] = discount_amount
+
         await state.set_state(PaymentStates.waiting_for_email)
+        await state.update_data(**new_state_data)
         await _safe_edit_text(
             message,
             "Для оплаты необходимо указать ваш e-mail.\n\n"
@@ -339,6 +624,8 @@ async def handle_payment_confirmation(callback: CallbackQuery, state: FSMContext
 @router.message(PaymentStates.waiting_for_email)
 async def handle_payment_email_input(message: Message, state: FSMContext) -> None:
     """Handle user email input for payment receipt."""
+    from decimal import Decimal
+
     email = (message.text or "").strip()
     if not email or "@" not in email or "." not in email.split("@")[-1]:
         await message.answer("Пожалуйста, введите корректный e-mail.\n\n" "Пример: example@mail.ru")
@@ -347,6 +634,8 @@ async def handle_payment_email_input(message: Message, state: FSMContext) -> Non
     data = await state.get_data()
     tier_code = data.get("tier_code")
     period = data.get("period")
+    promo_code_usage_id = data.get("promo_code_usage_id")
+    discount_amount = data.get("discount_amount")
 
     if not tier_code or not period:
         await message.answer("Ошибка: данные платежа не найдены. Начните заново.")
@@ -375,6 +664,8 @@ async def handle_payment_email_input(message: Message, state: FSMContext) -> Non
         user=user,
         tier_code=tier_code,
         period=period,
+        promo_code_usage_id=int(promo_code_usage_id) if promo_code_usage_id else None,
+        discount_amount=Decimal(discount_amount) if discount_amount else None,
     )
 
 
@@ -392,8 +683,12 @@ async def _process_payment(
     user: Any,
     tier_code: str,
     period: str,
+    promo_code_usage_id: int | None = None,
+    discount_amount: Any = None,
 ) -> None:
     """Execute payment creation after email is confirmed."""
+    from decimal import Decimal
+
     settings = get_settings()
     try:
         base_return_url = settings.get_yookassa_return_url()
@@ -408,12 +703,29 @@ async def _process_payment(
     try:
         async with AsyncSessionFactory() as session:
             payment_service = PaymentService(session)
+
+            original_amount = None
+            if discount_amount is not None:
+                sub_service = SubscriptionService(session)
+                tier = await sub_service.get_tier_by_code(tier_code)
+                if tier:
+                    _price_map = {
+                        "monthly": tier.price_monthly,
+                        "3_months": getattr(tier, "price_3_months", None),
+                        "6_months": getattr(tier, "price_6_months", None),
+                        "yearly": tier.price_yearly,
+                    }
+                    original_amount = _price_map.get(period)
+
             payment, confirmation_url = await payment_service.create_subscription_payment(
                 user_id=user.id,
                 tier_code=tier_code,
                 period=period,
                 return_url=base_return_url,
                 customer_email=user.payment_email,
+                promo_code_usage_id=promo_code_usage_id,
+                discount_amount=discount_amount if isinstance(discount_amount, Decimal) else None,
+                original_amount=original_amount,
             )
             await session.commit()
 

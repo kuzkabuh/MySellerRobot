@@ -147,3 +147,15 @@ class PaymentStatus(StrEnum):
     SUCCEEDED = "SUCCEEDED"
     CANCELLED = "CANCELLED"
     FAILED = "FAILED"
+
+
+class PromoType(StrEnum):
+    PERCENT_DISCOUNT = "percent_discount"
+    FIXED_DISCOUNT = "fixed_discount"
+    FREE_DAYS = "free_days"
+
+
+class PromoUsageStatus(StrEnum):
+    RESERVED = "reserved"
+    APPLIED = "applied"
+    CANCELLED = "cancelled"

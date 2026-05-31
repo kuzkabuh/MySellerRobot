@@ -116,6 +116,9 @@ class PaymentService:
         period: str = "monthly",
         return_url: str,
         customer_email: str,
+        promo_code_usage_id: int | None = None,
+        discount_amount: Decimal | None = None,
+        original_amount: Decimal | None = None,
     ) -> tuple[Payment, str]:
         """Create payment for subscription.
 
@@ -131,6 +134,11 @@ class PaymentService:
         amount = _get_tier_price_for_period(tier, period)
         if amount is None or amount == Decimal("0"):
             raise ValueError(f"Tier {tier_code} has no price for {period} period")
+
+        if discount_amount is not None and discount_amount > 0:
+            final_amount = max(amount - discount_amount, Decimal("0.01"))
+        else:
+            final_amount = amount
 
         existing = await self._find_pending_payment(user_id, tier_code=tier_code, period=period)
         if existing:
@@ -156,12 +164,19 @@ class PaymentService:
 
         period_label = _PERIOD_LABELS.get(period, period)
         description = f"Подписка MP Control — тариф {tier.name}, {period_label}"
-        metadata = {
+        metadata: dict[str, Any] = {
             "user_id": str(user_id),
             "tier_code": tier_code,
             "period": period,
             "provider": "yookassa",
         }
+        if promo_code_usage_id is not None:
+            metadata["promo_code_usage_id"] = str(promo_code_usage_id)
+        if discount_amount is not None and discount_amount > 0:
+            metadata["discount_amount"] = str(discount_amount)
+        if original_amount is not None:
+            metadata["original_amount"] = str(original_amount)
+
         idempotence_key = self._generate_idempotence_key(
             user_id=user_id, tier_code=tier_code, period=period
         )
@@ -169,7 +184,7 @@ class PaymentService:
         receipt = _build_receipt(
             tier_name=tier.name,
             period=period,
-            amount=amount,
+            amount=final_amount,
             customer_email=customer_email,
         )
 
@@ -181,7 +196,8 @@ class PaymentService:
                 "user_id": user_id,
                 "tier_code": tier_code,
                 "period": period,
-                "amount": str(amount),
+                "amount": str(final_amount),
+                "discount_amount": str(discount_amount) if discount_amount else None,
                 "customer_email_present": bool(customer_email),
                 "receipt_items_count": len(receipt.get("items", [])),
             },
@@ -189,7 +205,7 @@ class PaymentService:
 
         # Create payment in YooKassa
         yookassa_payment = await self.yookassa.create_payment(
-            amount=amount,
+            amount=final_amount,
             description=description,
             return_url=return_url,
             metadata=metadata,
@@ -202,7 +218,7 @@ class PaymentService:
             user_id=user_id,
             provider="yookassa",
             provider_payment_id=yookassa_payment["id"],
-            amount=amount,
+            amount=final_amount,
             currency="RUB",
             status=PaymentStatus.PENDING,
             payment_metadata={
@@ -225,7 +241,8 @@ class PaymentService:
                 "payment_id": payment.id,
                 "user_id": user_id,
                 "tier_code": tier_code,
-                "amount": str(amount),
+                "amount": str(final_amount),
+                "discount_amount": str(discount_amount) if discount_amount else None,
             },
         )
 
@@ -317,6 +334,17 @@ class PaymentService:
 
         payment.status = PaymentStatus.CANCELLED
         await self.session.flush()
+
+        try:
+            from app.services.promo_code_service import PromoCodeService
+
+            promo_service = PromoCodeService(self.session)
+            await promo_service.cancel_usage_by_payment(payment_id)
+        except Exception:
+            logger.exception(
+                "promo_code_cancel_failed",
+                extra={"provider_payment_id": payment_id},
+            )
 
         logger.info(
             "payment_status_updated",
@@ -519,6 +547,27 @@ class PaymentService:
         payment.paid_at = datetime.now(tz=UTC)
         payment.payment_method = yookassa_data.get("payment_method", {}).get("type")
         await self.session.flush()
+
+        promo_usage_id = metadata.get("promo_code_usage_id")
+        if promo_usage_id:
+            try:
+                from app.services.promo_code_service import PromoCodeService
+
+                promo_service = PromoCodeService(self.session)
+                await promo_service.confirm_usage(
+                    usage_id=int(promo_usage_id),
+                    payment_id=payment.id,
+                    subscription_id=subscription.id if subscription else None,
+                    provider_payment_id=payment.provider_payment_id,
+                )
+            except Exception:
+                logger.exception(
+                    "promo_code_confirm_failed",
+                    extra={
+                        "payment_id": payment.id,
+                        "promo_usage_id": promo_usage_id,
+                    },
+                )
 
         logger.info(
             "subscription_payment_marked_paid",

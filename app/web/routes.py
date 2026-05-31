@@ -20,6 +20,7 @@ from app.web.route_modules import (
     orders_profit,
     planning,
     pricing,
+    promocodes_admin,
     tariffs_admin,
 )
 from app.web.route_modules import (
@@ -92,6 +93,7 @@ for module_router in (
     account_settings.router,
     commissions_admin.router,
     tariffs_admin.router,
+    promocodes_admin.router,
     mrc_pricing.router,
     compatibility.router,
 ):

@@ -42,6 +42,7 @@ from app.models.domain import (
     WbPromotionNomenclature,
     WbReportCheckState,
 )
+from app.models.promo_codes import PromoCode, PromoCodePeriod, PromoCodeTariff, PromoCodeUsage
 from app.models.subscriptions import Payment, SubscriptionTier, UserSubscription
 from app.models.wb_logistics_tariffs import (
     WbLogisticsTariffRate,
@@ -73,6 +74,10 @@ __all__ = [
     "Product",
     "ProductCostHistory",
     "ProfitSnapshot",
+    "PromoCode",
+    "PromoCodePeriod",
+    "PromoCodeTariff",
+    "PromoCodeUsage",
     "ReturnsEvent",
     "SalesEvent",
     "StockSnapshot",
