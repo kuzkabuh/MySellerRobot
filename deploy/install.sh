@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# version: 1.8.1
+# version: 1.8.2
 # description: First-time production installer for MP Control on Ubuntu.
-# updated: 2026-05-15
+# updated: 2026-05-31
 
 set -Eeuo pipefail
 
@@ -13,7 +13,10 @@ COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 SSL_EMAIL="${SSL_EMAIL:-}"
 SKIP_SSL="${SKIP_SSL:-0}"
 SKIP_DNS_CHECK="${SKIP_DNS_CHECK:-0}"
-DOMAINS=(example.com www.example.com app.example.com api.example.com bot.example.com)
+DOMAINS=()
+PUBLIC_HEALTH_URL=""
+PUBLIC_SERVER_NAMES=""
+APP_SERVER_NAMES=""
 REQUIRED_ENV=(
   APP_SECRET_KEY
   ENCRYPTION_KEY
@@ -161,7 +164,65 @@ prepare_env() {
 
 env_value() {
   local key="$1"
-  grep -E "^${key}=" "${PROJECT_DIR}/.env" | tail -n 1 | cut -d '=' -f 2- | sed 's/^"//;s/"$//'
+  grep -E "^${key}=" "${PROJECT_DIR}/.env" | tail -n 1 | cut -d '=' -f 2- | sed 's/^"//;s/"$//;s/^'\''//;s/'\''$//'
+}
+
+url_host() {
+  python3 - "$1" <<'PY'
+import sys
+from urllib.parse import urlparse
+
+host = urlparse(sys.argv[1]).hostname or ""
+print(host)
+PY
+}
+
+with_health_path() {
+  local base_url="$1"
+  base_url="${base_url%/}"
+  if [[ "$base_url" == */health ]]; then
+    printf '%s' "$base_url"
+  else
+    printf '%s/health' "$base_url"
+  fi
+}
+
+resolve_public_health_url() {
+  local base_url
+  for key in API_BASE_URL WEB_APP_BASE_URL WEB_BASE_URL; do
+    base_url="$(env_value "$key")"
+    if [[ -n "$base_url" ]]; then
+      PUBLIC_HEALTH_URL="$(with_health_path "$base_url")"
+      return
+    fi
+  done
+  log_error "Set API_BASE_URL, WEB_APP_BASE_URL, or WEB_BASE_URL in ${PROJECT_DIR}/.env."
+  exit 1
+}
+
+load_domains_from_env() {
+  local key value host public_host
+  DOMAINS=()
+  public_host="$(url_host "$(env_value "PUBLIC_SITE_URL")")"
+  if [[ -n "$public_host" ]]; then
+    DOMAINS+=("$public_host" "www.${public_host}")
+    PUBLIC_SERVER_NAMES="${public_host} www.${public_host}"
+  fi
+
+  APP_SERVER_NAMES=""
+  for key in WEB_APP_BASE_URL API_BASE_URL BOT_WEBHOOK_BASE_URL; do
+    value="$(env_value "$key")"
+    [[ -z "$value" ]] && continue
+    host="$(url_host "$value")"
+    if [[ -n "$host" && " ${APP_SERVER_NAMES} " != *" ${host} "* ]]; then
+      APP_SERVER_NAMES="${APP_SERVER_NAMES:+${APP_SERVER_NAMES} }${host}"
+      DOMAINS+=("$host")
+    fi
+  done
+  if [[ -z "$PUBLIC_SERVER_NAMES" || -z "$APP_SERVER_NAMES" ]]; then
+    log_error "PUBLIC_SITE_URL and one of WEB_APP_BASE_URL/API_BASE_URL/BOT_WEBHOOK_BASE_URL must contain valid hosts."
+    exit 1
+  fi
 }
 
 validate_env() {
@@ -176,7 +237,7 @@ validate_env() {
       continue
     fi
     case "$value" in
-      change-me|PASTE_*|*replace_me*|*seller.example.com*|seller_bot)
+      change-me|PASTE_*|*replace_me*|*example.com*|seller_bot)
         insecure+=("$key")
         ;;
     esac
@@ -187,6 +248,8 @@ validate_env() {
     log_error "Fix ${PROJECT_DIR}/.env and re-run install.sh."
     exit 1
   fi
+  resolve_public_health_url
+  load_domains_from_env
 }
 
 write_landing_placeholder() {
@@ -214,7 +277,10 @@ configure_nginx() {
   log_info "Configuring host Nginx for MP Control domains."
   write_landing_placeholder
   sed "s#__PROJECT_DIR__#${PROJECT_DIR}#g" \
-    "${PROJECT_DIR}/deploy/nginx/mpcontrol.conf.template" > /etc/nginx/sites-available/mpcontrol.conf
+    "${PROJECT_DIR}/deploy/nginx/mpcontrol.conf.template" |
+    sed "s#__PUBLIC_SERVER_NAMES__#${PUBLIC_SERVER_NAMES}#g" |
+    sed "s#__APP_SERVER_NAMES__#${APP_SERVER_NAMES}#g" \
+    > /etc/nginx/sites-available/mpcontrol.conf
   ln -sfn /etc/nginx/sites-available/mpcontrol.conf /etc/nginx/sites-enabled/mpcontrol.conf
   rm -f /etc/nginx/sites-enabled/default
   nginx -t
@@ -270,17 +336,17 @@ obtain_ssl() {
     return
   fi
   if [[ -z "$SSL_EMAIL" ]]; then
-    log_error "Set SSL_EMAIL=owner@example.com to request Let's Encrypt certificates."
+    log_error "Set SSL_EMAIL to request Let's Encrypt certificates."
     exit 1
   fi
   check_dns
   log_info "Requesting Let's Encrypt certificates with Certbot."
-  certbot --nginx --non-interactive --agree-tos --redirect --email "$SSL_EMAIL" \
-    -d example.com \
-    -d www.example.com \
-    -d app.example.com \
-    -d api.example.com \
-    -d bot.example.com
+  local certbot_args=()
+  local domain
+  for domain in "${DOMAINS[@]}"; do
+    certbot_args+=("-d" "$domain")
+  done
+  certbot --nginx --non-interactive --agree-tos --redirect --email "$SSL_EMAIL" "${certbot_args[@]}"
   certbot renew --dry-run
   nginx -t
   systemctl reload nginx
@@ -303,7 +369,7 @@ healthcheck() {
   curl -fsS http://127.0.0.1:8000/health >/dev/null
   if [[ "$SKIP_SSL" != "1" ]]; then
     log_info "Checking public API health."
-    curl -fsS https://api.example.com/health >/dev/null
+    curl -fsS "$PUBLIC_HEALTH_URL" >/dev/null
   fi
 }
 
@@ -313,7 +379,7 @@ print_summary() {
   echo "Project: ${PROJECT_DIR}"
   echo "Compose: docker compose -f ${PROJECT_DIR}/${COMPOSE_FILE} ps"
   echo "Logs:    docker compose -f ${PROJECT_DIR}/${COMPOSE_FILE} logs -f api bot worker"
-  echo "Health:  https://api.example.com/health"
+  echo "Health:  ${PUBLIC_HEALTH_URL}"
 }
 
 main() {

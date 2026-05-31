@@ -195,6 +195,29 @@ DEPLOY_RUNTIME_DIR=/opt/example-app/runtime
 BACKUP_DIR=/opt/example-app/backups
 ```
 
+### Production domain configuration for mpcontrol.online
+
+На production-сервере `.env` не должен содержать `example.com` или
+`/opt/example-app`. Для текущего контура MP Control используйте реальные значения:
+
+```env
+WEB_BASE_URL=https://app.mpcontrol.online
+WEB_APP_BASE_URL=https://app.mpcontrol.online
+API_BASE_URL=https://app.mpcontrol.online
+PUBLIC_SITE_URL=https://mpcontrol.online
+BOT_WEBHOOK_BASE_URL=https://app.mpcontrol.online
+YOOKASSA_RETURN_URL=https://app.mpcontrol.online/payment/success
+YOOKASSA_WEBHOOK_URL=https://app.mpcontrol.online/webhooks/yookassa
+DEPLOY_PROJECT_DIR=/opt/mpcontrol
+DEPLOY_LOG_DIR=/opt/mpcontrol/logs/deploy
+DEPLOY_RUNTIME_DIR=/opt/mpcontrol/runtime
+BACKUP_DIR=/opt/mpcontrol/backups
+```
+
+`deploy/update.sh` строит публичный healthcheck URL из `API_BASE_URL`, затем из
+`WEB_APP_BASE_URL`, затем из `WEB_BASE_URL`. Если в `APP_ENV=production` найдены
+placeholder-домены или placeholder-пути, деплой останавливается до сборки Docker-образов.
+
 Никогда не публикуйте реальные Telegram token, пароли БД, WB/Ozon API-ключи,
 YooKassa secret key, cookie-файлы, OAuth-токены и банковские данные.
 

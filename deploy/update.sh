@@ -1,11 +1,24 @@
 #!/usr/bin/env bash
-# version: 1.8.1
+# version: 1.8.2
 # description: Safe production updater for MP Control with CI/CD modes, lock, backup, and status JSON.
-# updated: 2026-05-21
+# updated: 2026-05-31
 
 set -Eeuo pipefail
 
 PROJECT_DIR="${PROJECT_DIR:-/opt/mpcontrol}"
+ENV_FILE="${ENV_FILE:-${PROJECT_DIR}/.env}"
+
+if [[ -f "$ENV_FILE" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+fi
+
+if [[ -n "${DEPLOY_PROJECT_DIR:-}" && "${PROJECT_DIR:-}" == "/opt/mpcontrol" ]]; then
+  PROJECT_DIR="$DEPLOY_PROJECT_DIR"
+fi
+
 BRANCH="${BRANCH:-main}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 SKIP_BACKUP="${SKIP_BACKUP:-0}"
@@ -20,9 +33,10 @@ TRIGGER_FILE="${DEPLOY_UPDATE_TRIGGER_FILE:-${DEPLOY_RUNTIME_DIR}/telegram_updat
 LOCK_DIR="${LOCK_DIR:-${DEPLOY_RUNTIME_DIR}/update.lock}"
 HEALTHCHECK_RETRIES="${HEALTHCHECK_RETRIES:-20}"
 HEALTHCHECK_INTERVAL_SECONDS="${HEALTHCHECK_INTERVAL_SECONDS:-3}"
-PUBLIC_HEALTH_URL="${PUBLIC_HEALTH_URL:-${API_BASE_URL:-https://api.example.com}/health}"
+PUBLIC_HEALTH_URL="${PUBLIC_HEALTH_URL:-}"
 NON_INTERACTIVE=0
 CHECK_ONLY=0
+VALIDATE_ENV_ONLY=0
 STARTED_AT="$(date -Is)"
 OLD_COMMIT=""
 OLD_VERSION=""
@@ -46,13 +60,29 @@ REQUIRED_ENV=(
   POSTGRES_PASSWORD
   DATABASE_URL
   REDIS_URL
-  WEB_BASE_URL
 )
 
 OPTIONAL_ENV=(
   WEB_APP_BASE_URL
   API_BASE_URL
   PUBLIC_SITE_URL
+)
+
+PRODUCTION_PLACEHOLDER_URL_ENV=(
+  WEB_BASE_URL
+  WEB_APP_BASE_URL
+  API_BASE_URL
+  PUBLIC_SITE_URL
+  BOT_WEBHOOK_BASE_URL
+  YOOKASSA_RETURN_URL
+  YOOKASSA_WEBHOOK_URL
+)
+
+PRODUCTION_PLACEHOLDER_PATH_ENV=(
+  DEPLOY_PROJECT_DIR
+  DEPLOY_LOG_DIR
+  DEPLOY_RUNTIME_DIR
+  BACKUP_DIR
 )
 
 mkdir -p "$(dirname "$LOG_FILE")" "$DEPLOY_RUNTIME_DIR"
@@ -71,8 +101,11 @@ parse_args() {
       --check-only)
         CHECK_ONLY=1
         ;;
+      --validate-env-only)
+        VALIDATE_ENV_ONLY=1
+        ;;
       -h|--help)
-        echo "Usage: bash deploy/update.sh [--non-interactive] [--check-only]"
+        echo "Usage: bash deploy/update.sh [--non-interactive] [--check-only] [--validate-env-only]"
         exit 0
         ;;
       *)
@@ -114,7 +147,67 @@ release_lock() {
 
 env_value() {
   local key="$1"
-  grep -E "^${key}=" "${PROJECT_DIR}/.env" | tail -n 1 | cut -d '=' -f 2- | sed 's/^"//;s/"$//'
+  local value=""
+  if [[ -f "$ENV_FILE" ]]; then
+    value="$(grep -E "^${key}=" "$ENV_FILE" | tail -n 1 | cut -d '=' -f 2- | sed 's/^"//;s/"$//;s/^'\''//;s/'\''$//' || true)"
+  fi
+  if [[ -z "$value" ]]; then
+    value="${!key:-}"
+  fi
+  printf '%s' "$value"
+}
+
+is_production_env() {
+  local app_env
+  app_env="$(env_value "APP_ENV" | tr '[:upper:]' '[:lower:]')"
+  [[ "$app_env" == "production" || "$app_env" == "prod" ]]
+}
+
+with_health_path() {
+  local base_url="$1"
+  base_url="${base_url%/}"
+  if [[ "$base_url" == */health ]]; then
+    printf '%s' "$base_url"
+  else
+    printf '%s/health' "$base_url"
+  fi
+}
+
+resolve_public_health_url() {
+  local base_url
+  for key in API_BASE_URL WEB_APP_BASE_URL WEB_BASE_URL; do
+    base_url="$(env_value "$key")"
+    if [[ -n "$base_url" ]]; then
+      PUBLIC_HEALTH_URL="$(with_health_path "$base_url")"
+      return 0
+    fi
+  done
+
+  log_error "Missing public healthcheck URL. Set API_BASE_URL, WEB_APP_BASE_URL, or WEB_BASE_URL in ${ENV_FILE}."
+  exit 1
+}
+
+validate_production_placeholders() {
+  if ! is_production_env; then
+    return
+  fi
+
+  local key value
+  for key in "${PRODUCTION_PLACEHOLDER_URL_ENV[@]}"; do
+    value="$(env_value "$key")"
+    if [[ "$value" == *example.com* ]]; then
+      log_error "Production .env contains placeholder domain example.com in ${key}. Replace it with https://app.mpcontrol.online"
+      exit 1
+    fi
+  done
+
+  for key in "${PRODUCTION_PLACEHOLDER_PATH_ENV[@]}"; do
+    value="$(env_value "$key")"
+    if [[ "$value" == "/opt/example-app" || "$value" == /opt/example-app/* ]]; then
+      log_error "Production .env contains placeholder path ${value} in ${key}. Replace it with /opt/mpcontrol"
+      exit 1
+    fi
+  done
 }
 
 write_json_file() {
@@ -230,6 +323,8 @@ on_error() {
 
 validate_env() {
   log_info "Validating required environment variables."
+  validate_production_placeholders
+  resolve_public_health_url
   local missing=()
   for key in "${REQUIRED_ENV[@]}"; do
     local value
@@ -249,6 +344,7 @@ validate_env() {
   if [[ "${#optional_missing[@]}" -gt 0 ]]; then
     log_warn "Optional env variables are absent: ${optional_missing[*]}"
   fi
+  log_info "Public API healthcheck URL: ${PUBLIC_HEALTH_URL}"
 }
 
 show_current_version() {
@@ -521,7 +617,9 @@ main_update() {
 
 parse_args "$@"
 
-if [[ "$CHECK_ONLY" == "1" ]]; then
+if [[ "$VALIDATE_ENV_ONLY" == "1" ]]; then
+  validate_env
+elif [[ "$CHECK_ONLY" == "1" ]]; then
   check_only
 else
   main_update
