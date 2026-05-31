@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# version: 1.2.0
+# version: 1.8.1
 # description: First-time production installer for MP Control on Ubuntu.
 # updated: 2026-05-15
 
@@ -13,7 +13,7 @@ COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 SSL_EMAIL="${SSL_EMAIL:-}"
 SKIP_SSL="${SKIP_SSL:-0}"
 SKIP_DNS_CHECK="${SKIP_DNS_CHECK:-0}"
-DOMAINS=(mpcontrol.online www.mpcontrol.online app.mpcontrol.online api.mpcontrol.online bot.mpcontrol.online)
+DOMAINS=(example.com www.example.com app.example.com api.example.com bot.example.com)
 REQUIRED_ENV=(
   APP_SECRET_KEY
   ENCRYPTION_KEY
@@ -276,11 +276,11 @@ obtain_ssl() {
   check_dns
   log_info "Requesting Let's Encrypt certificates with Certbot."
   certbot --nginx --non-interactive --agree-tos --redirect --email "$SSL_EMAIL" \
-    -d mpcontrol.online \
-    -d www.mpcontrol.online \
-    -d app.mpcontrol.online \
-    -d api.mpcontrol.online \
-    -d bot.mpcontrol.online
+    -d example.com \
+    -d www.example.com \
+    -d app.example.com \
+    -d api.example.com \
+    -d bot.example.com
   certbot renew --dry-run
   nginx -t
   systemctl reload nginx
@@ -303,7 +303,7 @@ healthcheck() {
   curl -fsS http://127.0.0.1:8000/health >/dev/null
   if [[ "$SKIP_SSL" != "1" ]]; then
     log_info "Checking public API health."
-    curl -fsS https://api.mpcontrol.online/health >/dev/null
+    curl -fsS https://api.example.com/health >/dev/null
   fi
 }
 
@@ -313,7 +313,7 @@ print_summary() {
   echo "Project: ${PROJECT_DIR}"
   echo "Compose: docker compose -f ${PROJECT_DIR}/${COMPOSE_FILE} ps"
   echo "Logs:    docker compose -f ${PROJECT_DIR}/${COMPOSE_FILE} logs -f api bot worker"
-  echo "Health:  https://api.mpcontrol.online/health"
+  echo "Health:  https://api.example.com/health"
 }
 
 main() {

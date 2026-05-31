@@ -1,4 +1,4 @@
-# version: 1.0.1
+# version: 1.8.1
 # description: Runtime image for Seller Profit Bot services. Исправлен порядок копирования файлов перед установкой проекта.
 # updated: 2026-05-14
 

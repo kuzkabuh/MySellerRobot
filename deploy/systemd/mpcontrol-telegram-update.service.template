@@ -1,4 +1,4 @@
-# version: 1.0.0
+# version: 1.8.1
 # description: Systemd service that runs the fixed MP Control production update command.
 # updated: 2026-05-15
 

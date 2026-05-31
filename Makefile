@@ -1,4 +1,4 @@
-# version: 1.0.0
+# version: 1.8.1
 # description: Developer shortcuts for local operations.
 # updated: 2026-05-14
 .PHONY: install lint format test migrate revision up down api bot worker

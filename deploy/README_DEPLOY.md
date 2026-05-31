@@ -1,4 +1,4 @@
-# version: 1.4.0
+# version: 1.8.1
 # description: Production deployment guide for MP Control on Ubuntu VPS.
 # updated: 2026-05-21
 
@@ -12,7 +12,7 @@
 - Приложение запускается через Docker Compose production stack:
   `postgres`, `redis`, `api`, `bot`, `worker`.
 - Nginx и Certbot устанавливаются на хосте.
-- Telegram-бот сейчас работает через long polling. Домен `bot.mpcontrol.online` зарезервирован
+- Telegram-бот сейчас работает через long polling. Домен `bot.example.com` зарезервирован
   для будущего webhook-сценария.
 - FastAPI и web-кабинет работают в одном `api`-контейнере на `127.0.0.1:8000`.
 
@@ -30,11 +30,11 @@
 
 Итоговые домены:
 
-- `https://mpcontrol.online` — публичная заглушка/лендинг;
-- `https://www.mpcontrol.online` — alias лендинга;
-- `https://app.mpcontrol.online` — web-кабинет;
-- `https://api.mpcontrol.online` — backend API;
-- `https://bot.mpcontrol.online` — резерв под Telegram webhook.
+- `https://example.com` — публичная заглушка/лендинг;
+- `https://www.example.com` — alias лендинга;
+- `https://app.example.com` — web-кабинет;
+- `https://api.example.com` — backend API;
+- `https://bot.example.com` — резерв под Telegram webhook.
 
 ## GitHub-доступ
 
@@ -78,7 +78,7 @@ git clone https://github.com/kuzkabuh/MySellerRobot.git /tmp/mpcontrol-src
 cd /tmp/mpcontrol-src
 sudo REPO_URL="https://github.com/kuzkabuh/MySellerRobot.git" \
   BRANCH="main" \
-  SSL_EMAIL="owner@mpcontrol.online" \
+  SSL_EMAIL="owner@example.com" \
   bash deploy/install.sh
 ```
 
@@ -108,10 +108,10 @@ sudo SKIP_SSL=1 SKIP_DNS_CHECK=1 bash deploy/install.sh
 - `POSTGRES_PASSWORD`;
 - `DATABASE_URL=postgresql+asyncpg://USER:PASSWORD@postgres:5432/DB`;
 - `REDIS_URL=redis://redis:6379/0`;
-- `WEB_BASE_URL=https://app.mpcontrol.online`;
-- `WEB_APP_BASE_URL=https://app.mpcontrol.online`;
-- `API_BASE_URL=https://api.mpcontrol.online`;
-- `PUBLIC_SITE_URL=https://mpcontrol.online`.
+- `WEB_BASE_URL=https://app.example.com`;
+- `WEB_APP_BASE_URL=https://app.example.com`;
+- `API_BASE_URL=https://api.example.com`;
+- `PUBLIC_SITE_URL=https://example.com`.
 
 Генерация Fernet-ключа:
 
@@ -155,7 +155,7 @@ sudo tail -f /var/log/mpcontrol-install.log
 cd /opt/mpcontrol
 docker compose -f docker-compose.prod.yml ps
 curl http://127.0.0.1:8000/health
-curl https://api.mpcontrol.online/health
+curl https://api.example.com/health
 docker compose -f docker-compose.prod.yml logs -f api
 docker compose -f docker-compose.prod.yml logs -f bot
 docker compose -f docker-compose.prod.yml logs -f worker
@@ -359,16 +359,16 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-Для `app.mpcontrol.online` путь проксируется в FastAPI без добавления лишнего `/web/`.
+Для `app.example.com` путь проксируется в FastAPI без добавления лишнего `/web/`.
 Ссылка из Telegram вида:
 
 ```text
-https://app.mpcontrol.online/web/login?token=...
+https://app.example.com/web/login?token=...
 ```
 
 должна попадать в backend route `/web/login`. Если после обновления кода всё ещё виден
 `{"detail":"Not Found"}`, перегенерируйте Nginx-конфигурацию или вручную проверьте, что
-`proxy_pass` для `app.mpcontrol.online` равен:
+`proxy_pass` для `app.example.com` равен:
 
 ```nginx
 proxy_pass http://127.0.0.1:8000;
@@ -410,10 +410,10 @@ sudo ufw status
 Certbot не выпустит сертификаты. Проверьте:
 
 ```bash
-dig +short mpcontrol.online
-dig +short app.mpcontrol.online
-dig +short api.mpcontrol.online
-dig +short bot.mpcontrol.online
+dig +short example.com
+dig +short app.example.com
+dig +short api.example.com
+dig +short bot.example.com
 ```
 
 ### `.env` не заполнен
@@ -442,7 +442,7 @@ docker compose -f docker-compose.prod.yml run --rm api alembic current
 docker compose -f docker-compose.prod.yml run --rm api alembic upgrade head
 ```
 
-Начиная с версии 1.7.3, `update.sh` автоматически расширяет колонку
+Начиная с версии 1.8.1, `update.sh` автоматически расширяет колонку
 `alembic_version.version_num` до `VARCHAR(128)` перед запуском миграций.
 Это предотвращает ошибку `StringDataRightTruncationError` при длинных revision id.
 

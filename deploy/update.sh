@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# version: 1.3.0
+# version: 1.8.1
 # description: Safe production updater for MP Control with CI/CD modes, lock, backup, and status JSON.
 # updated: 2026-05-21
 
@@ -20,7 +20,7 @@ TRIGGER_FILE="${DEPLOY_UPDATE_TRIGGER_FILE:-${DEPLOY_RUNTIME_DIR}/telegram_updat
 LOCK_DIR="${LOCK_DIR:-${DEPLOY_RUNTIME_DIR}/update.lock}"
 HEALTHCHECK_RETRIES="${HEALTHCHECK_RETRIES:-20}"
 HEALTHCHECK_INTERVAL_SECONDS="${HEALTHCHECK_INTERVAL_SECONDS:-3}"
-PUBLIC_HEALTH_URL="${PUBLIC_HEALTH_URL:-${API_BASE_URL:-https://api.mpcontrol.online}/health}"
+PUBLIC_HEALTH_URL="${PUBLIC_HEALTH_URL:-${API_BASE_URL:-https://api.example.com}/health}"
 NON_INTERACTIVE=0
 CHECK_ONLY=0
 STARTED_AT="$(date -Is)"

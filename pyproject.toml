@@ -1,10 +1,10 @@
-# version: 1.0.0
+# version: 1.8.1
 # description: Project metadata and tooling configuration.
 # updated: 2026-05-15
 [project]
 name = "seller-profit-bot"
-version = "1.7.3"
-description = "Telegram bot for WB and Ozon sellers with profit analytics"
+version = "1.8.1"
+description = "MP Control service for WB and Ozon sellers with bot, web cabinet, subscriptions, and analytics"
 requires-python = ">=3.12"
 dependencies = [
     "aiogram>=3.6,<4",

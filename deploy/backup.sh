@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# version: 1.1.0
+# version: 1.8.1
 # description: Create PostgreSQL, .env, and metadata backups for MP Control production.
 # updated: 2026-05-15
 
