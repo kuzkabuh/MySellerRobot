@@ -27,6 +27,8 @@ class TierCardInfo:
     emoji: str
     description: str
     price_monthly: Decimal | None
+    price_3_months: Decimal | None
+    price_6_months: Decimal | None
     price_yearly: Decimal | None
     max_marketplace_accounts: int | str
     max_orders_per_month: int | str
@@ -40,6 +42,7 @@ TIER_EMOJI: dict[str, str] = {
     "free": "🆓",
     "basic": "⭐️",
     "pro": "💎",
+    "business": "🏢",
     "enterprise": "🏢",
 }
 
@@ -52,6 +55,10 @@ TIER_MARKETING_DESCRIPTIONS: dict[str, str] = {
         "Профессиональный тариф для активных селлеров, которым нужна глубокая аналитика, "
         "контроль прибыльности и прогнозирование."
     ),
+    "business": (
+        "Максимальные возможности для растущих команд и агентств. "
+        "Все функции PRO + API-доступ и расширенные лимиты."
+    ),
     "enterprise": (
         "Индивидуальный тариф для агентств, крупных брендов, команд и проектов "
         "с особыми требованиями."
@@ -62,6 +69,7 @@ TIER_OVERVIEW_DESCRIPTIONS: dict[str, str] = {
     "free": "Бесплатный старт для знакомства с MP Control.",
     "basic": "Для ежедневного контроля заказов, прибыли и ключевых рисков.",
     "pro": "Для глубокой аналитики, план/факт контроля и управления прибыльностью.",
+    "business": "Для растущих команд: все функции PRO + API и расширенные лимиты.",
     "enterprise": "Для команд, агентств, крупных брендов и нестандартных интеграций.",
 }
 
@@ -74,6 +82,9 @@ TIER_FEATURE_NAMES: list[tuple[str, str]] = [
     ("feature_alerts", "Умные алерты"),
     ("feature_priority_support", "Приоритетная поддержка"),
     ("feature_api_access", "API-доступ"),
+    ("feature_mrc_pricing", "МРЦ и акции WB"),
+    ("feature_auto_promotions", "Автоакции WB"),
+    ("feature_telegram_notifications", "Telegram-уведомления"),
 ]
 
 ENTERPRISE_ADDITIONAL_INFO: list[str] = [
@@ -146,13 +157,20 @@ def build_tier_card(
     if code == "enterprise":
         additional = ENTERPRISE_ADDITIONAL_INFO
 
+    _no_price_codes = ("free", "enterprise")
     return TierCardInfo(
         code=code,
         name=tier.name,
         emoji=emoji,
         description=description,
-        price_monthly=tier.price_monthly if code not in ("free", "enterprise") else None,
-        price_yearly=tier.price_yearly if code not in ("free", "enterprise") else None,
+        price_monthly=tier.price_monthly if code not in _no_price_codes else None,
+        price_3_months=(
+            getattr(tier, "price_3_months", None) if code not in _no_price_codes else None
+        ),
+        price_6_months=(
+            getattr(tier, "price_6_months", None) if code not in _no_price_codes else None
+        ),
+        price_yearly=tier.price_yearly if code not in _no_price_codes else None,
         max_marketplace_accounts=max_mp,
         max_orders_per_month=max_orders,
         max_products=max_products,
@@ -182,9 +200,13 @@ def format_tier_card(
         lines.append("• Индивидуальные условия")
     else:
         monthly = _format_price(card.price_monthly)
-        yearly = _format_price(card.price_yearly)
         lines.append(f"• {monthly} / месяц")
+        if card.price_3_months:
+            lines.append(f"• {_format_price(card.price_3_months)} / 3 месяца")
+        if card.price_6_months:
+            lines.append(f"• {_format_price(card.price_6_months)} / 6 месяцев")
         if card.price_yearly:
+            yearly = _format_price(card.price_yearly)
             lines.append(f"• {yearly} / год")
 
     lines.extend(
@@ -243,9 +265,8 @@ def format_pricing_overview(tiers: list[TierCardInfo]) -> str:
             lines.append(_html(description))
         else:
             monthly = _format_price(tier.price_monthly)
-            yearly = _format_price(tier.price_yearly)
             lines.append(f"{tier.emoji} <b>{_html(tier.name)}</b>")
-            lines.append(f"{monthly} / месяц или {yearly} / год.")
+            lines.append(f"{monthly} / месяц.")
             lines.append(_html(description))
         lines.append("")
 

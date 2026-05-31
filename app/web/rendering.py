@@ -49,6 +49,7 @@ NAV_GROUPS = [
             ("Профиль и настройки", "/web/profile"),
             ("Настройки", "/web/settings"),
             ("Комиссии МП (admin)", "/web/admin/commissions"),
+            ("Тарифы (admin)", "/web/admin/tariffs"),
         ],
     ),
 ]
@@ -76,6 +77,7 @@ NAV_ICONS = {
     "Профиль и настройки": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M2 14c0-3 2.5-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
     "Настройки": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/><path d="M8 2v2M8 12v2M2 8h2M12 8h2M3.8 3.8l1.4 1.4M10.8 10.8l1.4 1.4M12.2 3.8l-1.4 1.4M5.2 10.8l-1.4 1.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
     "Комиссии МП (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3" y="2" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M6 5h4M6 8h4M6 11h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Тарифы (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4l6 3 6-3M2 4v8l6 3 6-3V4M2 4l6-2 6 2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
 }
 
 NAV_ICONS_FALLBACK = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="3" stroke="currentColor" stroke-width="1.5"/></svg>'

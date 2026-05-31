@@ -38,12 +38,18 @@ class SubscriptionTier(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(128))
     description: Mapped[str | None] = mapped_column(Text)
     price_monthly: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    price_3_months: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    price_6_months: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     price_yearly: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    currency: Mapped[str] = mapped_column(String(3), default="RUB")
 
     # Лимиты
     max_marketplace_accounts: Mapped[int] = mapped_column(Integer, default=1)
     max_orders_per_month: Mapped[int | None] = mapped_column(Integer)
     max_products: Mapped[int | None] = mapped_column(Integer)
+    max_users: Mapped[int | None] = mapped_column(Integer)
+    sync_interval_minutes: Mapped[int] = mapped_column(Integer, default=180)
+    analytics_depth_days: Mapped[int] = mapped_column(Integer, default=30)
 
     # Доступ к функциям
     feature_web_cabinet: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -55,8 +61,11 @@ class SubscriptionTier(TimestampMixin, Base):
     feature_api_access: Mapped[bool] = mapped_column(Boolean, default=False)
     feature_priority_support: Mapped[bool] = mapped_column(Boolean, default=False)
     feature_mrc_pricing: Mapped[bool] = mapped_column(Boolean, default=False)
+    feature_auto_promotions: Mapped[bool] = mapped_column(Boolean, default=False)
+    feature_telegram_notifications: Mapped[bool] = mapped_column(Boolean, default=True)
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_public: Mapped[bool] = mapped_column(Boolean, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
 
     subscriptions: Mapped[list["UserSubscription"]] = relationship(back_populates="tier")

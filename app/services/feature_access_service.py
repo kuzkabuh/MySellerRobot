@@ -105,9 +105,7 @@ class FeatureAccessService:
     async def can_use_feature(self, user_id: int, feature: FeatureCode) -> FeatureAccessResult:
         tier = await self._effective_tier(user_id)
         normalized_code = _normalize_tier_code(tier.code)
-        tier_level = _tier_level(tier.code)
 
-        # Check explicit feature flag on tier first
         feature_attr = {
             FeatureCode.PLAN_FACT: tier.feature_plan_fact,
             FeatureCode.MASTER_PRODUCT_ANALYTICS: tier.feature_analytics,
@@ -119,14 +117,7 @@ class FeatureAccessService:
             FeatureCode.LONG_HISTORY: tier.feature_analytics,
             FeatureCode.MRC_PRICING: tier.feature_mrc_pricing,
         }
-        flag_allowed = feature_attr.get(feature, False)
-
-        # Fallback: check tier hierarchy if flag is not set
-        min_tier_code = _FEATURE_MIN_TIER.get(feature, "pro")
-        min_tier_level = _tier_level(min_tier_code)
-        hierarchy_allowed = tier_level >= min_tier_level
-
-        allowed = flag_allowed or hierarchy_allowed
+        allowed = feature_attr.get(feature, False)
 
         if not allowed:
             display_name = _FEATURE_DISPLAY_NAME.get(feature, feature.value)
@@ -144,8 +135,8 @@ class FeatureAccessService:
                     "normalized_current_tier_code": normalized_code,
                     "feature_code": feature.value,
                     "required_tier": required_plan,
-                    "source": "unknown",
-                    "reason": "tier_level_insufficient",
+                    "source": "db_flag",
+                    "reason": "feature_flag_disabled",
                 },
             )
             return FeatureAccessResult(

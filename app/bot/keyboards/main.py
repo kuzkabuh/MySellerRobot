@@ -518,6 +518,47 @@ def subscription_current_menu(has_active: bool = False) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+_PERIOD_LABELS = {
+    "monthly": "месяц",
+    "3_months": "3 мес",
+    "6_months": "6 мес",
+    "yearly": "год",
+}
+
+
+def _format_kb_price(value: Decimal | None) -> str:
+    if value is None:
+        return "—"
+    int_part = int(value)
+    return f"{int_part:,}".replace(",", " ") + " ₽"
+
+
+def _build_pay_buttons_from_tier(tier) -> list[list[InlineKeyboardButton]]:
+    buttons: list[list[InlineKeyboardButton]] = []
+    periods = [
+        ("monthly", tier.price_monthly),
+        ("3_months", getattr(tier, "price_3_months", None)),
+        ("6_months", getattr(tier, "price_6_months", None)),
+        ("yearly", tier.price_yearly),
+    ]
+    row: list[InlineKeyboardButton] = []
+    for period_code, price in periods:
+        if price is not None and price > 0:
+            label = f"💳 {_format_kb_price(price)} / {_PERIOD_LABELS[period_code]}"
+            row.append(
+                InlineKeyboardButton(
+                    text=label,
+                    callback_data=f"subscription:pay:{tier.code}:{period_code}",
+                )
+            )
+            if len(row) == 2:
+                buttons.append(row)
+                row = []
+    if row:
+        buttons.append(row)
+    return buttons
+
+
 def subscription_pricing_menu() -> InlineKeyboardMarkup:
     """Menu for pricing/tiers selection."""
     return InlineKeyboardMarkup(
@@ -654,38 +695,13 @@ def subscription_tier_detail_menu_v2(
     tier_code: str,
     current_tier_code: str,
     has_payment: bool = True,
+    tier=None,
 ) -> InlineKeyboardMarkup:
     """Unified tier detail menu with payment buttons."""
     buttons: list[list[InlineKeyboardButton]] = []
 
     if tier_code != "free" and tier_code != current_tier_code and has_payment:
-        if tier_code == "basic":
-            buttons.append(
-                [
-                    InlineKeyboardButton(
-                        text="💳 Оплатить 490 ₽ / месяц",
-                        callback_data="subscription:pay:basic:monthly",
-                    ),
-                    InlineKeyboardButton(
-                        text="💳 Оплатить 4 900 ₽ / год",
-                        callback_data="subscription:pay:basic:yearly",
-                    ),
-                ]
-            )
-        elif tier_code == "pro":
-            buttons.append(
-                [
-                    InlineKeyboardButton(
-                        text="💳 Оплатить 1 490 ₽ / месяц",
-                        callback_data="subscription:pay:pro:monthly",
-                    ),
-                    InlineKeyboardButton(
-                        text="💳 Оплатить 14 900 ₽ / год",
-                        callback_data="subscription:pay:pro:yearly",
-                    ),
-                ]
-            )
-        elif tier_code == "enterprise":
+        if tier_code == "enterprise":
             buttons.append(
                 [
                     InlineKeyboardButton(
@@ -694,6 +710,36 @@ def subscription_tier_detail_menu_v2(
                     ),
                 ]
             )
+        elif tier is not None:
+            pay_buttons = _build_pay_buttons_from_tier(tier)
+            buttons.extend(pay_buttons)
+        else:
+            if tier_code == "basic":
+                buttons.append(
+                    [
+                        InlineKeyboardButton(
+                            text="💳 Оплатить 490 ₽ / месяц",
+                            callback_data="subscription:pay:basic:monthly",
+                        ),
+                        InlineKeyboardButton(
+                            text="💳 Оплатить 4 900 ₽ / год",
+                            callback_data="subscription:pay:basic:yearly",
+                        ),
+                    ]
+                )
+            elif tier_code == "pro":
+                buttons.append(
+                    [
+                        InlineKeyboardButton(
+                            text="💳 Оплатить 1 490 ₽ / месяц",
+                            callback_data="subscription:pay:pro:monthly",
+                        ),
+                        InlineKeyboardButton(
+                            text="💳 Оплатить 14 900 ₽ / год",
+                            callback_data="subscription:pay:pro:yearly",
+                        ),
+                    ]
+                )
 
     buttons.append(
         [
@@ -709,8 +755,28 @@ def subscription_tier_detail_menu_v2(
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def subscription_pricing_menu_v2() -> InlineKeyboardMarkup:
+def subscription_pricing_menu_v2(tiers=None) -> InlineKeyboardMarkup:
     """Unified pricing menu with all tiers."""
+    _TIER_EMOJI = {"free": "🆓", "basic": "⭐️", "pro": "💎", "enterprise": "🏢", "business": "🏢"}
+
+    if tiers:
+        buttons: list[list[InlineKeyboardButton]] = []
+        for tier in tiers:
+            emoji = _TIER_EMOJI.get(tier.code.lower(), "💳")
+            if tier.price_monthly and tier.price_monthly > 0:
+                price_label = _format_kb_price(tier.price_monthly)
+                label = f"{emoji} {tier.name} — {price_label}/мес"
+            else:
+                label = f"{emoji} {tier.name}"
+            buttons.append(
+                [InlineKeyboardButton(text=label, callback_data=f"subscription:tier:{tier.code}")]
+            )
+        buttons.append(
+            [InlineKeyboardButton(text="❓ Помощь по подпискам", callback_data="subscription:help")]
+        )
+        buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="subscription_menu")])
+        return InlineKeyboardMarkup(inline_keyboard=buttons)
+
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🆓 FREE", callback_data="subscription:tier:free")],

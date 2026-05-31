@@ -180,7 +180,7 @@ async def show_pricing(callback: CallbackQuery) -> None:
         cards = [build_tier_card(t) for t in tiers]
 
     text = format_pricing_overview(cards)
-    await _safe_edit_text(message, text, reply_markup=subscription_pricing_menu_v2())
+    await _safe_edit_text(message, text, reply_markup=subscription_pricing_menu_v2(tiers=tiers))
     await callback.answer()
 
 
@@ -226,6 +226,7 @@ async def show_tier_details(callback: CallbackQuery) -> None:
             reply_markup=subscription_tier_detail_menu_v2(
                 tier_code=tier.code,
                 current_tier_code=current_tier.code,
+                tier=tier,
             ),
         )
         await callback.answer()
@@ -261,12 +262,24 @@ async def handle_payment_initiation(callback: CallbackQuery) -> None:
             await callback.answer("Тариф не найден", show_alert=True)
             return
 
-        amount = tier.price_monthly if period == "monthly" else tier.price_yearly
+        _price_map = {
+            "monthly": tier.price_monthly,
+            "3_months": getattr(tier, "price_3_months", None),
+            "6_months": getattr(tier, "price_6_months", None),
+            "yearly": tier.price_yearly,
+        }
+        amount = _price_map.get(period)
         if not amount:
             await callback.answer("Цена не указана для этого периода", show_alert=True)
             return
 
-        period_text = "месяц" if period == "monthly" else "год"
+        _period_labels = {
+            "monthly": "месяц",
+            "3_months": "3 месяца",
+            "6_months": "6 месяцев",
+            "yearly": "год",
+        }
+        period_text = _period_labels.get(period, period)
         text = (
             "💳 <b>Подтверждение оплаты</b>\n\n"
             f"Тариф: <b>{_html(tier.name)}</b>\n"

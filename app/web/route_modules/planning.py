@@ -10,12 +10,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import AlertEvent, MarketplaceAccount, User
-from app.models.enums import Marketplace
+from app.models.enums import FeatureCode, Marketplace
 from app.models.subscriptions import SubscriptionTier
 from app.repositories.products import ProductCostRepository
 from app.schemas.products import CostUpdate
 from app.services.cost_management_service import CostManagementError
 from app.services.data_quality_service import DataQualityService
+from app.services.feature_access_service import FeatureAccessService
 from app.services.master_product_service import MasterProductService
 from app.services.plan_fact_service import PlanFactService
 from app.services.stock_forecast_service import StockForecastService
@@ -53,6 +54,17 @@ async def plan_fact_page(
     date_from: str | None = Query(default=None),
     date_to: str | None = Query(default=None),
 ) -> str:
+    access = await FeatureAccessService(session).can_use_feature(
+        user.id, FeatureCode.PLAN_FACT
+    )
+    if not access.allowed:
+        return page(
+            "План/факт",
+            user.first_name or user.username or str(user.telegram_id),
+            _feature_locked_html(access),
+            active_path="/web/plan-fact",
+        )
+
     data = await PlanFactService(session).compare(
         user_id=user.id,
         timezone=user.timezone,
@@ -146,6 +158,17 @@ async def break_even_page(
     target_margin: str = Query(default="20"),
     price_delta: str = Query(default="0"),
 ) -> str:
+    access = await FeatureAccessService(session).can_use_feature(
+        user.id, FeatureCode.PLAN_FACT
+    )
+    if not access.allowed:
+        return page(
+            "Безубыточная цена",
+            user.first_name or user.username or str(user.telegram_id),
+            _feature_locked_html(access),
+            active_path="/web/break-even",
+        )
+
     rows = await UnitEconomicsService(session).rows(
         user_id=user.id,
         target_margin_percent=_decimal_from_query(target_margin, Decimal("20")),
@@ -158,3 +181,17 @@ async def break_even_page(
         content,
         active_path="/web/break-even",
     )
+
+
+def _feature_locked_html(access) -> str:
+    from html import escape as _esc
+
+    reason = _esc(access.reason or "") if access.reason else ""
+    required = _esc(access.required_plan or "Pro")
+    return f"""
+    <div class="locked-feature">
+        <h2>🔒 Раздел недоступен</h2>
+        <p>{reason}</p>
+        <p>Для доступа обновите тариф до <b>{required}</b> или выше.</p>
+        <a class="btn btn-primary" href="/web/subscription">Перейти к подписке</a>
+    </div>"""

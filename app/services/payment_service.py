@@ -24,7 +24,12 @@ from app.services.subscription_service import SubscriptionService
 
 logger = logging.getLogger(__name__)
 
-_PERIOD_LABELS = {"monthly": "1 месяц", "yearly": "1 год"}
+_PERIOD_LABELS = {
+    "monthly": "1 месяц",
+    "3_months": "3 месяца",
+    "6_months": "6 месяцев",
+    "yearly": "1 год",
+}
 
 _TIER_FEATURE_LABELS = [
     ("feature_web_cabinet", "Web-кабинет"),
@@ -35,7 +40,20 @@ _TIER_FEATURE_LABELS = [
     ("feature_alerts", "Умные алерты"),
     ("feature_priority_support", "Приоритетная поддержка"),
     ("feature_api_access", "API-доступ"),
+    ("feature_mrc_pricing", "МРЦ и акции WB"),
+    ("feature_auto_promotions", "Автоакции WB"),
+    ("feature_telegram_notifications", "Telegram-уведомления"),
 ]
+
+
+def _get_tier_price_for_period(tier: SubscriptionTier, period: str) -> Decimal | None:
+    price_map = {
+        "monthly": tier.price_monthly,
+        "3_months": tier.price_3_months,
+        "6_months": tier.price_6_months,
+        "yearly": tier.price_yearly,
+    }
+    return price_map.get(period)
 
 
 def _build_receipt(
@@ -110,7 +128,7 @@ class PaymentService:
         if not tier:
             raise ValueError(f"Tier {tier_code} not found")
 
-        amount = tier.price_monthly if period == "monthly" else tier.price_yearly
+        amount = _get_tier_price_for_period(tier, period)
         if amount is None or amount == Decimal("0"):
             raise ValueError(f"Tier {tier_code} has no price for {period} period")
 

@@ -10,12 +10,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import AlertEvent, MarketplaceAccount, User
-from app.models.enums import Marketplace
+from app.models.enums import FeatureCode, Marketplace
 from app.models.subscriptions import SubscriptionTier
 from app.repositories.products import ProductCostRepository
 from app.schemas.products import CostUpdate
 from app.services.cost_management_service import CostManagementError
 from app.services.data_quality_service import DataQualityService
+from app.services.feature_access_service import FeatureAccessService
 from app.services.master_product_service import MasterProductService
 from app.services.plan_fact_service import PlanFactService
 from app.services.stock_forecast_service import StockForecastService
@@ -122,6 +123,23 @@ async def stocks_page(
     sale_model: str = Query(default="all"),
     stock_status: str = Query(default="all"),
 ) -> str:
+    access = await FeatureAccessService(session).can_use_feature(
+        user.id, FeatureCode.STOCKOUT_FORECAST
+    )
+    if not access.allowed:
+        from html import escape as _esc
+
+        reason = _esc(access.reason or "") if access.reason else ""
+        required = _esc(access.required_plan or "Pro")
+        locked = f"""
+        <div class="locked-feature">
+            <h2>🔒 Раздел недоступен</h2>
+            <p>{reason}</p>
+            <p>Для доступа обновите тариф до <b>{required}</b> или выше.</p>
+            <a class="btn btn-primary" href="/web/subscription">Перейти к подписке</a>
+        </div>"""
+        return page("Остатки", user.first_name or user.username or str(user.telegram_id), locked, active_path="/web/stocks")
+
     rows = await StockForecastService(session).forecast(user_id=user.id)
     content = _stocks_forecast_content(
         _filter_stock_rows(rows, marketplace, sale_model, stock_status),

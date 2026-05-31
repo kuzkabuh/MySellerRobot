@@ -20,6 +20,7 @@ from app.web.route_modules import (
     orders_profit,
     planning,
     pricing,
+    tariffs_admin,
 )
 from app.web.route_modules import (
     dashboard as dashboard_routes,
@@ -90,6 +91,7 @@ for module_router in (
     catalog.router,
     account_settings.router,
     commissions_admin.router,
+    tariffs_admin.router,
     mrc_pricing.router,
     compatibility.router,
 ):

@@ -10,12 +10,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import AlertEvent, MarketplaceAccount, User
-from app.models.enums import Marketplace
+from app.models.enums import FeatureCode, Marketplace
 from app.models.subscriptions import SubscriptionTier
 from app.repositories.products import ProductCostRepository
 from app.schemas.products import CostUpdate
 from app.services.cost_management_service import CostManagementError
 from app.services.data_quality_service import DataQualityService
+from app.services.feature_access_service import FeatureAccessService
 from app.services.master_product_service import MasterProductService
 from app.services.plan_fact_service import PlanFactService
 from app.services.stock_forecast_service import StockForecastService
@@ -119,6 +120,23 @@ async def data_quality_page(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> str:
+    access = await FeatureAccessService(session).can_use_feature(
+        user.id, FeatureCode.DATA_QUALITY
+    )
+    if not access.allowed:
+        from html import escape as _esc
+
+        reason = _esc(access.reason or "") if access.reason else ""
+        required = _esc(access.required_plan or "Pro")
+        locked = f"""
+        <div class="locked-feature">
+            <h2>🔒 Раздел недоступен</h2>
+            <p>{reason}</p>
+            <p>Для доступа обновите тариф до <b>{required}</b> или выше.</p>
+            <a class="btn btn-primary" href="/web/subscription">Перейти к подписке</a>
+        </div>"""
+        return page("Качество данных", _user_display_name(user), locked, active_path="/web/data-quality")
+
     report = await DataQualityService(session).report(user_id=user.id)
     content = _data_quality_content(report)
     return page(
@@ -139,6 +157,23 @@ async def analytics_page(
     date_from: str | None = Query(default=None),
     date_to: str | None = Query(default=None),
 ) -> str:
+    access = await FeatureAccessService(session).can_use_feature(
+        user.id, FeatureCode.MASTER_PRODUCT_ANALYTICS
+    )
+    if not access.allowed:
+        from html import escape as _esc
+
+        reason = _esc(access.reason or "") if access.reason else ""
+        required = _esc(access.required_plan or "Pro")
+        locked = f"""
+        <div class="locked-feature">
+            <h2>🔒 Раздел недоступен</h2>
+            <p>{reason}</p>
+            <p>Для доступа обновите тариф до <b>{required}</b> или выше.</p>
+            <a class="btn btn-primary" href="/web/subscription">Перейти к подписке</a>
+        </div>"""
+        return page("Аналитика", _user_display_name(user), locked, active_path="/web/analytics")
+
     dashboard_data = await WebDashboardService(session).dashboard(
         user_id=user.id,
         timezone=user.timezone,

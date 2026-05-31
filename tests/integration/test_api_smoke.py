@@ -906,6 +906,16 @@ def test_web_plan_fact_page_renders_without_double_web_prefix(
         "app.services.plan_fact_service.PlanFactService.compare",
         fake_compare,
     )
+
+    from app.services.feature_access_service import FeatureAccessResult
+
+    async def fake_can_use_feature(self, user_id, feature):  # type: ignore[no-untyped-def]
+        return FeatureAccessResult(allowed=True)
+
+    monkeypatch.setattr(
+        "app.services.feature_access_service.FeatureAccessService.can_use_feature",
+        fake_can_use_feature,
+    )
     app.dependency_overrides[get_session] = fake_get_session
     app.dependency_overrides[current_web_user] = fake_current_web_user
 

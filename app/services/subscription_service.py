@@ -20,6 +20,8 @@ ZERO = Decimal("0")
 SUBSCRIPTION_ACTIVE_STATUSES = (SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL)
 SUBSCRIPTION_PERIOD_DAYS = {
     "monthly": 30,
+    "3_months": 90,
+    "6_months": 180,
     "yearly": 365,
 }
 TRIAL_PERIOD = "trial"
@@ -418,10 +420,16 @@ def default_free_tier() -> SubscriptionTier:
         name="FREE",
         description="Бесплатный тариф для знакомства с MP Control.",
         price_monthly=ZERO,
+        price_3_months=None,
+        price_6_months=None,
         price_yearly=ZERO,
+        currency="RUB",
         max_marketplace_accounts=1,
         max_orders_per_month=100,
         max_products=None,
+        max_users=None,
+        sync_interval_minutes=180,
+        analytics_depth_days=30,
         feature_web_cabinet=True,
         feature_analytics=False,
         feature_plan_fact=False,
@@ -430,7 +438,11 @@ def default_free_tier() -> SubscriptionTier:
         feature_alerts=False,
         feature_priority_support=False,
         feature_api_access=False,
+        feature_mrc_pricing=False,
+        feature_auto_promotions=False,
+        feature_telegram_notifications=True,
         is_active=True,
+        is_public=True,
         sort_order=0,
     )
 
@@ -450,7 +462,7 @@ def subscription_period_days(period: str) -> int:
 
 def _tier_rank(tier: SubscriptionTier) -> int:
     """Return tier ordering rank for upgrade decisions."""
-    rank_by_code = {"free": 0, "basic": 10, "pro": 20, "enterprise": 30}
+    rank_by_code = {"free": 0, "basic": 10, "pro": 20, "business": 25, "enterprise": 30}
     if tier.code in rank_by_code:
         return rank_by_code[tier.code]
     return int(tier.sort_order or 0)

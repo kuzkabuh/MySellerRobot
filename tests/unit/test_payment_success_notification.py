@@ -23,20 +23,25 @@ class TestPaymentSuccessNotification:
 
     @pytest.fixture
     def mock_tier(self):
-        tier = MagicMock()
-        tier.name = "PRO"
-        tier.code = "pro"
-        tier.price_monthly = Decimal("1490")
-        tier.price_yearly = Decimal("14900")
-        tier.feature_web_cabinet = True
-        tier.feature_analytics = True
-        tier.feature_plan_fact = True
-        tier.feature_break_even = True
-        tier.feature_stock_forecast = True
-        tier.feature_alerts = True
-        tier.feature_priority_support = False
-        tier.feature_api_access = False
-        return tier
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            name="PRO",
+            code="pro",
+            price_monthly=Decimal("1490"),
+            price_yearly=Decimal("14900"),
+            feature_web_cabinet=True,
+            feature_analytics=True,
+            feature_plan_fact=True,
+            feature_break_even=True,
+            feature_stock_forecast=True,
+            feature_alerts=True,
+            feature_priority_support=True,
+            feature_api_access=True,
+            feature_mrc_pricing=True,
+            feature_auto_promotions=True,
+            feature_telegram_notifications=True,
+        )
 
     @pytest.fixture
     def mock_user(self):
@@ -95,15 +100,16 @@ class TestPaymentSuccessNotification:
             mock_yk.get_payment = AsyncMock(return_value={})
             mock_yk_class.return_value = mock_yk
 
-            mock_result = MagicMock()
-            mock_result.scalar_one_or_none.side_effect = [mock_tier, None]
-            mock_session.execute.return_value = mock_result
-
             from app.services.payment_service import PaymentService
 
             service = PaymentService(mock_session)
 
-            with patch("app.bot.main.create_bot") as mock_create_bot:
+            with (
+                patch("app.bot.main.create_bot") as mock_create_bot,
+                patch.object(
+                    service, "_get_tier_by_code", new=AsyncMock(return_value=mock_tier)
+                ),
+            ):
                 mock_bot = MagicMock()
                 mock_bot.send_message = AsyncMock()
                 mock_create_bot.return_value = mock_bot
@@ -112,9 +118,7 @@ class TestPaymentSuccessNotification:
                 user_result.scalar_one_or_none.return_value = mock_user
 
                 async def mock_execute(stmt):
-                    if "User" in str(stmt) or "users" in str(stmt):
-                        return user_result
-                    return mock_result
+                    return user_result
 
                 mock_session.execute = AsyncMock(side_effect=mock_execute)
 
