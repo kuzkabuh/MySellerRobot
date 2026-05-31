@@ -189,14 +189,14 @@ with_health_path() {
 
 resolve_public_health_url() {
   local base_url
-  for key in API_BASE_URL WEB_APP_BASE_URL WEB_BASE_URL; do
+  for key in API_BASE_URL WEB_APP_BASE_URL WEB_BASE_URL PUBLIC_SITE_URL; do
     base_url="$(env_value "$key")"
     if [[ -n "$base_url" ]]; then
       PUBLIC_HEALTH_URL="$(with_health_path "$base_url")"
       return
     fi
   done
-  log_error "Set API_BASE_URL, WEB_APP_BASE_URL, or WEB_BASE_URL in ${PROJECT_DIR}/.env."
+  log_error "Set API_BASE_URL, WEB_APP_BASE_URL, WEB_BASE_URL, or PUBLIC_SITE_URL in ${PROJECT_DIR}/.env."
   exit 1
 }
 

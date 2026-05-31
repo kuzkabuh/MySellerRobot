@@ -34,6 +34,7 @@ LOCK_DIR="${LOCK_DIR:-${DEPLOY_RUNTIME_DIR}/update.lock}"
 HEALTHCHECK_RETRIES="${HEALTHCHECK_RETRIES:-20}"
 HEALTHCHECK_INTERVAL_SECONDS="${HEALTHCHECK_INTERVAL_SECONDS:-3}"
 PUBLIC_HEALTH_URL="${PUBLIC_HEALTH_URL:-}"
+PUBLIC_HEALTH_SOURCE=""
 NON_INTERACTIVE=0
 CHECK_ONLY=0
 VALIDATE_ENV_ONLY=0
@@ -174,16 +175,17 @@ with_health_path() {
 }
 
 resolve_public_health_url() {
-  local base_url
-  for key in API_BASE_URL WEB_APP_BASE_URL WEB_BASE_URL; do
+  local base_url key
+  for key in API_BASE_URL WEB_APP_BASE_URL WEB_BASE_URL PUBLIC_SITE_URL; do
     base_url="$(env_value "$key")"
     if [[ -n "$base_url" ]]; then
       PUBLIC_HEALTH_URL="$(with_health_path "$base_url")"
+      PUBLIC_HEALTH_SOURCE="$key"
       return 0
     fi
   done
 
-  log_error "Missing public healthcheck URL. Set API_BASE_URL, WEB_APP_BASE_URL, or WEB_BASE_URL in ${ENV_FILE}."
+  log_error "Missing public healthcheck URL. Set API_BASE_URL, WEB_APP_BASE_URL, WEB_BASE_URL, or PUBLIC_SITE_URL in ${ENV_FILE}."
   exit 1
 }
 
@@ -196,7 +198,7 @@ validate_production_placeholders() {
   for key in "${PRODUCTION_PLACEHOLDER_URL_ENV[@]}"; do
     value="$(env_value "$key")"
     if [[ "$value" == *example.com* ]]; then
-      log_error "Production .env contains placeholder domain example.com in ${key}. Replace it with https://app.mpcontrol.online"
+      log_error "Production .env contains placeholder domain in ${key}=${value}. Replace it with real production domain, for example: ${key}=https://app.mpcontrol.online"
       exit 1
     fi
   done
@@ -344,7 +346,7 @@ validate_env() {
   if [[ "${#optional_missing[@]}" -gt 0 ]]; then
     log_warn "Optional env variables are absent: ${optional_missing[*]}"
   fi
-  log_info "Public API healthcheck URL: ${PUBLIC_HEALTH_URL}"
+  log_info "Public API healthcheck URL resolved from ${PUBLIC_HEALTH_SOURCE}: ${PUBLIC_HEALTH_URL}"
 }
 
 show_current_version() {

@@ -215,8 +215,9 @@ BACKUP_DIR=/opt/mpcontrol/backups
 ```
 
 `deploy/update.sh` строит публичный healthcheck URL из `API_BASE_URL`, затем из
-`WEB_APP_BASE_URL`, затем из `WEB_BASE_URL`. Если в `APP_ENV=production` найдены
-placeholder-домены или placeholder-пути, деплой останавливается до сборки Docker-образов.
+`WEB_APP_BASE_URL`, затем из `WEB_BASE_URL`, затем из `PUBLIC_SITE_URL`. Если в
+`APP_ENV=production` найдены placeholder-домены или placeholder-пути, деплой
+останавливается до сборки Docker-образов.
 
 Никогда не публикуйте реальные Telegram token, пароли БД, WB/Ozon API-ключи,
 YooKassa secret key, cookie-файлы, OAuth-токены и банковские данные.

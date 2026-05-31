@@ -45,6 +45,8 @@ def _env_text(
     api_base_url: str = "https://app.mpcontrol.online",
     web_app_base_url: str = "https://app.mpcontrol.online",
     web_base_url: str = "https://app.mpcontrol.online",
+    public_site_url: str = "https://mpcontrol.online",
+    yookassa_webhook_url: str = "https://app.mpcontrol.online/webhooks/yookassa",
     deploy_project_dir: str = "/opt/mpcontrol",
     deploy_log_dir: str = "/opt/mpcontrol/logs/deploy",
     deploy_runtime_dir: str = "/opt/mpcontrol/runtime",
@@ -65,10 +67,10 @@ def _env_text(
             f"WEB_BASE_URL={web_base_url}",
             f"WEB_APP_BASE_URL={web_app_base_url}",
             f"API_BASE_URL={api_base_url}",
-            "PUBLIC_SITE_URL=https://mpcontrol.online",
+            f"PUBLIC_SITE_URL={public_site_url}",
             "BOT_WEBHOOK_BASE_URL=https://app.mpcontrol.online",
             "YOOKASSA_RETURN_URL=https://app.mpcontrol.online/payment/success",
-            "YOOKASSA_WEBHOOK_URL=https://app.mpcontrol.online/webhooks/yookassa",
+            f"YOOKASSA_WEBHOOK_URL={yookassa_webhook_url}",
             f"DEPLOY_PROJECT_DIR={deploy_project_dir}",
             f"DEPLOY_LOG_DIR={deploy_log_dir}",
             f"DEPLOY_RUNTIME_DIR={deploy_runtime_dir}",
@@ -121,7 +123,35 @@ def test_production_validation_rejects_api_example_domain(tmp_path: Path) -> Non
 
     assert result.returncode == 1
     assert (
-        "Production .env contains placeholder domain example.com in API_BASE_URL"
+        "Production .env contains placeholder domain in API_BASE_URL=https://api.example.com"
+        in result.stderr + result.stdout
+    )
+
+
+def test_production_validation_rejects_web_base_example_domain(tmp_path: Path) -> None:
+    result = _run_validate(
+        tmp_path,
+        _env_text(api_base_url="", web_app_base_url="", web_base_url="https://example.com"),
+    )
+
+    assert result.returncode == 1
+    assert (
+        "Production .env contains placeholder domain in WEB_BASE_URL=https://example.com"
+        in result.stderr + result.stdout
+    )
+
+
+def test_production_validation_rejects_yookassa_webhook_example_domain(
+    tmp_path: Path,
+) -> None:
+    result = _run_validate(
+        tmp_path,
+        _env_text(yookassa_webhook_url="https://example.com/webhooks/yookassa"),
+    )
+
+    assert result.returncode == 1
+    assert (
+        "Production .env contains placeholder domain in YOOKASSA_WEBHOOK_URL=https://example.com/webhooks/yookassa"
         in result.stderr + result.stdout
     )
 
@@ -130,7 +160,10 @@ def test_production_validation_accepts_mpcontrol_api_domain(tmp_path: Path) -> N
     result = _run_validate(tmp_path, _env_text())
 
     assert result.returncode == 0
-    assert "Public API healthcheck URL: https://app.mpcontrol.online/health" in result.stdout
+    assert (
+        "Public API healthcheck URL resolved from API_BASE_URL: https://app.mpcontrol.online/health"
+        in result.stdout
+    )
 
 
 def test_public_healthcheck_url_uses_api_base_url(tmp_path: Path) -> None:
@@ -143,7 +176,10 @@ def test_public_healthcheck_url_uses_api_base_url(tmp_path: Path) -> None:
     )
 
     assert result.returncode == 0
-    assert "Public API healthcheck URL: https://api.mpcontrol.online/health" in result.stdout
+    assert (
+        "Public API healthcheck URL resolved from API_BASE_URL: https://api.mpcontrol.online/health"
+        in result.stdout
+    )
 
 
 def test_public_healthcheck_url_falls_back_to_web_app_base_url(tmp_path: Path) -> None:
@@ -153,7 +189,10 @@ def test_public_healthcheck_url_falls_back_to_web_app_base_url(tmp_path: Path) -
     )
 
     assert result.returncode == 0
-    assert "Public API healthcheck URL: https://app.mpcontrol.online/health" in result.stdout
+    assert (
+        "Public API healthcheck URL resolved from WEB_APP_BASE_URL: https://app.mpcontrol.online/health"
+        in result.stdout
+    )
 
 
 def test_public_healthcheck_url_falls_back_to_web_base_url(tmp_path: Path) -> None:
@@ -167,13 +206,39 @@ def test_public_healthcheck_url_falls_back_to_web_base_url(tmp_path: Path) -> No
     )
 
     assert result.returncode == 0
-    assert "Public API healthcheck URL: https://app.mpcontrol.online/health" in result.stdout
+    assert (
+        "Public API healthcheck URL resolved from WEB_BASE_URL: https://app.mpcontrol.online/health"
+        in result.stdout
+    )
+
+
+def test_public_healthcheck_url_falls_back_to_public_site_url(tmp_path: Path) -> None:
+    result = _run_validate(
+        tmp_path,
+        _env_text(
+            api_base_url="",
+            web_app_base_url="",
+            web_base_url="",
+            public_site_url="https://mpcontrol.online",
+        ),
+    )
+
+    assert result.returncode == 0
+    assert (
+        "Public API healthcheck URL resolved from PUBLIC_SITE_URL: https://mpcontrol.online/health"
+        in result.stdout
+    )
 
 
 def test_public_healthcheck_url_requires_one_public_base_url(tmp_path: Path) -> None:
     result = _run_validate(
         tmp_path,
-        _env_text(api_base_url="", web_app_base_url="", web_base_url=""),
+        _env_text(
+            api_base_url="",
+            web_app_base_url="",
+            web_base_url="",
+            public_site_url="",
+        ),
     )
 
     assert result.returncode == 1
