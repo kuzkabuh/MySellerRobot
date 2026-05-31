@@ -72,15 +72,23 @@ class ExpenseSource(StrEnum):
 
 
 class FeatureCode(StrEnum):
+    WEB_DASHBOARD = "web_dashboard"
+    ADVANCED_ANALYTICS = "advanced_analytics"
     PLAN_FACT = "PLAN_FACT"
+    BREAK_EVEN = "break_even"
     MASTER_PRODUCT_ANALYTICS = "MASTER_PRODUCT_ANALYTICS"
     STOCKOUT_FORECAST = "STOCKOUT_FORECAST"
+    STOCK_FORECAST = "stock_forecast"
     DATA_QUALITY = "DATA_QUALITY"
     EXPORTS = "EXPORTS"
     AI_ANALYST = "AI_ANALYST"
     MULTI_ACCOUNT = "MULTI_ACCOUNT"
     LONG_HISTORY = "LONG_HISTORY"
+    ALERTS = "alerts"
+    API_ACCESS = "api_access"
+    AUTO_PROMOTIONS = "auto_promotions"
     MRC_PRICING = "MRC_PRICING"
+    PRICE_MANAGEMENT = "price_management"
 
 
 class AlertType(StrEnum):

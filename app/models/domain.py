@@ -1154,6 +1154,7 @@ class WbAutoPromoPriceRecommendation(TimestampMixin, Base):
     mrc_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     current_wb_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     required_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    required_price_source: Mapped[str | None] = mapped_column(String(64), nullable=True)
     recommended_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     current_full_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     current_discount: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -1268,4 +1269,76 @@ class WbProductPrice(Base):
         nullable=False,
         server_default=sa.func.now(),
         onupdate=sa.func.now(),
+    )
+
+
+class AuditLog(TimestampMixin, Base):
+    __tablename__ = "audit_logs"
+    __table_args__ = (
+        Index("ix_audit_logs_user_created", "user_id", "created_at"),
+        Index("ix_audit_logs_action_created", "action", "created_at"),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    actor_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    action: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    entity_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    entity_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    details: Mapped[dict[str, Any] | None] = mapped_column(JsonType, nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+
+class SyncTaskRun(Base):
+    __tablename__ = "sync_task_runs"
+    __table_args__ = (
+        Index("ix_sync_task_runs_task_started", "task_name", "started_at"),
+        Index("ix_sync_task_runs_status_started", "status", "started_at"),
+    )
+
+    id: Mapped[int_pk]
+    task_name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="started", index=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now(), index=True
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    records_processed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    success_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    triggered_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    run_metadata: Mapped[dict[str, Any] | None] = mapped_column("metadata", JsonType, nullable=True)
+
+
+class NotificationEvent(TimestampMixin, Base):
+    __tablename__ = "notification_events"
+    __table_args__ = (
+        Index("ix_notification_events_user_status", "user_id", "status"),
+        Index("ix_notification_events_status_created", "status", "created_at"),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    telegram_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    notification_type: Mapped[str] = mapped_column(String(64), nullable=False, default="generic")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", index=True)
+    subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    payload: Mapped[dict[str, Any] | None] = mapped_column(JsonType, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    permanent_failed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )

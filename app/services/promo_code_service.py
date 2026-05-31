@@ -137,15 +137,11 @@ class PromoCodeService:
 
         if tariff_ids:
             for tid in tariff_ids:
-                self.session.add(
-                    PromoCodeTariff(promo_code_id=promo.id, tariff_id=tid)
-                )
+                self.session.add(PromoCodeTariff(promo_code_id=promo.id, tariff_id=tid))
 
         if periods:
             for p in periods:
-                self.session.add(
-                    PromoCodePeriod(promo_code_id=promo.id, period=p)
-                )
+                self.session.add(PromoCodePeriod(promo_code_id=promo.id, period=p))
 
         await self.session.flush()
 
@@ -158,6 +154,18 @@ class PromoCodeService:
                 "admin_user_id": created_by_admin_id,
             },
         )
+        try:
+            from app.services.audit_log_service import AuditLogService
+
+            await AuditLogService(self.session).log(
+                "promo_code_created",
+                actor_user_id=created_by_admin_id,
+                entity_type="promo_code",
+                entity_id=promo.id,
+                details={"code": promo.code, "promo_type": str(promo_type)},
+            )
+        except Exception:
+            logger.exception("audit_log_promo_code_created_failed")
         return promo
 
     async def update(
@@ -186,12 +194,8 @@ class PromoCodeService:
         if "promo_type" in kwargs:
             self._validate_promo_params(
                 promo_type=kwargs.get("promo_type", promo.promo_type),
-                discount_percent=kwargs.get(
-                    "discount_percent", promo.discount_percent
-                ),
-                discount_amount=kwargs.get(
-                    "discount_amount", promo.discount_amount
-                ),
+                discount_percent=kwargs.get("discount_percent", promo.discount_percent),
+                discount_amount=kwargs.get("discount_amount", promo.discount_amount),
                 free_days=kwargs.get("free_days", promo.free_days),
             )
 
@@ -203,17 +207,13 @@ class PromoCodeService:
             for pt in promo.tariffs:
                 await self.session.delete(pt)
             for tid in tariff_ids:
-                self.session.add(
-                    PromoCodeTariff(promo_code_id=promo.id, tariff_id=tid)
-                )
+                self.session.add(PromoCodeTariff(promo_code_id=promo.id, tariff_id=tid))
 
         if periods is not None:
             for pp in promo.periods:
                 await self.session.delete(pp)
             for p in periods:
-                self.session.add(
-                    PromoCodePeriod(promo_code_id=promo.id, period=p)
-                )
+                self.session.add(PromoCodePeriod(promo_code_id=promo.id, period=p))
 
         await self.session.flush()
 
@@ -256,34 +256,22 @@ class PromoCodeService:
             raise PromoValidationError("Промокод не найден", reason="not_found")
 
         if not promo.is_active:
-            raise PromoValidationError(
-                "Промокод отключён", reason="inactive"
-            )
+            raise PromoValidationError("Промокод отключён", reason="inactive")
 
         now = datetime.now(tz=UTC)
         if promo.starts_at and promo.starts_at > now:
-            raise PromoValidationError(
-                "Промокод ещё не начал действовать", reason="not_started"
-            )
+            raise PromoValidationError("Промокод ещё не начал действовать", reason="not_started")
         if promo.expires_at and promo.expires_at < now:
-            raise PromoValidationError(
-                "Промокод истёк", reason="expired"
-            )
+            raise PromoValidationError("Промокод истёк", reason="expired")
 
         if promo.max_uses_total is not None and promo.used_count >= promo.max_uses_total:
-            raise PromoValidationError(
-                "Лимит использований промокода исчерпан", reason="max_total"
-            )
+            raise PromoValidationError("Лимит использований промокода исчерпан", reason="max_total")
 
         user_usage = await self._count_user_applied_uses(user.id, promo.id)
         if user_usage >= promo.max_uses_per_user:
-            raise PromoValidationError(
-                "Вы уже использовали этот промокод", reason="max_per_user"
-            )
+            raise PromoValidationError("Вы уже использовали этот промокод", reason="max_per_user")
 
-        user_reserved = await self._count_user_active_reservations(
-            user.id, promo.id
-        )
+        user_reserved = await self._count_user_active_reservations(user.id, promo.id)
         if user_reserved > 0:
             raise PromoValidationError(
                 "Промокод уже зарезервирован для вас. Завершите оплату или подождите.",
@@ -335,9 +323,7 @@ class PromoCodeService:
     ) -> tuple[Decimal, int | None]:
         if promo.promo_type == PromoType.PERCENT_DISCOUNT:
             pct = promo.discount_percent or 0
-            discount = (tariff_price * Decimal(pct) / Decimal(100)).quantize(
-                Decimal("0.01")
-            )
+            discount = (tariff_price * Decimal(pct) / Decimal(100)).quantize(Decimal("0.01"))
             return discount, None
 
         if promo.promo_type == PromoType.FIXED_DISCOUNT:
@@ -423,6 +409,22 @@ class PromoCodeService:
                 "payment_id": payment_id,
             },
         )
+        try:
+            from app.services.audit_log_service import AuditLogService
+
+            await AuditLogService(self.session).log(
+                "promo_code_used",
+                user_id=usage.user_id,
+                entity_type="promo_code_usage",
+                entity_id=usage.id,
+                details={
+                    "promo_code_id": usage.promo_code_id,
+                    "payment_id": payment_id,
+                    "subscription_id": subscription_id,
+                },
+            )
+        except Exception:
+            logger.exception("audit_log_promo_code_used_failed")
         return usage
 
     async def cancel_usage(self, usage_id: int) -> PromoCodeUsage | None:
@@ -446,9 +448,7 @@ class PromoCodeService:
         )
         return usage
 
-    async def cancel_usage_by_payment(
-        self, provider_payment_id: str
-    ) -> None:
+    async def cancel_usage_by_payment(self, provider_payment_id: str) -> None:
         result = await self.session.execute(
             select(PromoCodeUsage).where(
                 PromoCodeUsage.provider_payment_id == provider_payment_id,
@@ -459,12 +459,8 @@ class PromoCodeService:
         if usage:
             await self.cancel_usage(usage.id)
 
-    async def get_active_reservation(
-        self, user_id: int, promo_id: int
-    ) -> PromoCodeUsage | None:
-        cutoff = datetime.now(tz=UTC) - timedelta(
-            minutes=RESERVATION_TIMEOUT_MINUTES
-        )
+    async def get_active_reservation(self, user_id: int, promo_id: int) -> PromoCodeUsage | None:
+        cutoff = datetime.now(tz=UTC) - timedelta(minutes=RESERVATION_TIMEOUT_MINUTES)
         result = await self.session.execute(
             select(PromoCodeUsage).where(
                 PromoCodeUsage.user_id == user_id,
@@ -475,9 +471,7 @@ class PromoCodeService:
         )
         return result.scalar_one_or_none()
 
-    async def get_usages(
-        self, promo_id: int, limit: int = 100
-    ) -> list[PromoCodeUsage]:
+    async def get_usages(self, promo_id: int, limit: int = 100) -> list[PromoCodeUsage]:
         result = await self.session.execute(
             select(PromoCodeUsage)
             .where(PromoCodeUsage.promo_code_id == promo_id)
@@ -490,9 +484,7 @@ class PromoCodeService:
         result = await self.session.execute(
             select(
                 func.count(PromoCodeUsage.id).label("total"),
-                func.sum(PromoCodeUsage.discount_amount).label(
-                    "total_discount"
-                ),
+                func.sum(PromoCodeUsage.discount_amount).label("total_discount"),
             ).where(
                 PromoCodeUsage.promo_code_id == promo_id,
                 PromoCodeUsage.status == PromoUsageStatus.APPLIED,
@@ -505,9 +497,7 @@ class PromoCodeService:
         }
 
     async def cleanup_expired_reservations(self) -> int:
-        cutoff = datetime.now(tz=UTC) - timedelta(
-            minutes=RESERVATION_TIMEOUT_MINUTES
-        )
+        cutoff = datetime.now(tz=UTC) - timedelta(minutes=RESERVATION_TIMEOUT_MINUTES)
         result = await self.session.execute(
             select(PromoCodeUsage).where(
                 PromoCodeUsage.status == PromoUsageStatus.RESERVED,
@@ -525,9 +515,7 @@ class PromoCodeService:
             )
         return len(expired)
 
-    async def _count_user_applied_uses(
-        self, user_id: int, promo_id: int
-    ) -> int:
+    async def _count_user_applied_uses(self, user_id: int, promo_id: int) -> int:
         result = await self.session.execute(
             select(func.count(PromoCodeUsage.id)).where(
                 PromoCodeUsage.user_id == user_id,
@@ -537,12 +525,8 @@ class PromoCodeService:
         )
         return int(result.scalar_one() or 0)
 
-    async def _count_user_active_reservations(
-        self, user_id: int, promo_id: int
-    ) -> int:
-        cutoff = datetime.now(tz=UTC) - timedelta(
-            minutes=RESERVATION_TIMEOUT_MINUTES
-        )
+    async def _count_user_active_reservations(self, user_id: int, promo_id: int) -> int:
+        cutoff = datetime.now(tz=UTC) - timedelta(minutes=RESERVATION_TIMEOUT_MINUTES)
         result = await self.session.execute(
             select(func.count(PromoCodeUsage.id)).where(
                 PromoCodeUsage.user_id == user_id,

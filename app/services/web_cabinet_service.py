@@ -387,9 +387,7 @@ class WebCabinetService:
             )
         )
         return {
-            product_id: quantity
-            for product_id, quantity in result.all()
-            if product_id is not None
+            product_id: quantity for product_id, quantity in result.all() if product_id is not None
         }
 
     async def _batch_order_counts(self, product_ids: list[int]) -> dict[int, int]:

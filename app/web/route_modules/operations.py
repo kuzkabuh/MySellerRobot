@@ -120,9 +120,7 @@ async def data_quality_page(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> str:
-    access = await FeatureAccessService(session).can_use_feature(
-        user.id, FeatureCode.DATA_QUALITY
-    )
+    access = await FeatureAccessService(session).can_use_feature(user.id, FeatureCode.DATA_QUALITY)
     if not access.allowed:
         from html import escape as _esc
 
@@ -135,7 +133,9 @@ async def data_quality_page(
             <p>Для доступа обновите тариф до <b>{required}</b> или выше.</p>
             <a class="btn btn-primary" href="/web/subscription">Перейти к подписке</a>
         </div>"""
-        return page("Качество данных", _user_display_name(user), locked, active_path="/web/data-quality")
+        return page(
+            "Качество данных", _user_display_name(user), locked, active_path="/web/data-quality"
+        )
 
     report = await DataQualityService(session).report(user_id=user.id)
     content = _data_quality_content(report)

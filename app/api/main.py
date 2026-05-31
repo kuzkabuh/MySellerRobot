@@ -81,7 +81,9 @@ def _read_app_version() -> str:
 def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging(settings)
-    app = FastAPI(title="Seller Profit Bot API", version=_read_app_version(), debug=settings.app_debug)
+    app = FastAPI(
+        title="Seller Profit Bot API", version=_read_app_version(), debug=settings.app_debug
+    )
     app.include_router(web_router)
     app.include_router(webhooks_router)
     app.include_router(payment_public_router)

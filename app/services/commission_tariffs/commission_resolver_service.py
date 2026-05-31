@@ -137,15 +137,19 @@ class CommissionResolverService:
                 calculation_confidence=confidence,
             )
 
-        if mp == Marketplace.OZON and effective_price is not None and effective_price <= Decimal("300"):
+        if (
+            mp == Marketplace.OZON
+            and effective_price is not None
+            and effective_price <= Decimal("300")
+        ):
             special_rate = self._get_ozon_low_price_special_rate(
                 sales_model=sales_model_lower,
                 product_price=effective_price,
             )
             if special_rate is not None:
-                commission_amount = (
-                    effective_price * special_rate / Decimal("100")
-                ).quantize(Decimal("0.01"))
+                commission_amount = (effective_price * special_rate / Decimal("100")).quantize(
+                    Decimal("0.01")
+                )
 
                 logger.info(
                     "ozon_low_price_special_rate_applied",
@@ -162,7 +166,10 @@ class CommissionResolverService:
                     source="low_price_special_rule",
                     match_status="special_rule",
                     matched_rate_id=None,
-                    diagnostics=f"Применено специальное условие Ozon для товаров до 300 ₽: {special_rate}%",
+                    diagnostics=(
+                        "Применено специальное условие Ozon для товаров "
+                        f"до 300 ₽: {special_rate}%"
+                    ),
                     commission_base_price=effective_price,
                     commission_amount=commission_amount,
                     calculation_confidence="estimated",

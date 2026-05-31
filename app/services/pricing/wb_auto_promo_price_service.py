@@ -18,6 +18,7 @@ from app.models.domain import (
     WbAutoPromotionCondition,
     WbProductPrice,
     WbPromotion,
+    WbPromotionNomenclature,
 )
 from app.models.enums import Marketplace
 from app.services.pricing.mrc_pricing_settings_service import (
@@ -35,6 +36,12 @@ STATUS_AUTO_SET_PRICE = "AUTO_PROMOTION_SET_PRICE"
 STATUS_AUTO_PRICE_VIOLATION = "AUTO_PROMOTION_PRICE_VIOLATION"
 STATUS_AUTO_MIN_PRICE_VIOLATION = "AUTO_PROMOTION_MIN_PRICE_VIOLATION"
 STATUS_AUTO_WAITING_WB_SYNC = "AUTO_PROMOTION_WAITING_WB_SYNC"
+STATUS_AUTO_MRC_MISSING = "AUTO_PROMOTION_MRC_MISSING"
+STATUS_PRICE_SENT_TO_WB = "price_sent_to_wb"
+STATUS_PRICE_ACCEPTED_BY_WB = "price_accepted_by_wb"
+STATUS_WAITING_PROMOTION_JOIN = "waiting_promotion_join"
+STATUS_PROMOTION_JOINED = "promotion_joined"
+STATUS_PROMOTION_NOT_JOINED = "promotion_not_joined"
 
 
 @dataclass(slots=True)
@@ -46,6 +53,7 @@ class AutoPromoPriceRecommendation:
     mrc_price: Decimal
     current_wb_price: Decimal | None
     required_price: Decimal | None
+    required_price_source: str | None
     recommended_price: Decimal | None
     min_price: Decimal | None
     mrc_lower_bound: Decimal
@@ -87,12 +95,31 @@ class WbAutoPromoPriceService:
                 mrc_price=mrc_price,
                 current_wb_price=current_wb_price,
                 required_price=None,
+                required_price_source=None,
                 recommended_price=None,
                 min_price=min_price,
                 mrc_lower_bound=Decimal("0"),
                 mrc_upper_bound=Decimal("0"),
                 status=STATUS_AUTO_WAITING_WB_SYNC,
                 reason="Нет nmID WB",
+            )
+
+        if product.mrc_price is None or product.mrc_price <= 0:
+            return AutoPromoPriceRecommendation(
+                product_id=product.id,
+                wb_nm_id=wb_nm_id,
+                wb_promotion_id=condition.wb_promotion_id if condition else None,
+                promotion_name=condition.promotion_name if condition else None,
+                mrc_price=Decimal("0"),
+                current_wb_price=current_wb_price,
+                required_price=required_price or (condition.required_price if condition else None),
+                required_price_source=None,
+                recommended_price=None,
+                min_price=min_price,
+                mrc_lower_bound=Decimal("0"),
+                mrc_upper_bound=Decimal("0"),
+                status=STATUS_AUTO_MRC_MISSING,
+                reason="Не применяем автоцену без МРЦ",
             )
 
         settings = await self._settings_service.get_settings(
@@ -105,8 +132,10 @@ class WbAutoPromoPriceService:
         upper_bound = mrc_price * (Decimal("1") + deviation / Decimal("100"))
 
         eff_required = required_price
+        required_source = "explicit" if required_price is not None else None
         if eff_required is None and condition is not None:
             eff_required = condition.required_price
+            required_source = condition.source
 
         promotion_name = None
         wb_promotion_id = None
@@ -127,6 +156,7 @@ class WbAutoPromoPriceService:
                 mrc_price=mrc_price,
                 current_wb_price=eff_current,
                 required_price=None,
+                required_price_source=required_source,
                 recommended_price=None,
                 min_price=min_price,
                 mrc_lower_bound=lower_bound,
@@ -144,6 +174,7 @@ class WbAutoPromoPriceService:
                 mrc_price=mrc_price,
                 current_wb_price=eff_current,
                 required_price=eff_required,
+                required_price_source=required_source,
                 recommended_price=None,
                 min_price=min_price,
                 mrc_lower_bound=lower_bound,
@@ -163,6 +194,7 @@ class WbAutoPromoPriceService:
                 mrc_price=mrc_price,
                 current_wb_price=eff_current,
                 required_price=eff_required,
+                required_price_source=required_source,
                 recommended_price=None,
                 min_price=min_price,
                 mrc_lower_bound=lower_bound,
@@ -180,6 +212,7 @@ class WbAutoPromoPriceService:
                 mrc_price=mrc_price,
                 current_wb_price=eff_current,
                 required_price=eff_required,
+                required_price_source=required_source,
                 recommended_price=None,
                 min_price=min_price,
                 mrc_lower_bound=lower_bound,
@@ -197,6 +230,7 @@ class WbAutoPromoPriceService:
                 mrc_price=mrc_price,
                 current_wb_price=eff_current,
                 required_price=eff_required,
+                required_price_source=required_source,
                 recommended_price=None,
                 min_price=min_price,
                 mrc_lower_bound=lower_bound,
@@ -214,12 +248,35 @@ class WbAutoPromoPriceService:
                 mrc_price=mrc_price,
                 current_wb_price=eff_current,
                 required_price=eff_required,
+                required_price_source=required_source,
                 recommended_price=None,
                 min_price=min_price,
                 mrc_lower_bound=lower_bound,
                 mrc_upper_bound=upper_bound,
                 status=STATUS_AUTO_PRICE_VIOLATION,
                 reason="Цена автоакции выше допустимого отклонения от МРЦ",
+            )
+
+        if (
+            eff_current is not None
+            and eff_current > 0
+            and candidate_price <= eff_current / Decimal("3")
+        ):
+            return AutoPromoPriceRecommendation(
+                product_id=product.id,
+                wb_nm_id=wb_nm_id,
+                wb_promotion_id=wb_promotion_id,
+                promotion_name=promotion_name,
+                mrc_price=mrc_price,
+                current_wb_price=eff_current,
+                required_price=eff_required,
+                required_price_source=required_source,
+                recommended_price=None,
+                min_price=min_price,
+                mrc_lower_bound=lower_bound,
+                mrc_upper_bound=upper_bound,
+                status=STATUS_AUTO_PRICE_VIOLATION,
+                reason="Не применяем автоизменение при риске карантина WB",
             )
 
         return AutoPromoPriceRecommendation(
@@ -230,6 +287,7 @@ class WbAutoPromoPriceService:
             mrc_price=mrc_price,
             current_wb_price=eff_current,
             required_price=eff_required,
+            required_price_source=required_source,
             recommended_price=candidate_price,
             min_price=min_price,
             mrc_lower_bound=lower_bound,
@@ -267,6 +325,7 @@ class WbAutoPromoPriceService:
         record.mrc_price = rec.mrc_price
         record.current_wb_price = rec.current_wb_price
         record.required_price = rec.required_price
+        record.required_price_source = rec.required_price_source
         record.recommended_price = rec.recommended_price
         record.min_price = rec.min_price
         record.mrc_lower_bound = rec.mrc_lower_bound
@@ -468,10 +527,18 @@ class WbAutoPromoPriceService:
             if wb_nm_id is None:
                 continue
 
-            required_price = await self._find_required_price(
+            condition = await self._find_best_condition(
                 marketplace_account_id=marketplace_account_id,
                 wb_nm_id=wb_nm_id,
+                active_promotion_ids={p.wb_promotion_id for p in active_auto_promos},
             )
+            required_price = None
+            required_price_source = None
+            if condition is None:
+                required_price, required_price_source = await self._find_required_price(
+                    marketplace_account_id=marketplace_account_id,
+                    wb_nm_id=wb_nm_id,
+                )
 
             current_wb_price = await self._get_current_wb_price_from_db(
                 marketplace_account_id=marketplace_account_id,
@@ -480,20 +547,51 @@ class WbAutoPromoPriceService:
 
             rec = await self.build_recommendation(
                 product=product,
+                condition=condition,
                 current_wb_price=current_wb_price,
                 required_price=required_price,
             )
-            if active_auto_promos:
+            if required_price_source and rec.required_price_source is None:
+                rec.required_price_source = required_price_source
+            if condition is None and active_auto_promos:
                 rec.wb_promotion_id = active_auto_promos[0].wb_promotion_id
             recommendations.append(rec)
 
         return recommendations
 
+    async def _find_best_condition(
+        self,
+        marketplace_account_id: int,
+        wb_nm_id: int,
+        active_promotion_ids: set[int],
+    ) -> WbAutoPromotionCondition | None:
+        query = (
+            select(WbAutoPromotionCondition)
+            .where(
+                WbAutoPromotionCondition.marketplace_account_id == marketplace_account_id,
+                WbAutoPromotionCondition.wb_nm_id == wb_nm_id,
+                WbAutoPromotionCondition.required_price.isnot(None),
+                WbAutoPromotionCondition.required_price > 0,
+            )
+            .order_by(WbAutoPromotionCondition.synced_at.desc().nullslast())
+        )
+        if active_promotion_ids:
+            result = await self.session.execute(
+                query.where(
+                    WbAutoPromotionCondition.wb_promotion_id.in_(active_promotion_ids)
+                ).limit(1)
+            )
+            condition = result.scalar_one_or_none()
+            if condition is not None:
+                return condition
+        result = await self.session.execute(query.limit(1))
+        return result.scalar_one_or_none()
+
     async def _find_required_price(
         self,
         marketplace_account_id: int,
         wb_nm_id: int,
-    ) -> Decimal | None:
+    ) -> tuple[Decimal | None, str | None]:
         """Find required price from conditions first, then nomenclatures.
 
         Priority:
@@ -501,7 +599,7 @@ class WbAutoPromoPriceService:
         2. wb_promotion_nomenclatures plan_price
         """
         cond_result = await self.session.execute(
-            select(WbAutoPromotionCondition.required_price)
+            select(WbAutoPromotionCondition.required_price, WbAutoPromotionCondition.source)
             .where(
                 WbAutoPromotionCondition.marketplace_account_id == marketplace_account_id,
                 WbAutoPromotionCondition.wb_nm_id == wb_nm_id,
@@ -510,9 +608,9 @@ class WbAutoPromoPriceService:
             )
             .limit(1)
         )
-        price = cond_result.scalar_one_or_none()
-        if price is not None:
-            return price
+        cond_row = cond_result.first()
+        if cond_row is not None:
+            return cond_row[0], cond_row[1] or "condition"
 
         from app.models.domain import WbPromotionNomenclature
 
@@ -527,7 +625,32 @@ class WbAutoPromoPriceService:
             .order_by(WbPromotionNomenclature.plan_price.asc())
             .limit(1)
         )
-        return result.scalar_one_or_none()
+        price = result.scalar_one_or_none()
+        return price, "promotion_nomenclature" if price is not None else None
+
+    async def refresh_join_status(self, recommendation_id: int) -> str | None:
+        rec = await self.session.get(WbAutoPromoPriceRecommendation, recommendation_id)
+        if rec is None or rec.wb_promotion_id is None:
+            return None
+        result = await self.session.execute(
+            select(WbPromotionNomenclature.in_action)
+            .where(
+                WbPromotionNomenclature.marketplace_account_id == rec.marketplace_account_id,
+                WbPromotionNomenclature.wb_promotion_id == rec.wb_promotion_id,
+                WbPromotionNomenclature.wb_nm_id == rec.wb_nm_id,
+            )
+            .order_by(WbPromotionNomenclature.synced_at.desc().nullslast())
+            .limit(1)
+        )
+        in_action = result.scalar_one_or_none()
+        if in_action is None:
+            rec.status = STATUS_WAITING_PROMOTION_JOIN
+        elif in_action:
+            rec.status = STATUS_PROMOTION_JOINED
+        else:
+            rec.status = STATUS_PROMOTION_NOT_JOINED
+        await self.session.flush()
+        return rec.status
 
 
 def _extract_nm_id(product: Product) -> int | None:

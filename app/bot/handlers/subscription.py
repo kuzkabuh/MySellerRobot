@@ -363,9 +363,7 @@ async def handle_promo_code_input(message: Message, state: FSMContext) -> None:
 
         promo_service = PromoCodeService(session)
         try:
-            promo = await promo_service.validate(
-                user=user, tariff=tier, period=period, code=code
-            )
+            promo = await promo_service.validate(user=user, tariff=tier, period=period, code=code)
         except PromoValidationError as e:
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
@@ -384,8 +382,7 @@ async def handle_promo_code_input(message: Message, state: FSMContext) -> None:
                 ]
             )
             await message.answer(
-                f"❌ {_html(str(e))}\n\n"
-                f"Вы можете продолжить без промокода.",
+                f"❌ {_html(str(e))}\n\n" f"Вы можете продолжить без промокода.",
                 reply_markup=keyboard,
             )
             return
@@ -570,9 +567,7 @@ async def handle_payment_confirmation(callback: CallbackQuery, state: FSMContext
             await session.commit()
 
             expires_str = (
-                subscription.expires_at.strftime("%d.%m.%Y")
-                if subscription.expires_at
-                else "—"
+                subscription.expires_at.strftime("%d.%m.%Y") if subscription.expires_at else "—"
             )
             text = (
                 f"🎉 <b>Подписка активирована!</b>\n\n"

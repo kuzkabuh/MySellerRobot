@@ -3,21 +3,25 @@ description: Log sanitizer for sensitive HTTP headers and cookie values.
 updated: 2026-05-31
 """
 
-SENSITIVE_HEADERS = frozenset({
-    "cookie",
-    "authorization",
-    "x-api-key",
-    "proxy-authorization",
-    "set-cookie",
-})
+SENSITIVE_HEADERS = frozenset(
+    {
+        "cookie",
+        "authorization",
+        "x-api-key",
+        "proxy-authorization",
+        "set-cookie",
+    }
+)
 
-SENSITIVE_COOKIE_KEYS = frozenset({
-    "__Secure-access-token",
-    "__Secure-refresh-token",
-    "__Secure-token",
-    "__Secure-sid",
-    "session_id",
-})
+SENSITIVE_COOKIE_KEYS = frozenset(
+    {
+        "__Secure-access-token",
+        "__Secure-refresh-token",
+        "__Secure-token",
+        "__Secure-sid",
+        "session_id",
+    }
+)
 
 
 def sanitize_headers(headers: dict[str, str] | None) -> dict[str, str]:

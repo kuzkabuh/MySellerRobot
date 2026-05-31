@@ -38,9 +38,7 @@ def validate_xlsx_file(
                 valid=False, status="file_unavailable", message=f"Файл не найден: {p.name}"
             )
         if p.stat().st_size == 0:
-            return XlsxValidationResult(
-                valid=False, status="invalid_file", message="Файл пустой"
-            )
+            return XlsxValidationResult(valid=False, status="invalid_file", message="Файл пустой")
         try:
             data = p.read_bytes()
         except OSError as exc:
@@ -80,7 +78,7 @@ def _validate_bytes(data: bytes, file_name: str | None = None) -> XlsxValidation
 
     if not data[:2].startswith(XLSX_MAGIC_BYTES):
         for prefix in HTML_DOCTYPE_PREFIXES:
-            if data[:len(prefix)].lower().startswith(prefix.lower()):
+            if data[: len(prefix)].lower().startswith(prefix.lower()):
                 return XlsxValidationResult(
                     valid=False,
                     status="invalid_file",

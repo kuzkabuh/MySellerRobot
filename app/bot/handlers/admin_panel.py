@@ -205,9 +205,7 @@ async def cb_tariff_card(callback: CallbackQuery) -> None:
                 text, reply_markup=admin_tariff_card(tariff, user_count)
             )
         except Exception:
-            await callback.message.answer(
-                text, reply_markup=admin_tariff_card(tariff, user_count)
-            )
+            await callback.message.answer(text, reply_markup=admin_tariff_card(tariff, user_count))
     await callback.answer()
     logger.info(
         "admin_opened_tariff_card",
@@ -377,9 +375,7 @@ async def cb_tariff_save(callback: CallbackQuery) -> None:
                 text, reply_markup=admin_tariff_card(tariff, user_count)
             )
         except Exception:
-            await callback.message.answer(
-                text, reply_markup=admin_tariff_card(tariff, user_count)
-            )
+            await callback.message.answer(text, reply_markup=admin_tariff_card(tariff, user_count))
     await callback.answer("Сохранено")
 
 
@@ -536,9 +532,7 @@ async def cb_tariff_toggle(callback: CallbackQuery) -> None:
                 text, reply_markup=admin_tariff_card(tariff, user_count)
             )
         except Exception:
-            await callback.message.answer(
-                text, reply_markup=admin_tariff_card(tariff, user_count)
-            )
+            await callback.message.answer(text, reply_markup=admin_tariff_card(tariff, user_count))
     status = "включён" if tariff.is_active else "отключён"
     await callback.answer(f"Тариф {status}")
 
@@ -706,9 +700,7 @@ def _promo_card_text(promo: PromoCode) -> str:
 
     period_names = "—"
     if promo.periods:
-        period_names = ", ".join(
-            _PERIOD_LABELS.get(pp.period, pp.period) for pp in promo.periods
-        )
+        period_names = ", ".join(_PERIOD_LABELS.get(pp.period, pp.period) for pp in promo.periods)
 
     new_only = "Да" if promo.only_for_new_users else "Нет"
 
@@ -1150,9 +1142,7 @@ async def msg_promo_create_name(message: Message, state: FSMContext) -> None:
     )
 
 
-@router.callback_query(
-    AdminPanelStates.waiting_for_promo_type, F.data.startswith("ap:promo:type:")
-)
+@router.callback_query(AdminPanelStates.waiting_for_promo_type, F.data.startswith("ap:promo:type:"))
 async def cb_promo_create_type(callback: CallbackQuery, state: FSMContext) -> None:
     if not _is_admin(callback.from_user.id):
         await callback.answer(_deny_text(), show_alert=True)
@@ -1338,8 +1328,7 @@ async def cb_promo_periods_done(callback: CallbackQuery, state: FSMContext) -> N
     await state.set_state(AdminPanelStates.waiting_for_promo_total_limit)
     if callback.message:
         await callback.message.answer(
-            "Шаг 7/10: Введите общий лимит использований (число).\n"
-            "Введите 0 для безлимита."
+            "Шаг 7/10: Введите общий лимит использований (число).\n" "Введите 0 для безлимита."
         )
     await callback.answer()
 
@@ -1358,8 +1347,7 @@ async def cb_promo_periods_skip(callback: CallbackQuery, state: FSMContext) -> N
     await state.set_state(AdminPanelStates.waiting_for_promo_total_limit)
     if callback.message:
         await callback.message.answer(
-            "Шаг 7/10: Введите общий лимит использований (число).\n"
-            "Введите 0 для безлимита."
+            "Шаг 7/10: Введите общий лимит использований (число).\n" "Введите 0 для безлимита."
         )
     await callback.answer()
 
@@ -1417,9 +1405,7 @@ async def msg_promo_create_user_limit(message: Message, state: FSMContext) -> No
     promo_data["max_uses_per_user"] = value
     await state.update_data(promo_data=promo_data)
     await state.set_state(AdminPanelStates.waiting_for_promo_expires)
-    await message.answer(
-        "Шаг 9/10: Введите дату окончания (ДД.ММ.ГГГГ) или 'без срока'."
-    )
+    await message.answer("Шаг 9/10: Введите дату окончания (ДД.ММ.ГГГГ) или 'без срока'.")
 
 
 @router.message(AdminPanelStates.waiting_for_promo_expires)
@@ -1497,9 +1483,7 @@ def _promo_confirm_text(pd: dict) -> str:
     tariffs_text = ", ".join(str(t) for t in tariff_ids) if tariff_ids else "Все"
 
     periods = pd.get("periods")
-    periods_text = (
-        ", ".join(_PERIOD_LABELS.get(p, p) for p in periods) if periods else "Все"
-    )
+    periods_text = ", ".join(_PERIOD_LABELS.get(p, p) for p in periods) if periods else "Все"
 
     lines = [
         "🎟 <b>Проверьте промокод перед созданием</b>",

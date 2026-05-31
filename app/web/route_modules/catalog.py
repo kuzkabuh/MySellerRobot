@@ -138,7 +138,12 @@ async def stocks_page(
             <p>Для доступа обновите тариф до <b>{required}</b> или выше.</p>
             <a class="btn btn-primary" href="/web/subscription">Перейти к подписке</a>
         </div>"""
-        return page("Остатки", user.first_name or user.username or str(user.telegram_id), locked, active_path="/web/stocks")
+        return page(
+            "Остатки",
+            user.first_name or user.username or str(user.telegram_id),
+            locked,
+            active_path="/web/stocks",
+        )
 
     rows = await StockForecastService(session).forecast(user_id=user.id)
     content = _stocks_forecast_content(

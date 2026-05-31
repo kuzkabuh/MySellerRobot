@@ -32,7 +32,9 @@ def _require_admin(user: User) -> None:
         raise HTTPException(status_code=403, detail="Доступно только администраторам")
 
 
-def _admin_page(title: str, user: User, content: str, active_path: str = "/web/admin/tariffs") -> str:
+def _admin_page(
+    title: str, user: User, content: str, active_path: str = "/web/admin/tariffs"
+) -> str:
     return page(
         title,
         f"{user.first_name or user.username or 'admin'} (admin)",
@@ -178,7 +180,9 @@ async def tariff_create(
     _require_admin(user)
 
     errors = _validate_tariff_form(
-        code=code, name=name, price_monthly=price_monthly,
+        code=code,
+        name=name,
+        price_monthly=price_monthly,
         max_marketplace_accounts=max_marketplace_accounts,
     )
 
@@ -197,19 +201,33 @@ async def tariff_create(
         return _admin_page("Ошибка", user, content, active_path="/web/admin/tariffs")
 
     data = _parse_tariff_form(
-        code=code, name=name, description=description,
-        price_monthly=price_monthly, price_3_months=price_3_months,
-        price_6_months=price_6_months, price_yearly=price_yearly,
-        currency=currency, max_marketplace_accounts=max_marketplace_accounts,
-        max_orders_per_month=max_orders_per_month, max_products=max_products,
-        max_users=max_users, sync_interval_minutes=sync_interval_minutes,
-        analytics_depth_days=analytics_depth_days, sort_order=sort_order,
-        is_active=is_active, is_public=is_public,
-        feature_web_cabinet=feature_web_cabinet, feature_analytics=feature_analytics,
-        feature_plan_fact=feature_plan_fact, feature_break_even=feature_break_even,
-        feature_stock_forecast=feature_stock_forecast, feature_alerts=feature_alerts,
-        feature_api_access=feature_api_access, feature_priority_support=feature_priority_support,
-        feature_mrc_pricing=feature_mrc_pricing, feature_auto_promotions=feature_auto_promotions,
+        code=code,
+        name=name,
+        description=description,
+        price_monthly=price_monthly,
+        price_3_months=price_3_months,
+        price_6_months=price_6_months,
+        price_yearly=price_yearly,
+        currency=currency,
+        max_marketplace_accounts=max_marketplace_accounts,
+        max_orders_per_month=max_orders_per_month,
+        max_products=max_products,
+        max_users=max_users,
+        sync_interval_minutes=sync_interval_minutes,
+        analytics_depth_days=analytics_depth_days,
+        sort_order=sort_order,
+        is_active=is_active,
+        is_public=is_public,
+        feature_web_cabinet=feature_web_cabinet,
+        feature_analytics=feature_analytics,
+        feature_plan_fact=feature_plan_fact,
+        feature_break_even=feature_break_even,
+        feature_stock_forecast=feature_stock_forecast,
+        feature_alerts=feature_alerts,
+        feature_api_access=feature_api_access,
+        feature_priority_support=feature_priority_support,
+        feature_mrc_pricing=feature_mrc_pricing,
+        feature_auto_promotions=feature_auto_promotions,
         feature_telegram_notifications=feature_telegram_notifications,
     )
 
@@ -292,7 +310,9 @@ async def tariff_update(
         raise HTTPException(status_code=404, detail="Тариф не найден")
 
     errors = _validate_tariff_form(
-        code=code, name=name, price_monthly=price_monthly,
+        code=code,
+        name=name,
+        price_monthly=price_monthly,
         max_marketplace_accounts=max_marketplace_accounts,
     )
 
@@ -314,19 +334,33 @@ async def tariff_update(
         return _admin_page("Ошибка", user, content, active_path="/web/admin/tariffs")
 
     data = _parse_tariff_form(
-        code=code, name=name, description=description,
-        price_monthly=price_monthly, price_3_months=price_3_months,
-        price_6_months=price_6_months, price_yearly=price_yearly,
-        currency=currency, max_marketplace_accounts=max_marketplace_accounts,
-        max_orders_per_month=max_orders_per_month, max_products=max_products,
-        max_users=max_users, sync_interval_minutes=sync_interval_minutes,
-        analytics_depth_days=analytics_depth_days, sort_order=sort_order,
-        is_active=is_active, is_public=is_public,
-        feature_web_cabinet=feature_web_cabinet, feature_analytics=feature_analytics,
-        feature_plan_fact=feature_plan_fact, feature_break_even=feature_break_even,
-        feature_stock_forecast=feature_stock_forecast, feature_alerts=feature_alerts,
-        feature_api_access=feature_api_access, feature_priority_support=feature_priority_support,
-        feature_mrc_pricing=feature_mrc_pricing, feature_auto_promotions=feature_auto_promotions,
+        code=code,
+        name=name,
+        description=description,
+        price_monthly=price_monthly,
+        price_3_months=price_3_months,
+        price_6_months=price_6_months,
+        price_yearly=price_yearly,
+        currency=currency,
+        max_marketplace_accounts=max_marketplace_accounts,
+        max_orders_per_month=max_orders_per_month,
+        max_products=max_products,
+        max_users=max_users,
+        sync_interval_minutes=sync_interval_minutes,
+        analytics_depth_days=analytics_depth_days,
+        sort_order=sort_order,
+        is_active=is_active,
+        is_public=is_public,
+        feature_web_cabinet=feature_web_cabinet,
+        feature_analytics=feature_analytics,
+        feature_plan_fact=feature_plan_fact,
+        feature_break_even=feature_break_even,
+        feature_stock_forecast=feature_stock_forecast,
+        feature_alerts=feature_alerts,
+        feature_api_access=feature_api_access,
+        feature_priority_support=feature_priority_support,
+        feature_mrc_pricing=feature_mrc_pricing,
+        feature_auto_promotions=feature_auto_promotions,
         feature_telegram_notifications=feature_telegram_notifications,
     )
 
@@ -375,7 +409,11 @@ async def tariff_toggle(
 
 
 def _validate_tariff_form(
-    *, code: str, name: str, price_monthly: str, max_marketplace_accounts: str,
+    *,
+    code: str,
+    name: str,
+    price_monthly: str,
+    max_marketplace_accounts: str,
 ) -> list[str]:
     errors: list[str] = []
     if not code.strip():
@@ -466,8 +504,8 @@ def _tariff_form_html(
 
     def _checked(field: str, default: bool = False) -> str:
         if tariff is None:
-            return ' checked' if default else ''
-        return ' checked' if getattr(tariff, field, default) else ''
+            return " checked" if default else ""
+        return " checked" if getattr(tariff, field, default) else ""
 
     def _num_val(field: str, default: str = "") -> str:
         if tariff is None:

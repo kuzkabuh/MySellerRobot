@@ -4,6 +4,7 @@ These routes are reachable at /payment/success and /payment/cancel
 so that YooKassa can redirect users here after payment without
 requiring a WEB cabinet session.
 """
+
 # ruff: noqa: E501
 
 import logging

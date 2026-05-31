@@ -44,9 +44,7 @@ async def dashboard(
         )
         subscription = await WebCabinetService(session).subscription_page(user.id, user.timezone)
         accounts = await WebCabinetService(session).accounts_page(user.id, user.timezone)
-        content = _dashboard_welcome(user, subscription, accounts, data) + _dashboard_content(
-            data
-        )
+        content = _dashboard_welcome(user, subscription, accounts, data) + _dashboard_content(data)
         return page("Главная", _user_display_name(user), content)
     except Exception:
         logger.exception("dashboard_failed", extra={"user_id": user.id})

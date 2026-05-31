@@ -99,9 +99,7 @@ async def pricing_page(
     except Exception:
         import logging
 
-        logging.getLogger(__name__).exception(
-            "pricing_page_failed", extra={"user_id": user.id}
-        )
+        logging.getLogger(__name__).exception("pricing_page_failed", extra={"user_id": user.id})
         return page(
             "Ошибка — Цены и акции",
             user.first_name or user.username or str(user.telegram_id),
@@ -146,9 +144,7 @@ async def pricing_sync_promotions(
             await session.commit()
         finally:
             await service.release_sync_lock()
-        return RedirectResponse(
-            url="/web/pricing?promotions_synced=1#promotions", status_code=303
-        )
+        return RedirectResponse(url="/web/pricing?promotions_synced=1#promotions", status_code=303)
     except Exception:
         import logging
 
@@ -176,9 +172,7 @@ async def pricing_resolve_conditions(
                     marketplace_account_id=account.id,
                 )
             )
-        return RedirectResponse(
-            url=f"/web/pricing?conditions={total}#conditions", status_code=303
-        )
+        return RedirectResponse(url=f"/web/pricing?conditions={total}#conditions", status_code=303)
     except Exception:
         import logging
 
@@ -385,9 +379,7 @@ async def pricing_build_recommendations(
             "pricing_build_recommendations_failed", extra={"user_id": user.id}
         )
         await session.rollback()
-        return RedirectResponse(
-            url="/web/pricing?rec_error=1#recommendations", status_code=303
-        )
+        return RedirectResponse(url="/web/pricing?rec_error=1#recommendations", status_code=303)
 
 
 @router.post("/pricing/prepare-apply")
@@ -437,9 +429,7 @@ async def pricing_apply_selected(
             "pricing_apply_selected_failed", extra={"user_id": user.id}
         )
         await session.rollback()
-        return RedirectResponse(
-            url="/web/pricing?apply_error=1#recommendations", status_code=303
-        )
+        return RedirectResponse(url="/web/pricing?apply_error=1#recommendations", status_code=303)
 
 
 async def _load_pricing_data(session: AsyncSession, user_id: int) -> PricingViewData:

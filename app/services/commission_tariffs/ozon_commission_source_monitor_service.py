@@ -26,8 +26,7 @@ BROWSER_HEADERS = {
         "Chrome/146.0.0.0 YaBrowser/26.4.0.0 Safari/537.36"
     ),
     "Accept": (
-        "text/html,application/xhtml+xml,application/xml;q=0.9,"
-        "image/avif,image/webp,*/*;q=0.8"
+        "text/html,application/xhtml+xml,application/xml;q=0.9," "image/avif,image/webp,*/*;q=0.8"
     ),
     "Accept-Language": "ru,en;q=0.9",
     "Accept-Encoding": "gzip, deflate, br",
@@ -75,10 +74,14 @@ class OzonCommissionPageParser:
         """
         blocks = self._extract_all_period_blocks(html_content)
         if not blocks:
+            download_url = self._find_download_url_in_block(
+                html_content,
+                "https://seller-edu.ozon.ru",
+            )
             return {
                 "period_label": None,
-                "download_url": None,
-                "file_name": None,
+                "download_url": download_url,
+                "file_name": self._extract_file_name(download_url),
                 "active_from": None,
             }
 
@@ -96,9 +99,9 @@ class OzonCommissionPageParser:
         base_url = "https://seller-edu.ozon.ru"
 
         pattern = re.compile(
-            r'Таблица\s+категорий\s+с\s+(\d{1,2})\s+([а-яё]+)\s+(\d{4})\s*г\.?'
-            r'(.*?)'
-            r'(?=Таблица\s+категорий\s+с|\Z)',
+            r"Таблица\s+категорий\s+с\s+(\d{1,2})\s+([а-яё]+)\s+(\d{4})\s*г\.?"
+            r"(.*?)"
+            r"(?=Таблица\s+категорий\s+с|\Z)",
             re.IGNORECASE | re.DOTALL,
         )
 
@@ -123,12 +126,14 @@ class OzonCommissionPageParser:
             download_url = self._find_download_url_in_block(block_content, base_url)
 
             if download_url:
-                blocks.append({
-                    "period_label": period_label,
-                    "download_url": download_url,
-                    "active_from": active_from,
-                    "sort_key": (year, month or 1, day),
-                })
+                blocks.append(
+                    {
+                        "period_label": period_label,
+                        "download_url": download_url,
+                        "active_from": active_from,
+                        "sort_key": (year, month or 1, day),
+                    }
+                )
 
         blocks.sort(key=lambda b: b["sort_key"], reverse=True)
         return blocks
@@ -176,12 +181,30 @@ class OzonCommissionPageParser:
     def _parse_russian_month(name: str) -> int | None:
         """Parse Russian month name to number."""
         months = {
-            "января": 1, "февраля": 2, "марта": 3, "апреля": 4,
-            "мая": 5, "июня": 6, "июля": 7, "августа": 8,
-            "сентября": 9, "октября": 10, "ноября": 11, "декабря": 12,
-            "январь": 1, "февраль": 2, "март": 3, "апрель": 4,
-            "май": 5, "июнь": 6, "июль": 7, "август": 8,
-            "сентябрь": 9, "октябрь": 10, "ноябрь": 11, "декабрь": 12,
+            "января": 1,
+            "февраля": 2,
+            "марта": 3,
+            "апреля": 4,
+            "мая": 5,
+            "июня": 6,
+            "июля": 7,
+            "августа": 8,
+            "сентября": 9,
+            "октября": 10,
+            "ноября": 11,
+            "декабря": 12,
+            "январь": 1,
+            "февраль": 2,
+            "март": 3,
+            "апрель": 4,
+            "май": 5,
+            "июнь": 6,
+            "июль": 7,
+            "август": 8,
+            "сентябрь": 9,
+            "октябрь": 10,
+            "ноябрь": 11,
+            "декабрь": 12,
         }
         return months.get(name.lower())
 
@@ -253,16 +276,14 @@ class OzonCommissionSourceMonitorService:
             logger.info("ozon_commission_source_http_blocked_trying_browser")
             browser_result = await self._check_via_browser(url)
             if browser_result.get("change_type") in (
-                "source_unavailable", "source_blocked",
+                "source_unavailable",
+                "source_blocked",
             ):
                 return await self._record_check(
                     url=url,
                     html_content=None,
                     change_type="source_blocked",
-                    error=(
-                        "Ozon заблокировал проверку даже через "
-                        "браузер (HTTP 403)."
-                    ),
+                    error=("Ozon заблокировал проверку даже через " "браузер (HTTP 403)."),
                     fetch_method="browser",
                 )
             return browser_result
@@ -524,9 +545,7 @@ class OzonCommissionSourceMonitorService:
             file_bytes=result.file_bytes,
         )
 
-    async def _download_and_verify_file(
-        self, file_url: str, referer_url: str
-    ) -> dict[str, Any]:
+    async def _download_and_verify_file(self, file_url: str, referer_url: str) -> dict[str, Any]:
         """Download the XLSX file and verify it's valid."""
         logger.info(
             "ozon_commission_source_file_download_started",
@@ -665,9 +684,13 @@ class OzonCommissionSourceMonitorService:
         period_label = parsed.get("period_label")
 
         summary = {
-            "success": change_type not in (
-                "parse_error", "source_unavailable", "source_blocked",
-                "file_unavailable", "manual_mode",
+            "success": change_type
+            not in (
+                "parse_error",
+                "source_unavailable",
+                "source_blocked",
+                "file_unavailable",
+                "manual_mode",
             ),
             "has_changes": has_changes,
             "change_type": change_type,
@@ -682,8 +705,11 @@ class OzonCommissionSourceMonitorService:
         }
 
         if has_changes and change_type not in (
-            "parse_error", "source_unavailable", "source_blocked",
-            "file_unavailable", "manual_mode",
+            "parse_error",
+            "source_unavailable",
+            "source_blocked",
+            "file_unavailable",
+            "manual_mode",
         ):
             logger.info(
                 "ozon_commission_source_update_detected",
@@ -705,9 +731,11 @@ class OzonCommissionSourceMonitorService:
         result = await self.session.execute(
             select(Check)
             .where(Check.marketplace == Marketplace.OZON)
-            .where(Check.change_type.notin_(
-                ["parse_error", "source_unavailable", "source_blocked", "file_unavailable"]
-            ))
+            .where(
+                Check.change_type.notin_(
+                    ["parse_error", "source_unavailable", "source_blocked", "file_unavailable"]
+                )
+            )
             .order_by(Check.checked_at.desc())
             .limit(1)
         )

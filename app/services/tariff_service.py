@@ -71,9 +71,7 @@ class TariffService:
         )
         return tariff
 
-    async def update_tariff(
-        self, tariff_id: int, **kwargs: Any
-    ) -> SubscriptionTier | None:
+    async def update_tariff(self, tariff_id: int, **kwargs: Any) -> SubscriptionTier | None:
         tariff = await self.session.get(SubscriptionTier, tariff_id)
         if not tariff:
             return None
@@ -117,14 +115,9 @@ class TariffService:
             select(func.count(UserSubscription.id))
             .where(UserSubscription.tier_id == tariff_id)
             .where(
-                UserSubscription.status.in_(
-                    [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL]
-                )
+                UserSubscription.status.in_([SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL])
             )
-            .where(
-                (UserSubscription.expires_at.is_(None))
-                | (UserSubscription.expires_at > now)
-            )
+            .where((UserSubscription.expires_at.is_(None)) | (UserSubscription.expires_at > now))
         )
         return int(result.scalar_one() or 0)
 
@@ -149,10 +142,7 @@ class TariffService:
 
     @staticmethod
     def get_feature_flags(tariff: SubscriptionTier) -> dict[str, bool]:
-        return {
-            field: bool(getattr(tariff, field, False))
-            for field, _ in TARIFF_FEATURE_FIELDS
-        }
+        return {field: bool(getattr(tariff, field, False)) for field, _ in TARIFF_FEATURE_FIELDS}
 
     @staticmethod
     def get_limits(tariff: SubscriptionTier) -> dict[str, Any]:

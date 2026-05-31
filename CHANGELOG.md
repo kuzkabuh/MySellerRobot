@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.8.2
+
+### Added
+
+- Добавлены `audit_logs`, `sync_task_runs`, `notification_events`.
+- Добавлены web/admin страницы пользователей, платежей, уведомлений, audit log и sync status.
+- Добавлен пользовательский экран `/web/health`.
+- Добавлен единый `FeatureAccessService.can_use(user_id, feature_code)`.
+
+### Changed
+
+- WB auto promo рекомендации учитывают МРЦ, minPrice, источник `required_price` и риск карантина WB.
+- Платежи YooKassa получили `subscription_applied_at` для видимости и защиты от повторного начисления.
+- Worker-задачи пишут состояние запусков в `sync_task_runs`.
+
+### Docs
+
+- README обновлён под 1.8.2: worker map, web/admin map, feature flags и troubleshooting.
+
 ## 1.8.1
 
 ### Added

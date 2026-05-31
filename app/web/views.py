@@ -594,7 +594,7 @@ def _products_content(rows: list[MasterProductAnalyticsRow]) -> str:
         image = (
             f'<img src="{escape(row.image_url)}" alt="{escape(row.title)}" '
             'style="width:48px;height:48px;object-fit:cover;border-radius:6px;margin-right:10px" '
-            'onerror="this.style.display=\'none\'">'
+            "onerror=\"this.style.display='none'\">"
             if row.image_url
             else '<div class="product-thumb">нет фото</div>'
         )
@@ -683,7 +683,7 @@ def _master_product_detail_content(detail: MasterProductDetail) -> str:
     image = (
         f'<img src="{escape(detail.image_url)}" alt="{escape(detail.title)}" '
         'style="width:96px;height:96px;object-fit:cover;border-radius:6px" '
-        'onerror="this.style.display=\'none\'">'
+        "onerror=\"this.style.display='none'\">"
         if detail.image_url
         else '<div class="product-thumb">нет фото</div>'
     )
@@ -2687,7 +2687,9 @@ def _area_chart(points: list[DailyPoint], attr: str, title: str, color: str) -> 
         y = Decimal(pad_top) + chart_h - (value / max_value * Decimal(chart_h))
         coords.append((float(x), float(y)))
     line_points = " ".join(f"{x:.1f},{y:.1f}" for x, y in coords)
-    area_points = f"0,{pad_top + chart_h} " + line_points + f" {coords[-1][0]:.1f},{pad_top + chart_h}"
+    area_points = (
+        f"0,{pad_top + chart_h} " + line_points + f" {coords[-1][0]:.1f},{pad_top + chart_h}"
+    )
     grid_lines = ""
     for i in range(4):
         gy = pad_top + chart_h * i / 3

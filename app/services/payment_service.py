@@ -142,9 +142,7 @@ class PaymentService:
 
         existing = None
         if promo_code_usage_id is None and not discount_amount:
-            existing = await self._find_pending_payment(
-                user_id, tier_code=tier_code, period=period
-            )
+            existing = await self._find_pending_payment(user_id, tier_code=tier_code, period=period)
         if existing:
             logger.info(
                 "payment_reused_pending",
@@ -236,6 +234,23 @@ class PaymentService:
         )
         self.session.add(payment)
         await self.session.flush()
+        try:
+            from app.services.audit_log_service import AuditLogService
+
+            await AuditLogService(self.session).log(
+                "payment_created",
+                user_id=user_id,
+                entity_type="payment",
+                entity_id=payment.id,
+                details={
+                    "provider_payment_id": payment.provider_payment_id,
+                    "tier_code": tier_code,
+                    "period": period,
+                    "amount": str(final_amount),
+                },
+            )
+        except Exception:
+            logger.exception("audit_log_payment_created_failed")
 
         payment_metadata = payment.payment_metadata or {}
         confirmation_url = str(payment_metadata.get("confirmation_url", ""))
@@ -543,6 +558,7 @@ class PaymentService:
                 payment_id=payment.provider_payment_id,
             )
             payment.subscription_id = subscription.id
+            payment.subscription_applied_at = datetime.now(tz=UTC)
         except ValueError as exc:
             logger.error(
                 "subscription_activation_failed",
@@ -559,6 +575,31 @@ class PaymentService:
         payment.paid_at = datetime.now(tz=UTC)
         payment.payment_method = yookassa_data.get("payment_method", {}).get("type")
         await self.session.flush()
+        try:
+            from app.services.audit_log_service import AuditLogService
+
+            audit = AuditLogService(self.session)
+            await audit.log(
+                "payment_succeeded",
+                user_id=payment.user_id,
+                entity_type="payment",
+                entity_id=payment.id,
+                details={"provider_payment_id": payment.provider_payment_id, "source": source},
+            )
+            if subscription:
+                await audit.log(
+                    "subscription_activated",
+                    user_id=payment.user_id,
+                    entity_type="subscription",
+                    entity_id=subscription.id,
+                    details={
+                        "payment_id": payment.id,
+                        "tier_code": tier_code,
+                        "period": period,
+                    },
+                )
+        except Exception:
+            logger.exception("audit_log_payment_success_failed")
 
         promo_usage_id = metadata.get("promo_code_usage_id")
         if promo_usage_id:

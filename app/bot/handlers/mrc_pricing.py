@@ -885,9 +885,7 @@ async def mrc_recalc_handler(callback: CallbackQuery) -> None:
             promo_text = f"Да — {promo_nomenclature.plan_price:.0f} ₽"
 
         limit_label = (
-            "Да"
-            if result.is_limited_by_mrc_rule or result.is_limited_by_min_price
-            else "Нет"
+            "Да" if result.is_limited_by_mrc_rule or result.is_limited_by_min_price else "Нет"
         )
         text = (
             f"🔄 <b>Пересчёт цены</b>\n\n"

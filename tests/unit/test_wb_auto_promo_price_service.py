@@ -7,6 +7,7 @@ import pytest
 
 from app.services.pricing.wb_auto_promo_price_service import (
     STATUS_AUTO_MIN_PRICE_VIOLATION,
+    STATUS_AUTO_MRC_MISSING,
     STATUS_AUTO_PRICE_OK,
     STATUS_AUTO_PRICE_VIOLATION,
     STATUS_AUTO_REQUIRED_PRICE_UNKNOWN,
@@ -199,6 +200,66 @@ async def test_no_nm_id():
     )
 
     assert rec.status == STATUS_AUTO_WAITING_WB_SYNC
+
+
+@pytest.mark.asyncio
+async def test_mrc_1000_deviation_10_required_950_recommends_950():
+    product = _make_product(mrc_price=Decimal("1000"))
+    session = AsyncMock()
+    mock_settings_svc = MagicMock()
+    mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
+
+    with patch(
+        "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+        return_value=mock_settings_svc,
+    ):
+        service = WbAutoPromoPriceService(session)
+        rec = await service.build_recommendation(
+            product=product,
+            current_wb_price=Decimal("1000"),
+            required_price=Decimal("950"),
+        )
+
+    assert rec.status == STATUS_AUTO_SET_PRICE
+    assert rec.recommended_price == Decimal("950")
+
+
+@pytest.mark.asyncio
+async def test_auto_promo_price_not_applied_without_mrc():
+    product = _make_product(mrc_price=None)
+    session = AsyncMock()
+
+    service = WbAutoPromoPriceService(session)
+    rec = await service.build_recommendation(
+        product=product,
+        current_wb_price=Decimal("1000"),
+        required_price=Decimal("950"),
+    )
+
+    assert rec.status == STATUS_AUTO_MRC_MISSING
+    assert rec.recommended_price is None
+
+
+@pytest.mark.asyncio
+async def test_auto_promo_rejects_quarantine_risk():
+    product = _make_product(mrc_price=Decimal("1000"))
+    session = AsyncMock()
+    mock_settings_svc = MagicMock()
+    mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
+
+    with patch(
+        "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+        return_value=mock_settings_svc,
+    ):
+        service = WbAutoPromoPriceService(session)
+        rec = await service.build_recommendation(
+            product=product,
+            current_wb_price=Decimal("3000"),
+            required_price=Decimal("950"),
+        )
+
+    assert rec.status == STATUS_AUTO_PRICE_VIOLATION
+    assert "карантин" in rec.reason.lower()
 
 
 @pytest.mark.asyncio

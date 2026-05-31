@@ -33,9 +33,7 @@ def admin_tariffs_list(
     for tariff, user_count in tariffs:
         status = "✅" if tariff.is_active else "❌"
         label = f"{status} {tariff.name} — {_rub(tariff.price_monthly)} ({user_count})"
-        rows.append(
-            [InlineKeyboardButton(text=label, callback_data=f"ap:tariff:{tariff.id}")]
-        )
+        rows.append([InlineKeyboardButton(text=label, callback_data=f"ap:tariff:{tariff.id}")])
     rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="admin_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -47,9 +45,7 @@ def admin_tariff_card(tariff: SubscriptionTier, user_count: int) -> InlineKeyboa
 
     rows: list[list[InlineKeyboardButton]] = [
         [
-            InlineKeyboardButton(
-                text="✏️ Цена/мес", callback_data=f"ap:tariff:{tid}:price:monthly"
-            ),
+            InlineKeyboardButton(text="✏️ Цена/мес", callback_data=f"ap:tariff:{tid}:price:monthly"),
             InlineKeyboardButton(
                 text="✏️ Цена/3мес", callback_data=f"ap:tariff:{tid}:price:3_months"
             ),
@@ -58,14 +54,10 @@ def admin_tariff_card(tariff: SubscriptionTier, user_count: int) -> InlineKeyboa
             InlineKeyboardButton(
                 text="✏️ Цена/6мес", callback_data=f"ap:tariff:{tid}:price:6_months"
             ),
-            InlineKeyboardButton(
-                text="✏️ Цена/год", callback_data=f"ap:tariff:{tid}:price:yearly"
-            ),
+            InlineKeyboardButton(text="✏️ Цена/год", callback_data=f"ap:tariff:{tid}:price:yearly"),
         ],
         [
-            InlineKeyboardButton(
-                text="⚙️ Лимиты", callback_data=f"ap:tariff:{tid}:limits"
-            ),
+            InlineKeyboardButton(text="⚙️ Лимиты", callback_data=f"ap:tariff:{tid}:limits"),
         ],
         [
             InlineKeyboardButton(text=toggle_text, callback_data=f"ap:tariff:{tid}:toggle"),
@@ -113,9 +105,7 @@ def admin_tariff_limits_menu(tariff_id: int) -> InlineKeyboardMarkup:
     )
 
 
-def admin_tariff_confirm(
-    tariff_id: int, field: str, value: str
-) -> InlineKeyboardMarkup:
+def admin_tariff_confirm(tariff_id: int, field: str, value: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -123,9 +113,7 @@ def admin_tariff_confirm(
                     text="✅ Сохранить",
                     callback_data=f"ap:tariff:{tariff_id}:save:{field}:{value}",
                 ),
-                InlineKeyboardButton(
-                    text="❌ Отмена", callback_data=f"ap:tariff:{tariff_id}"
-                ),
+                InlineKeyboardButton(text="❌ Отмена", callback_data=f"ap:tariff:{tariff_id}"),
             ]
         ]
     )
@@ -143,9 +131,7 @@ def admin_promos_list(promos: list[PromoCode]) -> InlineKeyboardMarkup:
             discount = f"{promo.free_days}д"
         total = str(promo.max_uses_total) if promo.max_uses_total else "∞"
         label = f"{status} {promo.code} — {discount} — {promo.used_count}/{total}"
-        rows.append(
-            [InlineKeyboardButton(text=label, callback_data=f"ap:promo:{promo.id}")]
-        )
+        rows.append([InlineKeyboardButton(text=label, callback_data=f"ap:promo:{promo.id}")])
     rows.append(
         [
             InlineKeyboardButton(text="➕ Создать", callback_data="ap:promo:create"),
@@ -165,17 +151,11 @@ def admin_promo_card(promo: PromoCode) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text=toggle_text, callback_data=f"ap:promo:{pid}:toggle"),
             ],
             [
-                InlineKeyboardButton(
-                    text="✏️ Лимит", callback_data=f"ap:promo:{pid}:edit_limit"
-                ),
-                InlineKeyboardButton(
-                    text="✏️ Срок", callback_data=f"ap:promo:{pid}:edit_expires"
-                ),
+                InlineKeyboardButton(text="✏️ Лимит", callback_data=f"ap:promo:{pid}:edit_limit"),
+                InlineKeyboardButton(text="✏️ Срок", callback_data=f"ap:promo:{pid}:edit_expires"),
             ],
             [
-                InlineKeyboardButton(
-                    text="📊 Статистика", callback_data=f"ap:promo:{pid}:stats"
-                ),
+                InlineKeyboardButton(text="📊 Статистика", callback_data=f"ap:promo:{pid}:stats"),
                 InlineKeyboardButton(
                     text="👥 Использования", callback_data=f"ap:promo:{pid}:usages:0"
                 ),
@@ -222,9 +202,7 @@ def admin_promo_tariffs_select(
                 )
             ]
         )
-    rows.append(
-        [InlineKeyboardButton(text="✅ Готово", callback_data="ap:promo:tariffs_done")]
-    )
+    rows.append([InlineKeyboardButton(text="✅ Готово", callback_data="ap:promo:tariffs_done")])
     rows.append(
         [InlineKeyboardButton(text="⏭ Пропустить (все)", callback_data="ap:promo:tariffs_skip")]
     )
@@ -243,9 +221,7 @@ def admin_promo_periods_select(selected: set[str]) -> InlineKeyboardMarkup:
                 )
             ]
         )
-    rows.append(
-        [InlineKeyboardButton(text="✅ Готово", callback_data="ap:promo:periods_done")]
-    )
+    rows.append([InlineKeyboardButton(text="✅ Готово", callback_data="ap:promo:periods_done")])
     rows.append(
         [InlineKeyboardButton(text="⏭ Пропустить (все)", callback_data="ap:promo:periods_skip")]
     )
@@ -259,9 +235,7 @@ def admin_promo_new_users_select() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(
                     text="🆕 Только новые", callback_data="ap:promo:new_users:yes"
                 ),
-                InlineKeyboardButton(
-                    text="👥 Все", callback_data="ap:promo:new_users:no"
-                ),
+                InlineKeyboardButton(text="👥 Все", callback_data="ap:promo:new_users:no"),
             ]
         ]
     )
@@ -271,42 +245,28 @@ def admin_promo_confirm_cancel() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(
-                    text="✅ Создать", callback_data="ap:promo:confirm_create"
-                ),
+                InlineKeyboardButton(text="✅ Создать", callback_data="ap:promo:confirm_create"),
                 InlineKeyboardButton(text="❌ Отмена", callback_data="ap:promos"),
             ]
         ]
     )
 
 
-def admin_promo_usages_nav(
-    promo_id: int, page: int, total_pages: int
-) -> InlineKeyboardMarkup:
+def admin_promo_usages_nav(promo_id: int, page: int, total_pages: int) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     nav: list[InlineKeyboardButton] = []
     if page > 0:
         nav.append(
-            InlineKeyboardButton(
-                text="⬅️", callback_data=f"ap:promo:{promo_id}:usages:{page - 1}"
-            )
+            InlineKeyboardButton(text="⬅️", callback_data=f"ap:promo:{promo_id}:usages:{page - 1}")
         )
-    nav.append(
-        InlineKeyboardButton(
-            text=f"{page + 1}/{total_pages}", callback_data="noop"
-        )
-    )
+    nav.append(InlineKeyboardButton(text=f"{page + 1}/{total_pages}", callback_data="noop"))
     if page < total_pages - 1:
         nav.append(
-            InlineKeyboardButton(
-                text="➡️", callback_data=f"ap:promo:{promo_id}:usages:{page + 1}"
-            )
+            InlineKeyboardButton(text="➡️", callback_data=f"ap:promo:{promo_id}:usages:{page + 1}")
         )
     if nav:
         rows.append(nav)
-    rows.append(
-        [InlineKeyboardButton(text="🔙 К промокоду", callback_data=f"ap:promo:{promo_id}")]
-    )
+    rows.append([InlineKeyboardButton(text="🔙 К промокоду", callback_data=f"ap:promo:{promo_id}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

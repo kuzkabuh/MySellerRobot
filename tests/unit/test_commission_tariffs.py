@@ -661,7 +661,7 @@ class TestChangeTypeBadge:
         assert "some_new_type" in badge
 
 
-class TestOzonPageParser:
+class TestOzonPageParserFallbacks:
     def test_parse_empty_html(self) -> None:
         parser = OzonCommissionPageParser()
         result = parser.parse("<html><body></body></html>")
@@ -672,10 +672,10 @@ class TestOzonPageParser:
     def test_parse_xlsx_link(self) -> None:
         parser = OzonCommissionPageParser()
         html = (
-            '<html><body>'
-            '<h2>Таблица категорий с 6 апреля 2026 г.</h2>'
+            "<html><body>"
+            "<h2>Таблица категорий с 6 апреля 2026 г.</h2>"
             '<p><a href="/files/commissions.xlsx">Скачать таблицу категорий</a></p>'
-            '</body></html>'
+            "</body></html>"
         )
         result = parser.parse(html)
         assert result["download_url"] is not None

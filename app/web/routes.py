@@ -11,6 +11,7 @@ from fastapi import APIRouter
 from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY, current_web_user
 from app.web.route_modules import (
     account_settings,
+    admin_visibility,
     auth,
     catalog,
     commissions_admin,
@@ -94,6 +95,7 @@ for module_router in (
     commissions_admin.router,
     tariffs_admin.router,
     promocodes_admin.router,
+    admin_visibility.router,
     mrc_pricing.router,
     compatibility.router,
 ):

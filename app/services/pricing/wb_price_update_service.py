@@ -385,8 +385,10 @@ class WbPriceUpdateService:
                     "discount": payload.discount,
                 }
             )
+            rec.status = "price_sent_to_wb"
             upload_context.append(
                 {
+                    "recommendation_id": rec.id,
                     "product_id": product.id,
                     "wb_nm_id": rec.wb_nm_id,
                     "old_price": current_price,
@@ -518,6 +520,16 @@ class WbPriceUpdateService:
                 upload_status = "sent"
 
             for ctx in upload_context:
+                rec = await self.session.get(
+                    WbAutoPromoPriceRecommendation,
+                    ctx["recommendation_id"],
+                )
+                if rec is not None:
+                    rec.status = (
+                        "price_accepted_by_wb"
+                        if upload_status == "processed_success"
+                        else "waiting_promotion_join"
+                    )
                 await self._record_history(
                     user_id=user_id,
                     marketplace_account_id=marketplace_account_id,
@@ -772,6 +784,24 @@ class WbPriceUpdateService:
         raw_response: dict[str, Any] | None = None,
     ) -> None:
         """Record a price change in history."""
+        if status in {STATUS_APPLIED, "processed_success", "price_accepted_by_wb"}:
+            try:
+                from app.services.audit_log_service import AuditLogService
+
+                await AuditLogService(self.session).log(
+                    "wb_price_applied",
+                    user_id=user_id,
+                    entity_type="wb_price_change",
+                    details={
+                        "wb_nm_id": wb_nm_id,
+                        "old_price": str(old_price),
+                        "new_price": str(new_price),
+                        "source": source,
+                    },
+                )
+            except Exception:
+                logger.exception("audit_log_wb_price_applied_failed")
+
         record = WbPriceChangeHistory(
             user_id=user_id,
             marketplace_account_id=marketplace_account_id,

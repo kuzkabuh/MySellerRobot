@@ -4,10 +4,11 @@ updated: 2026-05-21
 """
 
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from functools import wraps
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -1313,3 +1314,72 @@ async def sync_wb_product_prices(ctx: dict[str, Any]) -> None:
                 await session.rollback()
             except Exception:
                 pass
+
+
+def _tracked_task(
+    func: Callable[[dict[str, Any]], Awaitable[Any]],
+) -> Callable[[dict[str, Any]], Awaitable[Any]]:
+    @wraps(func)
+    async def wrapper(ctx: dict[str, Any]) -> Any:
+        from app.services.sync_status_service import SyncStatusService
+
+        if not hasattr(AsyncSessionFactory, "begin"):
+            return await func(ctx)
+
+        async with AsyncSessionFactory() as session:
+            service = SyncStatusService(session)
+            run = await service.start(
+                func.__name__,
+                triggered_by_user_id=ctx.get("triggered_by_user_id") if ctx else None,
+                metadata={"source": "arq"},
+            )
+            await session.commit()
+
+        try:
+            result = await func(ctx)
+        except Exception as exc:
+            async with AsyncSessionFactory() as session:
+                service = SyncStatusService(session)
+                db_run = await session.get(type(run), run.id)
+                if db_run is not None:
+                    await service.mark_failed(db_run, str(exc))
+                    await session.commit()
+            raise
+
+        async with AsyncSessionFactory() as session:
+            service = SyncStatusService(session)
+            db_run = await session.get(type(run), run.id)
+            if db_run is not None:
+                await service.mark_success(db_run)
+                await session.commit()
+        return result
+
+    return wrapper
+
+
+for _task_name in (
+    "poll_new_orders",
+    "send_daily_reports",
+    "send_alert_notifications",
+    "send_fbo_digests",
+    "process_history_backfills",
+    "check_fbs_deadlines",
+    "check_low_stocks",
+    "sync_sale_events",
+    "sync_products",
+    "sync_wb_daily_sales_reports",
+    "sync_ozon_catalog_enrichment",
+    "sync_ozon_balances",
+    "sync_wb_account_profiles",
+    "check_wb_financial_reports",
+    "sync_wb_daily_financial_details",
+    "reconcile_pending_payments",
+    "resend_unnotified_orders",
+    "sync_wb_commissions",
+    "check_ozon_commission_source",
+    "sync_wb_logistics_tariffs",
+    "sync_wb_daily_promotions",
+    "check_auto_promo_prices",
+    "sync_wb_product_prices",
+):
+    globals()[_task_name] = _tracked_task(globals()[_task_name])

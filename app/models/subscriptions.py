@@ -135,6 +135,8 @@ class Payment(TimestampMixin, Base):
 
     success_notification_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    subscription_applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     receipt_id: Mapped[str | None] = mapped_column(String(128))
 
     receipt_status: Mapped[str | None] = mapped_column(String(32))

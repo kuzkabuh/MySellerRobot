@@ -108,18 +108,14 @@ class PromoCodeUsage(Base):
     promo_code_id: Mapped[int] = mapped_column(
         ForeignKey("promo_codes.id", ondelete="CASCADE"), index=True
     )
-    user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True
-    )
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     subscription_id: Mapped[int | None] = mapped_column(
         ForeignKey("user_subscriptions.id", ondelete="SET NULL")
     )
     payment_id: Mapped[int | None] = mapped_column(
         ForeignKey("payments.id", ondelete="SET NULL"), index=True
     )
-    tariff_id: Mapped[int] = mapped_column(
-        ForeignKey("subscription_tiers.id"), index=True
-    )
+    tariff_id: Mapped[int] = mapped_column(ForeignKey("subscription_tiers.id"), index=True)
     period: Mapped[str] = mapped_column(String(16))
 
     original_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2))

@@ -458,8 +458,8 @@ def _promo_form_html(
 
     def _selected_type(value: str) -> str:
         if promo is None:
-            return ' selected' if value == PromoType.PERCENT_DISCOUNT else ''
-        return ' selected' if promo.promo_type == value else ''
+            return " selected" if value == PromoType.PERCENT_DISCOUNT else ""
+        return " selected" if promo.promo_type == value else ""
 
     existing_tariff_ids = set()
     if promo and promo.tariffs:

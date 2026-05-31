@@ -48,7 +48,13 @@ NAV_GROUPS = [
             ("Подписка и тариф", "/web/subscription"),
             ("Профиль и настройки", "/web/profile"),
             ("Настройки", "/web/settings"),
+            ("Здоровье кабинета", "/web/health"),
             ("Комиссии МП (admin)", "/web/admin/commissions"),
+            ("Пользователи (admin)", "/web/admin/users"),
+            ("Платежи (admin)", "/web/admin/payments"),
+            ("Уведомления (admin)", "/web/admin/notifications"),
+            ("Sync status (admin)", "/web/admin/sync-status"),
+            ("Audit log (admin)", "/web/admin/audit-log"),
             ("Тарифы (admin)", "/web/admin/tariffs"),
             ("Промокоды (admin)", "/web/admin/promocodes"),
         ],
@@ -80,6 +86,12 @@ NAV_ICONS = {
     "Комиссии МП (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3" y="2" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M6 5h4M6 8h4M6 11h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
     "Тарифы (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4l6 3 6-3M2 4v8l6 3 6-3V4M2 4l6-2 6 2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
     "Промокоды (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 5h12v6H2zM5 5v6M8 7h3M8 9h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    "Здоровье кабинета": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 9h3l1.2-4 2.4 8L10 9h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    "Пользователи (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="6" cy="5" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M1.5 14c.8-3 2.4-5 4.5-5s3.7 2 4.5 5M11 6h4M13 4v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Платежи (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="4" width="12" height="8" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M2 7h12M5 10h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Уведомления (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2a4 4 0 014 4c0 3 1.5 4.5 2 5H2c.5-.5 2-2 2-5a4 4 0 014-4z" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 13a1.5 1.5 0 003 0" stroke="currentColor" stroke-width="1.5"/></svg>',
+    "Sync status (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13 5a5 5 0 00-8.5-1.8L3 5M3 11a5 5 0 008.5 1.8L13 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    "Audit log (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3" y="2" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M6 5h4M6 8h4M6 11h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
 }
 
 NAV_ICONS_FALLBACK = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="3" stroke="currentColor" stroke-width="1.5"/></svg>'

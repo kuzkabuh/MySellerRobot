@@ -108,6 +108,19 @@ class MarketplaceAccountService:
                 seller_info_payload=seller_info.payload,
             )
             account.last_success_sync_at = datetime.now(tz=UTC)
+            try:
+                from app.services.audit_log_service import AuditLogService
+
+                await AuditLogService(self.session).log(
+                    "account_added",
+                    user_id=command.user_id,
+                    actor_user_id=command.user_id,
+                    entity_type="marketplace_account",
+                    entity_id=account.id,
+                    details={"marketplace": command.marketplace.value, "name": command.name},
+                )
+            except Exception:
+                logger.exception("audit_log_account_added_failed")
             await self.session.commit()
             await self._bootstrap_account_data(account)
             return account
@@ -158,6 +171,19 @@ class MarketplaceAccountService:
         if account is None:
             return False
         await self.repo.disable(account)
+        try:
+            from app.services.audit_log_service import AuditLogService
+
+            await AuditLogService(self.session).log(
+                "account_deleted",
+                user_id=user_id,
+                actor_user_id=user_id,
+                entity_type="marketplace_account",
+                entity_id=account.id,
+                details={"marketplace": account.marketplace.value, "name": account.name},
+            )
+        except Exception:
+            logger.exception("audit_log_account_deleted_failed")
         await self.session.commit()
         return True
 

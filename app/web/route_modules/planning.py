@@ -54,9 +54,7 @@ async def plan_fact_page(
     date_from: str | None = Query(default=None),
     date_to: str | None = Query(default=None),
 ) -> str:
-    access = await FeatureAccessService(session).can_use_feature(
-        user.id, FeatureCode.PLAN_FACT
-    )
+    access = await FeatureAccessService(session).can_use_feature(user.id, FeatureCode.PLAN_FACT)
     if not access.allowed:
         return page(
             "План/факт",
@@ -158,9 +156,7 @@ async def break_even_page(
     target_margin: str = Query(default="20"),
     price_delta: str = Query(default="0"),
 ) -> str:
-    access = await FeatureAccessService(session).can_use_feature(
-        user.id, FeatureCode.PLAN_FACT
-    )
+    access = await FeatureAccessService(session).can_use_feature(user.id, FeatureCode.PLAN_FACT)
     if not access.allowed:
         return page(
             "Безубыточная цена",

@@ -9,6 +9,7 @@ Full-featured MRC pricing management with:
 - Manual sync trigger
 - Feature gating by subscription tier
 """
+
 # ruff: noqa: E501
 
 import logging
@@ -262,6 +263,19 @@ async def save_mrc_price(
             "source": "web",
         },
     )
+    try:
+        from app.services.audit_log_service import AuditLogService
+
+        await AuditLogService(session).log(
+            "mrc_price_updated",
+            user_id=user.id,
+            actor_user_id=user.id,
+            entity_type="product",
+            entity_id=product_id,
+            details={"old_mrc_price": str(old_mrc), "new_mrc_price": str(product.mrc_price)},
+        )
+    except Exception:
+        logger.exception("audit_log_mrc_price_updated_failed")
 
     await session.commit()
     return RedirectResponse(
@@ -1506,6 +1520,7 @@ async def auto_promo_recommendations_page(
                         mrc_price=db_rec.mrc_price,
                         current_wb_price=db_rec.current_wb_price,
                         required_price=db_rec.required_price,
+                        required_price_source=db_rec.required_price_source,
                         recommended_price=db_rec.recommended_price,
                         min_price=db_rec.min_price,
                         mrc_lower_bound=db_rec.mrc_lower_bound,

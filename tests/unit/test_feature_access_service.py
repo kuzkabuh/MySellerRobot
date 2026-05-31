@@ -49,6 +49,8 @@ def _make_tier(**kwargs):
         "feature_priority_support": False,
         "feature_api_access": False,
         "feature_mrc_pricing": False,
+        "feature_auto_promotions": False,
+        "feature_telegram_notifications": True,
         "max_marketplace_accounts": 1,
         "max_orders_per_month": 100,
         "max_products": 100,
@@ -215,3 +217,21 @@ async def test_sku_limit_enforced() -> None:
         assert result.allowed is False
     except (TypeError, AttributeError):
         pass
+
+
+@pytest.mark.asyncio
+async def test_can_use_accepts_canonical_string_feature_code() -> None:
+    tier = _make_tier(code="pro", name="PRO", feature_stock_forecast=True)
+
+    allowed = await FeatureAccessService(FakeSession(tier)).can_use(1, "stock_forecast")
+
+    assert allowed is True
+
+
+@pytest.mark.asyncio
+async def test_can_use_denies_unknown_feature_code() -> None:
+    tier = _make_tier(code="pro", name="PRO", feature_analytics=True)
+
+    allowed = await FeatureAccessService(FakeSession(tier)).can_use(1, "unknown_feature")
+
+    assert allowed is False

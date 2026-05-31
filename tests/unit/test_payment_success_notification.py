@@ -106,9 +106,7 @@ class TestPaymentSuccessNotification:
 
             with (
                 patch("app.bot.main.create_bot") as mock_create_bot,
-                patch.object(
-                    service, "_get_tier_by_code", new=AsyncMock(return_value=mock_tier)
-                ),
+                patch.object(service, "_get_tier_by_code", new=AsyncMock(return_value=mock_tier)),
             ):
                 mock_bot = MagicMock()
                 mock_bot.send_message = AsyncMock()

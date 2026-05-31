@@ -5,7 +5,6 @@ updated: 2026-05-31
 
 import hashlib
 import logging
-import os
 import re
 from dataclasses import dataclass, field
 from datetime import date
@@ -27,9 +26,18 @@ DOWNLOAD_LINK_TEXT_PATTERN = re.compile(
 )
 
 MONTHS = {
-    "января": 1, "февраля": 2, "марта": 3, "апреля": 4,
-    "мая": 5, "июня": 6, "июля": 7, "августа": 8,
-    "сентября": 9, "октября": 10, "ноября": 11, "декабря": 12,
+    "января": 1,
+    "февраля": 2,
+    "марта": 3,
+    "апреля": 4,
+    "мая": 5,
+    "июня": 6,
+    "июля": 7,
+    "августа": 8,
+    "сентября": 9,
+    "октября": 10,
+    "ноября": 11,
+    "декабря": 12,
 }
 
 
@@ -62,7 +70,7 @@ async def fetch_ozon_commissions_via_browser(
     timeout_ms = settings.ozon_commissions_browser_timeout_seconds * 1000
     headless = settings.ozon_commissions_browser_headless
     download_dir = Path(settings.ozon_commissions_download_dir)
-    download_dir.mkdir(parents=True, exist_ok=True)
+    download_dir.mkdir(parents=True, exist_ok=True)  # noqa: ASYNC240
 
     logger.info(
         "ozon_commission_browser_fetch_started",
@@ -77,7 +85,10 @@ async def fetch_ozon_commissions_via_browser(
             method="browser",
             source_url=source_url,
             status="browser_unavailable",
-            message="Playwright не установлен. Установите: pip install playwright && playwright install chromium",
+            message=(
+                "Playwright не установлен. Установите: "
+                "pip install playwright && playwright install chromium"
+            ),
         )
 
     try:
@@ -203,7 +214,7 @@ async def fetch_ozon_commissions_via_browser(
             logger.info(
                 "ozon_commission_browser_fetch_completed",
                 extra={
-                    "filename": filename,
+                    "source_filename": filename,
                     "file_size": len(file_bytes),
                     "file_hash": file_hash[:16],
                 },
