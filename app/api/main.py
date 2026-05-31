@@ -112,13 +112,18 @@ def create_app() -> FastAPI:
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
         import logging
+        import time
 
         logger = logging.getLogger("app.api.main")
+        start_time = time.monotonic()
 
-        # Sanitize sensitive headers and mask tokens in URL-valued headers
         headers = _sanitize_headers(dict(request.headers))
 
-        # Diagnostic: log cookie count for web requests (never log cookie values).
+        client_ip = request.client.host if request.client else "unknown"
+        x_forwarded_for = request.headers.get("x-forwarded-for", "")
+        user_agent = request.headers.get("user-agent", "")
+        referer = _sanitize_url(request.headers.get("referer", ""))
+
         if request.url.path.startswith("/web"):
             cookie_header = request.headers.get("cookie", "")
             cookie_count = len([c for c in cookie_header.split(";") if c.strip()])
@@ -151,18 +156,23 @@ def create_app() -> FastAPI:
                 "method": request.method,
                 "path": request.url.path,
                 "query": _redact_query(str(request.url.query)),
+                "client_ip": client_ip,
+                "x_forwarded_for": x_forwarded_for,
                 "headers": headers,
             },
         )
         try:
             response = await call_next(request)
         except Exception:
+            duration_ms = round((time.monotonic() - start_time) * 1000)
             logger.exception(
                 "request_failed",
                 extra={
                     "method": request.method,
                     "path": request.url.path,
                     "query": _redact_query(str(request.url.query)),
+                    "duration_ms": duration_ms,
+                    "client_ip": client_ip,
                 },
             )
             if request.url.path.startswith("/web"):
@@ -178,16 +188,29 @@ def create_app() -> FastAPI:
                 status_code=500,
             )
 
-        # Prevent browser caching of web cabinet pages to avoid stale navigation state.
+        duration_ms = round((time.monotonic() - start_time) * 1000)
+
         if request.url.path.startswith("/web"):
             response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
             response.headers["Pragma"] = "no-cache"
             response.headers["Expires"] = "0"
 
-        logger.info(
-            "response",
-            extra={"path": request.url.path, "status": response.status_code},
-        )
+        log_extra = {
+            "path": request.url.path,
+            "method": request.method,
+            "status": response.status_code,
+            "duration_ms": duration_ms,
+            "client_ip": client_ip,
+            "x_forwarded_for": x_forwarded_for,
+            "user_agent": user_agent[:200],
+            "referer": referer,
+        }
+
+        if duration_ms > 1000:
+            logger.warning("slow_request", extra=log_extra)
+        else:
+            logger.info("response", extra=log_extra)
+
         return response
 
     @app.exception_handler(StarletteHTTPException)

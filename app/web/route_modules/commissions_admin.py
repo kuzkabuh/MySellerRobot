@@ -1,13 +1,13 @@
-"""version: 2.0.0
+"""version: 2.1.0
 description: WEB admin routes for commission tariff management.
 updated: 2026-05-31
 """
 # ruff: noqa: E501
 
+import asyncio
 import hashlib
-import json
 import logging
-from datetime import date
+from datetime import UTC, date, datetime
 from html import escape
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
@@ -35,6 +35,11 @@ from app.web.rendering import page
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+_ozon_check_lock = asyncio.Lock()
+_ozon_check_last_started: datetime | None = None
+_ozon_check_in_progress: bool = False
+OZON_CHECK_COOLDOWN_SECONDS = 300
 
 OZON_COMMISSION_FILE_FORM = File(...)
 OZON_COMMISSION_EFFECTIVE_FROM_FORM = Form(...)
@@ -128,6 +133,28 @@ async def sync_wb_commissions_web(
     )
 
 
+@router.get("/admin/commissions/check-ozon", response_class=HTMLResponse)
+async def check_ozon_status_page(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    _require_admin(user)
+
+    last_check = await _get_last_ozon_check(session)
+    source_url = get_settings().ozon_commissions_source_url
+
+    if _ozon_check_in_progress:
+        content = _render_ozon_check_in_progress(source_url)
+        return _admin_page("Проверка Ozon", user, content)
+
+    if last_check:
+        content = _render_ozon_check_result(last_check, source_url)
+    else:
+        content = _render_ozon_check_no_data(source_url)
+
+    return _admin_page("Проверка Ozon", user, content)
+
+
 @router.post("/admin/commissions/check-ozon", response_class=HTMLResponse)
 async def check_ozon_commissions_web(
     request: Request,
@@ -135,51 +162,185 @@ async def check_ozon_commissions_web(
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> str:
     _require_admin(user)
+    global _ozon_check_in_progress, _ozon_check_last_started
 
-    service = OzonCommissionSourceMonitorService(session)
-    result = await service.check()
+    source_url = get_settings().ozon_commissions_source_url
 
-    period = result.get("period_label") or "Период не определён"
-    has_changes = result.get("has_changes", False)
-    change_type = result.get("change_type", "no_change")
-    download_url = result.get("download_url")
-    file_name = result.get("file_name")
-    error = result.get("error")
-    fetch_method = result.get("fetch_method", "http")
+    if _ozon_check_in_progress:
+        content = _render_ozon_check_in_progress(source_url)
+        return _admin_page("Проверка Ozon", user, content)
 
+    now = datetime.now(tz=UTC)
+    if _ozon_check_last_started:
+        elapsed = (now - _ozon_check_last_started).total_seconds()
+        if elapsed < OZON_CHECK_COOLDOWN_SECONDS:
+            remaining = int(OZON_CHECK_COOLDOWN_SECONDS - elapsed)
+            content = _render_ozon_check_cooldown(remaining, source_url)
+            return _admin_page("Проверка Ozon", user, content)
+
+    _ozon_check_in_progress = True
+    _ozon_check_last_started = now
+    asyncio.create_task(_run_ozon_check_background())
+
+    content = _render_ozon_check_started(source_url)
+    return _admin_page("Проверка Ozon", user, content)
+
+
+@router.get("/admin/commissions/check-ozon/status", response_class=HTMLResponse)
+async def check_ozon_status_json(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    _require_admin(user)
+
+    last_check = await _get_last_ozon_check(session)
+    source_url = get_settings().ozon_commissions_source_url
+
+    if _ozon_check_in_progress:
+        return _render_ozon_check_in_progress(source_url, auto_refresh=True)
+
+    if last_check:
+        return _render_ozon_check_result(last_check, source_url)
+
+    return _render_ozon_check_no_data(source_url)
+
+
+async def _run_ozon_check_background() -> None:
+    global _ozon_check_in_progress
+    try:
+        from app.core.db import get_session_context
+
+        async with get_session_context() as session:
+            service = OzonCommissionSourceMonitorService(session)
+            await service.check()
+    except Exception:
+        logger.exception("ozon_check_background_failed")
+    finally:
+        _ozon_check_in_progress = False
+
+
+def _render_ozon_check_started(source_url: str) -> str:
+    return (
+        '<div class="band"><h2>Проверка Ozon запущена</h2>'
+        '<p>Проверка выполняется в фоне. Страница обновится автоматически.</p>'
+        '<p class="muted">Обычно это занимает 5–15 секунд.</p>'
+        '<meta http-equiv="refresh" content="5;url=/web/admin/commissions/check-ozon/status">'
+        '<div class="filters">'
+        '<a href="/web/admin/commissions/check-ozon" class="button">Обновить статус</a>'
+        '<a href="/web/admin/commissions" class="button">Назад</a>'
+        '</div></div>'
+    )
+
+
+def _render_ozon_check_in_progress(source_url: str, *, auto_refresh: bool = False) -> str:
+    refresh = '<meta http-equiv="refresh" content="5">' if auto_refresh else ""
+    return (
+        f'<div class="band"><h2>Проверка выполняется</h2>'
+        f'{refresh}'
+        '<p>Автоматическая проверка Ozon выполняется в фоне.</p>'
+        '<p class="muted">Подождите несколько секунд и обновите страницу.</p>'
+        f'<div class="filters">'
+        f'<a href="/web/admin/commissions/check-ozon/status" class="button">Обновить статус</a>'
+        f'<a href="/web/admin/commissions" class="button">Назад</a>'
+        f'</div></div>'
+    )
+
+
+def _render_ozon_check_cooldown(remaining: int, source_url: str) -> str:
+    minutes = remaining // 60
+    seconds = remaining % 60
+    time_str = f"{minutes} мин {seconds} сек" if minutes else f"{seconds} сек"
+    last_check_html = ""
+    return (
+        f'<div class="band"><h2>Проверка недавно выполнялась</h2>'
+        f'<p>Повторная проверка будет доступна через {escape(time_str)}.</p>'
+        f'<p class="muted">Cooldown: {OZON_CHECK_COOLDOWN_SECONDS // 60} минут между проверками.</p>'
+        f'{last_check_html}'
+        f'<div class="filters">'
+        f'<a href="{escape(source_url)}" target="_blank" rel="noopener" class="button">'
+        f'Открыть страницу Ozon</a>'
+        f'<a href="/web/admin/commissions/manual-upload" class="button">Загрузить XLSX вручную</a>'
+        f'<a href="/web/admin/commissions" class="button">Назад</a>'
+        f'</div></div>'
+    )
+
+
+def _render_ozon_check_no_data(source_url: str) -> str:
+    return (
+        '<div class="band"><h2>Проверка Ozon</h2>'
+        '<p>Проверки ещё не выполнялись.</p>'
+        f'<div class="filters">'
+        f'<form action="/web/admin/commissions/check-ozon" method="post" style="display:inline">'
+        f'<button type="submit" class="button primary">Запустить проверку</button></form>'
+        f'<a href="{escape(source_url)}" target="_blank" rel="noopener" class="button">'
+        f'Открыть страницу Ozon</a>'
+        f'<a href="/web/admin/commissions/manual-upload" class="button">Загрузить XLSX вручную</a>'
+        f'<a href="/web/admin/commissions" class="button">Назад</a>'
+        f'</div></div>'
+    )
+
+
+def _render_ozon_check_result(
+    last_check: MarketplaceTariffSourceCheck, source_url: str
+) -> str:
+    period_raw = last_check.current_detected_period_label
+    period = escape(period_raw if period_raw else "Период не определён")
+    change_type = last_check.change_type
+    fetch_method = getattr(last_check, "fetch_method", None) or "http"
     status_badge = _change_type_badge(change_type)
+    method_info = _fetch_method_label(fetch_method)
 
     download_link = ""
-    if has_changes and download_url:
-        safe_url = escape(str(download_url))
-        safe_name = escape(str(file_name or "Актуальный файл Ozon"))
+    if last_check.has_changes and last_check.current_detected_file_url:
+        safe_url = escape(last_check.current_detected_file_url)
+        safe_name = escape(last_check.current_detected_file_name or "Актуальный файл Ozon")
         download_link = (
             f'<p><a href="{safe_url}" target="_blank" rel="noopener" '
             f'class="button primary">📥 Скачать актуальный файл: {safe_name}</a></p>'
         )
 
-    source_url = get_settings().ozon_commissions_source_url
-
-    method_info = _fetch_method_label(fetch_method)
-
     error_info = ""
-    if change_type in ("source_unavailable", "file_unavailable"):
-        error_msg = escape(str(error or "Источник недоступен"))
+    if change_type in ("source_unavailable", "file_unavailable", "unavailable", "rate_limited"):
+        error_detail = ""
+        if isinstance(last_check.details, dict) and last_check.details.get("error"):
+            error_detail = escape(str(last_check.details["error"])[:300])
         error_info = (
-            f'<p>⚠️ {error_msg}</p>'
+            '<div class="band" style="border-left: 3px solid var(--warning);">'
+            '<h3>Автоматическая проверка Ozon заблокирована источником</h3>'
+            '<p>Ozon вернул HTTP 403 даже при проверке через браузерный режим.</p>'
             '<p>Последняя рабочая версия комиссий сохранена и продолжает использоваться.</p>'
-            '<p>Вы можете открыть страницу Ozon вручную или загрузить XLSX-файл вручную.</p>'
+            '<p><b>Вы можете:</b></p>'
+            '<ol>'
+            '<li>открыть страницу Ozon вручную;</li>'
+            '<li>скачать XLSX-файл;</li>'
+            '<li>загрузить его вручную в MP Control.</li>'
+            '</ol>'
         )
+        if error_detail:
+            error_info += (
+                f'<details><summary>Техническая информация</summary>'
+                f'<pre class="mono">{error_detail}</pre></details>'
+            )
+        error_info += '</div>'
     elif change_type == "parse_error":
-        error_msg = escape(str(error or "Ошибка парсинга"))
+        error_msg = ""
+        if isinstance(last_check.details, dict) and last_check.details.get("error"):
+            error_msg = escape(str(last_check.details["error"])[:300])
         error_info = (
-            f'<p>⚠️ Ошибка парсинга: {error_msg}</p>'
+            '<p>⚠️ Ошибка парсинга</p>'
             '<p>Формат страницы или файла Ozon мог измениться. Требуется обновление парсера.</p>'
         )
+        if error_msg:
+            error_info += f'<details><summary>Техническая информация</summary><pre class="mono">{error_msg}</pre></details>'
     elif change_type == "manual_mode":
         error_info = (
             '<p>Автоматическая проверка отключена. Используйте ручную загрузку XLSX.</p>'
         )
+
+    checked_at_str = (
+        last_check.checked_at.strftime("%d.%m.%Y %H:%M:%S UTC")
+        if last_check.checked_at else "—"
+    )
 
     buttons = (
         f'<div class="filters">'
@@ -187,21 +348,21 @@ async def check_ozon_commissions_web(
         f'Открыть страницу Ozon</a>'
         f'<form action="/web/admin/commissions/check-ozon" method="post" style="display:inline">'
         f'<button type="submit" class="button">Повторить проверку</button></form>'
-        f'<a href="/web/admin/commissions#manual-upload" class="button">Загрузить XLSX вручную</a>'
+        f'<a href="/web/admin/commissions/manual-upload" class="button">Загрузить XLSX вручную</a>'
+        f'<a href="/web/admin/commissions" class="button">Назад</a>'
         f'</div>'
     )
 
-    return _admin_page(
-        "Комиссии маркетплейсов",
-        user,
-        f'<div class="band"><h2>Проверка Ozon</h2>'
-        f"<p>Текущий период: {escape(str(period))}</p>"
-        f"<p>Результат: {status_badge}</p>"
-        f"<p>Способ получения: {method_info}</p>"
+    return (
+        f'<div class="band"><h2>Результат последней проверки Ozon</h2>'
+        f"<p><b>Дата проверки:</b> {checked_at_str}</p>"
+        f"<p><b>Текущий период:</b> {period}</p>"
+        f"<p><b>Результат:</b> {status_badge}</p>"
+        f"<p><b>Способ получения:</b> {method_info}</p>"
         f"{download_link}"
         f"{error_info}"
         f"{buttons}"
-        f'<p><a href="/web/admin/commissions" class="button">Назад</a></p></div>',
+        f'</div>'
     )
 
 
@@ -400,13 +561,24 @@ def _ozon_card(
                 f'<p><a href="{safe_url}" target="_blank" rel="noopener" '
                 f'class="button primary">📥 Скачать актуальный файл: {safe_name}</a></p>'
             )
-        elif last_check.change_type in ("source_unavailable", "unavailable", "rate_limited", "file_unavailable"):
+        elif last_check.change_type in (
+            "source_unavailable", "source_blocked", "unavailable",
+            "rate_limited", "file_unavailable",
+        ):
             error_msg = ""
             if isinstance(last_check.details, dict) and last_check.details.get("error"):
                 error_msg = escape(str(last_check.details["error"])[:200])
             check_info += (
-                f'<p class="muted">⚠️ Автоматическая проверка не смогла получить файл комиссий Ozon. '
-                f"Последняя рабочая версия комиссий сохранена.</p>"
+                '<p class="muted">Автоматическая проверка Ozon заблокирована источником. '
+                "Последняя рабочая версия комиссий сохранена и продолжает использоваться.</p>"
+            )
+            check_info += (
+                '<p class="muted">Вы можете:</p>'
+                '<ol class="muted">'
+                '<li>открыть страницу Ozon вручную;</li>'
+                '<li>скачать XLSX-файл;</li>'
+                '<li>загрузить его вручную в MP Control.</li>'
+                '</ol>'
             )
             check_info += (
                 f'<div class="filters">'
@@ -414,6 +586,8 @@ def _ozon_card(
                 f"Открыть страницу Ozon</a>"
                 f'<a href="/web/admin/commissions/manual-upload" class="button">'
                 f"Загрузить XLSX вручную</a>"
+                f'<a href="/web/admin/commissions/check-ozon" class="button">'
+                f"История проверок</a>"
                 f"</div>"
             )
             if error_msg:
@@ -640,8 +814,9 @@ async def manual_upload_preview(
             f'<a href="/web/admin/commissions" class="button">Назад</a></div>',
         )
 
-    import openpyxl
     from io import BytesIO
+
+    import openpyxl
 
     wb = openpyxl.load_workbook(BytesIO(file_bytes), data_only=True)
     sheet = importer._find_sheet(wb)
@@ -859,9 +1034,10 @@ def _change_type_badge(change_type: str) -> str:
         "file_content_changed": '<span class="badge action">Есть изменения (файл обновлён)</span>',
         "parse_error": '<span class="badge bad">Ошибка парсинга</span>',
         "source_unavailable": '<span class="badge warn">Источник недоступен</span>',
+        "source_blocked": '<span class="badge warn">Источник заблокирован (403)</span>',
         "file_unavailable": '<span class="badge warn">Файл недоступен</span>',
         "unavailable": '<span class="badge warn">Источник недоступен</span>',
-        "rate_limited": '<span class="badge warn">Источник временно недоступен</span>',
+        "rate_limited": '<span class="badge warn">Источник времен недоступен</span>',
         "manual_mode": '<span class="badge">Ручной режим</span>',
         "browser_fallback": '<span class="badge action">Browser fallback</span>',
     }

@@ -48,6 +48,8 @@ from app.web.route_modules.catalog import (
 )
 from app.web.route_modules.commissions_admin import (
     check_ozon_commissions_web,
+    check_ozon_status_json,
+    check_ozon_status_page,
     commissions_admin_page,
     import_ozon_commissions_web,
     sync_wb_commissions_web,

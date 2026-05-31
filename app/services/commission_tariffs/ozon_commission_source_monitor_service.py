@@ -241,20 +241,40 @@ class OzonCommissionSourceMonitorService:
             return await self._record_check(
                 url=url,
                 html_content=None,
-                change_type="source_unavailable",
-                error="HTTP-режим недоступен, browser fallback отключён",
+                change_type="source_blocked",
+                error=(
+                    "Ozon заблокировал автоматическую проверку (HTTP 403). "
+                    "Browser fallback отключён."
+                ),
                 fetch_method="http",
             )
 
         if settings.ozon_commissions_browser_fallback_enabled:
-            logger.info("ozon_commission_source_http_failed_trying_browser")
-            return await self._check_via_browser(url)
+            logger.info("ozon_commission_source_http_blocked_trying_browser")
+            browser_result = await self._check_via_browser(url)
+            if browser_result.get("change_type") in (
+                "source_unavailable", "source_blocked",
+            ):
+                return await self._record_check(
+                    url=url,
+                    html_content=None,
+                    change_type="source_blocked",
+                    error=(
+                        "Ozon заблокировал проверку даже через "
+                        "браузер (HTTP 403)."
+                    ),
+                    fetch_method="browser",
+                )
+            return browser_result
 
         return await self._record_check(
             url=url,
             html_content=None,
-            change_type="source_unavailable",
-            error="HTTP-режим недоступен, browser fallback отключён",
+            change_type="source_blocked",
+            error=(
+                "Ozon заблокировал автоматическую проверку (HTTP 403). "
+                "Browser fallback отключён."
+            ),
             fetch_method="http",
         )
 
@@ -263,7 +283,7 @@ class OzonCommissionSourceMonitorService:
         try:
             async with httpx.AsyncClient(
                 follow_redirects=True,
-                timeout=30.0,
+                timeout=httpx.Timeout(5.0, connect=3.0),
                 headers=BROWSER_HEADERS,
             ) as client:
                 response = await client.get(url)
@@ -454,10 +474,16 @@ class OzonCommissionSourceMonitorService:
         result = await fetch_ozon_commissions_via_browser(url)
 
         if not result.ok:
+            if result.status == "source_unavailable":
+                change_type = "source_blocked"
+            elif result.status in ("browser_unavailable", "browser_error"):
+                change_type = "source_unavailable"
+            else:
+                change_type = "file_unavailable"
             return await self._record_check(
                 url=url,
                 html_content=None,
-                change_type="source_unavailable" if result.status == "source_unavailable" else "file_unavailable",
+                change_type=change_type,
                 error=result.message,
                 source_final_url=result.final_url,
                 fetch_method="browser",
@@ -513,7 +539,7 @@ class OzonCommissionSourceMonitorService:
         try:
             async with httpx.AsyncClient(
                 follow_redirects=True,
-                timeout=60.0,
+                timeout=httpx.Timeout(10.0, connect=3.0),
                 headers=headers,
             ) as client:
                 response = await client.get(file_url)
@@ -640,7 +666,8 @@ class OzonCommissionSourceMonitorService:
 
         summary = {
             "success": change_type not in (
-                "parse_error", "source_unavailable", "file_unavailable", "manual_mode"
+                "parse_error", "source_unavailable", "source_blocked",
+                "file_unavailable", "manual_mode",
             ),
             "has_changes": has_changes,
             "change_type": change_type,
@@ -655,7 +682,8 @@ class OzonCommissionSourceMonitorService:
         }
 
         if has_changes and change_type not in (
-            "parse_error", "source_unavailable", "file_unavailable", "manual_mode"
+            "parse_error", "source_unavailable", "source_blocked",
+            "file_unavailable", "manual_mode",
         ):
             logger.info(
                 "ozon_commission_source_update_detected",
@@ -677,7 +705,9 @@ class OzonCommissionSourceMonitorService:
         result = await self.session.execute(
             select(Check)
             .where(Check.marketplace == Marketplace.OZON)
-            .where(Check.change_type.notin_(["parse_error", "source_unavailable", "file_unavailable"]))
+            .where(Check.change_type.notin_(
+                ["parse_error", "source_unavailable", "source_blocked", "file_unavailable"]
+            ))
             .order_by(Check.checked_at.desc())
             .limit(1)
         )

@@ -593,7 +593,8 @@ def _products_content(rows: list[MasterProductAnalyticsRow]) -> str:
         )
         image = (
             f'<img src="{escape(row.image_url)}" alt="{escape(row.title)}" '
-            'style="width:48px;height:48px;object-fit:cover;border-radius:6px;margin-right:10px">'
+            'style="width:48px;height:48px;object-fit:cover;border-radius:6px;margin-right:10px" '
+            'onerror="this.style.display=\'none\'">'
             if row.image_url
             else '<div class="product-thumb">нет фото</div>'
         )
@@ -681,7 +682,8 @@ def _master_product_detail_content(detail: MasterProductDetail) -> str:
     recommendations = "".join(f"<li>{escape(item)}</li>" for item in detail.recommendations)
     image = (
         f'<img src="{escape(detail.image_url)}" alt="{escape(detail.title)}" '
-        'style="width:96px;height:96px;object-fit:cover;border-radius:6px">'
+        'style="width:96px;height:96px;object-fit:cover;border-radius:6px" '
+        'onerror="this.style.display=\'none\'">'
         if detail.image_url
         else '<div class="product-thumb">нет фото</div>'
     )
