@@ -1,6 +1,7 @@
 # ruff: noqa: E501
 
 import logging
+import time
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
@@ -31,6 +32,7 @@ async def dashboard(
     date_from: str | None = Query(default=None),
     date_to: str | None = Query(default=None),
 ) -> str:
+    start = time.monotonic()
     try:
         service = WebDashboardService(session)
         data = await service.dashboard(
@@ -45,9 +47,29 @@ async def dashboard(
         subscription = await WebCabinetService(session).subscription_page(user.id, user.timezone)
         accounts = await WebCabinetService(session).accounts_page(user.id, user.timezone)
         content = _dashboard_welcome(user, subscription, accounts, data) + _dashboard_content(data)
+        logger.info(
+            "web_dashboard_rendered",
+            extra={
+                "user_id": user.id,
+                "telegram_id": user.telegram_id,
+                "subscription_tier": getattr(subscription.tier, "code", None),
+                "template": "dashboard",
+                "duration_ms": round((time.monotonic() - start) * 1000),
+                "accounts_count": accounts.active_accounts,
+                "orders_widgets_count": len(data.metrics),
+            },
+        )
         return page("Главная", _user_display_name(user), content)
     except Exception:
-        logger.exception("dashboard_failed", extra={"user_id": user.id})
+        logger.exception(
+            "dashboard_failed",
+            extra={
+                "user_id": user.id,
+                "telegram_id": user.telegram_id,
+                "template": "dashboard",
+                "duration_ms": round((time.monotonic() - start) * 1000),
+            },
+        )
         return page(
             "Ошибка — Главная",
             _user_display_name(user),
@@ -73,17 +95,12 @@ async def dashboard_compat(
         "legacy_double_web_dashboard_served",
         extra={"path": str(request.url.path)},
     )
-    service = WebDashboardService(session)
-    data = await service.dashboard(
-        user_id=user.id,
-        timezone=user.timezone,
+    return await dashboard(
+        user=user,
+        session=session,
         period=_qp(request, "period", "today"),
         marketplace=_qp(request, "marketplace", "all"),
         sale_model=_qp(request, "sale_model", "all"),
         date_from=_qp(request, "date_from") or None,
         date_to=_qp(request, "date_to") or None,
     )
-    subscription = await WebCabinetService(session).subscription_page(user.id, user.timezone)
-    accounts = await WebCabinetService(session).accounts_page(user.id, user.timezone)
-    content = _dashboard_welcome(user, subscription, accounts, data) + _dashboard_content(data)
-    return page("Главная", _user_display_name(user), content)

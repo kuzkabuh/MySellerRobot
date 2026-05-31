@@ -109,6 +109,9 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
   <style>{_css()}</style>
 </head>
 <body>
+  <div id="interface-error" class="interface-error" role="alert" hidden>
+    Не удалось загрузить интерфейс. Обновите страницу или войдите заново.
+  </div>
   <div class="shell">
     <aside id="sidebar">
       <div class="brand">
@@ -1139,6 +1142,22 @@ def _css() -> str:
     }
     .error-state h2 { color: var(--danger); }
     .error-state p { color: var(--text-secondary); max-width: 420px; margin: 0 auto 16px; }
+    .interface-error {
+      position: fixed;
+      left: 50%;
+      top: 12px;
+      transform: translateX(-50%);
+      width: min(560px, calc(100vw - 24px));
+      z-index: 500;
+      padding: 12px 14px;
+      border: 1px solid var(--danger-border);
+      border-radius: var(--radius);
+      background: #fff;
+      color: var(--danger);
+      box-shadow: var(--shadow-md);
+      font-weight: 700;
+      text-align: center;
+    }
 
     /* ── Responsive ── */
     @media (max-width: 1200px) {
@@ -1187,6 +1206,71 @@ def _css() -> str:
 def _js() -> str:
     return """
     (function() {
+      var errorNode = document.getElementById('interface-error');
+      var loadingSelectors = [
+        '.' + 'page' + '-loader',
+        '.' + 'loading' + '-overlay',
+        '.' + 'pre' + 'loader',
+        '.' + 'spin' + 'ner'
+      ];
+      function reportFrontendError(message, source, lineno, colno, stack) {
+        var payload = {
+          message: String(message || ''),
+          source: String(source || ''),
+          lineno: lineno || null,
+          colno: colno || null,
+          stack: String(stack || ''),
+          path: location.pathname + location.search,
+          user_agent: navigator.userAgent
+        };
+        try {
+          fetch('/web/frontend-error', {
+            method: 'POST',
+            headers: {'content-type': 'application/json'},
+            body: JSON.stringify(payload),
+            keepalive: true
+          }).catch(function(){});
+        } catch (sendError) {
+          console.error('frontend diagnostics failed', sendError);
+        }
+      }
+      function showInterfaceError() {
+        if (errorNode) errorNode.hidden = false;
+      }
+      function hideLegacyLoadingArtifacts() {
+        loadingSelectors.forEach(function(selector) {
+          document.querySelectorAll(selector).forEach(function(node) {
+            node.setAttribute('hidden', 'hidden');
+            node.style.display = 'none';
+            node.setAttribute('aria-hidden', 'true');
+          });
+        });
+      }
+      window.addEventListener('error', function(event) {
+        console.error('web frontend error', event.error || event.message);
+        reportFrontendError(event.message, event.filename, event.lineno, event.colno, event.error && event.error.stack);
+        showInterfaceError();
+      });
+      window.addEventListener('unhandledrejection', function(event) {
+        var reason = event.reason || {};
+        console.error('web frontend rejection', reason);
+        reportFrontendError(reason.message || reason, 'unhandledrejection', null, null, reason.stack);
+        showInterfaceError();
+      });
+      document.addEventListener('DOMContentLoaded', hideLegacyLoadingArtifacts);
+      window.setTimeout(function() {
+        hideLegacyLoadingArtifacts();
+        var stuckLoader = loadingSelectors.some(function(selector) {
+          return Array.prototype.some.call(document.querySelectorAll(selector), function(node) {
+            var style = window.getComputedStyle(node);
+            return !node.hidden && style.display !== 'none' && style.visibility !== 'hidden';
+          });
+        });
+        if (stuckLoader) {
+          reportFrontendError('legacy loading indicator was still visible after timeout', 'loader-failsafe', null, null, '');
+          showInterfaceError();
+        }
+      }, 2000);
       var toggle = document.querySelector('.sidebar-toggle');
       var sidebar = document.getElementById('sidebar');
       if (toggle && sidebar) {

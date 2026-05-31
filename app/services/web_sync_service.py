@@ -18,6 +18,7 @@ class WebSyncType(StrEnum):
     PRODUCTS = "products"
     WB_PROFILE = "wb-profile"
     WB_REPORTS = "wb-reports"
+    WB_PROMOTIONS = "wb-promotions"
     OZON_ENRICHMENT = "ozon-enrichment"
     OZON_BALANCE = "ozon-balance"
 
@@ -40,6 +41,10 @@ SYNC_TASKS: dict[WebSyncType, tuple[str, str]] = {
     WebSyncType.WB_REPORTS: (
         "check_wb_financial_reports",
         "Проверка финансовых отчётов WB поставлена в очередь.",
+    ),
+    WebSyncType.WB_PROMOTIONS: (
+        "sync_wb_daily_promotions",
+        "Синхронизация акций WB поставлена в очередь.",
     ),
     WebSyncType.OZON_ENRICHMENT: (
         "sync_ozon_catalog_enrichment",

@@ -41,7 +41,7 @@ from app.services.pricing.wb_auto_promo_participation_service import (
 )
 from app.services.pricing.wb_price_apply_service import WbPriceApplyService
 from app.services.pricing.wb_price_sync_service import WbPriceSyncService
-from app.services.pricing.wb_promotion_sync_service import WbPromotionSyncService
+from app.services.web_sync_service import WebSyncService, WebSyncType
 from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY
 from app.web.rendering import page
 
@@ -135,16 +135,10 @@ async def pricing_sync_promotions(
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
     try:
-        service = WbPromotionSyncService(session)
-        acquired, _message = await service.try_acquire_sync_lock()
-        if not acquired:
+        result = await WebSyncService().request_sync(WebSyncType.WB_PROMOTIONS.value, user.id)
+        if not result.queued:
             return RedirectResponse(url="/web/pricing?sync_busy=1#promotions", status_code=303)
-        try:
-            await service.sync_all_accounts(all_promo=True)
-            await session.commit()
-        finally:
-            await service.release_sync_lock()
-        return RedirectResponse(url="/web/pricing?promotions_synced=1#promotions", status_code=303)
+        return RedirectResponse(url="/web/pricing?promotions_queued=1#promotions", status_code=303)
     except Exception:
         import logging
 

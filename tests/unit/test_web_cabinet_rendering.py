@@ -566,6 +566,14 @@ def test_page_html_contains_no_blocking_overlays() -> None:
     assert "drawer-backdrop" not in html
 
 
+def test_page_html_contains_frontend_diagnostics_fallback() -> None:
+    html = page("Главная", "Артем", "<main></main>")
+
+    assert "/web/frontend-error" in html
+    assert "unhandledrejection" in html
+    assert "Не удалось загрузить интерфейс" in html
+
+
 def test_nav_logout_link_is_real_anchor() -> None:
     """Logout link must be a real <a> tag, not a button with JS."""
     html = page("Главная", "Артем", "<main></main>")

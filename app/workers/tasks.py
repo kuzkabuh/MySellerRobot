@@ -1107,7 +1107,12 @@ async def sync_wb_daily_promotions(ctx: dict[str, Any]) -> None:
 
     async with AsyncSessionFactory() as session:
         service = WbPromotionsSyncService(session, cipher=TokenCipher())
+        acquired = False
         try:
+            acquired, message = await service.try_acquire_sync_lock()
+            if not acquired:
+                logger.info("wb_promotions_sync_task_skipped", extra={"reason": message})
+                return
             stats = await service.sync_all_accounts()
             await session.commit()
             logger.info(
@@ -1129,6 +1134,9 @@ async def sync_wb_daily_promotions(ctx: dict[str, Any]) -> None:
                 await session.rollback()
             except Exception:
                 pass
+        finally:
+            if acquired:
+                await service.release_sync_lock()
 
 
 async def check_auto_promo_prices(ctx: dict[str, Any]) -> None:

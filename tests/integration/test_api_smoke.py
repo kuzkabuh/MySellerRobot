@@ -317,6 +317,27 @@ def test_webhook_routes_are_registered() -> None:
     assert ("/web/webhooks/yookassa", "POST") in methods
 
 
+def test_frontend_error_endpoint_accepts_diagnostics() -> None:
+    app = create_app()
+
+    with TestClient(app, raise_server_exceptions=True) as client:
+        response = client.post(
+            "/web/frontend-error",
+            json={
+                "message": "boom",
+                "source": "dashboard",
+                "lineno": 1,
+                "colno": 2,
+                "stack": "stack",
+                "path": "/web/",
+                "user_agent": "pytest",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+
+
 def test_web_login_token_flow_renders_empty_free_dashboard(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -392,9 +413,8 @@ def test_web_login_token_flow_renders_empty_free_dashboard(
     with TestClient(app, raise_server_exceptions=True) as client:
         login_response = client.get("/web/login?token=valid-token", follow_redirects=False)
 
-        assert login_response.status_code == 200
-        assert "Вход выполнен" in login_response.text
-        assert 'href="/web/"' in login_response.text
+        assert login_response.status_code == 303
+        assert login_response.headers["location"] == "/web/"
         assert WEB_SESSION_COOKIE in login_response.cookies
 
         dashboard_response = client.get("/web/")
@@ -451,8 +471,8 @@ def test_web_login_cookie_allows_internal_navigation_without_redirect_loop(
     ]
     with TestClient(app, raise_server_exceptions=True) as client:
         login_response = client.get("/web/login?token=valid-token", follow_redirects=False)
-        assert login_response.status_code == 200
-        assert "Вход выполнен" in login_response.text
+        assert login_response.status_code == 303
+        assert login_response.headers["location"] == "/web/"
         assert WEB_SESSION_COOKIE in login_response.cookies
 
         dashboard_response = client.get("/web/", follow_redirects=False)
@@ -1004,7 +1024,9 @@ async def test_web_login_without_token_returns_russian_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test_web_login_valid_token_renders_opening_page(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_web_login_valid_token_redirects_to_dashboard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     async def fake_consume(self, token, *, ip_address, user_agent):  # type: ignore[no-untyped-def]
         assert token == "valid-token"
         return SimpleNamespace(
@@ -1023,9 +1045,8 @@ async def test_web_login_valid_token_renders_opening_page(monkeypatch: pytest.Mo
     )
     response = await login(request=request, session=FakeAsyncSession(), token="valid-token")
 
-    assert response.status_code == 200
-    assert "Вход выполнен" in response.body.decode()
-    assert "/web/web" not in response.body.decode()
+    assert response.status_code == 303
+    assert response.headers["location"] == "/web/"
     assert "Path=/" in response.headers["set-cookie"]
 
 

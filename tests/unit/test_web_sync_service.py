@@ -83,6 +83,23 @@ async def test_web_sync_enqueues_product_and_profile_tasks(monkeypatch) -> None:
     assert queue.jobs == ["sync_products", "sync_wb_account_profiles"]
 
 
+async def test_web_sync_enqueues_wb_promotions_task(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    queue = _QueueStub()
+
+    async def create_pool(_settings):  # type: ignore[no-untyped-def]
+        return queue
+
+    monkeypatch.setattr(web_sync_service, "create_pool", create_pool)
+
+    result = await WebSyncService(redis=_RedisStub(allowed=True)).request_sync(
+        "wb-promotions",
+        user_id=42,
+    )
+
+    assert result.queued is True
+    assert queue.jobs == ["sync_wb_daily_promotions"]
+
+
 def test_redis_settings_from_url_preserves_auth_and_ssl() -> None:
     settings = redis_settings_from_url("rediss://worker:secret@redis.example:6380/2")
 
