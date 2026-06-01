@@ -270,7 +270,68 @@ write_landing_placeholder() {
 <body><main><div><h1>MP Control</h1><p>Сервис аналитики маркетплейсов готовится к запуску.</p></div></main></body>
 </html>
 HTML
+  write_service_unavailable_page
   chown -R "$PROJECT_USER:$PROJECT_USER" "${PROJECT_DIR}/public"
+}
+
+write_service_unavailable_page() {
+  cat > "${PROJECT_DIR}/public/service-unavailable.html" <<'HTML'
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="refresh" content="5">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MP Control запускается</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f6f7f9;
+      color: #111827;
+    }
+    .card {
+      max-width: 480px;
+      margin: 24px;
+      padding: 32px;
+      border-radius: 18px;
+      background: #ffffff;
+      box-shadow: 0 18px 45px rgba(17, 24, 39, 0.12);
+      text-align: center;
+    }
+    h1 {
+      margin: 0 0 12px;
+      font-size: 26px;
+    }
+    p {
+      color: #4b5563;
+      line-height: 1.5;
+    }
+    a {
+      display: inline-block;
+      margin-top: 16px;
+      padding: 11px 18px;
+      border-radius: 10px;
+      background: #2563eb;
+      color: #ffffff;
+      font-weight: 700;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>MP Control запускается</h1>
+    <p>Сервис обновляется или перезапускается. Страница автоматически обновится через несколько секунд.</p>
+    <p>Если вход был по ссылке из Telegram и она устарела, получите новую ссылку в боте.</p>
+    <a href="https://t.me/mpcontrolrobot">Открыть бота</a>
+  </main>
+</body>
+</html>
+HTML
 }
 
 configure_nginx() {
@@ -366,7 +427,19 @@ start_services() {
 
 healthcheck() {
   log_info "Checking local API health."
-  curl -fsS http://127.0.0.1:8000/health >/dev/null
+  for attempt in $(seq 1 60); do
+    if curl -fsS http://127.0.0.1:8000/health >/dev/null; then
+      log_info "Local API is ready."
+      break
+    fi
+    log_warn "Local API is still starting, attempt ${attempt}/60."
+    sleep 2
+  done
+  curl -fsS http://127.0.0.1:8000/health >/dev/null || {
+    log_error "Local API did not become healthy."
+    docker compose -f "$COMPOSE_FILE" logs --tail=200 api || true
+    exit 1
+  }
   if [[ "$SKIP_SSL" != "1" ]]; then
     log_info "Checking public API health."
     curl -fsS "$PUBLIC_HEALTH_URL" >/dev/null

@@ -4,6 +4,7 @@ import logging
 
 from fastapi import APIRouter, Body, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -20,6 +21,12 @@ logger = logging.getLogger(__name__)
 frontend_logger = logging.getLogger("app.web.frontend")
 router = APIRouter()
 FRONTEND_ERROR_BODY = Body(default_factory=dict)
+
+
+@router.get("/health")
+async def web_health(session: AsyncSession = SESSION_DEPENDENCY) -> dict[str, str]:
+    await session.execute(text("select 1"))
+    return {"status": "ok"}
 
 
 @router.get("/login")

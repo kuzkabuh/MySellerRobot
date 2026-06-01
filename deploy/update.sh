@@ -31,8 +31,9 @@ CHECK_STATUS_FILE="${CHECK_STATUS_FILE:-${DEPLOY_RUNTIME_DIR}/last_update_check.
 METADATA_FILE="${DEPLOY_METADATA_FILE:-${DEPLOY_RUNTIME_DIR}/deploy_metadata.json}"
 TRIGGER_FILE="${DEPLOY_UPDATE_TRIGGER_FILE:-${DEPLOY_RUNTIME_DIR}/telegram_update_request.json}"
 LOCK_DIR="${LOCK_DIR:-${DEPLOY_RUNTIME_DIR}/update.lock}"
-HEALTHCHECK_RETRIES="${HEALTHCHECK_RETRIES:-20}"
-HEALTHCHECK_INTERVAL_SECONDS="${HEALTHCHECK_INTERVAL_SECONDS:-3}"
+APPLY_NGINX_CONFIG="${APPLY_NGINX_CONFIG:-0}"
+HEALTHCHECK_RETRIES="${HEALTHCHECK_RETRIES:-60}"
+HEALTHCHECK_INTERVAL_SECONDS="${HEALTHCHECK_INTERVAL_SECONDS:-2}"
 PUBLIC_HEALTH_URL="${PUBLIC_HEALTH_URL:-}"
 PUBLIC_HEALTH_SOURCE=""
 NON_INTERACTIVE=0
@@ -158,10 +159,39 @@ env_value() {
   printf '%s' "$value"
 }
 
+url_host() {
+  python3 - "$1" <<'PY'
+import sys
+from urllib.parse import urlparse
+
+host = urlparse(sys.argv[1]).hostname or ""
+print(host)
+PY
+}
+
 is_production_env() {
   local app_env
   app_env="$(env_value "APP_ENV" | tr '[:upper:]' '[:lower:]')"
   [[ "$app_env" == "production" || "$app_env" == "prod" ]]
+}
+
+load_domains_from_env() {
+  local key value host public_host
+  PUBLIC_SERVER_NAMES=""
+  APP_SERVER_NAMES=""
+  public_host="$(url_host "$(env_value "PUBLIC_SITE_URL")")"
+  if [[ -n "$public_host" ]]; then
+    PUBLIC_SERVER_NAMES="${public_host} www.${public_host}"
+  fi
+
+  for key in WEB_APP_BASE_URL API_BASE_URL BOT_WEBHOOK_BASE_URL; do
+    value="$(env_value "$key")"
+    [[ -z "$value" ]] && continue
+    host="$(url_host "$value")"
+    if [[ -n "$host" && " ${APP_SERVER_NAMES} " != *" ${host} "* ]]; then
+      APP_SERVER_NAMES="${APP_SERVER_NAMES:+${APP_SERVER_NAMES} }${host}"
+    fi
+  done
 }
 
 with_health_path() {
@@ -477,6 +507,105 @@ build_images() {
   docker compose -f "$COMPOSE_FILE" build
 }
 
+write_service_unavailable_page() {
+  mkdir -p "${PROJECT_DIR}/public"
+  cat > "${PROJECT_DIR}/public/service-unavailable.html" <<'HTML'
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="refresh" content="5">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MP Control запускается</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f6f7f9;
+      color: #111827;
+    }
+    .card {
+      max-width: 480px;
+      margin: 24px;
+      padding: 32px;
+      border-radius: 18px;
+      background: #ffffff;
+      box-shadow: 0 18px 45px rgba(17, 24, 39, 0.12);
+      text-align: center;
+    }
+    h1 {
+      margin: 0 0 12px;
+      font-size: 26px;
+    }
+    p {
+      color: #4b5563;
+      line-height: 1.5;
+    }
+    a {
+      display: inline-block;
+      margin-top: 16px;
+      padding: 11px 18px;
+      border-radius: 10px;
+      background: #2563eb;
+      color: #ffffff;
+      font-weight: 700;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>MP Control запускается</h1>
+    <p>Сервис обновляется или перезапускается. Страница автоматически обновится через несколько секунд.</p>
+    <p>Если вход был по ссылке из Telegram и она устарела, получите новую ссылку в боте.</p>
+    <a href="https://t.me/mpcontrolrobot">Открыть бота</a>
+  </main>
+</body>
+</html>
+HTML
+}
+
+configure_nginx() {
+  write_service_unavailable_page
+  if [[ "$APPLY_NGINX_CONFIG" != "1" ]]; then
+    log_info "Service unavailable page ensured; skipping Nginx config reload because APPLY_NGINX_CONFIG is not 1."
+    return
+  fi
+
+  if [[ ! -f "${PROJECT_DIR}/deploy/nginx/mpcontrol.conf.template" ]]; then
+    log_warn "Nginx template not found; skipping host Nginx reload."
+    return
+  fi
+  if ! command -v nginx >/dev/null 2>&1; then
+    log_warn "nginx command not found; skipping host Nginx reload."
+    return
+  fi
+  if [[ ! -d /etc/nginx/sites-available ]]; then
+    log_warn "/etc/nginx/sites-available is absent; skipping host Nginx reload."
+    return
+  fi
+
+  load_domains_from_env
+  if [[ -z "$PUBLIC_SERVER_NAMES" || -z "$APP_SERVER_NAMES" ]]; then
+    log_warn "Cannot derive Nginx server names from .env; skipping host Nginx reload."
+    return
+  fi
+
+  log_info "Rendering host Nginx config."
+  sed "s#__PROJECT_DIR__#${PROJECT_DIR}#g" \
+    "${PROJECT_DIR}/deploy/nginx/mpcontrol.conf.template" |
+    sed "s#__PUBLIC_SERVER_NAMES__#${PUBLIC_SERVER_NAMES}#g" |
+    sed "s#__APP_SERVER_NAMES__#${APP_SERVER_NAMES}#g" \
+    > /etc/nginx/sites-available/mpcontrol.conf
+  ln -sfn /etc/nginx/sites-available/mpcontrol.conf /etc/nginx/sites-enabled/mpcontrol.conf
+  nginx -t
+  systemctl reload nginx
+  log_info "Host Nginx config reloaded."
+}
+
 ensure_alembic_version_capacity() {
   log_info "Checking alembic_version.version_num column capacity."
   local pg_user pg_db
@@ -607,6 +736,7 @@ main_update() {
   backup_database
   pull_updates
   build_images
+  configure_nginx
   run_migrations
   restart_services
   healthcheck
