@@ -80,6 +80,14 @@ class TestRequestLogging:
         assert "token=%2A%2A%2AREDACTED%2A%2A%2A" in redacted
         assert "period=7d" in redacted
 
+    def test_health_access_log_is_suppressed_until_error_or_slow(self):
+        from app.api.main import _should_log_access
+
+        assert _should_log_access("/health", 200, 15) is False
+        assert _should_log_access("/health", 500, 15) is True
+        assert _should_log_access("/health", 200, 1001) is True
+        assert _should_log_access("/web/health", 200, 15) is True
+
 
 class TestParseSaleModel:
     """Test parse_sale_model() handles non-string values safely."""

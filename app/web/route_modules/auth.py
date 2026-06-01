@@ -38,8 +38,18 @@ async def login(
     if not token:
         logger.info("web_login_missing_token", extra={"path": _request_path(request)})
         return HTMLResponse(
-            "<h1>Ссылка недействительна</h1>"
-            "<p>В ссылке входа отсутствует токен. Запросите новую ссылку в Telegram-боте.</p>",
+            "<!doctype html><html lang='ru'><head><meta charset='utf-8'>"
+            "<title>Вход в web-кабинет</title>"
+            "<style>body{font-family:system-ui,sans-serif;display:grid;place-items:center;"
+            "min-height:80vh;margin:0;background:#f6f7f9;color:#111827}"
+            ".card{max-width:520px;padding:32px;background:#fff;border-radius:12px;"
+            "box-shadow:0 18px 45px rgb(17 24 39 / .12);text-align:center}"
+            "h1{font-size:24px;margin:0 0 12px}p{font-size:16px;line-height:1.55;margin:0}"
+            "</style></head><body><div class='card'>"
+            "<h1>Вход в web-кабинет</h1>"
+            "<p>Ссылка для входа отсутствует или устарела. "
+            "Откройте Telegram-бота и получите новую ссылку.</p>"
+            "</div></body></html>",
             status_code=400,
         )
     masked_token = _mask_token(token)

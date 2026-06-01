@@ -17,6 +17,7 @@ def test_web_routes_facade_keeps_router_and_helper_imports() -> None:
 
     assert "/web/login" in paths
     assert "/web/orders" in paths
+    assert "/web/admin/worker-diagnostics" in paths
     assert "/web/web/{section:path}" in paths
     assert routes._rub(Decimal("1250")) == "1 250 ₽"
 

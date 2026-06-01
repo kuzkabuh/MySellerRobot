@@ -1331,17 +1331,19 @@ def _tracked_task(
     async def wrapper(ctx: dict[str, Any]) -> Any:
         from app.services.sync_status_service import SyncStatusService
 
+        task_name = func.__name__
         if not hasattr(AsyncSessionFactory, "begin"):
             return await func(ctx)
 
         async with AsyncSessionFactory() as session:
             service = SyncStatusService(session)
             run = await service.start(
-                func.__name__,
+                task_name,
                 triggered_by_user_id=ctx.get("triggered_by_user_id") if ctx else None,
                 metadata={"source": "arq"},
             )
             await session.commit()
+        logger.info("worker_task_started", extra={"task_name": task_name, "run_id": run.id})
 
         try:
             result = await func(ctx)
@@ -1352,6 +1354,7 @@ def _tracked_task(
                 if db_run is not None:
                     await service.mark_failed(db_run, str(exc))
                     await session.commit()
+            logger.exception("worker_task_failed", extra={"task_name": task_name, "run_id": run.id})
             raise
 
         async with AsyncSessionFactory() as session:
@@ -1360,6 +1363,14 @@ def _tracked_task(
             if db_run is not None:
                 await service.mark_success(db_run)
                 await session.commit()
+                logger.info(
+                    "worker_task_finished",
+                    extra={
+                        "task_name": task_name,
+                        "run_id": run.id,
+                        "duration_ms": db_run.duration_ms,
+                    },
+                )
         return result
 
     return wrapper

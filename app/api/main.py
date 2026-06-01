@@ -71,6 +71,12 @@ def _sanitize_headers(headers: dict[str, str]) -> dict[str, str]:
     return result
 
 
+def _should_log_access(path: str, status_code: int, duration_ms: int) -> bool:
+    if path == "/health":
+        return status_code >= 400 or duration_ms > 1000
+    return True
+
+
 def _read_app_version() -> str:
     path = Path("VERSION")
     if not path.exists():
@@ -159,17 +165,18 @@ def create_app() -> FastAPI:
                         },
                     )
 
-        logger.info(
-            "incoming_request",
-            extra={
-                "method": request.method,
-                "path": request.url.path,
-                "query": _redact_query(str(request.url.query)),
-                "client_ip": client_ip,
-                "x_forwarded_for": x_forwarded_for,
-                "headers": headers,
-            },
-        )
+        if request.url.path != "/health":
+            logger.info(
+                "incoming_request",
+                extra={
+                    "method": request.method,
+                    "path": request.url.path,
+                    "query": _redact_query(str(request.url.query)),
+                    "client_ip": client_ip,
+                    "x_forwarded_for": x_forwarded_for,
+                    "headers": headers,
+                },
+            )
         try:
             response = await call_next(request)
         except Exception:
@@ -214,6 +221,9 @@ def create_app() -> FastAPI:
             "user_agent": user_agent[:200],
             "referer": referer,
         }
+
+        if not _should_log_access(request.url.path, response.status_code, duration_ms):
+            return response
 
         if duration_ms > 1000:
             logger.warning("slow_request", extra=log_extra)

@@ -1028,7 +1028,7 @@ async def test_web_login_without_token_returns_russian_error() -> None:
     response = await login(request=SimpleNamespace(), session=FakeAsyncSession(), token=None)
 
     assert response.status_code == 400
-    assert "Ссылка недействительна" in response.body.decode()
+    assert "Ссылка для входа отсутствует или устарела" in response.body.decode()
 
 
 @pytest.mark.asyncio

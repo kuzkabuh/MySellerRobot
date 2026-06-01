@@ -24,7 +24,7 @@ server {
 
     client_max_body_size 20m;
 
-    location ~* ^/(\.git|\.env|wp-admin|wp-login\.php|xmlrpc\.php|vendor|phpunit|geoserver|actuator|boaform|cgi-bin) {
+    location ~* ^/(?:\.git(?:/|$)|\.env$|wp-admin(?:/|$)|wp-login\.php$|xmlrpc\.php$|vendor|phpunit|geoserver|actuator|boaform|cgi-bin) {
         return 404;
     }
 
@@ -42,7 +42,7 @@ server {
 
     client_max_body_size 20m;
 
-    location ~* ^/(\.git|\.env|wp-admin|wp-login\.php|xmlrpc\.php|vendor|phpunit|geoserver|actuator|boaform|cgi-bin) {
+    location ~* ^/(?:\.git(?:/|$)|\.env$|wp-admin(?:/|$)|wp-login\.php$|xmlrpc\.php$|vendor|phpunit|geoserver|actuator|boaform|cgi-bin) {
         return 404;
     }
 

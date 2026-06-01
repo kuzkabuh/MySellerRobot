@@ -7,7 +7,7 @@ from html import escape
 
 from fastapi import APIRouter, Form, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import String, cast, func, select
+from sqlalchemy import String, case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -17,6 +17,7 @@ from app.models.domain import (
     MarketplaceAccount,
     Order,
     Product,
+    SyncTaskRun,
     User,
 )
 from app.models.enums import PaymentStatus, UserStatus
@@ -473,6 +474,65 @@ _MANUAL_TASKS = {
     "check_auto_promo_prices": "Автоакции",
     "reconcile_pending_payments": "Платежи",
 }
+
+
+_WORKER_DIAGNOSTIC_TASKS = (
+    "poll_new_orders",
+    "sync_sale_events",
+    "sync_wb_product_prices",
+    "check_auto_promo_prices",
+)
+
+
+@router.get("/admin/worker-diagnostics", response_class=HTMLResponse)
+async def admin_worker_diagnostics_page(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    _require_admin(user)
+    latest_runs = await SyncStatusService(session).latest_by_task(limit=1000)
+    counts = {
+        row.task_name: (int(row.success_runs or 0), int(row.failed_runs or 0))
+        for row in (
+            await session.execute(
+                select(
+                    SyncTaskRun.task_name.label("task_name"),
+                    func.sum(case((SyncTaskRun.status == "success", 1), else_=0)).label(
+                        "success_runs"
+                    ),
+                    func.sum(case((SyncTaskRun.status == "failed", 1), else_=0)).label(
+                        "failed_runs"
+                    ),
+                )
+                .where(SyncTaskRun.task_name.in_(_WORKER_DIAGNOSTIC_TASKS))
+                .group_by(SyncTaskRun.task_name)
+            )
+        ).all()
+    }
+    rows = ""
+    for task_name in _WORKER_DIAGNOSTIC_TASKS:
+        run = latest_runs.get(task_name)
+        success_runs, failed_runs = counts.get(task_name, (0, 0))
+        rows += (
+            f"<tr><td>{_h(task_name)}</td>"
+            f"<td>{_badge(run.status) if run else _badge('no_runs')}</td>"
+            f"<td>{_dt(run.started_at if run else None)}</td>"
+            f"<td>{_dt(run.finished_at if run else None)}</td>"
+            f"<td>{run.duration_ms if run and run.duration_ms is not None else '-'}</td>"
+            f"<td>{success_runs}</td><td>{failed_runs}</td>"
+            f"<td>{_h(run.last_error if run else '')}</td></tr>"
+        )
+    content = (
+        "<div class='page-header'><div><h2>Диагностика worker</h2>"
+        "<div class='summary-strip'><span>Источник: <strong>sync_task_runs</strong></span>"
+        "<span>Ключевые задачи: <strong>4</strong></span></div></div></div>"
+        + _table(
+            "Ключевые фоновые задачи",
+            ["Задача", "Статус", "Старт", "Финиш", "мс", "Успешно", "Ошибки", "last_error"],
+            rows,
+        )
+    )
+    return _admin_page("Диагностика worker", user, content, "/web/admin/worker-diagnostics")
 
 
 @router.post("/admin/sync-status/run/{task_name}")

@@ -54,6 +54,7 @@ NAV_GROUPS = [
             ("Платежи (admin)", "/web/admin/payments"),
             ("Уведомления (admin)", "/web/admin/notifications"),
             ("Sync status (admin)", "/web/admin/sync-status"),
+            ("Worker diagnostics (admin)", "/web/admin/worker-diagnostics"),
             ("Audit log (admin)", "/web/admin/audit-log"),
             ("Тарифы (admin)", "/web/admin/tariffs"),
             ("Промокоды (admin)", "/web/admin/promocodes"),

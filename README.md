@@ -459,6 +459,9 @@ https://example.com/admin/errors
 
 Каждый запуск пишется в `sync_task_runs`: `started_at`, `finished_at`,
 `duration_ms`, `records_processed`, `success_count`, `failed_count`, `last_error`.
+Администратор может быстро проверить ключевые worker-задачи на
+`/web/admin/worker-diagnostics`: `poll_new_orders`, `sync_sale_events`,
+`sync_wb_product_prices`, `check_auto_promo_prices`.
 
 ## Web/admin карта
 
@@ -468,6 +471,7 @@ https://example.com/admin/errors
 - `/web/admin/payments` — платежи, фильтры и ручная проверка статуса YooKassa.
 - `/web/admin/notifications` — события уведомлений и повторная постановка в retry.
 - `/web/admin/sync-status` — состояние фоновых задач и ручной запуск ключевых sync.
+- `/web/admin/worker-diagnostics` — последние запуски и счётчики ключевых worker-задач.
 - `/web/admin/audit-log` — журнал действий.
 - `/web/admin/tariffs` — тарифы.
 - `/web/admin/promocodes` — промокоды.
@@ -525,9 +529,11 @@ docker compose -f docker-compose.prod.yml logs bot --tail=200
    `YOOKASSA_WEBHOOK_URL`.
 2. Канонический webhook: `/webhooks/yookassa`; reverse-proxy совместимый путь:
    `/web/webhooks/yookassa`.
-3. Pending платежи сверяются задачей `reconcile_pending_payments`.
-4. В `/web/admin/payments` можно вручную проверить статус платежа через YooKassa.
-5. Повторная активация подписки защищена статусом платежа и
+3. В личном кабинете YooKassa webhook не должен быть настроен на корень сайта `/`.
+   POST `/` в access-log обычно означает ошибочную настройку URL.
+4. Pending платежи сверяются задачей `reconcile_pending_payments`.
+5. В `/web/admin/payments` можно вручную проверить статус платежа через YooKassa.
+6. Повторная активация подписки защищена статусом платежа и
    `subscription_applied_at`.
 
 ## Troubleshooting WB автоакций и МРЦ
@@ -554,6 +560,9 @@ tail -n 200 logs/app.log
 tail -n 200 logs/errors.log
 ```
 
+`/health` исключён из обычного INFO access-log. Он логируется только при
+HTTP-статусе `>= 400` или длительности больше `1000 ms`.
+
 Скрипты деплоя пишут логи в `DEPLOY_LOG_DIR`.
 
 ## Типовые команды обслуживания
@@ -570,6 +579,21 @@ docker compose -f docker-compose.prod.yml exec api alembic upgrade head
 
 docker compose -f docker-compose.prod.yml restart api bot worker
 docker compose -f docker-compose.prod.yml logs -f api bot worker --tail=200
+```
+
+Диагностика неожиданных рестартов и OOMKilled:
+
+```bash
+docker compose -f docker-compose.prod.yml ps
+docker inspect --format '{{.Name}} RestartCount={{.RestartCount}} OOMKilled={{.State.OOMKilled}} ExitCode={{.State.ExitCode}} Error={{.State.Error}} FinishedAt={{.State.FinishedAt}}' $(docker compose -f docker-compose.prod.yml ps -q api bot worker)
+docker compose -f docker-compose.prod.yml logs api bot worker --tail=300
+```
+
+Проверка worker-run событий и web-auth индексов:
+
+```bash
+docker compose -f docker-compose.prod.yml exec postgres sh -lc "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -c \"select task_name, status, started_at, finished_at, duration_ms, success_count, failed_count, left(coalesce(last_error, ''), 500) as last_error from sync_task_runs order by started_at desc limit 50;\""
+docker compose -f docker-compose.prod.yml exec postgres sh -lc "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -c \"select tablename, indexname, indexdef from pg_indexes where tablename in ('one_time_login_tokens', 'user_web_sessions') order by tablename, indexname;\""
 ```
 
 ## Деплой
