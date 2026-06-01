@@ -33,7 +33,6 @@ from app.web.route_modules.account_settings import (
     cost_edit_page,
     costs_page,
     profile_page,
-    settings_page,
     subscription_page_web,
 )
 from app.web.route_modules.auth import login
@@ -98,7 +97,6 @@ __all__ = [
     "profit_page",
     "returns_page",
     "sales_page",
-    "settings_page",
     "stocks_page",
     "subscription_page_web",
     "sync_wb_commissions_web",
