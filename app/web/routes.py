@@ -9,6 +9,7 @@ from fastapi import APIRouter
 from app.web import views as _views
 from app.web.route_modules import (
     account_settings,
+    admin_logs,
     admin_visibility,
     auth,
     catalog,
@@ -122,6 +123,7 @@ for module_router in (
     tariffs_admin.router,
     promocodes_admin.router,
     admin_visibility.router,
+    admin_logs.router,
     mrc_pricing.router,
     wb_logistics_admin.router,
     compatibility.router,

@@ -1,7 +1,7 @@
 """user profile expansion and audit tables
 
-Revision ID: 0051_user_profile
-Revises: 0050_stability_admin_visibility
+Revision ID: 20260601_0051
+Revises: 20260531_0050
 Create Date: 2026-06-01
 """
 
@@ -11,8 +11,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB
 
-revision: str = "0051_user_profile"
-down_revision: Union[str, None] = "0050_stability_admin_visibility"
+revision: str = "20260601_0051"
+down_revision: Union[str, None] = "20260531_0050"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
