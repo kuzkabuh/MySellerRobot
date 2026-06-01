@@ -46,8 +46,7 @@ NAV_GROUPS = [
         [
             ("Кабинеты МП", "/web/accounts"),
             ("Подписка и тариф", "/web/subscription"),
-            ("Профиль и настройки", "/web/profile"),
-            ("Настройки", "/web/settings"),
+            ("Профиль и настройки", "/web/settings"),
             ("Здоровье кабинета", "/web/health"),
             ("Комиссии МП (admin)", "/web/admin/commissions"),
             ("Пользователи (admin)", "/web/admin/users"),

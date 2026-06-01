@@ -21,6 +21,7 @@ from app.web.route_modules import (
     pricing,
     promocodes_admin,
     tariffs_admin,
+    user_settings,
     wb_logistics_admin,
 )
 from app.web.route_modules import (
@@ -116,6 +117,7 @@ for module_router in (
     pricing.router,
     catalog.router,
     account_settings.router,
+    user_settings.router,
     commissions_admin.router,
     tariffs_admin.router,
     promocodes_admin.router,

@@ -287,6 +287,94 @@ def profile_menu() -> InlineKeyboardMarkup:
     )
 
 
+def user_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="👤 Профиль", callback_data="user:profile"),
+                InlineKeyboardButton(text="💳 Мой тариф", callback_data="user:tariff"),
+            ],
+            [
+                InlineKeyboardButton(text="🔑 API-ключи", callback_data="user:api_keys"),
+                InlineKeyboardButton(text="🔔 Уведомления", callback_data="user:notifications"),
+            ],
+            [
+                InlineKeyboardButton(text="🛒 Кабинеты МП", callback_data="user:marketplaces"),
+                InlineKeyboardButton(text="🎁 Промокод", callback_data="user:promo"),
+            ],
+            [
+                InlineKeyboardButton(text="⚙️ Настройки", callback_data="user:settings"),
+                InlineKeyboardButton(text="🆘 Поддержка", callback_data="user:support"),
+            ],
+            [InlineKeyboardButton(text="Назад", callback_data="back_main")],
+        ]
+    )
+
+
+def user_profile_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Изменить email", callback_data="user:edit_email")],
+            [InlineKeyboardButton(text="Изменить телефон", callback_data="user:edit_phone")],
+            [InlineKeyboardButton(text="Изменить часовой пояс", callback_data="timezone")],
+            [InlineKeyboardButton(text="🌐 Открыть web-кабинет", callback_data="web_cabinet")],
+            [InlineKeyboardButton(text="Назад", callback_data="user:menu")],
+        ]
+    )
+
+
+def user_tariff_menu(tariff_code: str) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text="Продлить тариф", callback_data="subscription:renew")],
+        [InlineKeyboardButton(text="Сменить тариф", callback_data="subscription_menu")],
+        [InlineKeyboardButton(text="Применить промокод", callback_data="user:promo")],
+        [InlineKeyboardButton(text="История платежей", callback_data="subscription:history")],
+        [InlineKeyboardButton(text="🌐 Web-кабинет", callback_data="web_cabinet")],
+        [InlineKeyboardButton(text="Назад", callback_data="user:menu")],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def user_api_keys_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Проверить WB ключ", callback_data="user:check_wb")],
+            [InlineKeyboardButton(text="Проверить Ozon ключ", callback_data="user:check_ozon")],
+            [InlineKeyboardButton(text="Обновить WB ключ", callback_data="connect_wb")],
+            [InlineKeyboardButton(text="Обновить Ozon ключ", callback_data="connect_ozon")],
+            [InlineKeyboardButton(text="🏪 Мои кабинеты", callback_data="accounts")],
+            [InlineKeyboardButton(text="Назад", callback_data="user:menu")],
+        ]
+    )
+
+
+def user_notifications_menu(enabled: bool) -> InlineKeyboardMarkup:
+    toggle_text = "Отключить уведомления" if enabled else "Включить уведомления"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=toggle_text, callback_data="notifications:toggle")],
+            [InlineKeyboardButton(text="Уведомления о заказах", callback_data="notifications")],
+            [
+                InlineKeyboardButton(
+                    text="Уведомления о выкупах", callback_data="sale_notifications"
+                )
+            ],
+            [InlineKeyboardButton(text="Назад", callback_data="user:menu")],
+        ]
+    )
+
+
+def user_support_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Написать в поддержку", callback_data="user:support_new")],
+            [InlineKeyboardButton(text="Мои обращения", callback_data="user:support_list")],
+            [InlineKeyboardButton(text="🌐 Web-кабинет", callback_data="web_cabinet")],
+            [InlineKeyboardButton(text="Назад", callback_data="user:menu")],
+        ]
+    )
+
+
 def notification_settings_menu(enabled: bool) -> InlineKeyboardMarkup:
     text = "Отключить уведомления" if enabled else "Включить уведомления"
     return InlineKeyboardMarkup(

@@ -56,6 +56,12 @@ class User(TimestampMixin, Base):
     telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
     username: Mapped[str | None] = mapped_column(String(255))
     first_name: Mapped[str | None] = mapped_column(String(255))
+    last_name: Mapped[str | None] = mapped_column(String(255))
+    phone: Mapped[str | None] = mapped_column(String(32))
+    email: Mapped[str | None] = mapped_column(String(255))
+    company_name: Mapped[str | None] = mapped_column(String(255))
+    inn: Mapped[str | None] = mapped_column(String(32))
+    ogrn: Mapped[str | None] = mapped_column(String(32))
     status: Mapped[UserStatus] = mapped_column(Enum(UserStatus), default=UserStatus.ACTIVE)
     tariff: Mapped[str] = mapped_column(String(64), default="Free")
     timezone: Mapped[str] = mapped_column(String(64), default="Europe/Moscow")
@@ -66,11 +72,19 @@ class User(TimestampMixin, Base):
     payment_email: Mapped[str | None] = mapped_column(String(255))
     notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     subscription_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_login_ip: Mapped[str | None] = mapped_column(String(64))
+    last_login_user_agent: Mapped[str | None] = mapped_column(String(512))
 
     accounts: Mapped[list["MarketplaceAccount"]] = relationship(back_populates="user")
     subscriptions: Mapped[list["UserSubscription"]] = relationship(back_populates="user")
     web_login_tokens: Mapped[list["OneTimeLoginToken"]] = relationship(back_populates="user")
     web_sessions: Mapped[list["UserWebSession"]] = relationship(back_populates="user")
+    activity_logs: Mapped[list["UserActivityLog"]] = relationship(back_populates="user")
+    api_key_logs: Mapped[list["ApiKeyAuditLog"]] = relationship(back_populates="user")
+    sync_statuses: Mapped[list["SyncStatus"]] = relationship(back_populates="user")
+    support_tickets: Mapped[list["SupportTicket"]] = relationship(back_populates="user")
 
 
 class MarketplaceAccount(TimestampMixin, Base):
@@ -109,8 +123,12 @@ class MarketplaceAccount(TimestampMixin, Base):
     seller_info_payload: Mapped[dict[str, Any] | None] = mapped_column(JsonType)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     notification_settings: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
+    api_key_status: Mapped[str] = mapped_column(String(32), default="unchecked")
+    api_key_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    api_key_check_result: Mapped[dict[str, Any] | None] = mapped_column(JsonType)
 
     user: Mapped[User] = relationship(back_populates="accounts")
+    api_key_logs: Mapped[list["ApiKeyAuditLog"]] = relationship(back_populates="account")
 
 
 class OneTimeLoginToken(TimestampMixin, Base):
@@ -1342,3 +1360,94 @@ class NotificationEvent(TimestampMixin, Base):
     permanent_failed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+
+class ApiKeyAuditLog(TimestampMixin, Base):
+    __tablename__ = "api_key_audit_logs"
+    __table_args__ = (
+        Index("ix_api_key_audit_logs_user_id", "user_id"),
+        Index("ix_api_key_audit_logs_account_id", "account_id"),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("marketplace_accounts.id", ondelete="CASCADE"), index=True
+    )
+    marketplace: Mapped[str] = mapped_column(String(16), nullable=False)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    old_key_mask: Mapped[str | None] = mapped_column(String(64))
+    new_key_mask: Mapped[str | None] = mapped_column(String(64))
+    check_result: Mapped[str | None] = mapped_column(String(32))
+    check_details: Mapped[dict[str, Any] | None] = mapped_column(JsonType)
+    ip_address: Mapped[str | None] = mapped_column(String(64))
+
+    user: Mapped[User] = relationship(back_populates="api_key_logs")
+    account: Mapped[MarketplaceAccount] = relationship(back_populates="api_key_logs")
+
+
+class UserActivityLog(TimestampMixin, Base):
+    __tablename__ = "user_activity_logs"
+    __table_args__ = (
+        Index("ix_user_activity_logs_user_id", "user_id"),
+        Index("ix_user_activity_logs_created_at", "created_at"),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    entity_type: Mapped[str | None] = mapped_column(String(64))
+    entity_id: Mapped[int | None] = mapped_column(Integer)
+    details: Mapped[dict[str, Any] | None] = mapped_column(JsonType)
+    ip_address: Mapped[str | None] = mapped_column(String(64))
+    user_agent: Mapped[str | None] = mapped_column(String(512))
+
+    user: Mapped[User] = relationship(back_populates="activity_logs")
+
+
+class SyncStatus(TimestampMixin, Base):
+    __tablename__ = "sync_statuses"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "account_id", "sync_type", name="uq_sync_statuses_user_account_type"
+        ),
+        Index("ix_sync_statuses_user_id", "user_id"),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("marketplace_accounts.id", ondelete="CASCADE"), nullable=True
+    )
+    sync_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error_message: Mapped[str | None] = mapped_column(Text)
+    items_processed: Mapped[int | None] = mapped_column(Integer)
+    duration_seconds: Mapped[float | None] = mapped_column(Numeric(10, 2))
+
+    user: Mapped[User] = relationship(back_populates="sync_statuses")
+
+
+class SupportTicket(TimestampMixin, Base):
+    __tablename__ = "support_tickets"
+    __table_args__ = (
+        Index("ix_support_tickets_user_id", "user_id"),
+        Index("ix_support_tickets_status", "status"),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="open")
+    priority: Mapped[str] = mapped_column(String(16), nullable=False, default="normal")
+    category: Mapped[str | None] = mapped_column(String(64))
+    admin_response: Mapped[str | None] = mapped_column(Text)
+    responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    responded_by: Mapped[int | None] = mapped_column(Integer)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    user: Mapped[User] = relationship(back_populates="support_tickets")

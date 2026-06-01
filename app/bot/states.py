@@ -47,9 +47,14 @@ class AdminPanelStates(StatesGroup):
 
 class PaymentStates(StatesGroup):
     waiting_for_email = State()
+    waiting_email = State()
+    waiting_phone = State()
     pending_tier_code = State()
     pending_period = State()
     waiting_for_promo_code = State()
+    waiting_promo_code = State()
+    waiting_support_subject = State()
+    waiting_support_message = State()
 
 
 class MrcStates(StatesGroup):

@@ -209,14 +209,9 @@ async def request_web_sync(
     )
 
 
-@router.get("/settings", response_class=HTMLResponse)
-async def settings_page(user: User = CURRENT_WEB_USER_DEPENDENCY) -> str:
-    return page(
-        "Настройки",
-        user.first_name or user.username or str(user.telegram_id),
-        _settings_content(user),
-        active_path="/web/settings",
-    )
+@router.get("/settings", response_class=HTMLResponse, include_in_schema=False)
+async def settings_page_legacy() -> RedirectResponse:
+    return RedirectResponse(url="/web/settings", status_code=301)
 
 
 @router.post("/settings/low-margin")
