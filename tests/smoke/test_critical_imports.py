@@ -66,3 +66,22 @@ def test_admin_logs_module_exists():
         assert admin_logs.router is not None
     except ImportError as e:
         pytest.fail(f"Failed to import admin_logs module: {e}")
+
+
+def test_app_bot_main_import():
+    """Test that app.bot.main can be imported successfully."""
+    try:
+        import app.bot.main
+        assert app.bot.main is not None
+    except ImportError as e:
+        pytest.fail(f"Failed to import app.bot.main: {e}")
+
+
+def test_app_bot_handlers_user_menu_import():
+    """Test that app.bot.handlers.user_menu can be imported successfully."""
+    try:
+        from app.bot.handlers import user_menu
+        assert hasattr(user_menu, 'router')
+        assert user_menu.router is not None
+    except ImportError as e:
+        pytest.fail(f"Failed to import app.bot.handlers.user_menu: {e}")

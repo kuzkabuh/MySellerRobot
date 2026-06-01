@@ -20,7 +20,7 @@ from app.bot.keyboards.main import (
     user_support_menu,
     user_tariff_menu,
 )
-from app.bot.states import Payment
+from app.bot.states import PaymentStates
 from app.core.db import get_session
 from app.models.domain import MarketplaceAccount, User
 from app.models.enums import Marketplace
@@ -336,7 +336,7 @@ async def show_user_marketplaces(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "user:promo")
 async def show_promo_input(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.set_state(Payment.waiting_promo_code)
+    await state.set_state(PaymentStates.waiting_promo_code)
     await callback.message.edit_text(
         "🎁 <b>Промокод</b>\n\n"
         "Введите промокод для получения скидки:\n\n"
@@ -380,7 +380,7 @@ async def show_user_support(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "user:support_new")
 async def start_support_ticket(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.set_state(Payment.waiting_support_subject)
+    await state.set_state(PaymentStates.waiting_support_subject)
     await callback.message.edit_text(
         "🆘 <b>Новое обращение</b>\n\n"
         "Опишите вашу проблему или вопрос:\n\n"
@@ -428,7 +428,7 @@ async def show_support_tickets(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "user:edit_email")
 async def start_edit_email(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.set_state(Payment.waiting_email)
+    await state.set_state(PaymentStates.waiting_email)
     await callback.message.edit_text(
         "📧 <b>Изменение email</b>\n\n"
         "Введите новый email:\n\n"
@@ -440,7 +440,7 @@ async def start_edit_email(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "user:edit_phone")
 async def start_edit_phone(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.set_state(Payment.waiting_phone)
+    await state.set_state(PaymentStates.waiting_phone)
     await callback.message.edit_text(
         "📱 <b>Изменение телефона</b>\n\n"
         "Введите новый телефон (например, +7 900 123-45-67):\n\n"
@@ -450,7 +450,7 @@ async def start_edit_phone(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
-@router.message(Payment.waiting_email)
+@router.message(PaymentStates.waiting_email)
 async def process_email_input(message: Message, state: FSMContext) -> None:
     if message.text and message.text.startswith("/cancel"):
         await state.clear()
@@ -473,7 +473,7 @@ async def process_email_input(message: Message, state: FSMContext) -> None:
         break
 
 
-@router.message(Payment.waiting_phone)
+@router.message(PaymentStates.waiting_phone)
 async def process_phone_input(message: Message, state: FSMContext) -> None:
     if message.text and message.text.startswith("/cancel"):
         await state.clear()
@@ -496,7 +496,7 @@ async def process_phone_input(message: Message, state: FSMContext) -> None:
         break
 
 
-@router.message(Payment.waiting_support_subject)
+@router.message(PaymentStates.waiting_support_subject)
 async def process_support_subject(message: Message, state: FSMContext) -> None:
     if message.text and message.text.startswith("/cancel"):
         await state.clear()
@@ -504,13 +504,13 @@ async def process_support_subject(message: Message, state: FSMContext) -> None:
         return
 
     await state.update_data(support_subject=message.text)
-    await state.set_state(Payment.waiting_support_message)
+    await state.set_state(PaymentStates.waiting_support_message)
     await message.answer(
         "Тема принята. Теперь опишите подробно вашу проблему или вопрос:"
     )
 
 
-@router.message(Payment.waiting_support_message)
+@router.message(PaymentStates.waiting_support_message)
 async def process_support_message(message: Message, state: FSMContext) -> None:
     if message.text and message.text.startswith("/cancel"):
         await state.clear()
