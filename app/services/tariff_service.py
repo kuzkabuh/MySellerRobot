@@ -115,7 +115,9 @@ class TariffService:
             select(func.count(UserSubscription.id))
             .where(UserSubscription.tier_id == tariff_id)
             .where(
-                UserSubscription.status.in_([SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL])
+                UserSubscription.status.in_(
+                    [SubscriptionStatus.ACTIVE.value, SubscriptionStatus.TRIAL.value]
+                )
             )
             .where((UserSubscription.expires_at.is_(None)) | (UserSubscription.expires_at > now))
         )

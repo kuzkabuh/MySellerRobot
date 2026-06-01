@@ -17,7 +17,7 @@ from app.models.subscriptions import SubscriptionTier, UserSubscription
 logger = logging.getLogger(__name__)
 
 ZERO = Decimal("0")
-SUBSCRIPTION_ACTIVE_STATUSES = (SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL)
+SUBSCRIPTION_ACTIVE_STATUSES = (SubscriptionStatus.ACTIVE.value, SubscriptionStatus.TRIAL.value)
 SUBSCRIPTION_PERIOD_DAYS = {
     "monthly": 30,
     "3_months": 90,
