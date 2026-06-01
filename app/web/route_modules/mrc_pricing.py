@@ -27,7 +27,7 @@ from sqlalchemy import Integer, String, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import MarketplaceAccount, Product, WbPromotion, WbPromotionNomenclature
-from app.models.enums import Marketplace
+from app.models.enums import Marketplace, SubscriptionStatus
 from app.services.feature_access_service import FeatureAccessService, FeatureCode
 from app.services.pricing.mrc_import_service import MrcImportService
 from app.services.pricing.mrc_pricing_settings_service import MrcPricingSettingsService
@@ -207,7 +207,7 @@ async def _resolve_user_tier_code(session: AsyncSession, user_id: int) -> str:
         select(SubscriptionTier.code)
         .join(UserSubscription, UserSubscription.tier_id == SubscriptionTier.id)
         .where(UserSubscription.user_id == user_id)
-        .where(UserSubscription.status.in_(["ACTIVE", "TRIAL"]))
+        .where(UserSubscription.status.in_([SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL]))
         .where((UserSubscription.expires_at.is_(None)) | (UserSubscription.expires_at > now))
         .where(SubscriptionTier.is_active.is_(True))
         .order_by(UserSubscription.started_at.desc())

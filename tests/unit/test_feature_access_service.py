@@ -7,8 +7,9 @@ updated: 2026-05-21
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.dialects import postgresql
 
-from app.models.enums import FeatureCode
+from app.models.enums import FeatureCode, SubscriptionStatus
 from app.services.feature_access_service import FeatureAccessService
 
 
@@ -34,6 +35,16 @@ class FakeSession:
         if self.count_result is not None:
             return FakeScalar(self.count_result)
         return FakeScalar(self.tier)
+
+
+class CapturingSession(FakeSession):
+    def __init__(self, tier=None):
+        super().__init__(tier=tier)
+        self.queries = []
+
+    async def execute(self, query):
+        self.queries.append(query)
+        return await super().execute(query)
 
 
 def _make_tier(**kwargs):
@@ -235,6 +246,30 @@ async def test_can_use_denies_unknown_feature_code() -> None:
     allowed = await FeatureAccessService(FakeSession(tier)).can_use(1, "unknown_feature")
 
     assert allowed is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "expected_found"),
+    [
+        (SubscriptionStatus.ACTIVE, True),
+        (SubscriptionStatus.TRIAL, True),
+        (SubscriptionStatus.EXPIRED, False),
+    ],
+)
+async def test_effective_tier_uses_enum_safe_subscription_status(
+    status: SubscriptionStatus,
+    expected_found: bool,
+) -> None:
+    tier = _make_tier(code="pro", name="PRO") if expected_found else None
+    session = CapturingSession(tier=tier)
+
+    result = await FeatureAccessService(session)._effective_tier(1)
+
+    assert (result.code == "pro") is expected_found
+    compiled = str(session.queries[0].compile(dialect=postgresql.dialect()))
+    assert "lower(user_subscriptions.status)" not in compiled.lower()
+    assert "user_subscriptions.status IN" in compiled
 
 
 @pytest.mark.asyncio

@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import MarketplaceAccount, Product
-from app.models.enums import FeatureCode
+from app.models.enums import FeatureCode, SubscriptionStatus
 from app.models.subscriptions import SubscriptionTier, UserSubscription
 from app.services.subscription_service import default_free_tier
 
@@ -248,7 +248,9 @@ class FeatureAccessService:
             select(SubscriptionTier)
             .join(UserSubscription, UserSubscription.tier_id == SubscriptionTier.id)
             .where(UserSubscription.user_id == user_id)
-            .where(func.lower(UserSubscription.status).in_(["active", "trial"]))
+            .where(
+                UserSubscription.status.in_([SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL])
+            )
             .where((UserSubscription.expires_at.is_(None)) | (UserSubscription.expires_at > now))
             .where(SubscriptionTier.is_active.is_(True))
             .order_by(UserSubscription.started_at.desc())
