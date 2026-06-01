@@ -285,11 +285,11 @@ async def admin_logs_page(
       html += `<div><strong>Сообщение:</strong><br>${{escapeHtml(entry.message)}}</div>`;
       if (entry.user_id) html += `<div><strong>User ID:</strong> ${{entry.user_id}}</div>`;
       if (entry.telegram_id) html += `<div><strong>Telegram ID:</strong> ${{entry.telegram_id}}</div>`;
-      html += `<div style="margin-top: 16px;"><strong>Raw:</strong><br><code>${{escapeHtml(entry.raw_line)}}</code></div>`;
+      html += `<div style="margin-top: 16px;"><strong>Raw:</strong><br><pre id="log-raw-text" style="white-space: pre-wrap; word-break: break-word; background: var(--bg-muted); padding: 8px; border-radius: 4px; max-height: 300px; overflow-y: auto;">${{escapeHtml(entry.raw_line)}}</pre></div>`;
       if (entry.traceback) {{
         html += `<div class="log-modal-traceback"><strong>Traceback:</strong><br>${{escapeHtml(entry.traceback)}}</div>`;
       }}
-      html += `<button class="btn" style="margin-top: 16px;" onclick="copyToClipboard('${{entry.raw_line.replace(/'/g, "\\\\'")}}')">Копировать</button>`;
+      html += `<button class="btn" style="margin-top: 16px;" onclick="copyRawLog()">Копировать</button>`;
       document.getElementById('log-modal-content').innerHTML = html;
       document.getElementById('log-modal').style.display = 'block';
     }}
@@ -298,8 +298,19 @@ async def admin_logs_page(
       document.getElementById('log-modal').style.display = 'none';
     }}
 
-    function copyToClipboard(text) {{
-      navigator.clipboard.writeText(text).then(() => alert('Скопировано'));
+    function copyRawLog() {{
+      const rawElement = document.getElementById('log-raw-text');
+      if (!rawElement) {{
+        alert('Ошибка: элемент не найден');
+        return;
+      }}
+      const text = rawElement.textContent;
+      navigator.clipboard.writeText(text).then(() => {{
+        alert('Скопировано');
+      }}).catch(err => {{
+        console.error('Ошибка копирования:', err);
+        alert('Ошибка копирования: ' + err);
+      }});
     }}
 
     function refreshLogs() {{

@@ -209,11 +209,6 @@ async def request_web_sync(
     )
 
 
-@router.get("/settings", response_class=HTMLResponse, include_in_schema=False)
-async def settings_page_legacy() -> RedirectResponse:
-    return RedirectResponse(url="/web/settings", status_code=301)
-
-
 @router.post("/settings/low-margin")
 async def save_low_margin_settings(
     request: Request,
