@@ -11,8 +11,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.core.exceptions import MarketplaceApiError
 from app.integrations.ozon import OzonClient
 from app.integrations.wb import WildberriesClient
+from app.models.domain import ApiRequestLog
 from app.models.enums import Marketplace
 
 
@@ -186,9 +188,10 @@ class TestWBFbsOrdersDateFormat:
 
         assert orders == []
         params = captured_params["params"]
-        assert params["dateFrom"] == "2026-05-13T00:00:00+00:00"
-        assert params["dateTo"] == "2026-05-14T00:00:00+00:00"
+        assert params["dateFrom"] == 1778630400
+        assert params["dateTo"] == 1778716800
         assert params["limit"] == 1000
+        assert params["next"] == 0
 
     @pytest.mark.asyncio
     async def test_get_fbs_orders_pagination_with_cursor(self) -> None:
@@ -220,12 +223,39 @@ class TestWBFbsOrdersDateFormat:
 
         assert len(orders) == 2
         assert call_count == 2
-        assert "next" not in captured_params_list[0]
+        assert captured_params_list[0].get("next") == 0
         assert captured_params_list[1].get("next") == "cursor-abc"
+
+    @pytest.mark.asyncio
+    async def test_get_fbs_orders_clamps_limit_and_omits_empty_params(self) -> None:
+        captured_params = {}
+
+        class MockMarketplace:
+            async def request(self, method, path, headers=None, params=None):
+                captured_params["params"] = params
+                return {"orders": []}
+
+        wb = WildberriesClient("token")
+        wb.marketplace = MockMarketplace()
+
+        await wb.get_fbs_orders(
+            date_from=datetime(2026, 5, 13, tzinfo=UTC),
+            date_to=datetime(2026, 5, 14, tzinfo=UTC),
+            limit=5000,
+        )
+
+        params = captured_params["params"]
+        assert params == {
+            "dateFrom": 1778630400,
+            "dateTo": 1778716800,
+            "limit": 1000,
+            "next": 0,
+        }
+        assert all(value is not None and value != "" for value in params.values())
 
 
 class TestPartialFailureSemantics:
-    """Test that last_order_poll_at is updated even when recovery fails."""
+    """Test that last_order_poll_at is not advanced when recovery fails."""
 
     @pytest.mark.asyncio
     async def test_wb_live_poll_updates_timestamp_on_recovery_failure(self) -> None:
@@ -233,9 +263,10 @@ class TestPartialFailureSemantics:
             OrderProcessingService,
         )
 
-        mock_session = AsyncMock()
+        mock_session = MagicMock()
         mock_session.commit = AsyncMock()
         mock_session.rollback = AsyncMock()
+        mock_session.add = MagicMock()
 
         account = MagicMock()
         account.id = 1
@@ -293,17 +324,38 @@ class TestPartialFailureSemantics:
                 ) as mock_wb_class:
                     mock_wb = MagicMock()
                     mock_wb.get_new_fbs_orders = AsyncMock(return_value=[])
-                    mock_wb.get_fbs_orders = AsyncMock(side_effect=Exception("IncorrectParameter"))
+                    mock_wb.get_fbs_orders = AsyncMock(
+                        side_effect=MarketplaceApiError(
+                            '{"code":"IncorrectParameter","message":"Incorrect parameter"}',
+                            status_code=400,
+                            marketplace="Wildberries",
+                            details={
+                                "payload": {
+                                    "code": "IncorrectParameter",
+                                    "message": "Incorrect parameter",
+                                }
+                            },
+                        )
+                    )
                     mock_wb_class.return_value = mock_wb
 
                     service = OrderProcessingService(mock_session)
 
                     result = await service.poll_account_with_stats(account)
 
-                    assert account.last_order_poll_at is not None
-                    assert account.last_orders_sync_at is not None
+                    assert account.last_order_poll_at is None
+                    assert account.last_orders_sync_at is None
                     assert account.last_success_sync_at is None
+                    assert account.last_error_at is not None
+                    assert "WB FBS recovery poll failed" in account.last_error_message
+                    api_log = mock_session.add.call_args.args[0]
+                    assert isinstance(api_log, ApiRequestLog)
+                    assert api_log.marketplace_account_id == 1
+                    assert api_log.status_code == 400
+                    assert "/api/v3/orders" in api_log.url
+                    assert "IncorrectParameter" in api_log.error_message
                     assert result.fetched == 0
+                    assert result.recovery_failed is True
 
     @pytest.mark.asyncio
     async def test_ozon_poll_updates_timestamp(self) -> None:

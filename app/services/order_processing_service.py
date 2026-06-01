@@ -9,12 +9,12 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import IntegrationError
+from app.core.exceptions import IntegrationError, MarketplaceApiError
 from app.core.logging import LogContext, log_exception
 from app.core.security import TokenCipher
 from app.integrations.ozon import OzonClient
 from app.integrations.wb import WildberriesClient
-from app.models.domain import MarketplaceAccount, Order
+from app.models.domain import ApiRequestLog, MarketplaceAccount, Order
 from app.models.enums import FboNotificationMode, Marketplace, SaleModel
 from app.repositories.orders import FboDigestQueueRepository, OrderRepository
 from app.schemas.orders import NormalizedOrder
@@ -57,6 +57,8 @@ class OrderPollResult:
     skipped_without_items: int = 0
     retried_unnotified: int = 0
     recovered_unnotified: int = 0
+    recovery_failed: bool = False
+    recovery_error: str | None = None
     notifications: list[NewOrderNotification] | None = None
 
     @property
@@ -127,6 +129,8 @@ class OrderProcessingService:
                     normalized_orders = fetched_orders
                     recovery_failed = bool(getattr(self, "_last_fetch_recovery_failed", False))
                 result.fetched = len(normalized_orders)
+                result.recovery_failed = recovery_failed
+                result.recovery_error = getattr(self, "_last_fetch_recovery_error", None)
 
                 policy = await self.notification_policy.resolve(account)
 
@@ -253,10 +257,6 @@ class OrderProcessingService:
                 await self._append_saved_unnotified(account, policy, result)
 
                 if recovery_failed:
-                    if account.last_order_poll_at is None:
-                        now = datetime.now(tz=UTC)
-                        account.last_order_poll_at = now
-                        account.last_orders_sync_at = now
                     logger.warning(
                         "order_poll_completed_with_recovery_warning",
                         extra={
@@ -353,6 +353,7 @@ class OrderProcessingService:
                 },
             )
             recovery_failed = False
+            recovery_error: str | None = None
             try:
                 window_start = self._poll_window_start(account, now)
                 logger.info(
@@ -372,6 +373,7 @@ class OrderProcessingService:
                 recovered_orders = await wb_client.get_fbs_orders(
                     date_from=window_start,
                     date_to=now,
+                    account_id=account.id,
                 )
                 logger.info(
                     "wb_fbs_period_poll_finished",
@@ -401,17 +403,34 @@ class OrderProcessingService:
                             "unique_added": len(recovered_orders) - dedup_count,
                         },
                     )
-            except Exception:
+            except Exception as exc:
                 recovery_failed = True
+                recovery_error = str(exc)[:500]
+                account.last_error_at = datetime.now(tz=UTC)
+                account.last_error_message = (
+                    f"WB FBS recovery poll failed for /api/v3/orders: {recovery_error}"
+                )[:500]
+                self._add_api_error_log(
+                    account=account,
+                    endpoint="/api/v3/orders",
+                    exc=exc,
+                    period_start=window_start,
+                    period_end=now,
+                )
                 logger.exception(
                     "wb_fbs_period_poll_failed",
                     extra={
                         "account_id": account.id,
                         "user_id": account.user_id,
                         "marketplace": account.marketplace.value,
+                        "endpoint": "/api/v3/orders",
+                        "window_start": window_start.isoformat(),
+                        "window_end": now.isoformat(),
+                        "status_code": getattr(exc, "status_code", None),
                     },
                 )
             self._last_fetch_recovery_failed = recovery_failed
+            self._last_fetch_recovery_error = recovery_error
             return normalized_orders
 
         api_key = self.cipher.decrypt(account.encrypted_api_key)
@@ -726,6 +745,40 @@ class OrderProcessingService:
         if account.last_order_poll_at is None:
             return now - timedelta(hours=24)
         return max(account.last_order_poll_at - timedelta(minutes=10), now - timedelta(days=7))
+
+    def _add_api_error_log(
+        self,
+        *,
+        account: MarketplaceAccount,
+        endpoint: str,
+        exc: Exception,
+        period_start: datetime,
+        period_end: datetime,
+    ) -> None:
+        payload = None
+        if isinstance(exc, MarketplaceApiError) and isinstance(exc.details, dict):
+            payload = exc.details.get("payload")
+        params = {
+            "dateFrom": int(period_start.astimezone(UTC).replace(microsecond=0).timestamp()),
+            "dateTo": int(period_end.astimezone(UTC).replace(microsecond=0).timestamp()),
+            "limit": 1000,
+            "next": 0,
+        }
+        self.session.add(
+            ApiRequestLog(
+                marketplace_account_id=account.id,
+                marketplace=account.marketplace,
+                method="GET",
+                url=f"{endpoint}?params={params}",
+                status_code=getattr(exc, "status_code", None),
+                duration_ms=None,
+                error_message=(
+                    f"{type(exc).__name__}: {str(exc)[:300]}; "
+                    f"period={period_start.isoformat()}..{period_end.isoformat()}; "
+                    f"response={payload}"
+                )[:2000],
+            )
+        )
 
 
 def _is_fbs_like(sale_model: SaleModel | None) -> bool:

@@ -10,7 +10,7 @@ from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 from app.core.config import get_settings
-from app.core.exceptions import ValidationError
+from app.core.exceptions import MarketplaceApiError, ValidationError
 from app.integrations.base import AsyncApiClient
 from app.models.enums import Marketplace, SaleEventType, SaleModel, SourceEventType, UrgencyType
 from app.schemas.orders import NormalizedOrder, NormalizedOrderItem
@@ -21,6 +21,19 @@ from app.services.product_dimensions import calculate_volume_liters, decimal_or_
 logger = logging.getLogger(__name__)
 
 WB_STATISTICS_TZ = ZoneInfo("Europe/Moscow")
+WB_FBS_ORDERS_LIMIT_MAX = 1000
+
+
+def _wb_unix_timestamp_utc(value: datetime) -> int:
+    return int(value.astimezone(UTC).replace(microsecond=0).timestamp())
+
+
+def _wb_fbs_orders_limit(value: int) -> int:
+    return max(1, min(int(value), WB_FBS_ORDERS_LIMIT_MAX))
+
+
+def _compact_params(params: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in params.items() if value is not None and value != ""}
 
 
 class WildberriesClient:
@@ -112,36 +125,38 @@ class WildberriesClient:
         date_from: datetime,
         date_to: datetime,
         limit: int = 1000,
+        account_id: int | None = None,
     ) -> list[dict[str, Any]]:
         """Fetch FBS orders for a period with pagination.
 
         Wildberries GET /api/v3/orders supports:
-        - dateFrom / dateTo in ISO 8601 format (UTC with '+00:00' suffix)
+        - dateFrom / dateTo in Unix timestamp format
         - limit (max 1000)
-        - next cursor for pagination
+        - next cursor for pagination, starting from 0
         """
         all_orders: list[dict[str, Any]] = []
-        next_cursor: str | None = None
+        next_cursor: int | str | None = 0
         page_count = 0
+        safe_limit = _wb_fbs_orders_limit(limit)
+        date_from_ts = _wb_unix_timestamp_utc(date_from)
+        date_to_ts = _wb_unix_timestamp_utc(date_to)
 
         while True:
-            date_from_str = date_from.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S+00:00")
-            date_to_str = date_to.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S+00:00")
-
-            params: dict[str, Any] = {
-                "dateFrom": date_from_str,
-                "dateTo": date_to_str,
-                "limit": limit,
-            }
-            if next_cursor is not None:
-                params["next"] = str(next_cursor)
+            params = _compact_params(
+                {
+                    "dateFrom": date_from_ts,
+                    "dateTo": date_to_ts,
+                    "limit": safe_limit,
+                    "next": next_cursor,
+                }
+            )
 
             logger.debug(
                 "wb_fbs_period_request_params",
                 extra={
-                    "date_from": date_from_str,
-                    "date_to": date_to_str,
-                    "limit": limit,
+                    "date_from": date_from_ts,
+                    "date_to": date_to_ts,
+                    "limit": safe_limit,
                     "next_cursor_present": next_cursor is not None,
                     "page": page_count + 1,
                 },
@@ -151,18 +166,38 @@ class WildberriesClient:
                 "wb_fbs_period_poll_started",
                 extra={
                     "page": page_count + 1,
-                    "date_from": date_from_str,
-                    "date_to": date_to_str,
-                    "limit": limit,
+                    "date_from": date_from_ts,
+                    "date_to": date_to_ts,
+                    "limit": safe_limit,
                 },
             )
 
-            data = await self.marketplace.request(
-                "GET",
-                "/api/v3/orders",
-                headers=self.headers,
-                params=params,
-            )
+            try:
+                data = await self.marketplace.request(
+                    "GET",
+                    "/api/v3/orders",
+                    headers=self.headers,
+                    params=params,
+                )
+            except MarketplaceApiError as exc:
+                payload = exc.details.get("payload") if isinstance(exc.details, dict) else None
+                if isinstance(payload, dict) and payload.get("code") == "IncorrectParameter":
+                    logger.error(
+                        "wb_fbs_period_incorrect_parameter",
+                        extra={
+                            "endpoint": "/api/v3/orders",
+                            "account_id": account_id,
+                            "marketplace": Marketplace.WB.value,
+                            "params": params,
+                            "date_from": date_from_ts,
+                            "date_to": date_to_ts,
+                            "limit": safe_limit,
+                            "next_cursor_present": next_cursor is not None,
+                            "status_code": exc.status_code,
+                            "response_body": payload,
+                        },
+                    )
+                raise
             page_count += 1
             orders = list(data.get("orders", []))
             all_orders.extend(orders)

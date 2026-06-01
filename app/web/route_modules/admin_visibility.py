@@ -513,6 +513,12 @@ async def admin_worker_diagnostics_page(
     for task_name in _WORKER_DIAGNOSTIC_TASKS:
         run = latest_runs.get(task_name)
         success_runs, failed_runs = counts.get(task_name, (0, 0))
+        latest_stats = ""
+        if run and isinstance(run.run_metadata, dict):
+            latest_stats = ", ".join(
+                f"{_h(key)}={_h(value)}"
+                for key, value in (run.run_metadata.get("stats") or {}).items()
+            )
         rows += (
             f"<tr><td>{_h(task_name)}</td>"
             f"<td>{_badge(run.status) if run else _badge('no_runs')}</td>"
@@ -520,7 +526,7 @@ async def admin_worker_diagnostics_page(
             f"<td>{_dt(run.finished_at if run else None)}</td>"
             f"<td>{run.duration_ms if run and run.duration_ms is not None else '-'}</td>"
             f"<td>{success_runs}</td><td>{failed_runs}</td>"
-            f"<td>{_h(run.last_error if run else '')}</td></tr>"
+            f"<td>{latest_stats}</td><td>{_h(run.last_error if run else '')}</td></tr>"
         )
     content = (
         "<div class='page-header'><div><h2>Диагностика worker</h2>"
@@ -528,7 +534,17 @@ async def admin_worker_diagnostics_page(
         "<span>Ключевые задачи: <strong>4</strong></span></div></div></div>"
         + _table(
             "Ключевые фоновые задачи",
-            ["Задача", "Статус", "Старт", "Финиш", "мс", "Успешно", "Ошибки", "last_error"],
+            [
+                "Задача",
+                "Статус",
+                "Старт",
+                "Финиш",
+                "мс",
+                "Успешно",
+                "Ошибки",
+                "Счётчики",
+                "last_error",
+            ],
             rows,
         )
     )

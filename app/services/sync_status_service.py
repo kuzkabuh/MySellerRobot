@@ -12,6 +12,7 @@ from app.models.domain import SyncTaskRun
 STATUS_STARTED = "started"
 STATUS_SUCCESS = "success"
 STATUS_FAILED = "failed"
+STATUS_COMPLETED_WITH_WARNINGS = "warning"
 
 
 class SyncStatusService:
@@ -68,6 +69,24 @@ class SyncStatusService:
             success_count=success_count,
             failed_count=failed_count,
             last_error=error[:2000],
+        )
+
+    async def mark_completed_with_warnings(
+        self,
+        run: SyncTaskRun,
+        warning: str,
+        *,
+        records_processed: int = 0,
+        success_count: int = 0,
+        failed_count: int = 1,
+    ) -> SyncTaskRun:
+        return await self._finish(
+            run,
+            STATUS_COMPLETED_WITH_WARNINGS,
+            records_processed=records_processed,
+            success_count=success_count,
+            failed_count=failed_count,
+            last_error=warning[:2000],
         )
 
     async def _finish(

@@ -3,7 +3,12 @@
 import pytest
 
 from app.services.audit_log_service import AuditLogService
-from app.services.sync_status_service import STATUS_FAILED, STATUS_SUCCESS, SyncStatusService
+from app.services.sync_status_service import (
+    STATUS_COMPLETED_WITH_WARNINGS,
+    STATUS_FAILED,
+    STATUS_SUCCESS,
+    SyncStatusService,
+)
 
 
 class FakeSession:
@@ -50,3 +55,22 @@ async def test_sync_task_runs_success_failure() -> None:
     assert success.duration_ms is not None
     assert failure.status == STATUS_FAILED
     assert failure.last_error == "boom"
+
+
+@pytest.mark.asyncio
+async def test_sync_task_runs_warning_status() -> None:
+    session = FakeSession()
+    service = SyncStatusService(session)
+
+    warning = await service.start("poll_new_orders")
+    await service.mark_completed_with_warnings(
+        warning,
+        "recovery failed",
+        records_processed=2,
+        success_count=1,
+        failed_count=1,
+    )
+
+    assert warning.status == STATUS_COMPLETED_WITH_WARNINGS
+    assert warning.failed_count == 1
+    assert warning.last_error == "recovery failed"

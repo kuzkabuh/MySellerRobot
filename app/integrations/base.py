@@ -102,7 +102,7 @@ class AsyncApiClient:
                             message=response.text or "API request failed",
                             status_code=response.status_code,
                             marketplace=self.marketplace,
-                            details={"payload": payload, "url": url},
+                            details={"payload": payload, "url": url, "params": dict(params or {})},
                         )
 
                     return self._safe_json(response)

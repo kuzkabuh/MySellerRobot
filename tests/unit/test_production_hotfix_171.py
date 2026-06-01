@@ -53,16 +53,14 @@ class TestWbFbsOrdersPagination:
     """Verify WB get_fbs_orders builds correct query params and handles pagination."""
 
     @pytest.mark.asyncio
-    async def test_date_format_uses_explicit_utc_offset(self) -> None:
+    async def test_date_format_uses_unix_timestamp(self) -> None:
+        from app.integrations.wb import _wb_unix_timestamp_utc
 
         date_from = datetime(2026, 5, 18, 10, 0, tzinfo=UTC)
         date_to = datetime(2026, 5, 18, 12, 0, tzinfo=UTC)
 
-        expected_from = "2026-05-18T10:00:00+00:00"
-        expected_to = "2026-05-18T12:00:00+00:00"
-
-        assert date_from.strftime("%Y-%m-%dT%H:%M:%S+00:00") == expected_from
-        assert date_to.strftime("%Y-%m-%dT%H:%M:%S+00:00") == expected_to
+        assert _wb_unix_timestamp_utc(date_from) == 1779098400
+        assert _wb_unix_timestamp_utc(date_to) == 1779105600
 
     @pytest.mark.asyncio
     async def test_single_page_fetch(self) -> None:
@@ -83,10 +81,10 @@ class TestWbFbsOrdersPagination:
         assert len(result) == 2
         mock_request.assert_called_once()
         call_params = mock_request.call_args[1]["params"]
-        assert call_params["dateFrom"] == "2026-05-18T10:00:00+00:00"
-        assert call_params["dateTo"] == "2026-05-18T12:00:00+00:00"
+        assert call_params["dateFrom"] == 1779098400
+        assert call_params["dateTo"] == 1779105600
         assert call_params["limit"] == 1000
-        assert "next" not in call_params
+        assert call_params["next"] == 0
 
     @pytest.mark.asyncio
     async def test_pagination_with_next_cursor(self) -> None:
@@ -133,7 +131,7 @@ class TestWbFbsOrdersPagination:
         await client.get_fbs_orders(date_from=date_from, date_to=date_to)
 
         assert len(captured_params) == 2
-        assert "next" not in captured_params[0]
+        assert captured_params[0]["next"] == 0
         assert captured_params[1]["next"] == "abc"
 
 

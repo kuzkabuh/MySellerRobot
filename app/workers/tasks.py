@@ -99,12 +99,39 @@ async def _load_account_by_id(session: AsyncSession, account_id: int) -> Marketp
     return result.scalar_one_or_none()
 
 
-async def poll_new_orders(ctx: dict[str, Any]) -> None:
+def _task_stats(
+    counters: dict[str, int],
+    *,
+    failed_count: int = 0,
+    last_error: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "task_stats": counters,
+        "records_processed": sum(counters.values()),
+        "success_count": int(counters.get("accounts_success", 0)),
+        "failed_count": failed_count,
+        "last_error": last_error,
+        "status": "completed_with_warnings" if failed_count else "success",
+    }
+
+
+async def poll_new_orders(ctx: dict[str, Any]) -> dict[str, Any]:
     """Poll active marketplace accounts and store unseen orders."""
 
     async with bot_session() as bot:
         notifier = NotificationService(bot)
         account_refs = await _load_account_refs(AsyncSessionFactory)
+        stats: dict[str, int] = {
+            "accounts_total": len(account_refs),
+            "accounts_success": 0,
+            "accounts_failed": 0,
+            "orders_fetched": 0,
+            "orders_created": 0,
+            "duplicates": 0,
+            "notifications_sent": 0,
+            "notifications_failed": 0,
+            "recovery_warnings": 0,
+        }
         logger.info("order_poll_started", extra={"accounts": len(account_refs)})
         for ref in account_refs:
             try:
@@ -119,6 +146,15 @@ async def poll_new_orders(ctx: dict[str, Any]) -> None:
                         session,
                         notifier,
                         poll_result.notifications or [],
+                    )
+                    stats["accounts_success"] += 1
+                    stats["orders_fetched"] += poll_result.fetched
+                    stats["orders_created"] += poll_result.created
+                    stats["duplicates"] += poll_result.duplicated
+                    stats["notifications_sent"] += sent
+                    stats["notifications_failed"] += failed
+                    stats["recovery_warnings"] += int(
+                        getattr(poll_result, "recovery_failed", False) is True
                     )
                     logger.info(
                         "order_poll_notifications_sent",
@@ -139,6 +175,7 @@ async def poll_new_orders(ctx: dict[str, Any]) -> None:
                         },
                     )
             except Exception:
+                stats["accounts_failed"] += 1
                 logger.exception(
                     "marketplace_poll_failed",
                     extra={
@@ -147,6 +184,14 @@ async def poll_new_orders(ctx: dict[str, Any]) -> None:
                         "user_id": ref.user_id,
                     },
                 )
+        failed_count = (
+            stats["accounts_failed"] + stats["notifications_failed"] + stats["recovery_warnings"]
+        )
+        return _task_stats(
+            stats,
+            failed_count=failed_count,
+            last_error="poll_new_orders completed with warnings" if failed_count else None,
+        )
 
 
 def _is_permanent_failure(exc: Exception) -> bool:
@@ -286,10 +331,19 @@ async def _deliver_alert_notifications(
     return sent, failed
 
 
-async def sync_sale_events(ctx: dict[str, Any]) -> None:
+async def sync_sale_events(ctx: dict[str, Any]) -> dict[str, Any]:
     async with bot_session() as bot:
         notifier = NotificationService(bot)
         account_refs = await _load_account_refs(AsyncSessionFactory)
+        stats: dict[str, int] = {
+            "accounts_total": len(account_refs),
+            "orders_fetched": 0,
+            "sales_fetched": 0,
+            "returns_fetched": 0,
+            "created": 0,
+            "updated": 0,
+            "failed": 0,
+        }
         logger.info("sale_events_sync_started", extra={"accounts": len(account_refs)})
         for ref in account_refs:
             try:
@@ -299,6 +353,20 @@ async def sync_sale_events(ctx: dict[str, Any]) -> None:
                         continue
                     service = SalesEventSyncService(session)
                     sync_result = await service.sync_account(account)
+                    stats["orders_fetched"] += sync_result.orders_fetched
+                    stats["sales_fetched"] += sync_result.sales_fetched
+                    stats["returns_fetched"] += sync_result.returns_fetched
+                    stats["created"] += (
+                        sync_result.orders_created
+                        + sync_result.sales_created
+                        + sync_result.returns_created
+                    )
+                    stats["updated"] += (
+                        sync_result.orders_updated
+                        + sync_result.sales_updated
+                        + sync_result.returns_updated
+                    )
+                    stats["failed"] += sync_result.failed
                     logger.info(
                         "sale_events_sync_finished",
                         extra={
@@ -335,6 +403,7 @@ async def sync_sale_events(ctx: dict[str, Any]) -> None:
                             },
                         )
             except Exception as exc:
+                stats["failed"] += 1
                 logger.exception(
                     "sale_events_sync_failed",
                     extra={
@@ -359,6 +428,11 @@ async def sync_sale_events(ctx: dict[str, Any]) -> None:
                 notifier,
                 lifecycle_notifications,
             )
+        return _task_stats(
+            stats,
+            failed_count=stats["failed"],
+            last_error="sync_sale_events completed with failures" if stats["failed"] else None,
+        )
 
 
 async def _deliver_new_order_notifications(
@@ -1089,7 +1163,7 @@ async def sync_wb_logistics_tariffs(ctx: dict[str, Any]) -> None:
                 await notify_admins(bot, message)
 
 
-async def sync_wb_daily_promotions(ctx: dict[str, Any]) -> None:
+async def sync_wb_daily_promotions(ctx: dict[str, Any]) -> dict[str, Any]:
     """Daily sync of WB calendar promotions and product nomenclatures.
 
     Runs at configured time (default 00:15 Moscow time).
@@ -1103,7 +1177,14 @@ async def sync_wb_daily_promotions(ctx: dict[str, Any]) -> None:
     settings = get_settings()
     if not settings.wb_promotions_sync_enabled:
         logger.info("wb_promotions_sync_disabled_by_config")
-        return
+        return _task_stats(
+            {
+                "accounts_total": 0,
+                "promotions_fetched": 0,
+                "nomenclatures_fetched": 0,
+                "failed": 0,
+            }
+        )
 
     async with AsyncSessionFactory() as session:
         service = WbPromotionsSyncService(session, cipher=TokenCipher())
@@ -1112,7 +1193,14 @@ async def sync_wb_daily_promotions(ctx: dict[str, Any]) -> None:
             acquired, message = await service.try_acquire_sync_lock()
             if not acquired:
                 logger.info("wb_promotions_sync_task_skipped", extra={"reason": message})
-                return
+                return _task_stats(
+                    {
+                        "accounts_total": 0,
+                        "promotions_fetched": 0,
+                        "nomenclatures_fetched": 0,
+                        "failed": 0,
+                    }
+                )
             stats = await service.sync_all_accounts()
             await session.commit()
             logger.info(
@@ -1128,12 +1216,32 @@ async def sync_wb_daily_promotions(ctx: dict[str, Any]) -> None:
                     "errors_count": len(stats.errors),
                 },
             )
+            return _task_stats(
+                {
+                    "accounts_total": stats.accounts_processed + stats.accounts_failed,
+                    "promotions_fetched": stats.promotions_fetched,
+                    "nomenclatures_fetched": stats.nomenclatures_fetched,
+                    "failed": stats.accounts_failed,
+                },
+                failed_count=stats.accounts_failed,
+                last_error=stats.errors[0] if stats.errors else None,
+            )
         except Exception:
             logger.exception("wb_promotions_sync_task_failed")
             try:
                 await session.rollback()
             except Exception:
                 pass
+            return _task_stats(
+                {
+                    "accounts_total": 0,
+                    "promotions_fetched": 0,
+                    "nomenclatures_fetched": 0,
+                    "failed": 1,
+                },
+                failed_count=1,
+                last_error="wb_promotions_sync_task_failed",
+            )
         finally:
             if acquired:
                 await service.release_sync_lock()
@@ -1294,7 +1402,7 @@ async def check_auto_promo_prices(ctx: dict[str, Any]) -> None:
                 pass
 
 
-async def sync_wb_product_prices(ctx: dict[str, Any]) -> None:
+async def sync_wb_product_prices(ctx: dict[str, Any]) -> dict[str, Any]:
     """Sync current WB product prices from /api/v2/prices into wb_product_prices table.
 
     Runs every 30 minutes. Fetches all current prices and upserts into wb_product_prices.
@@ -1316,12 +1424,31 @@ async def sync_wb_product_prices(ctx: dict[str, Any]) -> None:
                     "prices_upserted": stats.prices_upserted,
                 },
             )
+            return _task_stats(
+                {
+                    "accounts_total": stats.accounts_processed + stats.accounts_failed,
+                    "products_fetched": stats.prices_fetched,
+                    "prices_updated": stats.prices_upserted,
+                    "failed": stats.accounts_failed,
+                },
+                failed_count=stats.accounts_failed,
+            )
         except Exception:
             logger.exception("wb_product_prices_sync_task_failed")
             try:
                 await session.rollback()
             except Exception:
                 pass
+            return _task_stats(
+                {
+                    "accounts_total": 0,
+                    "products_fetched": 0,
+                    "prices_updated": 0,
+                    "failed": 1,
+                },
+                failed_count=1,
+                last_error="wb_product_prices_sync_task_failed",
+            )
 
 
 def _tracked_task(
@@ -1361,7 +1488,32 @@ def _tracked_task(
             service = SyncStatusService(session)
             db_run = await session.get(type(run), run.id)
             if db_run is not None:
-                await service.mark_success(db_run)
+                task_stats = result if isinstance(result, dict) else {}
+                records_processed = int(task_stats.get("records_processed") or 0)
+                success_count = int(task_stats.get("success_count") or 0)
+                failed_count = int(task_stats.get("failed_count") or 0)
+                last_error = task_stats.get("last_error")
+                if "task_stats" in task_stats:
+                    metadata = (
+                        dict(db_run.run_metadata) if isinstance(db_run.run_metadata, dict) else {}
+                    )
+                    metadata["stats"] = task_stats["task_stats"]
+                    db_run.run_metadata = metadata
+                if task_stats.get("status") == "completed_with_warnings" or failed_count > 0:
+                    await service.mark_completed_with_warnings(
+                        db_run,
+                        str(last_error or "completed with warnings"),
+                        records_processed=records_processed,
+                        success_count=success_count,
+                        failed_count=failed_count,
+                    )
+                else:
+                    await service.mark_success(
+                        db_run,
+                        records_processed=records_processed,
+                        success_count=success_count,
+                        failed_count=failed_count,
+                    )
                 await session.commit()
                 logger.info(
                     "worker_task_finished",
