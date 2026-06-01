@@ -1,4 +1,4 @@
-# version: 1.8.1
+# version: 1.8.3
 # description: Local Docker Compose stack for app, worker, PostgreSQL, and Redis.
 # updated: 2026-05-15
 services:
@@ -29,7 +29,9 @@ services:
       retries: 5
 
   api:
-    build: .
+    build:
+      context: .
+      target: runtime
     command: uvicorn app.api.main:create_app --factory --host 0.0.0.0 --port 8000
     env_file: .env
     ports:
@@ -47,7 +49,9 @@ services:
         condition: service_healthy
 
   bot:
-    build: .
+    build:
+      context: .
+      target: runtime
     command: python -m app.bot.main
     env_file: .env
     volumes:
@@ -63,7 +67,9 @@ services:
         condition: service_healthy
 
   worker:
-    build: .
+    build:
+      context: .
+      target: runtime
     command: arq app.workers.settings.WorkerSettings
     env_file: .env
     volumes:

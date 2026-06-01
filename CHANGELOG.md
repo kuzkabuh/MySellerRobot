@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.8.3
+
+### Changed
+
+- Production Docker image no longer installs dev dependencies by default.
+- Playwright/Chromium browser fallback is optional for production builds.
+- Added `.dockerignore` to keep Git metadata, local env files, logs, runtime files, backups,
+  Python caches and build artifacts out of Docker context.
+- Order polling cron now derives its minute schedule from `ORDER_POLL_INTERVAL_SECONDS`.
+- `/web/break-even` checks `FeatureCode.BREAK_EVEN`.
+- Web session reads no longer perform an implicit commit in `current_web_user()`.
+- FREE tier lookup and active subscription status checks are case-insensitive.
+
+### Fixed
+
+- Ruff violations in the latest Alembic migrations.
+- Web route facade no longer uses wildcard imports.
+
 ## 1.8.2
 
 ### Added

@@ -1,30 +1,48 @@
-# version: 1.8.1
-# description: Runtime image for Seller Profit Bot services. Исправлен порядок копирования файлов перед установкой проекта.
-# updated: 2026-05-14
+# version: 1.8.3
+# description: Multi-stage runtime image for MP Control services.
+# updated: 2026-06-01
 
-FROM python:3.12-slim
+FROM python:3.12-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Устанавливаем системные зависимости,
-# необходимые для сборки Python-пакетов и Playwright
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Сначала копируем всё проект,
-# чтобы pip видел папку app/
 COPY . .
 
-# Устанавливаем зависимости и сам проект
-RUN pip install --no-cache-dir ".[dev]"
+ARG INSTALL_BROWSER=false
+RUN python -m venv /opt/venv \
+    && /opt/venv/bin/pip install --no-cache-dir --upgrade pip \
+    && if [ "$INSTALL_BROWSER" = "true" ]; then \
+        /opt/venv/bin/pip install --no-cache-dir ".[browser]"; \
+    else \
+        /opt/venv/bin/pip install --no-cache-dir "."; \
+    fi
 
-# Устанавливаем Playwright Chromium для browser fallback
-RUN python -m playwright install chromium \
-    && python -m playwright install-deps chromium
+FROM python:3.12-slim AS runtime
 
-# Запуск API-сервиса
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder /app /app
+
+ARG INSTALL_BROWSER=false
+RUN if [ "$INSTALL_BROWSER" = "true" ]; then \
+        python -m playwright install-deps chromium \
+        && python -m playwright install chromium; \
+    fi
+
 CMD ["uvicorn", "app.api.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

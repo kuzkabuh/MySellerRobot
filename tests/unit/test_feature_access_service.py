@@ -235,3 +235,29 @@ async def test_can_use_denies_unknown_feature_code() -> None:
     allowed = await FeatureAccessService(FakeSession(tier)).can_use(1, "unknown_feature")
 
     assert allowed is False
+
+
+@pytest.mark.asyncio
+async def test_break_even_route_checks_break_even_feature(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.web.route_modules import planning
+
+    captured = {}
+
+    class FakeFeatureAccessService:
+        def __init__(self, session) -> None:
+            self.session = session
+
+        async def can_use_feature(self, user_id: int, feature: FeatureCode):
+            captured["feature"] = feature
+            return SimpleNamespace(
+                allowed=False,
+                reason="locked",
+                required_plan="Pro",
+            )
+
+    monkeypatch.setattr(planning, "FeatureAccessService", FakeFeatureAccessService)
+
+    user = SimpleNamespace(id=1, first_name="Test", username=None, telegram_id=123)
+    await planning.break_even_page(user=user, session=object())
+
+    assert captured["feature"] is FeatureCode.BREAK_EVEN

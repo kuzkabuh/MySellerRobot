@@ -90,10 +90,23 @@ class WebAuthRepository:
         row = result.first()
         if row is None:
             return None
-        web_session, user = row
-        web_session.last_seen_at = now
-        await self.session.flush()
+        _, user = row
         return cast(User, user)
+
+    async def touch_session(self, session_hash: str) -> bool:
+        now = datetime.now(tz=UTC)
+        result = await self.session.execute(
+            select(UserWebSession)
+            .where(UserWebSession.session_hash == session_hash)
+            .where(UserWebSession.revoked_at.is_(None))
+            .where(UserWebSession.expires_at > now)
+        )
+        row = result.scalar_one_or_none()
+        if row is None:
+            return False
+        row.last_seen_at = now
+        await self.session.flush()
+        return True
 
     async def revoke_session(self, session_hash: str) -> bool:
         result = await self.session.execute(

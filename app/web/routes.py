@@ -4,11 +4,9 @@ The endpoint implementations live in app.web.route_modules.*. This module keeps 
 historic public import path (`app.web.routes`) stable for FastAPI registration and tests.
 """
 
-# ruff: noqa: F401, F403
-
 from fastapi import APIRouter
 
-from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY, current_web_user
+from app.web import views as _views
 from app.web.route_modules import (
     account_settings,
     admin_visibility,
@@ -23,6 +21,7 @@ from app.web.route_modules import (
     pricing,
     promocodes_admin,
     tariffs_admin,
+    wb_logistics_admin,
 )
 from app.web.route_modules import (
     dashboard as dashboard_routes,
@@ -32,33 +31,24 @@ from app.web.route_modules.account_settings import (
     cost_edit_page,
     costs_page,
     profile_page,
-    request_web_sync,
-    save_low_margin_settings,
-    save_product_cost,
-    save_product_cost_legacy_double_web,
-    save_profile_settings,
     settings_page,
     subscription_page_web,
 )
-from app.web.route_modules.auth import login, login_compat, login_required, logout
+from app.web.route_modules.auth import login
 from app.web.route_modules.catalog import (
     product_detail_page,
-    product_matching_create,
     product_matching_page,
-    product_matching_unlink,
     products_page,
     stocks_page,
 )
 from app.web.route_modules.commissions_admin import (
     check_ozon_commissions_web,
-    check_ozon_status_json,
-    check_ozon_status_page,
     commissions_admin_page,
     import_ozon_commissions_web,
     sync_wb_commissions_web,
 )
-from app.web.route_modules.compatibility import double_web_compat, placeholder
-from app.web.route_modules.dashboard import dashboard, dashboard_compat
+from app.web.route_modules.compatibility import double_web_compat
+from app.web.route_modules.dashboard import dashboard
 from app.web.route_modules.mrc_pricing import (
     auto_promo_import_page,
     auto_promo_prices_page,
@@ -73,14 +63,48 @@ from app.web.route_modules.operations import (
     sales_page,
 )
 from app.web.route_modules.orders_profit import order_detail_page, orders_page, profit_page
-from app.web.route_modules.planning import (
-    break_even_page,
-    delete_plan_fact_plan,
-    plan_fact_page,
-    save_plan_fact_plan,
-)
+from app.web.route_modules.planning import break_even_page, plan_fact_page
 from app.web.route_modules.pricing import pricing_page
-from app.web.views import *
+
+__all__ = [
+    "router",
+    "accounts_page_web",
+    "alerts_page",
+    "analytics_page",
+    "auto_promo_import_page",
+    "auto_promo_prices_page",
+    "break_even_page",
+    "check_ozon_commissions_web",
+    "commissions_admin_page",
+    "control_page",
+    "cost_edit_page",
+    "costs_page",
+    "dashboard",
+    "data_quality_page",
+    "double_web_compat",
+    "import_ozon_commissions_web",
+    "login",
+    "mrc_pricing_page",
+    "order_detail_page",
+    "orders_page",
+    "plan_fact_page",
+    "pricing_page",
+    "product_detail_page",
+    "product_matching_page",
+    "products_page",
+    "profile_page",
+    "profit_page",
+    "returns_page",
+    "sales_page",
+    "settings_page",
+    "stocks_page",
+    "subscription_page_web",
+    "sync_wb_commissions_web",
+]
+__all__.extend(_views.__all__)
+
+for _name in _views.__all__:
+    globals()[_name] = getattr(_views, _name)
 
 router = APIRouter(prefix="/web", tags=["web"])
 for module_router in (
@@ -97,6 +121,7 @@ for module_router in (
     promocodes_admin.router,
     admin_visibility.router,
     mrc_pricing.router,
+    wb_logistics_admin.router,
     compatibility.router,
 ):
     router.include_router(module_router)

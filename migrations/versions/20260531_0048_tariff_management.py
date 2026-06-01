@@ -18,27 +18,39 @@ def upgrade() -> None:
     conn = op.get_bind()
 
     _add_column_if_not_exists(
-        conn, "subscription_tiers", "price_3_months",
+        conn,
+        "subscription_tiers",
+        "price_3_months",
         sa.Column("price_3_months", sa.Numeric(10, 2), nullable=True),
     )
     _add_column_if_not_exists(
-        conn, "subscription_tiers", "price_6_months",
+        conn,
+        "subscription_tiers",
+        "price_6_months",
         sa.Column("price_6_months", sa.Numeric(10, 2), nullable=True),
     )
     _add_column_if_not_exists(
-        conn, "subscription_tiers", "currency",
+        conn,
+        "subscription_tiers",
+        "currency",
         sa.Column("currency", sa.String(3), nullable=False, server_default="RUB"),
     )
     _add_column_if_not_exists(
-        conn, "subscription_tiers", "max_users",
+        conn,
+        "subscription_tiers",
+        "max_users",
         sa.Column("max_users", sa.Integer(), nullable=True),
     )
     _add_column_if_not_exists(
-        conn, "subscription_tiers", "sync_interval_minutes",
+        conn,
+        "subscription_tiers",
+        "sync_interval_minutes",
         sa.Column("sync_interval_minutes", sa.Integer(), nullable=False, server_default="180"),
     )
     _add_column_if_not_exists(
-        conn, "subscription_tiers", "analytics_depth_days",
+        conn,
+        "subscription_tiers",
+        "analytics_depth_days",
         sa.Column("analytics_depth_days", sa.Integer(), nullable=False, server_default="30"),
     )
     _add_column_if_not_exists(
@@ -64,13 +76,14 @@ def upgrade() -> None:
         ),
     )
     _add_column_if_not_exists(
-        conn, "subscription_tiers", "is_public",
+        conn,
+        "subscription_tiers",
+        "is_public",
         sa.Column("is_public", sa.Boolean(), nullable=False, server_default=sa.text("true")),
     )
 
     existing_codes = {
-        row[0]
-        for row in conn.execute(sa.text("SELECT code FROM subscription_tiers")).fetchall()
+        row[0] for row in conn.execute(sa.text("SELECT code FROM subscription_tiers")).fetchall()
     }
 
     if "business" not in existing_codes:

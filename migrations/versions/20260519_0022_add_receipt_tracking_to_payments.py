@@ -6,6 +6,7 @@ Create Date: 2026-05-19
 
 non-destructive: adds nullable columns with no default
 """
+
 # ruff: noqa: E501
 
 from alembic import op

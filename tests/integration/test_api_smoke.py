@@ -296,6 +296,14 @@ def test_web_routes_are_registered() -> None:
     assert "/web/admin/commissions/sync-wb" in paths
     assert "/web/admin/commissions/check-ozon" in paths
     assert "/web/admin/commissions/import-ozon" in paths
+    assert "/web/admin/users" in paths
+    assert "/web/admin/tariffs" in paths
+    assert "/web/admin/promocodes" in paths
+    assert "/web/admin/sync-status" in paths
+    assert "/web/admin/payments" in paths
+    assert "/web/admin/notifications" in paths
+    assert "/web/admin/audit-log" in paths
+    assert "/web/admin/wb-logistics" in paths
     assert "/web/web/admin/commissions/sync-wb" in paths
     assert "/web/web/admin/commissions/check-ozon" in paths
     assert "/web/web/admin/commissions/import-ozon" in paths

@@ -24,7 +24,6 @@ async def current_web_user(
     user = await WebAuthRepository(session).get_active_session_user(
         WebAuthService.hash_secret(raw_session)
     )
-    await session.commit()
     if user is None:
         raise HTTPException(status_code=401, detail="Сессия истекла")
     return user

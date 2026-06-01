@@ -248,7 +248,7 @@ class FeatureAccessService:
             select(SubscriptionTier)
             .join(UserSubscription, UserSubscription.tier_id == SubscriptionTier.id)
             .where(UserSubscription.user_id == user_id)
-            .where(UserSubscription.status.in_(["ACTIVE", "TRIAL"]))
+            .where(func.lower(UserSubscription.status).in_(["active", "trial"]))
             .where((UserSubscription.expires_at.is_(None)) | (UserSubscription.expires_at > now))
             .where(SubscriptionTier.is_active.is_(True))
             .order_by(UserSubscription.started_at.desc())
@@ -261,7 +261,7 @@ class FeatureAccessService:
 
     async def _free_tier(self) -> SubscriptionTier:
         result = await self.session.execute(
-            select(SubscriptionTier).where(SubscriptionTier.code == "free")
+            select(SubscriptionTier).where(func.lower(SubscriptionTier.code) == "free")
         )
         tier = result.scalar_one_or_none()
         if tier is None:

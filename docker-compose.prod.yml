@@ -1,4 +1,4 @@
-# version: 1.8.2
+# version: 1.8.3
 # description: Production Docker Compose stack for MP Control services.
 # updated: 2026-05-15
 
@@ -35,7 +35,9 @@ services:
       retries: 10
 
   api:
-    build: .
+    build:
+      context: .
+      target: runtime
     restart: unless-stopped
     command: uvicorn app.api.main:create_app --factory --host 0.0.0.0 --port 8000
     env_file: .env
@@ -64,7 +66,9 @@ services:
       start_period: 20s
 
   bot:
-    build: .
+    build:
+      context: .
+      target: runtime
     restart: unless-stopped
     command: python -m app.bot.main
     env_file: .env
@@ -81,7 +85,9 @@ services:
         condition: service_healthy
 
   worker:
-    build: .
+    build:
+      context: .
+      target: runtime
     restart: unless-stopped
     command: arq app.workers.settings.WorkerSettings
     env_file: .env

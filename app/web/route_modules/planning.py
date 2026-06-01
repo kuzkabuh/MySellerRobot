@@ -156,7 +156,7 @@ async def break_even_page(
     target_margin: str = Query(default="20"),
     price_delta: str = Query(default="0"),
 ) -> str:
-    access = await FeatureAccessService(session).can_use_feature(user.id, FeatureCode.PLAN_FACT)
+    access = await FeatureAccessService(session).can_use_feature(user.id, FeatureCode.BREAK_EVEN)
     if not access.allowed:
         return page(
             "Безубыточная цена",

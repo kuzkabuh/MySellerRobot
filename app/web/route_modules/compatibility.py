@@ -1,7 +1,7 @@
 # ruff: noqa: E501, B008
 
 import logging
-from typing import Any, cast
+from typing import Any, cast, overload
 
 from fastapi import APIRouter, File, Form, Request
 from fastapi.responses import HTMLResponse, Response
@@ -21,7 +21,15 @@ def _qp(request: Request, name: str, default: str = "") -> str:
     return request.query_params.get(name, default)
 
 
-def _qp_int(request: Request, name: str, default: int) -> int:
+@overload
+def _qp_int(request: Request, name: str, default: int) -> int: ...
+
+
+@overload
+def _qp_int(request: Request, name: str, default: None) -> int | None: ...
+
+
+def _qp_int(request: Request, name: str, default: int | None) -> int | None:
     raw = request.query_params.get(name)
     if raw is None:
         return default

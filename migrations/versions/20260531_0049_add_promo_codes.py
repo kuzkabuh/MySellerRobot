@@ -30,9 +30,7 @@ def upgrade() -> None:
         sa.Column("starts_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("max_uses_total", sa.Integer(), nullable=True),
-        sa.Column(
-            "max_uses_per_user", sa.Integer(), nullable=False, server_default="1"
-        ),
+        sa.Column("max_uses_per_user", sa.Integer(), nullable=False, server_default="1"),
         sa.Column("used_count", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("min_order_amount", sa.Numeric(10, 2), nullable=True),
         sa.Column(
@@ -128,15 +126,9 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("period", sa.String(16), nullable=False),
-        sa.Column(
-            "original_amount", sa.Numeric(10, 2), nullable=False
-        ),
-        sa.Column(
-            "discount_amount", sa.Numeric(10, 2), nullable=False
-        ),
-        sa.Column(
-            "final_amount", sa.Numeric(10, 2), nullable=False
-        ),
+        sa.Column("original_amount", sa.Numeric(10, 2), nullable=False),
+        sa.Column("discount_amount", sa.Numeric(10, 2), nullable=False),
+        sa.Column("final_amount", sa.Numeric(10, 2), nullable=False),
         sa.Column("free_days_applied", sa.Integer(), nullable=True),
         sa.Column(
             "used_at",

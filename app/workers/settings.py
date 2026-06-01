@@ -41,6 +41,11 @@ def _redis_settings() -> RedisSettings:
     return redis_settings_from_url(settings.redis_url)
 
 
+def _minute_schedule_from_interval(seconds: int) -> set[int]:
+    interval_minutes = max(1, round(seconds / 60))
+    return set(range(0, 60, interval_minutes))
+
+
 class WorkerSettings:
     functions = [
         poll_new_orders,
@@ -67,28 +72,7 @@ class WorkerSettings:
         check_auto_promo_prices,
         sync_wb_product_prices,
     ]
-    order_poll_minutes = {
-        0,
-        3,
-        6,
-        9,
-        12,
-        15,
-        18,
-        21,
-        24,
-        27,
-        30,
-        33,
-        36,
-        39,
-        42,
-        45,
-        48,
-        51,
-        54,
-        57,
-    }
+    order_poll_minutes = _minute_schedule_from_interval(settings.order_poll_interval_seconds)
     cron_jobs = [
         cron(
             poll_new_orders,
