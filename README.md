@@ -179,7 +179,10 @@ WEB_BASE_URL=https://example.com
 WEB_APP_BASE_URL=https://example.com
 API_BASE_URL=https://api.example.com
 PUBLIC_SITE_URL=https://example.com
-BOT_WEBHOOK_BASE_URL=https://bot.example.com
+BOT_WEBHOOK_BASE_URL=https://bot.mpcontrol.online
+BOT_WEBHOOK_PATH=/webhook/telegram
+BOT_WEBHOOK_SECRET=
+BOT_WEBHOOK_ENABLED=false
 WEB_LOGIN_TOKEN_TTL_MINUTES=10
 WEB_SESSION_TTL_HOURS=168
 
@@ -223,7 +226,10 @@ WEB_BASE_URL=https://app.mpcontrol.online
 WEB_APP_BASE_URL=https://app.mpcontrol.online
 API_BASE_URL=https://app.mpcontrol.online
 PUBLIC_SITE_URL=https://mpcontrol.online
-BOT_WEBHOOK_BASE_URL=https://app.mpcontrol.online
+BOT_WEBHOOK_BASE_URL=https://bot.mpcontrol.online
+BOT_WEBHOOK_PATH=/webhook/telegram
+BOT_WEBHOOK_SECRET=
+BOT_WEBHOOK_ENABLED=false
 YOOKASSA_RETURN_URL=https://app.mpcontrol.online/payment/success
 YOOKASSA_WEBHOOK_URL=https://app.mpcontrol.online/webhooks/yookassa
 DEPLOY_PROJECT_DIR=/opt/mpcontrol
@@ -236,6 +242,18 @@ BACKUP_DIR=/opt/mpcontrol/backups
 `WEB_APP_BASE_URL`, затем из `WEB_BASE_URL`, затем из `PUBLIC_SITE_URL`. Если в
 `APP_ENV=production` найдены placeholder-домены или placeholder-пути, деплой
 останавливается до сборки Docker-образов.
+
+Telegram webhook использует отдельный домен и не должен устанавливаться на
+`https://app.mpcontrol.online`:
+
+```text
+https://bot.mpcontrol.online/webhook/telegram
+```
+
+FastAPI route webhook находится в `app/api/telegram_webhook.py`: `POST /webhook/telegram`.
+Домен `bot.mpcontrol.online` должен проксировать только технические endpoints бота,
+например `/webhook/telegram` и `/health`; web-кабинет `/web/` на этом домене открывать
+нельзя.
 
 Никогда не публикуйте реальные Telegram token, пароли БД, WB/Ozon API-ключи,
 YooKassa secret key, cookie-файлы, OAuth-токены и банковские данные.
@@ -349,6 +367,44 @@ docker compose -f docker-compose.prod.yml logs -f worker --tail=200
 Покупка подписки запускается из меню подписки, после чего пользователь переходит на
 страницу оплаты YooKassa. После успешной оплаты webhook активирует подписку, а бот
 показывает обновлённый статус.
+
+### Telegram webhook
+
+Webhook URL собирается из `.env`:
+
+```bash
+cd /opt/mpcontrol
+set -a
+source .env
+set +a
+
+echo "${BOT_WEBHOOK_BASE_URL%/}${BOT_WEBHOOK_PATH}"
+```
+
+Для production ожидаемый URL:
+
+```text
+https://bot.mpcontrol.online/webhook/telegram
+```
+
+Управление webhook:
+
+```bash
+bash scripts/bot_set_webhook.sh
+bash scripts/bot_get_webhook_info.sh
+bash scripts/bot_delete_webhook.sh
+```
+
+Проверка Telegram:
+
+```bash
+curl -sS "https://api.telegram.org/bot${BOT_TOKEN}/getWebhookInfo"
+```
+
+В ответе `result.url` должен быть равен
+`https://bot.mpcontrol.online/webhook/telegram`. Если задан `BOT_WEBHOOK_SECRET`,
+FastAPI проверяет заголовок `X-Telegram-Bot-Api-Secret-Token`; сам secret не должен
+попадать в логи.
 
 ## Web-кабинет
 
@@ -622,6 +678,7 @@ docker compose -f docker-compose.prod.yml exec postgres sh -lc "psql -U \"\$POST
 - `deploy/update.sh` — обновление кода, backup БД, миграции и restart сервисов;
 - `deploy/backup.sh` — ручной backup PostgreSQL;
 - `deploy/nginx/mpcontrol.conf.template` — nginx template;
+- `deploy/nginx/bot.mpcontrol.online.conf` — отдельный nginx config для Telegram webhook;
 - `deploy/systemd/` — templates для безопасного Telegram-trigger деплоя.
 
 Перед крупными миграциями делайте backup БД.
@@ -648,12 +705,15 @@ docker compose -f docker-compose.prod.yml exec postgres sh -lc "psql -U \"\$POST
 6. Проверить web-админку тарифов и промокодов.
 7. Проверить создание платежа и return URL YooKassa.
 8. Проверить webhook YooKassa на тестовом платеже.
-9. Проверить ручную синхронизацию WB/Ozon.
-10. Проверить логи `api`, `bot` и `worker`.
+9. Проверить Telegram webhook на `https://bot.mpcontrol.online/webhook/telegram`.
+10. Проверить ручную синхронизацию WB/Ozon.
+11. Проверить логи `api`, `bot` и `worker`.
 
 ```bash
 docker compose -f docker-compose.prod.yml ps
 docker compose -f docker-compose.prod.yml exec api alembic current
+curl -I https://bot.mpcontrol.online/health
+curl -I https://bot.mpcontrol.online/webhook/telegram
 docker compose -f docker-compose.prod.yml logs -f api bot worker --tail=200
 ```
 

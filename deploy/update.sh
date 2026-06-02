@@ -184,7 +184,7 @@ load_domains_from_env() {
     PUBLIC_SERVER_NAMES="${public_host} www.${public_host}"
   fi
 
-  for key in WEB_APP_BASE_URL API_BASE_URL BOT_WEBHOOK_BASE_URL; do
+  for key in WEB_APP_BASE_URL API_BASE_URL; do
     value="$(env_value "$key")"
     [[ -z "$value" ]] && continue
     host="$(url_host "$value")"
@@ -228,7 +228,11 @@ validate_production_placeholders() {
   for key in "${PRODUCTION_PLACEHOLDER_URL_ENV[@]}"; do
     value="$(env_value "$key")"
     if [[ "$value" == *example.com* ]]; then
-      log_error "Production .env contains placeholder domain in ${key}=${value}. Replace it with real production domain, for example: ${key}=https://app.mpcontrol.online"
+      local example_url="https://app.mpcontrol.online"
+      if [[ "$key" == "BOT_WEBHOOK_BASE_URL" ]]; then
+        example_url="https://bot.mpcontrol.online"
+      fi
+      log_error "Production .env contains placeholder domain in ${key}=${value}. Replace it with real production domain, for example: ${key}=${example_url}"
       exit 1
     fi
   done

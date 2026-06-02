@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     bot_token: SecretStr = Field(default=SecretStr(""))
     admin_telegram_ids: str = ""
 
+    # Telegram webhook settings
+    bot_webhook_base_url: str = ""
+    bot_webhook_path: str = "/webhook/telegram"
+    bot_webhook_secret: SecretStr = Field(default=SecretStr(""))
+    bot_webhook_enabled: bool = False
+
     database_url: str = (
         "postgresql+asyncpg://seller_bot:seller_bot@localhost:5432/seller_profit_bot"
     )
@@ -216,6 +222,28 @@ class Settings(BaseSettings):
                 f"Set YOOKASSA_WEBHOOK_URL to a public HTTPS URL."
             )
         return url
+
+    def get_bot_webhook_url(self) -> str:
+        """Return full Telegram bot webhook URL."""
+        if not self.bot_webhook_base_url:
+            raise ValueError("BOT_WEBHOOK_BASE_URL is not configured")
+        base = self.bot_webhook_base_url.rstrip("/")
+        if self.is_production and not self.is_safe_web_url(base):
+            raise ValueError(
+                f"BOT_WEBHOOK_BASE_URL '{base}' is not safe for production. "
+                "Set it to a public HTTPS URL."
+            )
+        path = (
+            self.bot_webhook_path
+            if self.bot_webhook_path.startswith("/")
+            else f"/{self.bot_webhook_path}"
+        )
+        return f"{base}{path}"
+
+    def get_bot_webhook_secret(self) -> str | None:
+        """Return webhook secret token if configured."""
+        secret = self.bot_webhook_secret.get_secret_value()
+        return secret if secret else None
 
 
 @lru_cache

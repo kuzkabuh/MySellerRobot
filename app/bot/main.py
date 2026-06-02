@@ -1,9 +1,10 @@
-"""version: 1.1.0
+"""version: 1.2.0
 description: Aiogram bot entrypoint with centralized HTML parse mode and router wiring.
-updated: 2026-05-16
+updated: 2026-06-02
 """
 
 import asyncio
+import logging
 
 from aiogram import Bot, Dispatcher, Router
 from aiogram.client.default import DefaultBotProperties
@@ -23,6 +24,8 @@ from app.bot.handlers.user_menu import router as user_menu_router
 from app.bot.handlers.wb_logistics_admin import router as wb_logistics_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
+
+logger = logging.getLogger(__name__)
 
 BOT_COMMANDS: tuple[BotCommand, ...] = (
     BotCommand(command="start", description="Открыть главное меню"),
@@ -90,13 +93,81 @@ def _include_router(dispatcher: Dispatcher, router: Router) -> None:
     dispatcher.include_router(router)
 
 
+async def set_webhook() -> None:
+    """Set Telegram webhook URL from settings."""
+    settings = get_settings()
+    webhook_url = settings.get_bot_webhook_url()
+    bot = create_bot()
+    secret = settings.get_bot_webhook_secret()
+
+    logger.info("setting_telegram_webhook", extra={"url": webhook_url, "has_secret": bool(secret)})
+
+    try:
+        await bot.set_webhook(
+            url=webhook_url,
+            secret_token=secret,
+            drop_pending_updates=False,
+        )
+    finally:
+        await bot.session.close()
+    logger.info("telegram_webhook_set_success")
+
+
+async def delete_webhook() -> None:
+    """Delete Telegram webhook and switch to polling mode."""
+    bot = create_bot()
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+    finally:
+        await bot.session.close()
+    logger.info("telegram_webhook_deleted")
+
+
+async def get_webhook_info() -> dict:
+    """Get current Telegram webhook info."""
+    bot = create_bot()
+    try:
+        info = await bot.get_webhook_info()
+    finally:
+        await bot.session.close()
+    return {
+        "url": info.url,
+        "has_custom_certificate": info.has_custom_certificate,
+        "pending_update_count": info.pending_update_count,
+        "last_error_date": info.last_error_date,
+        "last_error_message": info.last_error_message,
+    }
+
+
 async def main() -> None:
     settings = get_settings()
     configure_logging(settings)
     bot = create_bot()
     await bot.set_my_commands(list(BOT_COMMANDS))
     dispatcher = create_dispatcher(create_storage())
-    await dispatcher.start_polling(bot)
+
+    if settings.bot_webhook_enabled:
+        webhook_url = settings.get_bot_webhook_url()
+        secret = settings.get_bot_webhook_secret()
+        logger.info(
+            "bot_webhook_mode",
+            extra={"url": webhook_url, "has_secret": bool(secret)},
+        )
+        await bot.set_webhook(
+            url=webhook_url,
+            secret_token=secret,
+            drop_pending_updates=False,
+        )
+        logger.info("bot_waiting_for_webhook_updates")
+        # In webhook mode, bot doesn't poll - webhook endpoint handles updates
+        # Keep process alive for health checks
+        try:
+            await asyncio.Event().wait()
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            logger.info("bot_webhook_mode_stopping")
+    else:
+        logger.info("bot_polling_mode")
+        await dispatcher.start_polling(bot)
 
 
 if __name__ == "__main__":

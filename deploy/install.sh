@@ -210,7 +210,7 @@ load_domains_from_env() {
   fi
 
   APP_SERVER_NAMES=""
-  for key in WEB_APP_BASE_URL API_BASE_URL BOT_WEBHOOK_BASE_URL; do
+  for key in WEB_APP_BASE_URL API_BASE_URL; do
     value="$(env_value "$key")"
     [[ -z "$value" ]] && continue
     host="$(url_host "$value")"
@@ -220,7 +220,7 @@ load_domains_from_env() {
     fi
   done
   if [[ -z "$PUBLIC_SERVER_NAMES" || -z "$APP_SERVER_NAMES" ]]; then
-    log_error "PUBLIC_SITE_URL and one of WEB_APP_BASE_URL/API_BASE_URL/BOT_WEBHOOK_BASE_URL must contain valid hosts."
+    log_error "PUBLIC_SITE_URL and one of WEB_APP_BASE_URL/API_BASE_URL must contain valid hosts."
     exit 1
   fi
 }

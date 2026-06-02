@@ -18,6 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.api.telegram_webhook import router as telegram_webhook_router
 from app.api.webhooks import router as webhooks_router
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
@@ -60,7 +61,13 @@ def _sanitize_url(url: str) -> str:
 def _sanitize_headers(headers: dict[str, str]) -> dict[str, str]:
     """Redact sensitive headers and mask tokens in URL-valued headers."""
     result = dict(headers)
-    sensitive_headers = {"authorization", "cookie", "x-api-key", "x-admin-secret"}
+    sensitive_headers = {
+        "authorization",
+        "cookie",
+        "x-api-key",
+        "x-admin-secret",
+        "x-telegram-bot-api-secret-token",
+    }
     url_headers = {"referer", "referrer"}
     for key in list(result.keys()):
         lower_key = key.lower()
@@ -92,6 +99,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(web_router)
     app.include_router(webhooks_router)
+    app.include_router(telegram_webhook_router)
     app.include_router(payment_public_router)
     app.include_router(wb_logistics_router)
 

@@ -12,8 +12,7 @@
 - Приложение запускается через Docker Compose production stack:
   `postgres`, `redis`, `api`, `bot`, `worker`.
 - Nginx и Certbot устанавливаются на хосте.
-- Telegram-бот сейчас работает через long polling. Домен `bot.example.com` зарезервирован
-  для будущего webhook-сценария.
+- Telegram webhook работает на отдельном домене `bot.mpcontrol.online`.
 - FastAPI и web-кабинет работают в одном `api`-контейнере на `127.0.0.1:8000`.
 
 ## DNS
@@ -34,7 +33,7 @@
 - `https://www.example.com` — alias лендинга;
 - `https://app.example.com` — web-кабинет;
 - `https://api.example.com` — backend API;
-- `https://bot.example.com` — резерв под Telegram webhook.
+- `https://bot.mpcontrol.online` — Telegram webhook.
 
 ## GitHub-доступ
 
@@ -112,6 +111,9 @@ sudo SKIP_SSL=1 SKIP_DNS_CHECK=1 bash deploy/install.sh
 - `WEB_APP_BASE_URL=https://app.example.com`;
 - `API_BASE_URL=https://api.example.com`;
 - `PUBLIC_SITE_URL=https://example.com`.
+- `BOT_WEBHOOK_BASE_URL=https://bot.mpcontrol.online`;
+- `BOT_WEBHOOK_PATH=/webhook/telegram`;
+- `BOT_WEBHOOK_SECRET=` или случайное секретное значение.
 
 Генерация Fernet-ключа:
 
@@ -350,6 +352,8 @@ HEALTHCHECK_INTERVAL_SECONDS=3
 ```bash
 /etc/nginx/sites-available/mpcontrol.conf
 /etc/nginx/sites-enabled/mpcontrol.conf
+/etc/nginx/sites-available/bot.mpcontrol.online.conf
+/etc/nginx/sites-enabled/bot.mpcontrol.online.conf
 ```
 
 Проверка:
@@ -357,6 +361,60 @@ HEALTHCHECK_INTERVAL_SECONDS=3
 ```bash
 sudo nginx -t
 sudo systemctl reload nginx
+```
+
+Для домена Telegram webhook используйте отдельный config из репозитория. При первом
+выпуске сертификата сначала поднимите временный HTTP-only server block для ACME:
+
+```bash
+sudo mkdir -p /var/www/certbot
+sudo tee /etc/nginx/sites-available/bot.mpcontrol.online.http.conf >/dev/null <<'NGINX'
+server {
+    listen 80;
+    server_name bot.mpcontrol.online;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 404;
+    }
+}
+NGINX
+sudo ln -sfn /etc/nginx/sites-available/bot.mpcontrol.online.http.conf /etc/nginx/sites-enabled/bot.mpcontrol.online.http.conf
+sudo nginx -t
+sudo systemctl reload nginx
+sudo certbot certonly --webroot -w /var/www/certbot -d bot.mpcontrol.online
+sudo cp deploy/nginx/bot.mpcontrol.online.conf /etc/nginx/sites-available/bot.mpcontrol.online.conf
+sudo ln -sfn /etc/nginx/sites-available/bot.mpcontrol.online.conf /etc/nginx/sites-enabled/bot.mpcontrol.online.conf
+sudo rm -f /etc/nginx/sites-enabled/bot.mpcontrol.online.http.conf
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+На `bot.mpcontrol.online` проксируются только:
+
+```text
+/webhook/telegram
+/health
+```
+
+Web-кабинет `/web/` на этом домене должен возвращать 404.
+
+Telegram webhook URL:
+
+```text
+https://bot.mpcontrol.online/webhook/telegram
+```
+
+Проверка:
+
+```bash
+cd /opt/mpcontrol
+curl -I https://bot.mpcontrol.online/health
+curl -I https://bot.mpcontrol.online/webhook/telegram
+bash scripts/bot_get_webhook_info.sh
 ```
 
 Для `app.example.com` путь проксируется в FastAPI без добавления лишнего `/web/`.
@@ -413,7 +471,7 @@ Certbot не выпустит сертификаты. Проверьте:
 dig +short example.com
 dig +short app.example.com
 dig +short api.example.com
-dig +short bot.example.com
+dig +short bot.mpcontrol.online
 ```
 
 ### `.env` не заполнен

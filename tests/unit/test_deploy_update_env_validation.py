@@ -68,7 +68,7 @@ def _env_text(
             f"WEB_APP_BASE_URL={web_app_base_url}",
             f"API_BASE_URL={api_base_url}",
             f"PUBLIC_SITE_URL={public_site_url}",
-            "BOT_WEBHOOK_BASE_URL=https://app.mpcontrol.online",
+            "BOT_WEBHOOK_BASE_URL=https://bot.mpcontrol.online",
             "YOOKASSA_RETURN_URL=https://app.mpcontrol.online/payment/success",
             f"YOOKASSA_WEBHOOK_URL={yookassa_webhook_url}",
             f"DEPLOY_PROJECT_DIR={deploy_project_dir}",

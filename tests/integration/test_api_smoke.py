@@ -323,6 +323,97 @@ def test_webhook_routes_are_registered() -> None:
     assert ("/webhooks/yookassa", "POST") in methods
     assert "/web/webhooks/yookassa" in paths
     assert ("/web/webhooks/yookassa", "POST") in methods
+    assert "/webhook/telegram" in paths
+    assert ("/webhook/telegram", "POST") in methods
+
+
+def test_bot_webhook_url_uses_bot_domain() -> None:
+    settings = Settings(
+        bot_webhook_base_url="https://bot.mpcontrol.online/",
+        bot_webhook_path="webhook/telegram",
+    )
+
+    assert settings.get_bot_webhook_url() == "https://bot.mpcontrol.online/webhook/telegram"
+
+
+def test_bot_webhook_url_requires_base_url() -> None:
+    settings = Settings(bot_webhook_base_url="")
+
+    with pytest.raises(ValueError, match="BOT_WEBHOOK_BASE_URL"):
+        settings.get_bot_webhook_url()
+
+
+def test_telegram_webhook_rejects_invalid_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api import telegram_webhook as telegram_webhook_module
+
+    monkeypatch.setattr(
+        telegram_webhook_module,
+        "get_settings",
+        lambda: Settings(bot_webhook_secret="expected-secret"),
+    )
+
+    app = create_app()
+    with TestClient(app, raise_server_exceptions=True) as client:
+        response = client.post(
+            "/webhook/telegram",
+            json={"update_id": 1},
+            headers={"X-Telegram-Bot-Api-Secret-Token": "wrong-secret"},
+        )
+
+    assert response.status_code == 403
+
+
+def test_telegram_webhook_processes_update_with_valid_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aiogram.types import Update
+
+    from app.api import telegram_webhook as telegram_webhook_module
+
+    processed: list[int] = []
+    closed: list[str] = []
+
+    class FakeSession:
+        async def close(self) -> None:
+            closed.append("bot")
+
+    class FakeBot:
+        session = FakeSession()
+
+    class FakeStorage:
+        async def close(self) -> None:
+            closed.append("storage")
+
+    class FakeDispatcher:
+        async def feed_update(self, _bot, update) -> None:  # type: ignore[no-untyped-def]
+            processed.append(update.update_id)
+
+    monkeypatch.setattr(
+        telegram_webhook_module,
+        "get_settings",
+        lambda: Settings(bot_webhook_secret="expected-secret"),
+    )
+    monkeypatch.setattr("app.bot.main.create_bot", lambda: FakeBot())
+    monkeypatch.setattr("app.bot.main.create_storage", lambda: FakeStorage())
+    monkeypatch.setattr("app.bot.main.create_dispatcher", lambda _storage: FakeDispatcher())
+    monkeypatch.setattr(
+        Update,
+        "model_validate",
+        classmethod(lambda _cls, data, context=None: SimpleNamespace(update_id=data["update_id"])),
+    )
+
+    app = create_app()
+    with TestClient(app, raise_server_exceptions=True) as client:
+        response = client.post(
+            "/webhook/telegram",
+            json={"update_id": 42},
+            headers={"X-Telegram-Bot-Api-Secret-Token": "expected-secret"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert processed == [42]
+    assert closed == ["storage", "bot"]
 
 
 def test_frontend_error_endpoint_accepts_diagnostics() -> None:
