@@ -33,6 +33,13 @@ logs/
 # Databases
 *.sqlite3
 *.db
+*.sql
+*.sql.gz
+*.dump
+*.backup
+*.tar.gz
+*.gpg
+backups/
 
 # Docker local data
 postgres_data/

@@ -1,0 +1,10 @@
+[Unit]
+Description=Run MP Control daily backup
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+Unit=mpcontrol-backup.service
+
+[Install]
+WantedBy=timers.target

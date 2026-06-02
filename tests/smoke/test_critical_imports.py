@@ -39,6 +39,7 @@ def test_app_web_routes_has_all_routers():
     critical_paths = [
         "/web/settings",  # From user_settings
         "/web/settings/company",  # From user_settings
+        "/web/admin/backups",  # From backup_admin
         "/web/profile",   # From account_settings
         "/web/accounts",  # From account_settings
         "/web/subscription",  # From account_settings

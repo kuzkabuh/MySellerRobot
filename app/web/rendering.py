@@ -61,6 +61,7 @@ NAV_GROUPS = [
             ("Промокоды (admin)", "/web/admin/promocodes"),
             ("Обращения пользователей (admin)", "/web/admin/support"),
             ("Логи системы (admin)", "/web/admin/logs"),
+            ("Бэкапы (admin)", "/web/admin/backups"),
         ],
     ),
 ]
@@ -99,6 +100,7 @@ NAV_ICONS = {
     "Sync status (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13 5a5 5 0 00-8.5-1.8L3 5M3 11a5 5 0 008.5 1.8L13 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     "Audit log (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3" y="2" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M6 5h4M6 8h4M6 11h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
     "Логи системы (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 5h6M5 8h6M5 11h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Бэкапы (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 4h10v10H3z" stroke="currentColor" stroke-width="1.5"/><path d="M5 2h6v4H5zM5 10h6M5 12h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
 }
 
 NAV_ICONS_FALLBACK = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="3" stroke="currentColor" stroke-width="1.5"/></svg>'

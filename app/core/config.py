@@ -82,6 +82,18 @@ class Settings(BaseSettings):
     deploy_runtime_dir: str = "/opt/mpcontrol/runtime"
     backup_dir: str = "/opt/mpcontrol/backups"
     backup_retention_days: int = 30
+    backup_enabled: bool = True
+    backup_daily_retention_days: int = 14
+    backup_weekly_retention_weeks: int = 8
+    backup_monthly_retention_months: int = 12
+    backup_time: str = "03:00"
+    backup_telegram_notify: bool = True
+    backup_include_files: bool = True
+    backup_encryption_enabled: bool = False
+    backup_encryption_password: SecretStr = Field(default=SecretStr(""))
+    backup_remote_enabled: bool = False
+    backup_remote_type: str = ""
+    backup_remote_path: str = ""
     enable_telegram_deploy_notifications: bool = True
     enable_telegram_deploy_commands: bool = False
     telegram_deploy_mode: str = "trigger"

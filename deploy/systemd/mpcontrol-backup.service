@@ -1,0 +1,10 @@
+[Unit]
+Description=MP Control daily backup
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/mpcontrol
+ExecStart=/bin/bash /opt/mpcontrol/scripts/backup_daily.sh
+User=root

@@ -107,6 +107,7 @@ async def admin_root_page(
       <a class="shortcut-card" href="/web/admin/promocodes"><strong>Промокоды</strong><p>Скидки и бесплатные периоды</p></a>
       <a class="shortcut-card" href="/web/admin/support"><strong>Обращения пользователей</strong><p>Поддержка и ответы</p></a>
       <a class="shortcut-card" href="/web/admin/logs"><strong>Логи</strong><p>Просмотр и скачивание логов</p></a>
+      <a class="shortcut-card" href="/web/admin/backups"><strong>Бэкапы</strong><p>Статус ежедневных резервных копий</p></a>
       <a class="shortcut-card" href="/web/admin/sync-status"><strong>Синхронизации</strong><p>Фоновые задачи</p></a>
     </div>
     """
