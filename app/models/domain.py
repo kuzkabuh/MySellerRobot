@@ -63,6 +63,7 @@ class User(TimestampMixin, Base):
     inn: Mapped[str | None] = mapped_column(String(32))
     ogrn: Mapped[str | None] = mapped_column(String(32))
     status: Mapped[UserStatus] = mapped_column(Enum(UserStatus), default=UserStatus.ACTIVE)
+    role: Mapped[str] = mapped_column(String(32), default="user")
     tariff: Mapped[str] = mapped_column(String(64), default="Free")
     timezone: Mapped[str] = mapped_column(String(64), default="Europe/Moscow")
     low_margin_threshold_percent: Mapped[Decimal] = mapped_column(
@@ -76,6 +77,11 @@ class User(TimestampMixin, Base):
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_login_ip: Mapped[str | None] = mapped_column(String(64))
     last_login_user_agent: Mapped[str | None] = mapped_column(String(512))
+    web_login: Mapped[str | None] = mapped_column(String(64))
+    web_password_hash: Mapped[str | None] = mapped_column(String(255))
+    web_password_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    web_password_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_password_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     accounts: Mapped[list["MarketplaceAccount"]] = relationship(back_populates="user")
     subscriptions: Mapped[list["UserSubscription"]] = relationship(back_populates="user")

@@ -34,7 +34,7 @@ from app.services.user_activity_service import UserActivityService
 from app.utils.datetime import format_datetime_for_user
 
 logger = logging.getLogger(__name__)
-router = Router()
+router = Router(name="user_menu")
 
 
 def _dt(dt_value: datetime | None, timezone: str) -> str:

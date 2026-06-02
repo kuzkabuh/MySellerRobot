@@ -10,7 +10,6 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import String, case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
 from app.models.domain import (
     ApiRequestLog,
     AuditLog,
@@ -27,14 +26,14 @@ from app.services.notification_event_service import NotificationEventService
 from app.services.payment_service import PaymentService
 from app.services.subscription_service import SubscriptionService
 from app.services.sync_status_service import SyncStatusService
-from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY
+from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY, is_admin_user
 from app.web.rendering import page
 
 router = APIRouter()
 
 
 def _require_admin(user: User) -> None:
-    if user.telegram_id not in get_settings().admin_ids:
+    if not is_admin_user(user):
         raise HTTPException(status_code=403, detail="Доступно только администраторам")
 
 
@@ -92,6 +91,25 @@ async def admin_users_page(
     <div class="table-wrap"><table class="table"><thead><tr><th>ID</th><th>Telegram ID</th><th>Username</th><th>Статус</th><th>Тариф</th><th>Регистрация</th></tr></thead><tbody>{body or '<tr><td colspan="6"><div class="empty-state">Пользователи не найдены</div></td></tr>'}</tbody></table></div>
     """
     return _admin_page("Админка пользователей", user, content, "/web/admin/users")
+
+
+@router.get("/admin", response_class=HTMLResponse)
+async def admin_root_page(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+) -> str:
+    _require_admin(user)
+    content = """
+    <div class="page-header"><div><h2>Администрирование</h2><div class="summary-strip"><span>Разделы управления MP Control</span></div></div></div>
+    <div class="shortcut-grid">
+      <a class="shortcut-card" href="/web/admin/users"><strong>Пользователи</strong><p>Статусы, кабинеты, уведомления</p></a>
+      <a class="shortcut-card" href="/web/admin/tariffs"><strong>Тарифы</strong><p>Планы подписок и лимиты</p></a>
+      <a class="shortcut-card" href="/web/admin/promocodes"><strong>Промокоды</strong><p>Скидки и бесплатные периоды</p></a>
+      <a class="shortcut-card" href="/web/admin/support"><strong>Обращения пользователей</strong><p>Поддержка и ответы</p></a>
+      <a class="shortcut-card" href="/web/admin/logs"><strong>Логи</strong><p>Просмотр и скачивание логов</p></a>
+      <a class="shortcut-card" href="/web/admin/sync-status"><strong>Синхронизации</strong><p>Фоновые задачи</p></a>
+    </div>
+    """
+    return _admin_page("Администрирование", user, content, "/web/admin")
 
 
 @router.get("/admin/users/{target_user_id}", response_class=HTMLResponse)

@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.services.web_auth_service import WebAuthService
+from app.services.web_password_auth_service import WebPasswordAuthError, WebPasswordAuthService
 
 
 class FakeWebAuthRepository:
@@ -58,6 +59,22 @@ class FakeWebAuthRepository:
         return SimpleNamespace(user_id=user_id, session_hash=session_hash, expires_at=expires_at)
 
 
+class FakePasswordSession:
+    def __init__(self) -> None:
+        self.flushed = False
+
+    async def flush(self) -> None:
+        self.flushed = True
+
+
+class FakePasswordRepository:
+    def __init__(self, existing_user: object | None = None) -> None:
+        self.existing_user = existing_user
+
+    async def get_user_by_web_login(self, _web_login: str) -> object | None:
+        return self.existing_user
+
+
 def _service(repo: FakeWebAuthRepository) -> WebAuthService:
     service = object.__new__(WebAuthService)
     service.session = object()
@@ -68,6 +85,16 @@ def _service(repo: FakeWebAuthRepository) -> WebAuthService:
     )
     service.repo = repo
     return service
+
+
+def _password_service(
+    repo: FakePasswordRepository | None = None,
+) -> tuple[WebPasswordAuthService, FakePasswordSession]:
+    service = object.__new__(WebPasswordAuthService)
+    session = FakePasswordSession()
+    service.session = session
+    service.repo = repo or FakePasswordRepository()
+    return service, session
 
 
 @pytest.mark.asyncio
@@ -148,3 +175,58 @@ def test_login_link_path_is_canonical() -> None:
 
     assert WEB_LOGIN_PATH == "/web/login"
     assert "/web/web" not in WEB_LOGIN_PATH
+
+
+def test_password_hash_roundtrip_does_not_store_raw_password() -> None:
+    password_hash = WebPasswordAuthService.hash_password("StrongPass123")
+
+    assert "StrongPass123" not in password_hash
+    assert WebPasswordAuthService.verify_password("StrongPass123", password_hash) is True
+    assert WebPasswordAuthService.verify_password("wrong-password", password_hash) is False
+
+
+@pytest.mark.asyncio
+async def test_update_password_login_enables_login_with_normalized_username() -> None:
+    service, session = _password_service()
+    user = SimpleNamespace(
+        id=1,
+        web_login=None,
+        web_password_hash=None,
+        web_password_enabled=False,
+        web_password_updated_at=None,
+    )
+
+    await service.update_password_login(
+        user,
+        login="  Seller.Admin  ",
+        password="StrongPass123",
+        password_confirm="StrongPass123",
+        enabled=True,
+    )
+
+    assert user.web_login == "seller.admin"
+    assert user.web_password_enabled is True
+    assert user.web_password_hash is not None
+    assert session.flushed is True
+
+
+@pytest.mark.asyncio
+async def test_update_password_login_rejects_duplicate_login() -> None:
+    existing = SimpleNamespace(id=2)
+    service, _session = _password_service(FakePasswordRepository(existing_user=existing))
+    user = SimpleNamespace(
+        id=1,
+        web_login=None,
+        web_password_hash=None,
+        web_password_enabled=False,
+        web_password_updated_at=None,
+    )
+
+    with pytest.raises(WebPasswordAuthError, match="уже используется"):
+        await service.update_password_login(
+            user,
+            login="seller",
+            password="StrongPass123",
+            password_confirm="StrongPass123",
+            enabled=True,
+        )

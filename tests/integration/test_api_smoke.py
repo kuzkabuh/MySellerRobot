@@ -1024,11 +1024,12 @@ def test_web_unhandled_exception_returns_controlled_html_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test_web_login_without_token_returns_russian_error() -> None:
+async def test_web_login_without_token_returns_password_login_page() -> None:
     response = await login(request=SimpleNamespace(), session=FakeAsyncSession(), token=None)
 
-    assert response.status_code == 400
-    assert "Ссылка для входа отсутствует или устарела" in response.body.decode()
+    assert response.status_code == 200
+    assert "Вход в web-кабинет" in response.body.decode()
+    assert 'action="/web/login"' in response.body.decode()
 
 
 @pytest.mark.asyncio
@@ -1243,6 +1244,7 @@ def test_bot_dispatcher_factory_registers_routers_without_polling() -> None:
         "admin_panel",
         "commission_admin",
         "wb_logistics_admin",
+        "user_menu",
         "common",
     ]
 

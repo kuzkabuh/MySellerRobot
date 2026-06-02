@@ -46,8 +46,10 @@ NAV_GROUPS = [
         [
             ("Кабинеты МП", "/web/accounts"),
             ("Подписка и тариф", "/web/subscription"),
+            ("Профиль", "/web/profile"),
             ("Профиль и настройки", "/web/settings"),
             ("Здоровье кабинета", "/web/health"),
+            ("Администрирование (admin)", "/web/admin"),
             ("Комиссии МП (admin)", "/web/admin/commissions"),
             ("Пользователи (admin)", "/web/admin/users"),
             ("Платежи (admin)", "/web/admin/payments"),
@@ -86,6 +88,7 @@ NAV_ICONS = {
     "Профиль и настройки": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M2 14c0-3 2.5-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
     "Настройки": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/><path d="M8 2v2M8 12v2M2 8h2M12 8h2M3.8 3.8l1.4 1.4M10.8 10.8l1.4 1.4M12.2 3.8l-1.4 1.4M5.2 10.8l-1.4 1.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
     "Комиссии МП (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3" y="2" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M6 5h4M6 8h4M6 11h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Администрирование (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2l5 2v4c0 3-2 5-5 6-3-1-5-3-5-6V4l5-2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 8l1.3 1.3L10.5 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     "Тарифы (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4l6 3 6-3M2 4v8l6 3 6-3V4M2 4l6-2 6 2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
     "Промокоды (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 5h12v6H2zM5 5v6M8 7h3M8 9h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     "Обращения пользователей (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 3h10v8H6l-3 3V3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 6h5M6 8.5h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
@@ -101,10 +104,38 @@ NAV_ICONS = {
 NAV_ICONS_FALLBACK = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="3" stroke="currentColor" stroke-width="1.5"/></svg>'
 
 
-def page(title: str, user_name: str, content: str, *, active_path: str = "/web/") -> str:
+def page(
+    title: str,
+    user_name: str,
+    content: str,
+    *,
+    active_path: str = "/web/",
+    current_user: object | None = None,
+    is_admin: bool | None = None,
+    user_role: str | None = None,
+) -> str:
+    if current_user is None or is_admin is None or user_role is None:
+        try:
+            from app.web.dependencies import (
+                CURRENT_WEB_USER,
+                current_user_role,
+                is_admin_user,
+            )
+
+            context_user = CURRENT_WEB_USER.get()
+            current_user = current_user or context_user
+            if is_admin is None:
+                is_admin = is_admin_user(context_user)
+            if user_role is None:
+                user_role = current_user_role(context_user)
+        except Exception:
+            if is_admin is None:
+                is_admin = False
+            if user_role is None:
+                user_role = "user"
     safe_title = escape(title)
     safe_user = escape(user_name or "селлер")
-    show_admin_nav = "(admin)" in (user_name or "")
+    show_admin_nav = bool(is_admin)
     return f"""<!doctype html>
 <html lang="ru">
 <head>
@@ -1303,7 +1334,7 @@ def _nav(active_path: str, show_admin: bool = False) -> str:
     for title, items in NAV_GROUPS:
         links = []
         for label, href in items:
-            if "(admin)" in label and not show_admin:
+            if href.startswith("/web/admin") and not show_admin:
                 continue
             active = ' class="active"' if href == active_path else ""
             icon_svg = NAV_ICONS.get(label, NAV_ICONS_FALLBACK)

@@ -8,7 +8,6 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
 from app.models.domain import User
 from app.models.wb_logistics_tariffs import (
     WbLogisticsTariffRate,
@@ -17,14 +16,13 @@ from app.models.wb_logistics_tariffs import (
 from app.services.wb_logistics.wb_logistics_tariff_sync_service import (
     WbLogisticsTariffSyncService,
 )
-from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY
+from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY, is_admin_user
 
 router = APIRouter()
 
 
 def _is_admin_user(user: User) -> bool:
-    settings = get_settings()
-    return user.telegram_id in settings.admin_ids
+    return is_admin_user(user)
 
 
 def _require_admin(user: User) -> None:

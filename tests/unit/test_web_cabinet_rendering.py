@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 from app.models.enums import Marketplace
 from app.web import routes
+from app.web.dependencies import current_user_role, is_admin_user
 from app.web.rendering import NAV_GROUPS, page
 
 
@@ -538,9 +539,35 @@ def test_nav_links_cover_all_required_sections() -> None:
         assert f'href="{href}"' in html, f"Missing nav link: {href}"
 
 
+def test_nav_hides_admin_sections_for_regular_users() -> None:
+    html = page("Главная", "Артем", "<main></main>")
+
+    assert 'href="/web/admin"' not in html
+    assert 'href="/web/admin/support"' not in html
+    assert "Администрирование" not in html
+
+
+def test_nav_shows_admin_sections_for_admin_users() -> None:
+    html = page("Главная", "Артем", "<main></main>", is_admin=True, user_role="admin")
+
+    assert 'href="/web/admin"' in html
+    assert 'href="/web/admin/support"' in html
+    assert "Администрирование" in html
+
+
+def test_is_admin_user_uses_role_before_render_name_suffix() -> None:
+    admin = SimpleNamespace(id=1, telegram_id=123, role="admin")
+    regular = SimpleNamespace(id=2, telegram_id=456, role="user")
+
+    assert is_admin_user(admin) is True
+    assert current_user_role(admin) == "admin"
+    assert is_admin_user(regular) is False
+    assert current_user_role(regular) == "user"
+
+
 def test_nav_links_are_real_anchor_tags() -> None:
     """Every nav item must be a real <a href=...> tag, not a JS-driven element."""
-    html = page("Главная", "Артем", "<main></main>")
+    html = page("Главная", "Артем", "<main></main>", is_admin=True, user_role="admin")
     for _group_title, items in NAV_GROUPS:
         for _label, href in items:
             assert (

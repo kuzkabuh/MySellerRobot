@@ -11,7 +11,6 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.main import create_bot
-from app.core.config import get_settings
 from app.models.domain import SupportTicket, User
 from app.services.support_service import (
     SUPPORT_PRIORITIES,
@@ -20,7 +19,7 @@ from app.services.support_service import (
     TICKET_STATUS_LABELS,
     SupportService,
 )
-from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY
+from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY, is_admin_user
 from app.web.rendering import page
 
 router = APIRouter()
@@ -28,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 def _require_admin(user: User) -> None:
-    if user.telegram_id not in get_settings().admin_ids:
+    if not is_admin_user(user):
         logger.warning(
             "support_admin_unauthorized_access",
             extra={"user_id": user.id, "telegram_id": user.telegram_id},
@@ -106,6 +105,23 @@ async def admin_support_list_page(
     <div class="table-wrap"><table class="table"><thead><tr><th>Номер</th><th>Дата</th><th>Пользователь</th><th>Тема</th><th>Статус</th><th>Приоритет</th><th>Текст</th></tr></thead><tbody>{rows or '<tr><td colspan="7"><div class="empty-state">Обращения не найдены</div></td></tr>'}</tbody></table></div>
     """
     return _admin_page("Обращения пользователей", user, content, "/web/admin/support")
+
+
+@router.get("/admin/support-tickets", response_class=HTMLResponse)
+async def admin_support_tickets_alias(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+    status: str = Query(default=""),
+    priority: str = Query(default=""),
+    q: str = Query(default=""),
+) -> str:
+    return await admin_support_list_page(
+        user=user,
+        session=session,
+        status=status,
+        priority=priority,
+        q=q,
+    )
 
 
 @router.get("/admin/support/{ticket_id}", response_class=HTMLResponse)

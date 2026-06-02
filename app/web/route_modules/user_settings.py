@@ -19,6 +19,7 @@ from app.services.support_service import TICKET_CATEGORIES, TICKET_STATUS_LABELS
 from app.services.user_activity_service import UserActivityService, action_label
 from app.services.user_sync_status_service import SYNC_STATUS_LABELS, UserSyncStatusService
 from app.services.web_cabinet_service import WebCabinetService
+from app.services.web_password_auth_service import WebPasswordAuthError, WebPasswordAuthService
 from app.utils.datetime import format_datetime_for_user
 from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY
 from app.web.rendering import page
@@ -51,7 +52,11 @@ def _settings_tabs(active_tab: str) -> str:
 
 
 def _profile_tab(user: User) -> str:
-    display_name = user.first_name or user.last_name or user.username or str(user.telegram_id)
+    first_name = getattr(user, "first_name", None)
+    last_name = getattr(user, "last_name", None)
+    username = getattr(user, "username", None)
+    timezone = getattr(user, "timezone", "Europe/Moscow")
+    display_name = first_name or last_name or username or str(user.telegram_id)
     return f"""
       {_settings_tabs("profile")}
       <section class="detail-grid">
@@ -60,42 +65,42 @@ def _profile_tab(user: User) -> str:
           <form method="post" action="/web/settings/profile">
             <div class="kv" style="margin-bottom:14px">
               <span>Telegram ID</span><strong>{user.telegram_id}</strong>
-              <span>Username</span><strong>{escape("@" + user.username if user.username else "н/д")}</strong>
-              <span>Дата регистрации</span><strong>{_dt(user.created_at, user.timezone)}</strong>
-              <span>Последняя активность</span><strong>{_dt(user.last_activity_at, user.timezone)}</strong>
+              <span>Username</span><strong>{escape("@" + username if username else "н/д")}</strong>
+              <span>Дата регистрации</span><strong>{_dt(getattr(user, "created_at", None), timezone)}</strong>
+              <span>Последняя активность</span><strong>{_dt(getattr(user, "last_activity_at", None), timezone)}</strong>
             </div>
             <div class="filters">
               <div>
                 <label for="first_name">Имя</label>
-                <input id="first_name" name="first_name" value="{escape(user.first_name or "")}">
+                <input id="first_name" name="first_name" value="{escape(first_name or "")}">
               </div>
               <div>
                 <label for="last_name">Фамилия</label>
-                <input id="last_name" name="last_name" value="{escape(user.last_name or "")}">
+                <input id="last_name" name="last_name" value="{escape(last_name or "")}">
               </div>
               <div>
                 <label for="phone">Телефон</label>
-                <input id="phone" name="phone" value="{escape(user.phone or "")}" placeholder="+7 900 123-45-67">
+                <input id="phone" name="phone" value="{escape(getattr(user, "phone", None) or "")}" placeholder="+7 900 123-45-67">
               </div>
               <div>
                 <label for="email">Email</label>
-                <input id="email" name="email" type="email" value="{escape(user.email or "")}">
+                <input id="email" name="email" type="email" value="{escape(getattr(user, "email", None) or "")}">
               </div>
               <div>
                 <label for="company_name">Компания</label>
-                <input id="company_name" name="company_name" value="{escape(user.company_name or "")}">
+                <input id="company_name" name="company_name" value="{escape(getattr(user, "company_name", None) or "")}">
               </div>
               <div>
                 <label for="inn">ИНН</label>
-                <input id="inn" name="inn" value="{escape(user.inn or "")}" placeholder="10 или 12 цифр">
+                <input id="inn" name="inn" value="{escape(getattr(user, "inn", None) or "")}" placeholder="10 или 12 цифр">
               </div>
               <div>
                 <label for="ogrn">ОГРН / ОГРНИП</label>
-                <input id="ogrn" name="ogrn" value="{escape(user.ogrn or "")}" placeholder="13 или 15 цифр">
+                <input id="ogrn" name="ogrn" value="{escape(getattr(user, "ogrn", None) or "")}" placeholder="13 или 15 цифр">
               </div>
               <div>
                 <label for="timezone">Часовой пояс</label>
-                <input id="timezone" name="timezone" value="{escape(user.timezone)}">
+                <input id="timezone" name="timezone" value="{escape(timezone)}">
               </div>
             </div>
             <button class="btn btn-primary" type="submit">Сохранить</button>
@@ -104,9 +109,9 @@ def _profile_tab(user: User) -> str:
         <section class="band">
           <h2>Текущий тариф</h2>
           <div class="kv">
-            <span>Тариф</span><strong>{escape(user.tariff)}</strong>
-            <span>Статус</span><strong>{escape(user.status.value)}</strong>
-            <span>Уведомления</span><strong>{"включены" if user.notifications_enabled else "выключены"}</strong>
+            <span>Тариф</span><strong>{escape(getattr(user, "tariff", "free"))}</strong>
+            <span>Статус</span><strong>{escape(getattr(getattr(user, "status", None), "value", "ACTIVE"))}</strong>
+            <span>Уведомления</span><strong>{"включены" if getattr(user, "notifications_enabled", True) else "выключены"}</strong>
           </div>
           <p style="margin-top:14px"><a class="btn btn-primary" href="/web/settings/tariff">Управление тарифом</a></p>
           <p><a class="btn" href="/web/settings/notifications">Настроить уведомления</a></p>
@@ -280,15 +285,21 @@ def _security_tab(user: User, activity_logs: list, timezone: str) -> str:
             for log in activity_logs[:30]
         )
 
+    password_enabled = bool(getattr(user, "web_password_enabled", False))
+    password_status = "включён" if password_enabled else "выключен"
+    password_updated = _dt(getattr(user, "web_password_updated_at", None), timezone)
+    password_login = escape(getattr(user, "web_login", None) or "")
     return f"""
       {_settings_tabs("security")}
       <section class="detail-grid">
         <section class="band">
           <h2>Последний вход</h2>
           <div class="kv">
-            <span>Дата</span><strong>{_dt(user.last_login_at, timezone)}</strong>
-            <span>IP-адрес</span><strong>{escape(user.last_login_ip or "н/д")}</strong>
-            <span>User-Agent</span><strong style="word-break:break-all;font-size:12px">{escape((user.last_login_user_agent or "н/д")[:120])}</strong>
+            <span>Дата</span><strong>{_dt(getattr(user, "last_login_at", None), timezone)}</strong>
+            <span>IP-адрес</span><strong>{escape(getattr(user, "last_login_ip", None) or "н/д")}</strong>
+            <span>User-Agent</span><strong style="word-break:break-all;font-size:12px">{escape((getattr(user, "last_login_user_agent", None) or "н/д")[:120])}</strong>
+            <span>Вход по паролю</span><strong>{password_status}</strong>
+            <span>Пароль обновлён</span><strong>{password_updated}</strong>
           </div>
         </section>
         <section class="band">
@@ -296,6 +307,34 @@ def _security_tab(user: User, activity_logs: list, timezone: str) -> str:
           <p class="muted">Web-сессии управляются через cookie. При выходе сессия аннулируется.</p>
           <p><a class="btn btn-danger" href="/web/logout">Выйти из всех сессий</a></p>
         </section>
+      </section>
+      <section class="band" style="margin-top:14px">
+        <h2>Вход по логину и паролю</h2>
+        <p class="muted">Telegram-вход продолжит работать. Пароль хранится только в виде hash.</p>
+        <form method="post" action="/web/settings/password-login">
+          <div class="filters">
+            <div>
+              <label for="web_login">Логин</label>
+              <input id="web_login" name="web_login" value="{password_login}" placeholder="seller.login">
+            </div>
+            <div>
+              <label for="web_password">Новый пароль</label>
+              <input id="web_password" name="web_password" type="password" autocomplete="new-password">
+            </div>
+            <div>
+              <label for="web_password_confirm">Повторите новый пароль</label>
+              <input id="web_password_confirm" name="web_password_confirm" type="password" autocomplete="new-password">
+            </div>
+            <div>
+              <label class="status-chip">
+                <input type="checkbox" name="web_password_enabled" {"checked" if password_enabled else ""}>
+                Разрешить вход по логину и паролю
+              </label>
+            </div>
+          </div>
+          <button class="btn btn-primary" type="submit">Сохранить</button>
+        </form>
+        {'<form method="post" action="/web/settings/password-login/disable" style="margin-top:10px"><button class="btn btn-danger" type="submit">Отключить вход по паролю</button></form>' if password_enabled else ''}
       </section>
       <section class="band" style="margin-top:14px">
         <h2>История действий</h2>
@@ -373,6 +412,50 @@ async def settings_profile_page(
         _profile_tab(user),
         active_path="/web/settings",
     )
+
+
+@router.post("/settings/password-login")
+async def save_password_login_settings(
+    request: Request,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    form = await request.form()
+    enabled = form.get("web_password_enabled") == "on"
+    try:
+        await WebPasswordAuthService(session).update_password_login(
+            user,
+            login=str(form.get("web_login") or ""),
+            password=str(form.get("web_password") or ""),
+            password_confirm=str(form.get("web_password_confirm") or ""),
+            enabled=enabled,
+        )
+        await UserActivityService(session).log_activity(
+            user.id,
+            "web_password_settings_updated",
+            ip_address=request.client.host if request.client else None,
+        )
+        await session.commit()
+    except WebPasswordAuthError as exc:
+        await session.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return RedirectResponse(url="/web/settings/security?saved=1", status_code=303)
+
+
+@router.post("/settings/password-login/disable")
+async def disable_password_login_settings(
+    request: Request,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    await WebPasswordAuthService(session).disable_password_login(user)
+    await UserActivityService(session).log_activity(
+        user.id,
+        "web_password_login_disabled",
+        ip_address=request.client.host if request.client else None,
+    )
+    await session.commit()
+    return RedirectResponse(url="/web/settings/security?saved=1", status_code=303)
 
 
 @router.post("/settings/profile")

@@ -14,12 +14,11 @@ from fastapi import APIRouter, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
 from app.models.domain import User
 from app.models.enums import PromoType, PromoUsageStatus
 from app.services.promo_code_service import PromoCodeService, PromoValidationError
 from app.services.tariff_service import TariffService
-from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY
+from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY, is_admin_user
 from app.web.rendering import page
 
 logger = logging.getLogger(__name__)
@@ -40,7 +39,7 @@ _PROMO_TYPE_LABELS = {
 
 
 def _is_admin_user(user: User) -> bool:
-    return user.telegram_id in get_settings().admin_ids
+    return is_admin_user(user)
 
 
 def _require_admin(user: User) -> None:

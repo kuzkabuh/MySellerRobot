@@ -93,6 +93,14 @@ class WebAuthRepository:
         _, user = row
         return cast(User, user)
 
+    async def get_user_by_web_login(self, web_login: str) -> User | None:
+        if not web_login:
+            return None
+        result = await self.session.execute(
+            select(User).where(User.web_login == web_login)
+        )
+        return result.scalar_one_or_none()
+
     async def touch_session(self, session_hash: str) -> bool:
         now = datetime.now(tz=UTC)
         result = await self.session.execute(

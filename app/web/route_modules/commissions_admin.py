@@ -31,7 +31,7 @@ from app.services.commission_tariffs.ozon_commission_source_monitor_service impo
 from app.services.commission_tariffs.ozon_commission_xlsx_importer import OzonCommissionXlsxImporter
 from app.services.commission_tariffs.wb_commission_sync_service import WbCommissionSyncService
 from app.services.commission_tariffs.xlsx_validator import validate_xlsx_file
-from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY
+from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY, is_admin_user
 from app.web.rendering import page
 
 logger = logging.getLogger(__name__)
@@ -48,8 +48,7 @@ OZON_COMMISSION_VERSION_LABEL_FORM = Form(default="")
 
 
 def _is_admin_user(user: User) -> bool:
-    settings = get_settings()
-    return user.telegram_id in settings.admin_ids
+    return is_admin_user(user)
 
 
 def _admin_page(title: str, user: User, content: str) -> str:

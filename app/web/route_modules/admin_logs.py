@@ -10,10 +10,9 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
-from app.core.config import get_settings
 from app.models.domain import User
 from app.services.log_viewer_service import LogViewerService
-from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY
+from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, is_admin_user
 from app.web.rendering import page
 
 router = APIRouter()
@@ -21,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 def _require_admin(user: User) -> None:
-    if user.telegram_id not in get_settings().admin_ids:
+    if not is_admin_user(user):
         logger.warning(
             "admin_logs_unauthorized_access",
             extra={"user_id": user.id, "telegram_id": user.telegram_id},
