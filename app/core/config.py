@@ -62,6 +62,9 @@ class Settings(BaseSettings):
 
     # Support contact
     support_telegram_username: str = "mpcontrol_support"
+    dadata_api_key: SecretStr = Field(default=SecretStr(""))
+    dadata_secret_key: SecretStr = Field(default=SecretStr(""))
+    dadata_base_url: str = "https://suggestions.dadata.ru/suggestions/api/4_1/rs"
 
     order_poll_interval_seconds: int = 180
     daily_report_hour: int = 9

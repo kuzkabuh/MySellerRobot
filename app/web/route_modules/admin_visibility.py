@@ -18,6 +18,7 @@ from app.models.domain import (
     Product,
     SyncTaskRun,
     User,
+    UserCompanyProfile,
 )
 from app.models.enums import PaymentStatus, UserStatus
 from app.models.subscriptions import Payment, SubscriptionTier
@@ -156,6 +157,11 @@ async def admin_user_detail_page(
         .scalars()
         .all()
     )
+    company_profile = (
+        await session.execute(
+            select(UserCompanyProfile).where(UserCompanyProfile.user_id == target.id)
+        )
+    ).scalar_one_or_none()
     notifications = await NotificationEventService(session).recent(user_id=target.id, limit=10)
     audit = await AuditLogService(session).recent(user_id=target.id, limit=20)
     errors = list(
@@ -224,6 +230,7 @@ async def admin_user_detail_page(
       <form method="post" action="/web/admin/users/{target.id}/status/{block_action}"><button class="btn btn-danger">{block_label}</button></form>
       <form method="post" action="/web/admin/users/{target.id}/restart-sync"><button class="btn">Перезапустить синхронизацию</button></form>
     </div><form method="post" action="/web/admin/users/{target.id}/send-message" style="margin-top:10px;"><textarea name="message" rows="2" placeholder="Сообщение пользователю"></textarea><button class="btn">Отправить сообщение</button></form></div>
+    {_company_profile_admin_card(company_profile)}
     {_table('Кабинеты WB/Ozon', ['МП','Название','Статус','Последний sync','Ошибка'], account_rows)}
     {_table('Последние заказы', ['Дата','МП','Номер','Статус'], order_rows)}
     {_table('Платежи', ['Дата','Provider ID','Сумма','Статус','Оплачен'], payment_rows)}
@@ -238,6 +245,27 @@ def _table(title: str, headers: list[str], rows: str) -> str:
     th = "".join(f"<th>{_h(h)}</th>" for h in headers)
     empty = f'<tr><td colspan="{len(headers)}"><div class="empty-state">Нет данных</div></td></tr>'
     return f"<div class='band'><h3>{_h(title)}</h3><div class='table-wrap'><table class='table'><thead><tr>{th}</tr></thead><tbody>{rows or empty}</tbody></table></div></div>"
+
+
+def _company_profile_admin_card(profile: UserCompanyProfile | None) -> str:
+    if profile is None:
+        return "<div class='band'><h3>Данные компании</h3><div class='empty-state'>Данные компании не сохранены</div></div>"
+    rows = [
+        ("ИНН", profile.inn),
+        ("КПП", profile.kpp),
+        ("ОГРН/ОГРНИП", profile.ogrn),
+        ("Название", profile.name_short or profile.name_full),
+        ("Тип", profile.company_type),
+        ("Статус", profile.status),
+        ("Адрес", profile.address),
+        ("ОКВЭД", profile.okved),
+        ("Дата обновления", _dt(profile.updated_at)),
+    ]
+    body = "".join(
+        f"<span>{_h(label)}</span><strong>{_h(value) if value else 'н/д'}</strong>"
+        for label, value in rows
+    )
+    return f"<div class='band'><h3>Данные компании</h3><div class='kv'>{body}</div></div>"
 
 
 @router.post("/admin/users/{target_user_id}/grant-tariff")

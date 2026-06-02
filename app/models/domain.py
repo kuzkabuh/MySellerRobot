@@ -92,6 +92,40 @@ class User(TimestampMixin, Base):
     sync_statuses: Mapped[list["SyncStatus"]] = relationship(back_populates="user")
     support_tickets: Mapped[list["SupportTicket"]] = relationship(back_populates="user")
     support_ticket_events: Mapped[list["SupportTicketEvent"]] = relationship(back_populates="actor")
+    company_profile: Mapped["UserCompanyProfile | None"] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+
+
+class UserCompanyProfile(TimestampMixin, Base):
+    __tablename__ = "user_company_profiles"
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_user_company_profiles_user_id"),
+        Index("ix_user_company_profiles_inn", "inn"),
+        Index("ix_user_company_profiles_ogrn", "ogrn"),
+        Index("ix_user_company_profiles_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    inn: Mapped[str] = mapped_column(String(12))
+    kpp: Mapped[str | None] = mapped_column(String(9))
+    ogrn: Mapped[str | None] = mapped_column(String(15))
+    name_full: Mapped[str | None] = mapped_column(Text)
+    name_short: Mapped[str | None] = mapped_column(Text)
+    company_type: Mapped[str | None] = mapped_column(String(32))
+    status: Mapped[str | None] = mapped_column(String(64))
+    address: Mapped[str | None] = mapped_column(Text)
+    okved: Mapped[str | None] = mapped_column(String(32))
+    okved_name: Mapped[str | None] = mapped_column(Text)
+    director_name: Mapped[str | None] = mapped_column(Text)
+    registration_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source: Mapped[str | None] = mapped_column(String(32))
+    raw_data: Mapped[dict[str, Any] | None] = mapped_column(JsonType)
+
+    user: Mapped[User] = relationship(back_populates="company_profile")
 
 
 class MarketplaceAccount(TimestampMixin, Base):

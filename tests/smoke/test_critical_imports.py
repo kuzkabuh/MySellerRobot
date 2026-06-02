@@ -38,6 +38,7 @@ def test_app_web_routes_has_all_routers():
     # Critical paths that must exist
     critical_paths = [
         "/web/settings",  # From user_settings
+        "/web/settings/company",  # From user_settings
         "/web/profile",   # From account_settings
         "/web/accounts",  # From account_settings
         "/web/subscription",  # From account_settings

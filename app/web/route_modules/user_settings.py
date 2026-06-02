@@ -6,13 +6,22 @@ description: User settings web routes with tabs.
 import logging
 from datetime import datetime
 from html import escape
+from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import MarketplaceAccount, User
 from app.models.enums import Marketplace
+from app.services.company_lookup_service import (
+    INN_ERROR_MESSAGE,
+    LOOKUP_UNAVAILABLE_MESSAGE,
+    CompanyLookupError,
+    CompanyLookupService,
+    CompanyProfileDTO,
+    normalize_inn,
+)
 from app.services.profile_service import ProfileService, ProfileUpdateData, ProfileValidationError
 from app.services.subscription_service import SubscriptionService
 from app.services.support_service import TICKET_CATEGORIES, TICKET_STATUS_LABELS, SupportService
@@ -34,6 +43,10 @@ def _dt(dt_value: datetime | None, timezone: str) -> str:
     return format_datetime_for_user(dt_value, timezone, "%d.%m.%Y %H:%M")
 
 
+def _url_quote(value: str) -> str:
+    return quote(value, safe="")
+
+
 def _settings_tabs(active_tab: str) -> str:
     tabs = [
         ("profile", "Профиль", "/web/settings"),
@@ -41,6 +54,7 @@ def _settings_tabs(active_tab: str) -> str:
         ("tariff", "Тариф", "/web/settings/tariff"),
         ("notifications", "Уведомления", "/web/settings/notifications"),
         ("sync", "Синхронизация", "/web/settings/sync"),
+        ("company", "Данные компании", "/web/settings/company"),
         ("security", "Безопасность", "/web/settings/security"),
         ("support", "Поддержка", "/web/settings/support"),
     ]
@@ -118,6 +132,133 @@ def _profile_tab(user: User) -> str:
         </section>
       </section>
     """
+
+
+def _company_tab(
+    user: User,
+    profile: object | None,
+    *,
+    preview: CompanyProfileDTO | None = None,
+    message: str | None = None,
+    error: str | None = None,
+    warning: str | None = None,
+) -> str:
+    current_inn = (
+        (preview.inn if preview else None)
+        or getattr(profile, "inn", None)
+        or getattr(user, "inn", None)
+        or ""
+    )
+    status_message = ""
+    if message:
+        status_message += f'<div class="notice success">{escape(message)}</div>'
+    if error:
+        status_message += f'<div class="notice danger">{escape(error)}</div>'
+    if warning:
+        status_message += f'<div class="notice warning">{escape(warning)}</div>'
+
+    preview_html = _company_preview(preview) if preview else ""
+    saved_html = _company_saved_card(profile)
+    clear_button = (
+        '<button class="btn btn-danger" type="submit">Очистить данные компании</button>'
+        if profile
+        else ""
+    )
+    refresh_button = (
+        """
+        <form method="post" action="/web/settings/company/refresh">
+          <button class="btn" type="submit">Обновить данные</button>
+        </form>
+        """
+        if profile
+        else ""
+    )
+    return f"""
+      {_settings_tabs("company")}
+      <section class="detail-grid">
+        <section class="band">
+          <h2>Данные компании</h2>
+          {status_message}
+          <form method="post" action="/web/settings/company/lookup" class="filters">
+            <div>
+              <label for="company_lookup_inn">ИНН</label>
+              <input id="company_lookup_inn" name="inn" value="{escape(current_inn)}" placeholder="10 или 12 цифр">
+            </div>
+            <button class="btn btn-primary" type="submit">Загрузить данные по ИНН</button>
+          </form>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+            {refresh_button}
+            <form method="post" action="/web/settings/company/clear">{clear_button}</form>
+          </div>
+        </section>
+        {preview_html}
+        {saved_html}
+      </section>
+    """
+
+
+def _company_preview(company: CompanyProfileDTO | None) -> str:
+    if company is None:
+        return ""
+    rows = _company_kv_rows(company)
+    warning = (
+        f'<div class="notice warning">{escape(company.status_warning)}</div>'
+        if company.status_warning
+        else ""
+    )
+    return f"""
+      <section class="band">
+        <h2>Найденные данные</h2>
+        {warning}
+        <div class="kv">{rows}</div>
+        <form method="post" action="/web/settings/company/save" style="margin-top:14px">
+          <input type="hidden" name="inn" value="{escape(company.inn)}">
+          <button class="btn btn-primary" type="submit">Сохранить</button>
+        </form>
+      </section>
+    """
+
+
+def _company_saved_card(profile: object | None) -> str:
+    if profile is None:
+        return """
+        <section class="band">
+          <h2>Сохранённые данные</h2>
+          <div class="empty-state">Данные компании ещё не сохранены.</div>
+        </section>
+        """
+    return f"""
+      <section class="band">
+        <h2>Сохранённые данные</h2>
+        <div class="kv">{_company_kv_rows(profile)}</div>
+      </section>
+    """
+
+
+def _company_kv_rows(company: object) -> str:
+    updated_at = getattr(company, "updated_at", None)
+    registration_date = getattr(company, "registration_date", None)
+    source = getattr(company, "source", None)
+    rows = [
+        ("ИНН", getattr(company, "inn", None)),
+        ("КПП", getattr(company, "kpp", None)),
+        ("ОГРН/ОГРНИП", getattr(company, "ogrn", None)),
+        ("Полное наименование", getattr(company, "name_full", None)),
+        ("Краткое наименование", getattr(company, "name_short", None)),
+        ("Тип", getattr(company, "company_type", None)),
+        ("Статус", getattr(company, "status", None)),
+        ("Юридический адрес", getattr(company, "address", None)),
+        ("ОКВЭД", getattr(company, "okved", None)),
+        ("ОКВЭД название", getattr(company, "okved_name", None)),
+        ("Руководитель", getattr(company, "director_name", None)),
+        ("Дата регистрации", _dt(registration_date, "Europe/Moscow") if registration_date else None),
+        ("Источник данных", source),
+        ("Дата последнего обновления", _dt(updated_at, "Europe/Moscow") if updated_at else None),
+    ]
+    return "".join(
+        f"<span>{escape(label)}</span><strong>{escape(str(value) if value else 'н/д')}</strong>"
+        for label, value in rows
+    )
 
 
 def _marketplaces_tab(user: User, accounts: list[MarketplaceAccount], timezone: str) -> str:
@@ -565,6 +706,163 @@ async def settings_sync_page(
         user.first_name or user.username or str(user.telegram_id),
         _sync_tab(statuses, user.timezone),
         active_path="/web/settings",
+    )
+
+
+@router.get("/settings/company", response_class=HTMLResponse)
+async def settings_company_page(
+    request: Request,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    profile = await CompanyLookupService(session).get_user_company_profile(user.id)
+    content = _company_tab(
+        user,
+        profile,
+        message=request.query_params.get("saved"),
+        error=request.query_params.get("error"),
+    )
+    return page(
+        "Настройки — Данные компании",
+        user.first_name or user.username or str(user.telegram_id),
+        content,
+        active_path="/web/settings/company",
+    )
+
+
+@router.post("/settings/company/lookup", response_class=HTMLResponse)
+async def settings_company_lookup(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+    inn: str = Form(...),
+) -> str:
+    service = CompanyLookupService(session)
+    profile = await service.get_user_company_profile(user.id)
+    try:
+        result = await service.fetch_company_by_inn(inn)
+    except CompanyLookupError as exc:
+        logger.warning(
+            "company_lookup_web_failed",
+            extra={"user_id": user.id, "inn": normalize_inn(inn), "error": str(exc)},
+        )
+        content = _company_tab(user, profile, error=str(exc) or INN_ERROR_MESSAGE)
+        return page(
+            "Настройки — Данные компании",
+            user.first_name or user.username or str(user.telegram_id),
+            content,
+            active_path="/web/settings/company",
+        )
+    content = _company_tab(
+        user,
+        profile,
+        preview=result.company,
+        message="Данные найдены. Проверьте их и нажмите «Сохранить».",
+        warning=result.warning,
+    )
+    return page(
+        "Настройки — Данные компании",
+        user.first_name or user.username or str(user.telegram_id),
+        content,
+        active_path="/web/settings/company",
+    )
+
+
+@router.post("/settings/company/save")
+async def settings_company_save(
+    request: Request,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+    inn: str = Form(...),
+) -> RedirectResponse:
+    service = CompanyLookupService(session)
+    try:
+        result = await service.fetch_company_by_inn(inn)
+        await service.save_company_profile(user, result.company)
+        await UserActivityService(session).log_activity(
+            user.id,
+            "company_profile_saved",
+            ip_address=request.client.host if request.client else None,
+        )
+        await session.commit()
+    except CompanyLookupError as exc:
+        await session.rollback()
+        logger.warning(
+            "company_profile_save_failed",
+            extra={"user_id": user.id, "inn": normalize_inn(inn), "error": str(exc)},
+        )
+        return RedirectResponse(
+            f"/web/settings/company?error={_url_quote(str(exc) or INN_ERROR_MESSAGE)}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        "/web/settings/company?saved=Данные компании сохранены",
+        status_code=303,
+    )
+
+
+@router.post("/settings/company/refresh")
+async def settings_company_refresh(
+    request: Request,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    service = CompanyLookupService(session)
+    profile = await service.get_user_company_profile(user.id)
+    inn = getattr(profile, "inn", None) or getattr(user, "inn", None)
+    if not inn:
+        return RedirectResponse(
+            f"/web/settings/company?error={_url_quote('Сначала укажите ИНН')}",
+            status_code=303,
+        )
+    try:
+        result = await service.fetch_company_by_inn(inn)
+        await service.save_company_profile(user, result.company)
+        await UserActivityService(session).log_activity(
+            user.id,
+            "company_profile_refreshed",
+            ip_address=request.client.host if request.client else None,
+        )
+        await session.commit()
+    except CompanyLookupError as exc:
+        await session.rollback()
+        logger.warning(
+            "company_profile_refresh_failed",
+            extra={"user_id": user.id, "inn": normalize_inn(inn), "error": str(exc)},
+        )
+        return RedirectResponse(
+            f"/web/settings/company?error={_url_quote(str(exc) or LOOKUP_UNAVAILABLE_MESSAGE)}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        "/web/settings/company?saved=Данные компании обновлены",
+        status_code=303,
+    )
+
+
+@router.post("/settings/company/clear")
+async def settings_company_clear(
+    request: Request,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    try:
+        await CompanyLookupService(session).clear_company_profile(user)
+        await UserActivityService(session).log_activity(
+            user.id,
+            "company_profile_cleared",
+            ip_address=request.client.host if request.client else None,
+        )
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        logger.exception("company_profile_clear_failed", extra={"user_id": user.id})
+        return RedirectResponse(
+            f"/web/settings/company?error={_url_quote('Не удалось очистить данные компании')}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        "/web/settings/company?saved=Данные компании очищены",
+        status_code=303,
     )
 
 
