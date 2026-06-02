@@ -230,3 +230,13 @@ class TestLogViewerServiceDownload:
     def test_download_rejects_invalid_name(self, service):
         with pytest.raises(ValueError):
             service.download_log("../etc/passwd")
+
+    def test_download_allows_safe_archive_name(self, service, temp_logs_dir):
+        archive_path = temp_logs_dir / "archive" / "app_20260602_120000.log.gz"
+        with gzip.open(archive_path, "wt", encoding="utf-8") as f:
+            f.write("archive line\n")
+
+        path, name = service.download_log("app_20260602_120000.log.gz")
+
+        assert path == archive_path
+        assert name == "app_20260602_120000.log.gz"

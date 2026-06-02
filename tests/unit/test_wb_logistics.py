@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.integrations.wb import WildberriesClient
 from app.models.enums import EconomyConfidence
 from app.services.product_dimensions import calculate_volume_liters, decimal_or_none
 from app.services.wb_logistics.wb_logistics_calculator_service import (
@@ -343,6 +344,41 @@ class TestWbLogisticsTariffSyncService:
         result = await sync_service.sync()
         assert result["status"] == "no_changes"
         assert result["version_id"] == 1
+
+
+class TestWbTariffsClient:
+    @pytest.mark.asyncio
+    async def test_box_tariffs_pass_required_moscow_date(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr("app.integrations.wb.get_moscow_today", lambda: "2026-06-02")
+        client = WildberriesClient("token")
+        client.common.request = AsyncMock(return_value={"tariffs": [{"warehouseName": "Коледино"}]})
+
+        rows = await client.get_box_tariffs()
+
+        assert rows == [{"warehouseName": "Коледино"}]
+        client.common.request.assert_awaited_once_with(
+            "GET",
+            "/api/v1/tariffs/box",
+            headers=client.headers,
+            params={"date": "2026-06-02"},
+        )
+
+    @pytest.mark.asyncio
+    async def test_pallet_and_return_tariffs_pass_date_params(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("app.integrations.wb.get_moscow_today", lambda: "2026-06-02")
+        client = WildberriesClient("token")
+        client.common.request = AsyncMock(return_value={"ok": True})
+
+        await client.get_pallet_tariffs()
+        await client.get_return_tariffs(date="2026-06-03")
+
+        assert client.common.request.await_args_list[0].kwargs["params"] == {"date": "2026-06-02"}
+        assert client.common.request.await_args_list[1].kwargs["params"] == {"date": "2026-06-03"}
 
 
 # ============================================================

@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.services.support_service import (
-    SupportService,
     TICKET_CATEGORIES,
     TICKET_STATUS_LABELS,
+    SupportService,
 )
 
 
@@ -16,6 +16,7 @@ from app.services.support_service import (
 def mock_session():
     session = AsyncMock()
     session.add = MagicMock()
+    session.flush = AsyncMock()
     session.commit = AsyncMock()
     session.refresh = AsyncMock()
     return session
@@ -24,6 +25,12 @@ def mock_session():
 @pytest.mark.asyncio
 async def test_create_ticket(mock_session):
     mock_session.refresh = AsyncMock(side_effect=lambda obj: setattr(obj, "id", 1))
+    mock_user = MagicMock()
+    mock_user.telegram_id = 123
+    mock_user.username = "seller"
+    mock_user.first_name = "Иван"
+    mock_user.last_name = "Иванов"
+    mock_session.get = AsyncMock(return_value=mock_user)
 
     service = SupportService(mock_session)
     ticket = await service.create_ticket(
@@ -34,9 +41,11 @@ async def test_create_ticket(mock_session):
     )
 
     assert ticket.user_id == 1
+    assert ticket.telegram_id == 123
+    assert ticket.username == "seller"
     assert ticket.subject == "Тестовый вопрос"
-    assert ticket.status == "open"
-    mock_session.add.assert_called_once()
+    assert ticket.status == "new"
+    assert mock_session.add.call_count == 2
     mock_session.commit.assert_called_once()
 
 
@@ -45,15 +54,22 @@ async def test_get_user_tickets(mock_session):
     mock_ticket = MagicMock()
     mock_ticket.id = 1
     mock_ticket.user_id = 1
+    mock_ticket.telegram_id = 123
+    mock_ticket.username = "seller"
+    mock_ticket.full_name = "Иван Иванов"
     mock_ticket.subject = "Тест"
     mock_ticket.message = "Описание"
-    mock_ticket.status = "open"
+    mock_ticket.status = "new"
     mock_ticket.priority = "normal"
     mock_ticket.category = "general"
+    mock_ticket.admin_comment = None
+    mock_ticket.assigned_admin_id = None
     mock_ticket.admin_response = None
     mock_ticket.created_at = datetime(2026, 1, 1, tzinfo=UTC)
+    mock_ticket.updated_at = datetime(2026, 1, 1, tzinfo=UTC)
     mock_ticket.responded_at = None
     mock_ticket.closed_at = None
+    mock_ticket.resolved_at = None
 
     mock_result = MagicMock()
     mock_result.scalars.return_value.all.return_value = [mock_ticket]
@@ -77,7 +93,7 @@ async def test_respond_ticket(mock_session):
 
     assert result is True
     assert mock_ticket.admin_response == "Ответ админа"
-    assert mock_ticket.status == "responded"
+    assert mock_ticket.status == "answered"
     mock_session.commit.assert_called_once()
 
 
@@ -114,5 +130,6 @@ def test_ticket_categories_not_empty():
 
 
 def test_ticket_status_labels():
-    assert "open" in TICKET_STATUS_LABELS
+    assert "new" in TICKET_STATUS_LABELS
+    assert "answered" in TICKET_STATUS_LABELS
     assert "closed" in TICKET_STATUS_LABELS

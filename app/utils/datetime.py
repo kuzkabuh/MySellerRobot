@@ -19,6 +19,12 @@ def get_user_timezone(timezone_name: str | None) -> ZoneInfo:
         return ZoneInfo(DEFAULT_TIMEZONE)
 
 
+def get_moscow_today() -> str:
+    """Return today's date in Moscow timezone for APIs that require local calendar date."""
+
+    return datetime.now(ZoneInfo(DEFAULT_TIMEZONE)).date().isoformat()
+
+
 def ensure_aware_utc(value: datetime) -> datetime:
     """Treat legacy naive datetimes as UTC and return an aware UTC datetime."""
 

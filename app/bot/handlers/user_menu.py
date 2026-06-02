@@ -5,10 +5,11 @@ description: User menu bot handlers (profile, tariff, API keys, notifications, s
 
 import logging
 from datetime import datetime
+from html import escape
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,9 +22,11 @@ from app.bot.keyboards.main import (
     user_tariff_menu,
 )
 from app.bot.states import PaymentStates
+from app.core.config import get_settings
 from app.core.db import get_session
 from app.models.domain import MarketplaceAccount, User
 from app.models.enums import Marketplace
+from app.services.commission_tariffs.admin_notifications import notify_admins
 from app.services.profile_service import ProfileService, ProfileUpdateData, ProfileValidationError
 from app.services.subscription_service import SubscriptionService
 from app.services.support_service import SupportService
@@ -380,10 +383,10 @@ async def show_user_support(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "user:support_new")
 async def start_support_ticket(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.set_state(PaymentStates.waiting_support_subject)
+    await state.set_state(PaymentStates.waiting_support_message)
     await callback.message.edit_text(
         "🆘 <b>Новое обращение</b>\n\n"
-        "Опишите вашу проблему или вопрос:\n\n"
+        "Напишите текст обращения одним сообщением:\n\n"
         "<i>Отправьте /cancel для отмены</i>",
         parse_mode="HTML",
     )
@@ -408,10 +411,18 @@ async def show_support_tickets(callback: CallbackQuery) -> None:
         else:
             lines = ["🆘 <b>Мои обращения</b>\n\n"]
             for t in tickets:
-                status_labels = {"open": "Открыт", "responded": "Отвечен", "closed": "Закрыт"}
+                status_labels = {
+                    "new": "Новое",
+                    "in_progress": "В работе",
+                    "answered": "Дан ответ",
+                    "closed": "Закрыто",
+                    "rejected": "Отклонено",
+                    "open": "Открыто",
+                    "responded": "Отвечено",
+                }
                 status = status_labels.get(t.status, t.status)
                 lines.append(
-                    f"<b>{t.subject}</b>\n"
+                    f"<b>#{t.id} {escape(t.subject)}</b>\n"
                     f"Статус: {status}\n"
                     f"Дата: {_dt(t.created_at, user.timezone)}\n\n"
                 )
@@ -518,31 +529,73 @@ async def process_support_message(message: Message, state: FSMContext) -> None:
         return
 
     data = await state.get_data()
-    subject = data.get("support_subject", "Обращение")
+    raw_text = (message.text or "").strip()
+    subject = data.get("support_subject") or raw_text[:80] or "Обращение"
 
     async for session in get_session():
-        user = await _get_user(session, message.from_user.id)
-        if user is None:
-            await message.answer("Пользователь не найден.")
-            return
+        try:
+            user = await _get_user(session, message.from_user.id)
+            if user is None:
+                await message.answer("Пользователь не найден.")
+                return
 
-        await SupportService(session).create_ticket(
-            user_id=user.id,
-            subject=subject,
-            message=message.text or "",
-        )
-        await UserActivityService(session).log_activity(
-            user.id,
-            "support_ticket_created",
-            details={"subject": subject},
-        )
-        await state.clear()
-        await message.answer(
-            "✅ Ваше обращение отправлено в поддержку.\n"
-            "Мы ответим вам в ближайшее время.",
-            reply_markup=user_support_menu(),
-        )
+            ticket = await SupportService(session).create_ticket(
+                user_id=user.id,
+                subject=subject,
+                message=raw_text,
+            )
+            await UserActivityService(session).log_activity(
+                user.id,
+                "support_ticket_created",
+                details={"subject": subject, "ticket_id": ticket.id},
+            )
+            await state.clear()
+            await message.answer(
+                f"✅ Обращение принято. Номер обращения: #{ticket.id}. "
+                "Администратор рассмотрит его в ближайшее время.",
+                reply_markup=user_support_menu(),
+            )
+            await _notify_admins_about_ticket(message, user, ticket.id, raw_text)
+        except Exception:
+            logger.exception(
+                "support_ticket_create_failed",
+                extra={"telegram_id": message.from_user.id if message.from_user else None},
+            )
+            await message.answer(
+                "❌ Не удалось сохранить обращение. Попробуйте позже.",
+                reply_markup=user_support_menu(),
+            )
         break
+
+
+async def _notify_admins_about_ticket(
+    message: Message,
+    user: User,
+    ticket_id: int,
+    ticket_text: str,
+) -> None:
+    admin_url = f"{get_settings().get_web_base_url()}/web/admin/support/{ticket_id}"
+    full_name = " ".join(part for part in (user.first_name, user.last_name) if part) or "н/д"
+    username = f"@{user.username}" if user.username else "н/д"
+    created = format_datetime_for_user(datetime.now(), "Europe/Moscow", "%d.%m.%Y %H:%M")
+    text = (
+        "🆘 <b>Новое обращение пользователя</b>\n\n"
+        f"Номер: #{ticket_id}\n"
+        f"Пользователь: {escape(full_name)}\n"
+        f"Telegram ID: <code>{user.telegram_id}</code>\n"
+        f"Username: {escape(username)}\n\n"
+        "Текст обращения:\n"
+        f"{escape(ticket_text)}\n\n"
+        f"Дата: {created}"
+    )
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="👁 Открыть в админке", url=admin_url)],
+        ]
+    )
+    sent = await notify_admins(message.bot, text, reply_markup=keyboard)
+    if sent == 0:
+        logger.warning("support_ticket_admin_notification_no_recipients", extra={"ticket_id": ticket_id})
 
 
 async def _get_user(session: AsyncSession, telegram_id: int) -> User | None:

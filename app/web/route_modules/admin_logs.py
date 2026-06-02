@@ -2,6 +2,7 @@
 
 # ruff: noqa: E501
 
+import logging
 from datetime import datetime
 from html import escape
 
@@ -11,15 +12,20 @@ from pydantic import BaseModel
 
 from app.core.config import get_settings
 from app.models.domain import User
-from app.services.log_viewer_service import ALLOWED_LOG_FILES, LogViewerService
+from app.services.log_viewer_service import LogViewerService
 from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY
 from app.web.rendering import page
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _require_admin(user: User) -> None:
     if user.telegram_id not in get_settings().admin_ids:
+        logger.warning(
+            "admin_logs_unauthorized_access",
+            extra={"user_id": user.id, "telegram_id": user.telegram_id},
+        )
         raise HTTPException(status_code=403, detail="Доступно только администраторам")
 
 
@@ -67,13 +73,13 @@ async def admin_logs_page(
 ) -> str:
     _require_admin(user)
 
-    if log_file not in ALLOWED_LOG_FILES:
+    service = LogViewerService()
+    log_files = service.list_log_files()
+    if log_file not in log_files:
         log_file = "app.log"
 
-    service = LogViewerService()
-
     stats_cards = []
-    for fname in ALLOWED_LOG_FILES:
+    for fname in log_files:
         try:
             stats = service.get_stats(fname)
             stats_cards.append(
@@ -112,7 +118,7 @@ async def admin_logs_page(
         f'<a class="{"active" if f == log_file else ""}" '
         f'href="/web/admin/logs?log_file={f}&level={_h(level)}&search={_h(search)}&limit={limit}">'
         f"{_h(f)}</a>"
-        for f in ALLOWED_LOG_FILES
+        for f in log_files
     )
 
     level_options = "".join(
@@ -122,7 +128,12 @@ async def admin_logs_page(
 
     limit_options = "".join(
         f'<option value="{n}" {"selected" if n == limit else ""}>{n}</option>'
-        for n in [50, 100, 200, 500, 1000]
+        for n in [100, 500, 1000, 5000]
+    )
+    archive_button = (
+        f'<button class="btn" onclick="archiveLog(\'{_h(log_file)}\')">Архивировать и очистить</button>'
+        if log_file in {"app.log", "errors.log"}
+        else ""
     )
 
     content = f"""
@@ -149,7 +160,7 @@ async def admin_logs_page(
       </div>
       <div class="page-actions">
         <a class="btn" href="/web/admin/logs/download/{log_file}">Скачать {_h(log_file)}</a>
-        <button class="btn" onclick="archiveLog('{_h(log_file)}')">Архивировать и очистить</button>
+        {archive_button}
       </div>
     </div>
 
@@ -379,10 +390,9 @@ async def admin_logs_data(
 ) -> JSONResponse:
     _require_admin(user)
 
-    if log_file not in ALLOWED_LOG_FILES:
-        log_file = "app.log"
-
     service = LogViewerService()
+    if log_file not in service.list_log_files():
+        log_file = "app.log"
 
     dt_from = None
     dt_to = None
@@ -397,16 +407,22 @@ async def admin_logs_data(
         except ValueError:
             pass
 
-    entries = service.read_logs(
-        log_name=log_file,
-        limit=limit,
-        level=level if level else None,
-        search=search if search else None,
-        date_from=dt_from,
-        date_to=dt_to,
-        user_id=user_id if user_id else None,
-        telegram_id=telegram_id if telegram_id else None,
-    )
+    try:
+        entries = service.read_logs(
+            log_name=log_file,
+            limit=limit,
+            level=level if level else None,
+            search=search if search else None,
+            date_from=dt_from,
+            date_to=dt_to,
+            user_id=user_id if user_id else None,
+            telegram_id=telegram_id if telegram_id else None,
+        )
+    except FileNotFoundError:
+        logger_message = "Лог-файл пока не создан или был перенесён в архив."
+        return JSONResponse({"entries": [], "count": 0, "message": logger_message})
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Недопустимое имя лог-файла") from exc
 
     return JSONResponse({
         "entries": [

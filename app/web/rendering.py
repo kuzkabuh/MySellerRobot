@@ -57,6 +57,7 @@ NAV_GROUPS = [
             ("Audit log (admin)", "/web/admin/audit-log"),
             ("Тарифы (admin)", "/web/admin/tariffs"),
             ("Промокоды (admin)", "/web/admin/promocodes"),
+            ("Обращения пользователей (admin)", "/web/admin/support"),
             ("Логи системы (admin)", "/web/admin/logs"),
         ],
     ),
@@ -87,6 +88,7 @@ NAV_ICONS = {
     "Комиссии МП (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3" y="2" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M6 5h4M6 8h4M6 11h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
     "Тарифы (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4l6 3 6-3M2 4v8l6 3 6-3V4M2 4l6-2 6 2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
     "Промокоды (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 5h12v6H2zM5 5v6M8 7h3M8 9h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    "Обращения пользователей (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 3h10v8H6l-3 3V3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 6h5M6 8.5h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
     "Здоровье кабинета": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 9h3l1.2-4 2.4 8L10 9h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     "Пользователи (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="6" cy="5" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M1.5 14c.8-3 2.4-5 4.5-5s3.7 2 4.5 5M11 6h4M13 4v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
     "Платежи (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="4" width="12" height="8" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M2 7h12M5 10h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
@@ -102,6 +104,7 @@ NAV_ICONS_FALLBACK = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none
 def page(title: str, user_name: str, content: str, *, active_path: str = "/web/") -> str:
     safe_title = escape(title)
     safe_user = escape(user_name or "селлер")
+    show_admin_nav = "(admin)" in (user_name or "")
     return f"""<!doctype html>
 <html lang="ru">
 <head>
@@ -121,7 +124,7 @@ def page(title: str, user_name: str, content: str, *, active_path: str = "/web/"
         <span class="brand-text">Control</span>
       </div>
       <nav>
-        {_nav(active_path)}
+        {_nav(active_path, show_admin_nav)}
       </nav>
     </aside>
     <div class="main-wrap">
@@ -1295,19 +1298,22 @@ def _js() -> str:
     """
 
 
-def _nav(active_path: str) -> str:
+def _nav(active_path: str, show_admin: bool = False) -> str:
     groups = []
     for title, items in NAV_GROUPS:
         links = []
         for label, href in items:
+            if "(admin)" in label and not show_admin:
+                continue
             active = ' class="active"' if href == active_path else ""
             icon_svg = NAV_ICONS.get(label, NAV_ICONS_FALLBACK)
             links.append(
                 f'<a{active} href="{href}"><span class="nav-icon">{icon_svg}</span>'
                 f"<span>{escape(label)}</span></a>"
             )
-        groups.append(
-            '<div class="nav-group">'
-            f'<div class="nav-title">{escape(title)}</div>' + "\n".join(links) + "</div>"
-        )
+        if links:
+            groups.append(
+                '<div class="nav-group">'
+                f'<div class="nav-title">{escape(title)}</div>' + "\n".join(links) + "</div>"
+            )
     return "\n".join(groups)

@@ -17,6 +17,7 @@ from app.schemas.orders import NormalizedOrder, NormalizedOrderItem
 from app.schemas.products import ProductUpsert
 from app.schemas.sales import NormalizedSaleEvent
 from app.services.product_dimensions import calculate_volume_liters, decimal_or_none
+from app.utils.datetime import get_moscow_today
 
 logger = logging.getLogger(__name__)
 
@@ -315,9 +316,7 @@ class WildberriesClient:
           boxDeliveryMarketplaceCoefExpr (FBS)
         """
 
-        params: dict[str, str] = {}
-        if date:
-            params["date"] = date
+        params = {"date": date or get_moscow_today()}
         data = await self.common.request(
             "GET",
             "/api/v1/tariffs/box",
@@ -326,6 +325,32 @@ class WildberriesClient:
         )
         tariffs = data.get("tariffs", []) if isinstance(data, dict) else []
         return list(tariffs) if isinstance(tariffs, list) else []
+
+    async def get_pallet_tariffs(self, *, date: str | None = None) -> dict[str, Any]:
+        """Return WB pallet logistics tariffs with required Moscow date."""
+
+        return cast(
+            dict[str, Any],
+            await self.common.request(
+                "GET",
+                "/api/v1/tariffs/pallet",
+                headers=self.headers,
+                params={"date": date or get_moscow_today()},
+            ),
+        )
+
+    async def get_return_tariffs(self, *, date: str | None = None) -> dict[str, Any]:
+        """Return WB return logistics tariffs with required Moscow date."""
+
+        return cast(
+            dict[str, Any],
+            await self.common.request(
+                "GET",
+                "/api/v1/tariffs/return",
+                headers=self.headers,
+                params={"date": date or get_moscow_today()},
+            ),
+        )
 
     async def get_sales_report_details(
         self,

@@ -52,6 +52,9 @@ def main_menu(is_admin: bool = False) -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(text="🔄 Синхронизация", callback_data="sync_menu"),
         ],
+        [
+            InlineKeyboardButton(text="🆘 Поддержка / Обращение", callback_data="user:support"),
+        ],
     ]
     if is_admin:
         rows.append([InlineKeyboardButton(text="🛠 Администрирование", callback_data="admin_menu")])
@@ -144,6 +147,13 @@ def admin_menu() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="🎟 Промокоды", callback_data="ap:promos"),
             ],
             [InlineKeyboardButton(text="👥 Пользователи", callback_data="admin:users")],
+            [
+                InlineKeyboardButton(
+                    text="🆘 Обращения пользователей",
+                    callback_data="admin:support",
+                )
+            ],
+            [InlineKeyboardButton(text="📄 Логи", callback_data="admin:logs")],
             [InlineKeyboardButton(text="🏪 Подключённые кабинеты", callback_data="admin:accounts")],
             [
                 InlineKeyboardButton(

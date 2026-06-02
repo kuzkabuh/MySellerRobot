@@ -85,6 +85,7 @@ class User(TimestampMixin, Base):
     api_key_logs: Mapped[list["ApiKeyAuditLog"]] = relationship(back_populates="user")
     sync_statuses: Mapped[list["SyncStatus"]] = relationship(back_populates="user")
     support_tickets: Mapped[list["SupportTicket"]] = relationship(back_populates="user")
+    support_ticket_events: Mapped[list["SupportTicketEvent"]] = relationship(back_populates="actor")
 
 
 class MarketplaceAccount(TimestampMixin, Base):
@@ -1436,18 +1437,60 @@ class SupportTicket(TimestampMixin, Base):
     __table_args__ = (
         Index("ix_support_tickets_user_id", "user_id"),
         Index("ix_support_tickets_status", "status"),
+        Index("ix_support_tickets_priority", "priority"),
+        Index("ix_support_tickets_telegram_id", "telegram_id"),
+        Index("ix_support_tickets_created_at", "created_at"),
+        Index("ix_support_tickets_assigned_admin_id", "assigned_admin_id"),
     )
 
     id: Mapped[int_pk]
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    telegram_id: Mapped[int | None] = mapped_column(BigInteger)
+    username: Mapped[str | None] = mapped_column(String(255))
+    full_name: Mapped[str | None] = mapped_column(String(512))
     subject: Mapped[str] = mapped_column(String(255), nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="open")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="new")
     priority: Mapped[str] = mapped_column(String(16), nullable=False, default="normal")
     category: Mapped[str | None] = mapped_column(String(64))
+    admin_comment: Mapped[str | None] = mapped_column(Text)
+    assigned_admin_id: Mapped[int | None] = mapped_column(Integer)
     admin_response: Mapped[str | None] = mapped_column(Text)
     responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     responded_by: Mapped[int | None] = mapped_column(Integer)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     user: Mapped[User] = relationship(back_populates="support_tickets")
+    events: Mapped[list["SupportTicketEvent"]] = relationship(
+        back_populates="ticket",
+        cascade="all, delete-orphan",
+    )
+
+
+class SupportTicketEvent(Base):
+    __tablename__ = "user_support_ticket_events"
+    __table_args__ = (
+        Index("ix_support_ticket_events_ticket_id", "ticket_id"),
+        Index("ix_support_ticket_events_created_at", "created_at"),
+    )
+
+    id: Mapped[int_pk]
+    ticket_id: Mapped[int] = mapped_column(
+        ForeignKey("support_tickets.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    actor_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    actor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    old_value: Mapped[str | None] = mapped_column(Text)
+    new_value: Mapped[str | None] = mapped_column(Text)
+    comment: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=sa.func.now(),
+        nullable=False,
+    )
+
+    ticket: Mapped[SupportTicket] = relationship(back_populates="events")
+    actor: Mapped[User | None] = relationship(back_populates="support_ticket_events")

@@ -8,13 +8,20 @@ from typing import Any
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from aiogram.types import InlineKeyboardMarkup
 
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
 
-async def notify_admins(bot: Bot, message: str, *, parse_mode: str = "HTML") -> int:
+async def notify_admins(
+    bot: Bot,
+    message: str,
+    *,
+    parse_mode: str = "HTML",
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> int:
     """Send a notification message to all configured admin Telegram IDs.
 
     Returns the number of admins successfully notified.
@@ -28,7 +35,12 @@ async def notify_admins(bot: Bot, message: str, *, parse_mode: str = "HTML") -> 
     sent = 0
     for telegram_id in admin_ids:
         try:
-            await bot.send_message(telegram_id, message, parse_mode=parse_mode)
+            await bot.send_message(
+                telegram_id,
+                message,
+                parse_mode=parse_mode,
+                reply_markup=reply_markup,
+            )
             sent += 1
         except TelegramForbiddenError:
             logger.warning(

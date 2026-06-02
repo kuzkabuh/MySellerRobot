@@ -13,15 +13,21 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import MarketplaceApiError
 from app.integrations.wb import WildberriesClient
 from app.models.wb_logistics_tariffs import (
     WbLogisticsTariffRate,
     WbLogisticsTariffVersion,
 )
+from app.utils.datetime import get_moscow_today
 
 logger = logging.getLogger(__name__)
 
 TARIFF_SOURCE = "wb_api"
+WB_LOGISTICS_ERROR_MESSAGE = (
+    "Не удалось обновить тарифы логистики WB. "
+    "Попробуйте позже или проверьте API-ключ."
+)
 
 
 def _compute_version_hash(payload: list[dict[str, Any]]) -> str:
@@ -105,15 +111,38 @@ class WbLogisticsTariffSyncService:
         - rows_count: int
         - message: str
         """
+        effective_date = tariff_date or get_moscow_today()
         try:
-            raw_tariffs = await self._wb_client.get_box_tariffs(date=tariff_date)
-        except Exception as exc:
-            logger.exception("Failed to fetch WB box tariffs: %s", exc)
+            raw_tariffs = await self._wb_client.get_box_tariffs(date=effective_date)
+        except MarketplaceApiError as exc:
+            payload = exc.details.get("payload") if isinstance(exc.details, dict) else None
+            request_id = payload.get("requestId") if isinstance(payload, dict) else None
+            logger.exception(
+                "wb_logistics_tariffs_fetch_failed",
+                extra={
+                    "endpoint": "/api/v1/tariffs/box",
+                    "status_code": exc.status_code,
+                    "request_id": request_id,
+                    "response_body": payload,
+                    "tariff_date": effective_date,
+                },
+            )
             return {
                 "status": "error",
                 "version_id": None,
                 "rows_count": 0,
-                "message": f"API error: {exc}",
+                "message": WB_LOGISTICS_ERROR_MESSAGE,
+            }
+        except Exception:
+            logger.exception(
+                "wb_logistics_tariffs_fetch_failed",
+                extra={"endpoint": "/api/v1/tariffs/box", "tariff_date": effective_date},
+            )
+            return {
+                "status": "error",
+                "version_id": None,
+                "rows_count": 0,
+                "message": WB_LOGISTICS_ERROR_MESSAGE,
             }
 
         if not raw_tariffs:
@@ -143,8 +172,6 @@ class WbLogisticsTariffSyncService:
                 "rows_count": 0,
                 "message": "Тарифы логистики WB не изменились",
             }
-
-        effective_date = tariff_date or datetime.now(UTC).strftime("%Y-%m-%d")
 
         normalized = [_normalize_tariff_entry(entry) for entry in raw_tariffs]
 

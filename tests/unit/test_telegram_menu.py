@@ -209,6 +209,7 @@ def test_known_callback_buttons_have_common_handler_contract() -> None:
         "admin_tariff:",
         "sync:",
         "mrc:",
+        "user:",
     )
 
     unknown = {

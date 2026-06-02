@@ -56,12 +56,31 @@ class LogViewerService:
         ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
 
     def _validate_log_name(self, log_name: str) -> Path:
-        if log_name not in ALLOWED_LOG_FILES:
+        if "/" in log_name or "\\" in log_name or ".." in log_name:
             raise ValueError(f"Log file not allowed: {log_name}")
-        log_path = LOGS_DIR / log_name
+        if log_name in ALLOWED_LOG_FILES:
+            log_path = LOGS_DIR / log_name
+        elif log_name in self.list_archive_logs():
+            log_path = ARCHIVE_DIR / log_name
+        else:
+            raise ValueError(f"Log file not allowed: {log_name}")
         if not log_path.exists():
             raise FileNotFoundError(f"Log file not found: {log_name}")
         return log_path
+
+    def list_log_files(self) -> list[str]:
+        return sorted(ALLOWED_LOG_FILES) + self.list_archive_logs()
+
+    def list_archive_logs(self) -> list[str]:
+        if not ARCHIVE_DIR.exists():
+            return []
+        return sorted(
+            path.name
+            for path in ARCHIVE_DIR.iterdir()
+            if path.is_file()
+            and path.suffix == ".gz"
+            and (path.name.startswith("app_") or path.name.startswith("errors_"))
+        )
 
     def _mask_secrets(self, text: str) -> str:
         result = text
@@ -151,7 +170,9 @@ class LogViewerService:
     ) -> list[LogEntry]:
         log_path = self._validate_log_name(log_name)
 
-        with open(log_path, encoding="utf-8") as f:
+        limit = max(1, min(limit, 5000))
+        opener = gzip.open if log_path.suffix == ".gz" else open
+        with opener(log_path, "rt", encoding="utf-8") as f:
             lines = deque(f, maxlen=limit * 10)
 
         entries = []
@@ -199,7 +220,8 @@ class LogViewerService:
         last_entry = None
         total_lines = 0
 
-        with open(log_path, encoding="utf-8") as f:
+        opener = gzip.open if log_path.suffix == ".gz" else open
+        with opener(log_path, "rt", encoding="utf-8") as f:
             for line in f:
                 total_lines += 1
                 entry = self._parse_log_line(line)

@@ -1147,6 +1147,10 @@ async def _handle_admin_callback(callback: CallbackQuery, message: Message, data
         service = AdminService(session)
         if data == "admin:users":
             text = await service.users_text()
+        elif data == "admin:support":
+            text = "🆘 Обращения пользователей доступны в web-админке: /web/admin/support"
+        elif data == "admin:logs":
+            text = "📄 Логи доступны в web-админке: /web/admin/logs"
         elif data == "admin:accounts":
             text = await service.accounts_text()
         elif data == "admin:sync":
