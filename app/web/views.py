@@ -1310,7 +1310,17 @@ def _subscription_content(
     timezone: str = "Europe/Moscow",
 ) -> str:
     active = data.active_subscription
-    status = subscription_status(active)
+    raw_status = subscription_status(active)
+    status_map = {
+        "ACTIVE": "Активен",
+        "EXPIRED": "Истёк",
+        "CANCELLED": "Отменён",
+        "TRIAL": "Пробный",
+        "PENDING": "Ожидает оплаты",
+        "FREE": "Бесплатный тариф",
+        "REPLACED": "Заменён",
+    }
+    status = status_map.get(raw_status.upper(), raw_status)
     expires = (
         format_datetime_for_user(active.expires_at, timezone, "%d.%m.%Y")
         if active and active.expires_at
@@ -1375,6 +1385,27 @@ def _subscription_content(
 
 def _profile_content(user: User, subscription: SubscriptionPageData) -> str:
     checked = " checked" if user.notifications_enabled else ""
+    active = subscription.active_subscription
+    raw_status = subscription_status(active)
+    status_map = {
+        "ACTIVE": "Активен",
+        "EXPIRED": "Истёк",
+        "CANCELLED": "Отменён",
+        "TRIAL": "Пробный",
+        "PENDING": "Ожидает оплаты",
+        "FREE": "Бесплатный тариф",
+        "REPLACED": "Заменён",
+    }
+    status_label = status_map.get(raw_status.upper(), raw_status)
+    expires = (
+        format_datetime_for_user(active.expires_at, user.timezone, "%d.%m.%Y")
+        if active and active.expires_at
+        else "бессрочно"
+    )
+    max_orders = subscription.tier.max_orders_per_month
+    max_orders_label = str(max_orders) if max_orders else "без ограничений"
+    max_products = subscription.tier.max_products
+    max_products_label = str(max_products) if max_products else "без ограничений"
     return f"""
       {_page_header("Профиль", "Управляйте настройками пользователя, уведомлениями и подпиской.", "/web/subscription", "Подписка")}
       <section class="detail-grid">
@@ -1390,10 +1421,15 @@ def _profile_content(user: User, subscription: SubscriptionPageData) -> str:
           </div>
         </section>
         <section class="band">
-          <h2>Подписка</h2>
+          <h2>Текущий тариф</h2>
           <div class="kv">
             <span>Тариф</span><strong>{escape(subscription.tier.name)}</strong>
-            <span>Статус</span><strong>{escape(subscription_status(subscription.active_subscription))}</strong>
+            <span>Статус</span><strong>{escape(status_label)}</strong>
+            <span>Действует до</span><strong>{escape(expires)}</strong>
+            <span>Кабинеты</span><strong>{subscription.used_accounts} / {subscription.tier.max_marketplace_accounts}</strong>
+            <span>Заказы за месяц</span><strong>{subscription.used_orders_month} / {max_orders_label}</strong>
+            <span>SKU</span><strong>{subscription.used_products} / {max_products_label}</strong>
+            <span>Уведомления</span><strong>{"включены" if user.notifications_enabled else "выключены"}</strong>
           </div>
           <p><a class="button primary" href="/web/subscription">Управление подпиской</a></p>
         </section>

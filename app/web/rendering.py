@@ -49,19 +49,27 @@ NAV_GROUPS = [
             ("Профиль", "/web/profile"),
             ("Профиль и настройки", "/web/settings"),
             ("Здоровье кабинета", "/web/health"),
-            ("Администрирование (admin)", "/web/admin"),
-            ("Комиссии МП (admin)", "/web/admin/commissions"),
-            ("Пользователи (admin)", "/web/admin/users"),
-            ("Платежи (admin)", "/web/admin/payments"),
-            ("Уведомления (admin)", "/web/admin/notifications"),
-            ("Sync status (admin)", "/web/admin/sync-status"),
-            ("Worker diagnostics (admin)", "/web/admin/worker-diagnostics"),
-            ("Audit log (admin)", "/web/admin/audit-log"),
-            ("Тарифы (admin)", "/web/admin/tariffs"),
-            ("Промокоды (admin)", "/web/admin/promocodes"),
-            ("Обращения пользователей (admin)", "/web/admin/support"),
-            ("Логи системы (admin)", "/web/admin/logs"),
-            ("Бэкапы (admin)", "/web/admin/backups"),
+        ],
+    ),
+]
+
+ADMIN_NAV_GROUPS = [
+    (
+        "Админка",
+        [
+            ("Администрирование", "/web/admin"),
+            ("Пользователи", "/web/admin/users"),
+            ("Тарифы", "/web/admin/tariffs"),
+            ("Промокоды", "/web/admin/promocodes"),
+            ("Платежи", "/web/admin/payments"),
+            ("Обращения пользователей", "/web/admin/support"),
+            ("Логи", "/web/admin/logs"),
+            ("Комиссии МП", "/web/admin/commissions"),
+            ("Уведомления", "/web/admin/notifications"),
+            ("Sync status", "/web/admin/sync-status"),
+            ("Worker diagnostics", "/web/admin/worker-diagnostics"),
+            ("Audit log", "/web/admin/audit-log"),
+            ("Бэкапы", "/web/admin/backups"),
         ],
     ),
 ]
@@ -88,19 +96,20 @@ NAV_ICONS = {
     "Подписка и тариф": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4l6 3 6-3M2 4v8l6 3 6-3V4M2 4l6-2 6 2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
     "Профиль и настройки": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M2 14c0-3 2.5-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
     "Настройки": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/><path d="M8 2v2M8 12v2M2 8h2M12 8h2M3.8 3.8l1.4 1.4M10.8 10.8l1.4 1.4M12.2 3.8l-1.4 1.4M5.2 10.8l-1.4 1.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
-    "Комиссии МП (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3" y="2" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M6 5h4M6 8h4M6 11h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
-    "Администрирование (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2l5 2v4c0 3-2 5-5 6-3-1-5-3-5-6V4l5-2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 8l1.3 1.3L10.5 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-    "Тарифы (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4l6 3 6-3M2 4v8l6 3 6-3V4M2 4l6-2 6 2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
-    "Промокоды (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 5h12v6H2zM5 5v6M8 7h3M8 9h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-    "Обращения пользователей (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 3h10v8H6l-3 3V3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 6h5M6 8.5h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Комиссии МП": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3" y="2" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M6 5h4M6 8h4M6 11h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Администрирование": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2l5 2v4c0 3-2 5-5 6-3-1-5-3-5-6V4l5-2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 8l1.3 1.3L10.5 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    "Тарифы": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4l6 3 6-3M2 4v8l6 3 6-3V4M2 4l6-2 6 2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
+    "Промокоды": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 5h12v6H2zM5 5v6M8 7h3M8 9h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    "Обращения пользователей": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 3h10v8H6l-3 3V3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 6h5M6 8.5h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
     "Здоровье кабинета": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 9h3l1.2-4 2.4 8L10 9h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-    "Пользователи (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="6" cy="5" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M1.5 14c.8-3 2.4-5 4.5-5s3.7 2 4.5 5M11 6h4M13 4v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
-    "Платежи (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="4" width="12" height="8" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M2 7h12M5 10h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
-    "Уведомления (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2a4 4 0 014 4c0 3 1.5 4.5 2 5H2c.5-.5 2-2 2-5a4 4 0 014-4z" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 13a1.5 1.5 0 003 0" stroke="currentColor" stroke-width="1.5"/></svg>',
-    "Sync status (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13 5a5 5 0 00-8.5-1.8L3 5M3 11a5 5 0 008.5 1.8L13 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-    "Audit log (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3" y="2" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M6 5h4M6 8h4M6 11h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
-    "Логи системы (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 5h6M5 8h6M5 11h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
-    "Бэкапы (admin)": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 4h10v10H3z" stroke="currentColor" stroke-width="1.5"/><path d="M5 2h6v4H5zM5 10h6M5 12h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    "Пользователи": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="6" cy="5" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M1.5 14c.8-3 2.4-5 4.5-5s3.7 2 4.5 5M11 6h4M13 4v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Платежи": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="4" width="12" height="8" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M2 7h12M5 10h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Уведомления": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2a4 4 0 014 4c0 3 1.5 4.5 2 5H2c.5-.5 2-2 2-5a4 4 0 014-4z" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 13a1.5 1.5 0 003 0" stroke="currentColor" stroke-width="1.5"/></svg>',
+    "Sync status": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13 5a5 5 0 00-8.5-1.8L3 5M3 11a5 5 0 008.5 1.8L13 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    "Audit log": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3" y="2" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M6 5h4M6 8h4M6 11h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Логи": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 5h6M5 8h6M5 11h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Бэкапы": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 4h10v10H3z" stroke="currentColor" stroke-width="1.5"/><path d="M5 2h6v4H5zM5 10h6M5 12h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    "Worker diagnostics": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/><path d="M8 2v2M8 12v2M2 8h2M12 8h2M3.8 3.8l1.4 1.4M10.8 10.8l1.4 1.4M12.2 3.8l-1.4 1.4M5.2 10.8l-1.4 1.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
 }
 
 NAV_ICONS_FALLBACK = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="3" stroke="currentColor" stroke-width="1.5"/></svg>'
@@ -1336,8 +1345,6 @@ def _nav(active_path: str, show_admin: bool = False) -> str:
     for title, items in NAV_GROUPS:
         links = []
         for label, href in items:
-            if href.startswith("/web/admin") and not show_admin:
-                continue
             active = ' class="active"' if href == active_path else ""
             icon_svg = NAV_ICONS.get(label, NAV_ICONS_FALLBACK)
             links.append(
@@ -1349,4 +1356,19 @@ def _nav(active_path: str, show_admin: bool = False) -> str:
                 '<div class="nav-group">'
                 f'<div class="nav-title">{escape(title)}</div>' + "\n".join(links) + "</div>"
             )
+    if show_admin:
+        for title, items in ADMIN_NAV_GROUPS:
+            links = []
+            for label, href in items:
+                active = ' class="active"' if href == active_path else ""
+                icon_svg = NAV_ICONS.get(label, NAV_ICONS_FALLBACK)
+                links.append(
+                    f'<a{active} href="{href}"><span class="nav-icon">{icon_svg}</span>'
+                    f"<span>{escape(label)}</span></a>"
+                )
+            if links:
+                groups.append(
+                    '<div class="nav-group">'
+                    f'<div class="nav-title">{escape(title)}</div>' + "\n".join(links) + "</div>"
+                )
     return "\n".join(groups)

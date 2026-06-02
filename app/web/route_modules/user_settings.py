@@ -65,12 +65,62 @@ def _settings_tabs(active_tab: str) -> str:
     return f'<nav class="subnav">{"".join(links)}</nav>'
 
 
-def _profile_tab(user: User) -> str:
+def _subscription_status_russian(status_value: str) -> str:
+    mapping = {
+        "ACTIVE": "Активен",
+        "EXPIRED": "Истёк",
+        "CANCELLED": "Отменён",
+        "TRIAL": "Пробный",
+        "PENDING": "Ожидает оплаты",
+        "FREE": "Бесплатный тариф",
+        "REPLACED": "Заменён",
+    }
+    return mapping.get(status_value.upper(), status_value)
+
+
+def _profile_tab(user: User, subscription_data: object | None = None) -> str:
     first_name = getattr(user, "first_name", None)
     last_name = getattr(user, "last_name", None)
     username = getattr(user, "username", None)
     timezone = getattr(user, "timezone", "Europe/Moscow")
     display_name = first_name or last_name or username or str(user.telegram_id)
+
+    if subscription_data is not None:
+        tier = getattr(subscription_data, "tier", None)
+        tier_name = getattr(tier, "name", "Free") if tier else "Free"
+        active_sub = getattr(subscription_data, "active_subscription", None)
+        from app.services.web_cabinet_service import subscription_status
+        raw_status = subscription_status(active_sub)
+        status_label = _subscription_status_russian(raw_status)
+        expires_at = getattr(active_sub, "expires_at", None) if active_sub else None
+        expires_label = (
+            format_datetime_for_user(expires_at, timezone, "%d.%m.%Y")
+            if expires_at
+            else "бессрочно"
+        )
+        used_accounts = getattr(subscription_data, "used_accounts", 0)
+        max_accounts = getattr(tier, "max_marketplace_accounts", 1) if tier else 1
+        used_orders = getattr(subscription_data, "used_orders_month", 0)
+        max_orders = getattr(tier, "max_orders_per_month", None) if tier else None
+        max_orders_label = str(max_orders) if max_orders else "без ограничений"
+        used_products = getattr(subscription_data, "used_products", 0)
+        max_products = getattr(tier, "max_products", None) if tier else None
+        max_products_label = str(max_products) if max_products else "без ограничений"
+        tariff_block = f"""
+            <span>Тариф</span><strong>{escape(tier_name)}</strong>
+            <span>Статус</span><strong>{escape(status_label)}</strong>
+            <span>Действует до</span><strong>{escape(expires_label)}</strong>
+            <span>Кабинеты</span><strong>{used_accounts} / {max_accounts}</strong>
+            <span>Заказы за месяц</span><strong>{used_orders} / {max_orders_label}</strong>
+            <span>SKU</span><strong>{used_products} / {max_products_label}</strong>
+            <span>Уведомления</span><strong>{"включены" if getattr(user, "notifications_enabled", True) else "выключены"}</strong>
+        """
+    else:
+        tariff_block = f"""
+            <span>Тариф</span><strong>Не удалось загрузить данные тарифа</strong>
+            <span>Уведомления</span><strong>{"включены" if getattr(user, "notifications_enabled", True) else "выключены"}</strong>
+        """
+
     return f"""
       {_settings_tabs("profile")}
       <section class="detail-grid">
@@ -123,9 +173,7 @@ def _profile_tab(user: User) -> str:
         <section class="band">
           <h2>Текущий тариф</h2>
           <div class="kv">
-            <span>Тариф</span><strong>{escape(getattr(user, "tariff", "free"))}</strong>
-            <span>Статус</span><strong>{escape(getattr(getattr(user, "status", None), "value", "ACTIVE"))}</strong>
-            <span>Уведомления</span><strong>{"включены" if getattr(user, "notifications_enabled", True) else "выключены"}</strong>
+            {tariff_block}
           </div>
           <p style="margin-top:14px"><a class="btn btn-primary" href="/web/settings/tariff">Управление тарифом</a></p>
           <p><a class="btn" href="/web/settings/notifications">Настроить уведомления</a></p>
@@ -547,10 +595,11 @@ async def settings_profile_page(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> str:
+    subscription_data = await WebCabinetService(session).subscription_page(user.id, user.timezone)
     return page(
         "Настройки — Профиль",
         user.first_name or user.username or str(user.telegram_id),
-        _profile_tab(user),
+        _profile_tab(user, subscription_data),
         active_path="/web/settings",
     )
 
