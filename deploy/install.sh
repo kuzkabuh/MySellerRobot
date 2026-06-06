@@ -413,12 +413,42 @@ obtain_ssl() {
   systemctl reload nginx
 }
 
+prepare_alembic_version_table() {
+  cd "$PROJECT_DIR"
+  log_info "Preparing Alembic version table."
+
+  local pg_user pg_db
+  pg_user="$(env_value "POSTGRES_USER")"
+  pg_db="$(env_value "POSTGRES_DB")"
+
+  if [[ -z "$pg_user" || -z "$pg_db" ]]; then
+    log_error "POSTGRES_USER and POSTGRES_DB must be set before preparing Alembic version table."
+    exit 1
+  fi
+
+  docker compose -f "$COMPOSE_FILE" exec -T postgres \
+    psql -U "$pg_user" -d "$pg_db" \
+    -c "CREATE TABLE IF NOT EXISTS alembic_version (
+          version_num VARCHAR(255) NOT NULL,
+          CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
+        );"
+
+  docker compose -f "$COMPOSE_FILE" exec -T postgres \
+    psql -U "$pg_user" -d "$pg_db" \
+    -c "ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(255);"
+
+  docker compose -f "$COMPOSE_FILE" exec -T postgres \
+    psql -U "$pg_user" -d "$pg_db" \
+    -c "\d alembic_version" || true
+}
+
 start_services() {
   cd "$PROJECT_DIR"
   log_info "Building production images."
   docker compose -f "$COMPOSE_FILE" build
   log_info "Starting PostgreSQL and Redis."
   docker compose -f "$COMPOSE_FILE" up -d postgres redis
+  prepare_alembic_version_table
   log_info "Running Alembic migrations."
   docker compose -f "$COMPOSE_FILE" run --rm api alembic upgrade head
   log_info "Starting application services."

@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.9.2
+
+### Fixed
+
+- Исправлено падение production-установщика на чистой PostgreSQL базе из-за
+  длинных Alembic revision id. Таблица `alembic_version` теперь заранее
+  создаётся/обновляется с `version_num VARCHAR(255)` перед запуском миграций.
+
+### Changed
+
+- Версия проекта обновлена до 1.9.2.
+
 ## 1.9.1
 
 ### Added

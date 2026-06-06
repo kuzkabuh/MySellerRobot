@@ -5,6 +5,7 @@ updated: 2026-05-14
 
 from logging.config import fileConfig
 
+import sqlalchemy as sa
 from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
@@ -28,8 +29,39 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+def ensure_alembic_version_table(connection: Connection) -> None:
+    if connection.dialect.name != "postgresql":
+        return
+
+    connection.execute(
+        sa.text(
+            """
+            CREATE TABLE IF NOT EXISTS alembic_version (
+                version_num VARCHAR(255) NOT NULL,
+                CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
+            )
+            """
+        )
+    )
+    connection.execute(
+        sa.text(
+            """
+            ALTER TABLE alembic_version
+            ALTER COLUMN version_num TYPE VARCHAR(255)
+            """
+        )
+    )
+
+
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    with connection.begin():
+        ensure_alembic_version_table(connection)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        version_table="alembic_version",
+        version_table_pk=True,
+    )
     with context.begin_transaction():
         context.run_migrations()
 

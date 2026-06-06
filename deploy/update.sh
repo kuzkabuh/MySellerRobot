@@ -640,7 +640,7 @@ BEGIN
           AND table_name = 'alembic_version'
     ) THEN
         ALTER TABLE public.alembic_version
-        ALTER COLUMN version_num TYPE VARCHAR(128);
+          ALTER COLUMN version_num TYPE VARCHAR(255);
     END IF;
 END \$\$;
 "
@@ -662,7 +662,7 @@ END \$\$;
     return 0
   }
 
-  log_info "alembic_version.version_num capacity ensured: VARCHAR(128)."
+  log_info "alembic_version.version_num capacity ensured: VARCHAR(255)."
 }
 
 run_migrations() {
