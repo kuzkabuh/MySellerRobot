@@ -1,11 +1,18 @@
-# version: 1.8.3
+# version: 1.9.3
 # description: Production Docker Compose stack for MP Control services.
 # updated: 2026-05-15
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "3"
 
 services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-seller_profit_bot}
       POSTGRES_USER: ${POSTGRES_USER:-seller_bot}
@@ -25,6 +32,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    logging: *default-logging
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis_data:/data
@@ -39,6 +47,7 @@ services:
       context: .
       target: runtime
     restart: unless-stopped
+    logging: *default-logging
     command: uvicorn app.api.main:create_app --factory --host 0.0.0.0 --port 8000
     env_file: .env
     ports:
@@ -70,6 +79,7 @@ services:
       context: .
       target: runtime
     restart: unless-stopped
+    logging: *default-logging
     command: python -m app.bot.main
     env_file: .env
     volumes:
@@ -89,6 +99,7 @@ services:
       context: .
       target: runtime
     restart: unless-stopped
+    logging: *default-logging
     command: arq app.workers.settings.WorkerSettings
     env_file: .env
     volumes:

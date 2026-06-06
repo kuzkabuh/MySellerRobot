@@ -5,7 +5,8 @@
 
 set -euo pipefail
 
-cd /opt/mpcontrol
+PROJECT_DIR="${PROJECT_DIR:-/opt/mpcontrol}"
+cd "$PROJECT_DIR"
 
 set -a
 source .env

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# version: 1.8.2
+# version: 1.9.3
 # description: First-time production installer for MP Control on Ubuntu.
 # updated: 2026-05-31
 
@@ -72,7 +72,7 @@ detect_ubuntu() {
 install_dependencies() {
   log_info "Installing base packages, Nginx, Certbot, and DNS tools."
   apt-get update
-  apt-get install -y ca-certificates curl gnupg git nginx certbot python3-certbot-nginx dnsutils
+  apt-get install -y ca-certificates curl gnupg git nginx certbot python3-certbot-nginx dnsutils python3-cryptography
 }
 
 install_docker() {
@@ -210,7 +210,7 @@ load_domains_from_env() {
   fi
 
   APP_SERVER_NAMES=""
-  for key in WEB_APP_BASE_URL API_BASE_URL; do
+  for key in WEB_APP_BASE_URL API_BASE_URL BOT_WEBHOOK_BASE_URL; do
     value="$(env_value "$key")"
     [[ -z "$value" ]] && continue
     host="$(url_host "$value")"
@@ -237,7 +237,7 @@ validate_env() {
       continue
     fi
     case "$value" in
-      change-me|PASTE_*|*replace_me*|*example.com*|seller_bot)
+      change-me|change_me|PASTE_*|*replace_me*|*example.com*|seller_bot)
         insecure+=("$key")
         ;;
     esac
@@ -248,8 +248,33 @@ validate_env() {
     log_error "Fix ${PROJECT_DIR}/.env and re-run install.sh."
     exit 1
   fi
+  validate_secret_values
   resolve_public_health_url
   load_domains_from_env
+}
+
+validate_secret_values() {
+  log_info "Validating APP_SECRET_KEY and ENCRYPTION_KEY."
+  local app_secret encryption_key
+  app_secret="$(env_value "APP_SECRET_KEY")"
+  encryption_key="$(env_value "ENCRYPTION_KEY")"
+
+  if [[ "${#app_secret}" -lt 32 ]]; then
+    log_error "APP_SECRET_KEY is too short. Generate it with: openssl rand -hex 32"
+    exit 1
+  fi
+
+  ENCRYPTION_KEY="$encryption_key" python3 - <<'PY' || {
+import os
+from cryptography.fernet import Fernet
+
+Fernet(os.environ["ENCRYPTION_KEY"].encode())
+PY
+    log_error "ENCRYPTION_KEY is not a valid Fernet key."
+    log_error "Generate it with: docker run --rm python:3.12-slim sh -c \"pip install cryptography >/dev/null 2>&1 && python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'\""
+    log_error "If this server uses an existing database, do not change ENCRYPTION_KEY or old marketplace API keys cannot be decrypted."
+    exit 1
+  }
 }
 
 write_landing_placeholder() {
@@ -363,6 +388,18 @@ configure_telegram_update_bridge() {
   systemctl enable --now mpcontrol-telegram-update.path
 }
 
+configure_backup_timer() {
+  log_info "Configuring daily backup timer."
+  mkdir -p "${PROJECT_DIR}/backups" "${PROJECT_DIR}/logs"
+  chown -R "$PROJECT_USER:$PROJECT_USER" "${PROJECT_DIR}/backups" "${PROJECT_DIR}/logs"
+  sed "s#/opt/mpcontrol#${PROJECT_DIR}#g" \
+    "${PROJECT_DIR}/deploy/systemd/mpcontrol-backup.service" \
+    > /etc/systemd/system/mpcontrol-backup.service
+  cp "${PROJECT_DIR}/deploy/systemd/mpcontrol-backup.timer" /etc/systemd/system/mpcontrol-backup.timer
+  systemctl daemon-reload
+  systemctl enable --now mpcontrol-backup.timer
+}
+
 server_ipv4() {
   curl -fsS4 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}'
 }
@@ -411,6 +448,52 @@ obtain_ssl() {
   certbot renew --dry-run
   nginx -t
   systemctl reload nginx
+}
+
+configure_telegram_webhook() {
+  cd "$PROJECT_DIR"
+  local enabled token base path secret webhook_url delete_response set_response
+  enabled="$(env_value "BOT_WEBHOOK_ENABLED")"
+  if [[ "$enabled" != "true" && "$enabled" != "1" ]]; then
+    log_warn "Skipping Telegram webhook setup because BOT_WEBHOOK_ENABLED=${enabled:-false}."
+    return
+  fi
+
+  token="$(env_value "BOT_TOKEN")"
+  base="$(env_value "BOT_WEBHOOK_BASE_URL")"
+  path="$(env_value "BOT_WEBHOOK_PATH")"
+  secret="$(env_value "BOT_WEBHOOK_SECRET")"
+  path="${path:-/webhook/telegram}"
+
+  if [[ -z "$token" || -z "$base" ]]; then
+    log_error "BOT_TOKEN and BOT_WEBHOOK_BASE_URL are required to configure Telegram webhook."
+    exit 1
+  fi
+
+  webhook_url="${base%/}${path}"
+  log_info "Resetting Telegram webhook before setting ${webhook_url}."
+  delete_response="$(curl -fsS "https://api.telegram.org/bot${token}/deleteWebhook?drop_pending_updates=false")" || {
+    log_error "Failed to delete previous Telegram webhook."
+    exit 1
+  }
+  echo "$delete_response" | grep -q '"ok":true' || {
+    log_error "Telegram deleteWebhook failed: ${delete_response}"
+    exit 1
+  }
+
+  local curl_args=(-fsS -X POST "https://api.telegram.org/bot${token}/setWebhook" -F "url=${webhook_url}")
+  if [[ -n "$secret" ]]; then
+    curl_args+=(-F "secret_token=${secret}")
+  fi
+  set_response="$(curl "${curl_args[@]}")" || {
+    log_error "Failed to set Telegram webhook."
+    exit 1
+  }
+  echo "$set_response" | grep -q '"ok":true' || {
+    log_error "Telegram setWebhook failed: ${set_response}"
+    exit 1
+  }
+  log_info "Telegram webhook configured successfully."
 }
 
 prepare_alembic_version_table() {
@@ -496,8 +579,10 @@ main() {
   validate_env
   configure_nginx
   configure_telegram_update_bridge
+  configure_backup_timer
   start_services
   obtain_ssl
+  configure_telegram_webhook
   healthcheck
   print_summary
 }

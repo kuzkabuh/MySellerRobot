@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.9.3
+
+### Changed
+
+- Refactor production deployment and stability layer:
+  - fixed Alembic version table length for long revision IDs;
+  - added Fernet ENCRYPTION_KEY validation;
+  - improved production install.sh;
+  - added automatic PostgreSQL and config backups;
+  - added backup restore scripts;
+  - improved Docker, Nginx, SSL and webhook diagnostics;
+  - improved logs and diagnostics;
+  - audited subscriptions, admin panel, marketplace sync, promotions and pricing logic.
+
 ## 1.9.2
 
 ### Fixed
