@@ -494,13 +494,14 @@ class PaymentService:
                     "payment_id": payment.id,
                     "provider_payment_id": payment_id,
                     "user_id": payment.user_id,
-                    "metadata": metadata,
                     "detail": "tier_code missing from payment metadata",
                 },
             )
-            payment.status = PaymentStatus.SUCCEEDED
-            payment.paid_at = datetime.now(tz=UTC)
-            await self.session.flush()
+            await self._mark_payment_activation_failed(
+                payment,
+                reason="tier_code_missing",
+                provider_payment_id=payment_id,
+            )
             return
 
         if not period:
@@ -570,6 +571,14 @@ class PaymentService:
                     "error": str(exc),
                 },
             )
+            await self._mark_payment_activation_failed(
+                payment,
+                reason="subscription_activation_failed",
+                provider_payment_id=payment_id,
+                tier_code=tier_code,
+                period=period,
+            )
+            return
 
         payment.status = PaymentStatus.SUCCEEDED
         payment.paid_at = datetime.now(tz=UTC)
@@ -666,6 +675,34 @@ class PaymentService:
                     "subscription_created": False,
                 },
             )
+
+    async def _mark_payment_activation_failed(
+        self,
+        payment: Payment,
+        *,
+        reason: str,
+        provider_payment_id: str,
+        tier_code: str | None = None,
+        period: str | None = None,
+    ) -> None:
+        metadata = dict(payment.payment_metadata or {})
+        metadata["activation_error"] = reason
+        metadata["activation_failed_at"] = datetime.now(tz=UTC).isoformat()
+        payment.payment_metadata = metadata
+        payment.status = PaymentStatus.FAILED
+        payment.paid_at = datetime.now(tz=UTC)
+        await self.session.flush()
+        logger.error(
+            "payment_activation_failed",
+            extra={
+                "payment_id": payment.id,
+                "provider_payment_id": provider_payment_id,
+                "user_id": payment.user_id,
+                "tier_code": tier_code,
+                "period": period,
+                "reason": reason,
+            },
+        )
 
     async def _save_receipt_info(
         self,

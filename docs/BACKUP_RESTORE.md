@@ -25,6 +25,10 @@ mpcontrol_full_YYYY-MM-DD_HH-MM-SS.tar.gz
 с суффиксом `.gpg`, а исходный архив удаляется. Без `BACKUP_ENCRYPTION_PASSWORD`
 зашифрованный бэкап восстановить невозможно.
 
+В production файловый архив может содержать `.env`, поэтому для `BACKUP_INCLUDE_FILES=1`
+нужно включить `BACKUP_ENCRYPTION_ENABLED=1`. Отключить это требование можно только явным
+`BACKUP_ALLOW_PLAINTEXT_SECRETS=1`, если администратор осознанно принимает риск.
+
 ## Проверить список бэкапов
 
 ```bash
@@ -141,6 +145,23 @@ docker compose -f docker-compose.prod.yml logs --tail=200 worker
 - Telegram-бот отвечает на `/start` и меню;
 - пользователи, тарифы, промокоды, обращения, данные компаний и маркетплейсы на месте;
 - `alembic current` показывает актуальную миграцию.
+
+## Restore-drill без замены production
+
+Минимальная регулярная проверка:
+
+```bash
+cd /opt/mpcontrol
+mkdir -p /opt/mpcontrol/backups/restore/drill
+gunzip -c /opt/mpcontrol/backups/daily/mpcontrol_db_YYYY-MM-DD_HH-MM-SS.sql.gz \
+  > /opt/mpcontrol/backups/restore/drill/latest.sql
+grep -Eq 'PostgreSQL database dump|CREATE TABLE|COPY ' \
+  /opt/mpcontrol/backups/restore/drill/latest.sql
+```
+
+Для `.gpg` сначала расшифруйте архив в `/opt/mpcontrol/backups/restore`, затем выполните
+проверку `gzip -t` и пробный импорт во временную БД. Не выводите `.env` и расшифрованные
+архивы в консоль или внешние чаты.
 
 ## Внешнее хранилище
 

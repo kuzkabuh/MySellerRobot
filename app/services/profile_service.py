@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import User
+from app.services.subscription_service import SubscriptionService
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,8 @@ class ProfileService:
             or str(user.telegram_id)
         )
 
+        subscription = await SubscriptionService(self.session).get_user_current_subscription(user.id)
+
         return ProfileData(
             user_id=user.id,
             telegram_id=user.telegram_id,
@@ -84,7 +87,7 @@ class ProfileService:
             inn=user.inn,
             ogrn=user.ogrn,
             timezone=user.timezone,
-            tariff=user.tariff,
+            tariff=subscription.tier.name or subscription.tier.code,
             notifications_enabled=user.notifications_enabled,
             created_at=user.created_at,
             last_activity_at=user.last_activity_at,

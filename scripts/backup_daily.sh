@@ -146,6 +146,13 @@ main() {
     log_info "Бэкапы отключены: BACKUP_ENABLED=${BACKUP_ENABLED:-0}"
     exit 0
   fi
+  if [[ "${APP_ENV:-local}" =~ ^(production|prod|staging)$ ]] \
+    && [[ "${BACKUP_INCLUDE_FILES:-1}" == "1" ]] \
+    && [[ "${BACKUP_ENCRYPTION_ENABLED:-0}" != "1" ]] \
+    && [[ "${BACKUP_ALLOW_PLAINTEXT_SECRETS:-0}" != "1" ]]; then
+    fail "Проверка шифрования" \
+      "в production архив файлов может содержать .env; включите BACKUP_ENCRYPTION_ENABLED=1 или явно задайте BACKUP_ALLOW_PLAINTEXT_SECRETS=1"
+  fi
 
   cd "$PROJECT_DIR"
   require_command docker "Проверка Docker"

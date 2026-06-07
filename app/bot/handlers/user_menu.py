@@ -62,6 +62,7 @@ async def show_user_profile(callback: CallbackQuery) -> None:
         if user is None:
             await callback.answer("Пользователь не найден", show_alert=True)
             return
+        tier = await SubscriptionService(session).get_user_tier(user.id)
 
         text = (
             "👤 <b>Ваш профиль</b>\n\n"
@@ -75,7 +76,7 @@ async def show_user_profile(callback: CallbackQuery) -> None:
             f"<b>Telegram ID:</b> <code>{user.telegram_id}</code>\n"
             f"<b>Username:</b> {('@' + user.username) if user.username else 'н/д'}\n"
             f"<b>Часовой пояс:</b> {user.timezone}\n"
-            f"<b>Тариф:</b> {user.tariff}\n"
+            f"<b>Тариф:</b> {tier.name}\n"
             f"<b>Дата регистрации:</b> {_dt(user.created_at, user.timezone)}\n"
             f"<b>Последняя активность:</b> {_dt(user.last_activity_at, user.timezone)}\n"
         )
@@ -185,8 +186,12 @@ async def show_user_api_keys(callback: CallbackQuery) -> None:
 @router.callback_query(F.data == "user:check_wb")
 async def check_wb_key(callback: CallbackQuery) -> None:
     async for session in get_session():
+        user = await _get_user(session, callback.from_user.id)
+        if user is None:
+            await callback.answer("Пользователь не найден", show_alert=True)
+            return
         stmt = select(MarketplaceAccount).where(
-            MarketplaceAccount.user_id == callback.from_user.id,
+            MarketplaceAccount.user_id == user.id,
             MarketplaceAccount.marketplace == Marketplace.WB,
             MarketplaceAccount.is_active.is_(True),
         )
@@ -229,8 +234,12 @@ async def check_wb_key(callback: CallbackQuery) -> None:
 @router.callback_query(F.data == "user:check_ozon")
 async def check_ozon_key(callback: CallbackQuery) -> None:
     async for session in get_session():
+        user = await _get_user(session, callback.from_user.id)
+        if user is None:
+            await callback.answer("Пользователь не найден", show_alert=True)
+            return
         stmt = select(MarketplaceAccount).where(
-            MarketplaceAccount.user_id == callback.from_user.id,
+            MarketplaceAccount.user_id == user.id,
             MarketplaceAccount.marketplace == Marketplace.OZON,
             MarketplaceAccount.is_active.is_(True),
         )
@@ -470,8 +479,12 @@ async def process_email_input(message: Message, state: FSMContext) -> None:
 
     async for session in get_session():
         try:
+            user = await _get_user(session, message.from_user.id if message.from_user else 0)
+            if user is None:
+                await message.answer("Пользователь не найден.")
+                return
             await ProfileService(session).update_profile(
-                message.from_user.id if hasattr(message.from_user, "id") else 0,
+                user.id,
                 ProfileUpdateData(email=message.text),
             )
             await state.clear()
@@ -493,8 +506,12 @@ async def process_phone_input(message: Message, state: FSMContext) -> None:
 
     async for session in get_session():
         try:
+            user = await _get_user(session, message.from_user.id if message.from_user else 0)
+            if user is None:
+                await message.answer("Пользователь не найден.")
+                return
             await ProfileService(session).update_profile(
-                message.from_user.id if hasattr(message.from_user, "id") else 0,
+                user.id,
                 ProfileUpdateData(phone=message.text),
             )
             await state.clear()

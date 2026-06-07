@@ -24,6 +24,7 @@ from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.core.logging import configure_logging
 from app.utils.client_ip import get_client_ip
+from app.web.csrf import is_valid_web_origin, requires_web_csrf_check
 from app.web.route_modules.payment_public import router as payment_public_router
 from app.web.route_modules.wb_logistics_admin import router as wb_logistics_router
 from app.web.routes import router as web_router
@@ -140,6 +141,17 @@ def create_app() -> FastAPI:
 
         logger = logging.getLogger("app.api.main")
         start_time = time.monotonic()
+
+        if requires_web_csrf_check(request) and not is_valid_web_origin(request, settings):
+            logger.warning(
+                "web_csrf_origin_rejected",
+                extra={"method": request.method, "path": request.url.path},
+            )
+            return HTMLResponse(
+                "<h1>Запрос отклонён</h1>"
+                "<p>Источник web-запроса не прошёл проверку безопасности.</p>",
+                status_code=403,
+            )
 
         headers = _sanitize_headers(dict(request.headers))
 
@@ -304,8 +316,11 @@ def create_app() -> FastAPI:
         return FileResponse(path)
 
     @app.get("/", response_class=HTMLResponse)
-    async def landing() -> str:
-        return _landing_page()
+    async def landing() -> Response:
+        public_index = Path("public/index.html")
+        if await asyncio.to_thread(public_index.exists):
+            return FileResponse(public_index)
+        return HTMLResponse(_landing_page())
 
     @app.get("/admin/errors")
     async def errors(

@@ -5,11 +5,14 @@
 from datetime import UTC, datetime, time
 from html import escape
 
+from arq.connections import create_pool
 from fastapi import APIRouter, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import String, case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
+from app.core.redis import redis_settings_from_url
 from app.models.domain import (
     ApiRequestLog,
     AuditLog,
@@ -811,11 +814,24 @@ async def admin_run_sync_task(
     _require_admin(user)
     if task_name not in _MANUAL_TASKS:
         raise HTTPException(status_code=404, detail="Задача не найдена")
-    from app.workers import tasks
 
-    await getattr(tasks, task_name)({"triggered_by_user_id": user.id, "source": "web_admin"})
+    try:
+        queue = await create_pool(redis_settings_from_url(get_settings().redis_url))
+        try:
+            job = await queue.enqueue_job(
+                task_name,
+                {"triggered_by_user_id": user.id, "source": "web_admin"},
+            )
+        finally:
+            await queue.close()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Не удалось поставить задачу в очередь") from exc
     await AuditLogService(session).log(
-        "sync_started", actor_user_id=user.id, entity_type="sync_task", entity_id=task_name
+        "sync_started",
+        actor_user_id=user.id,
+        entity_type="sync_task",
+        entity_id=task_name,
+        details={"job_id": job.job_id if job else None},
     )
     await session.commit()
     return RedirectResponse("/web/admin/sync-status", status_code=303)

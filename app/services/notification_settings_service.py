@@ -77,24 +77,19 @@ class NotificationSettingsService:
     ) -> dict[NotificationType, bool]:
         """Return a map of NotificationType -> enabled for the given user.
 
-        When ``marketplace_account_id`` is None, returns the global setting
-        (where ``marketplace_account_id IS NULL``).
+        Для account-настроек сначала применяются системные значения,
+        затем глобальные пользовательские настройки и только потом account override.
         """
-        stmt = select(NotificationSetting).where(NotificationSetting.user_id == user_id)
-        if marketplace_account_id is None:
-            stmt = stmt.where(NotificationSetting.marketplace_account_id.is_(None))
-        else:
-            stmt = stmt.where(
-                NotificationSetting.marketplace_account_id == marketplace_account_id
-            )
-        result = await self.session.execute(stmt)
-        rows = list(result.scalars().all())
-
         defaults: dict[NotificationType, bool] = {
             t: t in DEFAULT_ENABLED_TYPES for t in NotificationType
         }
-        for row in rows:
+        for row in await self._load_settings_rows(user_id, marketplace_account_id=None):
             defaults[NotificationType(row.notification_type)] = bool(row.is_enabled)
+        if marketplace_account_id is not None:
+            for row in await self._load_settings_rows(
+                user_id, marketplace_account_id=marketplace_account_id
+            ):
+                defaults[NotificationType(row.notification_type)] = bool(row.is_enabled)
         return defaults
 
     async def update_user_settings(
@@ -120,12 +115,7 @@ class NotificationSettingsService:
         marketplace_account_id: int,
     ) -> dict[NotificationType, bool]:
         """Return per-account settings, falling back to the global default."""
-        account_settings = await self.get_user_settings(
-            user_id, marketplace_account_id=marketplace_account_id
-        )
-        if account_settings:
-            return account_settings
-        return await self.get_user_settings(user_id)
+        return await self.get_user_settings(user_id, marketplace_account_id=marketplace_account_id)
 
     async def is_type_enabled(
         self,
@@ -164,3 +154,17 @@ class NotificationSettingsService:
         self.session.add(setting)
         await self.session.flush()
         return setting
+
+    async def _load_settings_rows(
+        self,
+        user_id: int,
+        *,
+        marketplace_account_id: int | None,
+    ) -> list[NotificationSetting]:
+        stmt = select(NotificationSetting).where(NotificationSetting.user_id == user_id)
+        if marketplace_account_id is None:
+            stmt = stmt.where(NotificationSetting.marketplace_account_id.is_(None))
+        else:
+            stmt = stmt.where(NotificationSetting.marketplace_account_id == marketplace_account_id)
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())

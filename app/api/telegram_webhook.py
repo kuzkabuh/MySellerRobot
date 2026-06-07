@@ -23,7 +23,6 @@ async def telegram_webhook(
     """Receive Telegram Bot API webhook updates."""
     settings = get_settings()
 
-    # Verify secret token if configured
     expected_secret = settings.get_bot_webhook_secret()
     if expected_secret:
         if x_telegram_bot_api_secret_token != expected_secret:
@@ -33,10 +32,17 @@ async def telegram_webhook(
             )
             raise HTTPException(status_code=403, detail="Invalid secret token")
     else:
-        logger.warning(
-            "telegram_webhook_no_secret_configured",
-            extra={"path": request.url.path},
-        )
+        if settings.webhook_insecure_dev_allowed:
+            logger.warning(
+                "telegram_webhook_insecure_dev_mode",
+                extra={"path": request.url.path},
+            )
+        else:
+            logger.error(
+                "telegram_webhook_no_secret_configured",
+                extra={"path": request.url.path},
+            )
+            raise HTTPException(status_code=403, detail="Webhook secret is not configured")
 
     try:
         update_data = await request.json()

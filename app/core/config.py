@@ -80,6 +80,13 @@ class Settings(BaseSettings):
     wb_report_detailed_limit: int = 1000
     web_base_url: str = "http://localhost:8000"
     web_app_base_url: str | None = None
+    web_trusted_origins: str = (
+        "https://app.mpcontrol.online,"
+        "https://mpcontrol.online,"
+        "https://www.mpcontrol.online"
+    )
+    webhook_allow_insecure_dev: bool = False
+    trusted_proxy_networks: str = "127.0.0.1/32,172.16.0.0/12,10.0.0.0/8"
     web_login_token_ttl_minutes: int = 10
     web_session_ttl_hours: int = 168
     default_tax_rate: float = 0.06
@@ -194,6 +201,32 @@ class Settings(BaseSettings):
                 f"Must be a public HTTPS URL (not localhost or HTTP)."
             )
         return url
+
+    @property
+    def trusted_web_origins(self) -> set[str]:
+        origins = {
+            item.strip().rstrip("/")
+            for item in self.web_trusted_origins.split(",")
+            if item.strip()
+        }
+        base_url = self.web_base_url.rstrip("/")
+        if base_url:
+            origins.add(base_url)
+        if not self.is_production:
+            origins.update(
+                {
+                    "http://localhost:8000",
+                    "http://127.0.0.1:8000",
+                    "http://localhost:3000",
+                    "http://127.0.0.1:3000",
+                    "http://testserver",
+                }
+            )
+        return origins
+
+    @property
+    def webhook_insecure_dev_allowed(self) -> bool:
+        return self.webhook_allow_insecure_dev and not self.is_production
 
     def get_yookassa_return_url(self) -> str:
         """Return YooKassa return URL with validation."""

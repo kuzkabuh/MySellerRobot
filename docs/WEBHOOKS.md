@@ -21,11 +21,14 @@ BOT_WEBHOOK_BASE_URL=https://bot.mpcontrol.online
 BOT_WEBHOOK_PATH=/webhook/telegram
 BOT_WEBHOOK_SECRET=
 BOT_WEBHOOK_ENABLED=false
+WEBHOOK_ALLOW_INSECURE_DEV=0
 ```
 
 FastAPI route находится в `app/api/telegram_webhook.py`: `POST /webhook/telegram`.
-Если `BOT_WEBHOOK_SECRET` задан, endpoint проверяет заголовок
-`X-Telegram-Bot-Api-Secret-Token`.
+В production `BOT_WEBHOOK_SECRET` обязателен: endpoint проверяет заголовок
+`X-Telegram-Bot-Api-Secret-Token` и отклоняет запрос, если секрет не настроен или неверен.
+Для локальной отладки без секрета нужно явно задать `WEBHOOK_ALLOW_INSECURE_DEV=1`;
+в production этот режим не включается.
 
 Nginx config для отдельного домена: `deploy/nginx/bot.mpcontrol.online.conf`.
 На `bot.mpcontrol.online` должны быть доступны только `/webhook/telegram` и `/health`;
@@ -106,3 +109,13 @@ curl -I https://bot.mpcontrol.online/webhook/telegram
 ```text
 https://app.mpcontrol.online/webhooks/yookassa
 ```
+
+Настройки:
+
+```env
+YOOKASSA_WEBHOOK_URL=https://app.mpcontrol.online/webhooks/yookassa
+YOOKASSA_WEBHOOK_SECRET=<shared-secret>
+```
+
+В production `YOOKASSA_WEBHOOK_SECRET` обязателен. Секрет принимается только через
+header `x-yookassa-webhook-secret`; query-параметр `secret` не используется.

@@ -153,6 +153,103 @@ def test_yookassa_webhook_rejects_invalid_secret(monkeypatch) -> None:
     assert exc_info.value.status_code == 403
 
 
+def test_yookassa_webhook_rejects_missing_secret_by_default(monkeypatch) -> None:
+    """YooKassa webhook без настроенного секрета должен закрываться отказом."""
+    import asyncio
+
+    import pytest
+
+    from app.api import webhooks as webhooks_module
+
+    monkeypatch.setattr(webhooks_module, "get_settings", lambda: Settings())
+
+    with pytest.raises(webhooks_module.HTTPException) as exc_info:
+        asyncio.run(
+            webhooks_module.yookassa_webhook(
+                request=FakeRequest(
+                    {
+                        "type": "notification",
+                        "event": "payment.succeeded",
+                        "object": {"id": "yk-test-123", "status": "succeeded", "paid": True},
+                    }
+                ),
+                session=FakeAsyncSession(),
+            )
+        )
+
+    assert exc_info.value.status_code == 403
+
+
+def test_yookassa_webhook_allows_explicit_insecure_dev_mode(monkeypatch) -> None:
+    """Dev/test insecure mode работает только при явном включении."""
+    import asyncio
+
+    from app.api import webhooks as webhooks_module
+
+    handled: list[dict] = []
+
+    async def fake_handle_success(self, payment_data):
+        handled.append(payment_data)
+
+    monkeypatch.setattr(
+        webhooks_module,
+        "get_settings",
+        lambda: Settings(app_env="local", webhook_allow_insecure_dev=True),
+    )
+    monkeypatch.setattr(
+        "app.services.payment_service.PaymentService.handle_payment_success",
+        fake_handle_success,
+    )
+
+    response = asyncio.run(
+        webhooks_module.yookassa_webhook(
+            request=FakeRequest(
+                {
+                    "type": "notification",
+                    "event": "payment.succeeded",
+                    "object": {"id": "yk-test-123", "status": "succeeded", "paid": True},
+                }
+            ),
+            session=FakeAsyncSession(),
+        )
+    )
+
+    assert response == {"status": "ok"}
+    assert handled[0]["id"] == "yk-test-123"
+
+
+def test_yookassa_webhook_does_not_accept_query_secret(monkeypatch) -> None:
+    """Секрет webhook должен приниматься только из header."""
+    import asyncio
+
+    import pytest
+
+    from app.api import webhooks as webhooks_module
+
+    monkeypatch.setattr(
+        webhooks_module,
+        "get_settings",
+        lambda: Settings(yookassa_webhook_secret=SecretStr("expected-secret")),
+    )
+
+    with pytest.raises(webhooks_module.HTTPException) as exc_info:
+        asyncio.run(
+            webhooks_module.yookassa_webhook(
+                request=FakeRequest(
+                    {
+                        "type": "notification",
+                        "event": "payment.succeeded",
+                        "object": {"id": "yk-test-123", "status": "succeeded", "paid": True},
+                    },
+                    query_params={"secret": "expected-secret"},
+                ),
+                session=FakeAsyncSession(),
+            )
+        )
+
+    assert exc_info.value.status_code == 403
+
+
 def test_yookassa_webhook_accepts_valid_secret(monkeypatch) -> None:
     """Valid YooKassa webhook secret should allow normal payment handling."""
     import asyncio

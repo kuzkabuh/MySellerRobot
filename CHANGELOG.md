@@ -1,5 +1,45 @@
 # Changelog
 
+## 1.9.10
+
+### Security
+
+- Добавлена централизованная Origin/Referer-защита state-changing web-запросов
+  `/web/*` без применения к API/webhook routes.
+- YooKassa и Telegram webhooks переведены из fail-open в fail-closed режим:
+  production требует настроенный секрет, dev-insecure режим включается только явно.
+- Forwarded IP headers теперь учитываются только от доверенных proxy networks.
+
+### Fixed
+
+- POST-мутации платных разделов План/факт и МРЦ дополнительно проверяют backend
+  feature access, а не полагаются только на UI.
+- Telegram user menu больше не использует Telegram ID как внутренний `users.id`
+  при проверке API-ключей и обновлении профиля.
+- Профиль показывает актуальный тариф из `SubscriptionService`, а не legacy
+  `users.tariff`.
+- Настройки уведомлений для кабинета наследуют global-настройки пользователя и
+  могут переопределять их по типам.
+- Оплаченный YooKassa payment с ошибкой активации подписки переводится в
+  диагностируемый `FAILED`, а не в `SUCCEEDED` без тарифа.
+
+### Changed
+
+- Корневой FastAPI route отдаёт `public/index.html` как единый источник landing page.
+- Админский ручной запуск sync-задач ставит arq job в очередь вместо прямого
+  выполнения worker-функции в web request.
+- Production backup требует шифрование файлового архива с `.env`, если риск
+  plaintext-секретов не подтверждён явно.
+- Добавлен production logrotate-конфиг для 48-часового окна file logs.
+
+### Added
+
+- Миграция `20260607_0057` добавляет partial unique indexes для global/account
+  notification settings.
+- Добавлены regression-тесты для web Origin guard, webhook fail-closed, trusted
+  proxy IP, feature gates, Telegram ID mapping, notification inheritance,
+  payment activation failures и public/deploy hardening.
+
 ## 1.9.8
 
 ### Fixed

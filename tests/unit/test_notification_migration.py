@@ -24,3 +24,15 @@ def test_sales_event_migration_adds_buyout_values() -> None:
     assert "SALE_DIGEST" in text
     assert "notification_sent_at" in text
     assert "saleeventtype" in text
+
+
+def test_notification_settings_migration_adds_partial_unique_indexes() -> None:
+    migration = Path(
+        "migrations/versions/20260607_0057_notification_settings_unique_indexes.py"
+    )
+    text = migration.read_text(encoding="utf-8")
+
+    assert "uq_notification_settings_global" in text
+    assert "WHERE marketplace_account_id IS NULL" in text
+    assert "uq_notification_settings_account" in text
+    assert "WHERE marketplace_account_id IS NOT NULL" in text

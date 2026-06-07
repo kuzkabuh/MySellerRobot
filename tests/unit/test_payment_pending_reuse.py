@@ -439,8 +439,10 @@ class TestReconciliationOfStuckPayments:
             assert payment.subscription_id == 46
 
     @pytest.mark.asyncio
-    async def test_reconciliation_succeeds_payment_on_tier_not_found(self, mock_session, mock_tier):
-        """Payment marked SUCCEEDED even if tier_code in metadata is invalid."""
+    async def test_reconciliation_marks_failed_payment_on_tier_not_found(
+        self, mock_session, mock_tier
+    ):
+        """Provider success with invalid tier must remain diagnosable."""
         payment = Payment(
             id=47,
             user_id=1,
@@ -502,9 +504,10 @@ class TestReconciliationOfStuckPayments:
             reconciled = await service.reconcile_pending_payments()
 
             assert reconciled == 1
-            assert payment.status == PaymentStatus.SUCCEEDED
+            assert payment.status == PaymentStatus.FAILED
             assert payment.paid_at is not None
             assert payment.subscription_id is None
+            assert payment.payment_metadata["activation_error"] == "subscription_activation_failed"
 
     @pytest.mark.asyncio
     async def test_reconciliation_handles_missing_payment_id_gracefully(

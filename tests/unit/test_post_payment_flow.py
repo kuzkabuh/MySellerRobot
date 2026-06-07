@@ -572,7 +572,8 @@ class TestMissingTierCodeInMetadata:
             )
 
             service.subscription_service.create_subscription.assert_not_called()
-            assert payment.status == PaymentStatus.SUCCEEDED
+            assert payment.status == PaymentStatus.FAILED
+            assert payment.payment_metadata["activation_error"] == "tier_code_missing"
             assert payment.paid_at is not None
             assert payment.subscription_id is None
 

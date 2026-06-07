@@ -1,0 +1,12 @@
+# Логи MP Control: активное окно 48 часов, старые файлы сжимаются.
+/opt/mpcontrol/logs/*.log /opt/mpcontrol/logs/deploy/*.log {
+    daily
+    rotate 2
+    missingok
+    notifempty
+    compress
+    delaycompress
+    dateext
+    copytruncate
+    create 0640 root root
+}

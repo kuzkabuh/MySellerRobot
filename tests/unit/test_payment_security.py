@@ -256,11 +256,7 @@ async def test_payment_cancel_verified_with_api(payment_service, mock_session):
 
 @pytest.mark.asyncio
 async def test_invalid_metadata_does_not_activate_subscription(payment_service, mock_session):
-    """Payment with invalid metadata should not activate subscription.
-
-    The payment is still marked SUCCEEDED to prevent infinite reconciliation
-    retries, but no subscription is created.
-    """
+    """Payment with invalid metadata should not activate subscription."""
     payment = Payment(
         id=1,
         user_id=100,
@@ -286,8 +282,43 @@ async def test_invalid_metadata_does_not_activate_subscription(payment_service, 
     await payment_service.handle_payment_success(yookassa_data)
 
     payment_service.subscription_service.create_subscription.assert_not_called()
-    assert payment.status == PaymentStatus.SUCCEEDED
+    assert payment.status == PaymentStatus.FAILED
     assert payment.subscription_id is None
+    assert payment.payment_metadata["activation_error"] == "tier_code_missing"
+
+
+@pytest.mark.asyncio
+async def test_invalid_tier_marks_activation_failed(payment_service, mock_session):
+    """Paid provider payment with invalid tier must be diagnosable."""
+    payment = Payment(
+        id=1,
+        user_id=100,
+        provider="yookassa",
+        provider_payment_id="test_payment_123",
+        amount=Decimal("490"),
+        currency="RUB",
+        status=PaymentStatus.PENDING,
+        payment_metadata={"tier_code": "ghost", "period": "monthly", "user_id": "100"},
+    )
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = payment
+    mock_session.execute.return_value = mock_result
+
+    payment_service.yookassa.get_payment = AsyncMock(
+        return_value={"id": "test_payment_123", "status": "succeeded"}
+    )
+    payment_service.subscription_service.create_subscription = AsyncMock(
+        side_effect=ValueError("Tier ghost not found")
+    )
+
+    yookassa_data = {"id": "test_payment_123", "status": "succeeded"}
+
+    await payment_service.handle_payment_success(yookassa_data)
+
+    assert payment.status == PaymentStatus.FAILED
+    assert payment.subscription_id is None
+    assert payment.payment_metadata["activation_error"] == "subscription_activation_failed"
 
 
 @pytest.mark.asyncio

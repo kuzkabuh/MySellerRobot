@@ -101,6 +101,7 @@ def test_post_sync_ozon_balance_redirects_to_sync_settings(
         response = client.post(
             "/web/sync/ozon-balance",
             cookies={WEB_SESSION_COOKIE: cookie},
+            headers={"Origin": "http://testserver"},
             follow_redirects=False,
         )
 

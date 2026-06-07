@@ -873,8 +873,18 @@ def test_web_cost_save_accepts_canonical_and_legacy_double_post(
     }
 
     with TestClient(app, raise_server_exceptions=True) as client:
-        canonical = client.post("/web/costs/97", data=form, follow_redirects=False)
-        legacy = client.post("/web/web/costs/97", data=form, follow_redirects=False)
+        canonical = client.post(
+            "/web/costs/97",
+            data=form,
+            headers={"Origin": "http://testserver"},
+            follow_redirects=False,
+        )
+        legacy = client.post(
+            "/web/web/costs/97",
+            data=form,
+            headers={"Origin": "http://testserver"},
+            follow_redirects=False,
+        )
 
     app.dependency_overrides.clear()
 
@@ -916,8 +926,15 @@ def test_web_plan_fact_save_accepts_canonical_and_legacy_double_post(
     async def fake_save_plan(self, **kwargs):  # type: ignore[no-untyped-def]
         saved_plans.append(kwargs)
 
+    async def allow_plan_fact_access(session, user_id):  # type: ignore[no-untyped-def]
+        return None
+
     app.dependency_overrides[get_session] = fake_get_session
     app.dependency_overrides[current_web_user] = fake_current_web_user
+    monkeypatch.setattr(
+        "app.web.route_modules.planning._ensure_plan_fact_access",
+        allow_plan_fact_access,
+    )
     monkeypatch.setattr(
         "app.services.plan_fact_service.PlanFactService.save_plan",
         fake_save_plan,
@@ -953,8 +970,18 @@ def test_web_plan_fact_save_accepts_canonical_and_legacy_double_post(
     }
 
     with TestClient(app, raise_server_exceptions=True) as client:
-        canonical = client.post("/web/plan-fact/plans", data=form, follow_redirects=False)
-        legacy = client.post("/web/web/plan-fact/plans", data=form, follow_redirects=False)
+        canonical = client.post(
+            "/web/plan-fact/plans",
+            data=form,
+            headers={"Origin": "http://testserver"},
+            follow_redirects=False,
+        )
+        legacy = client.post(
+            "/web/web/plan-fact/plans",
+            data=form,
+            headers={"Origin": "http://testserver"},
+            follow_redirects=False,
+        )
 
     app.dependency_overrides.clear()
 
@@ -1079,16 +1106,31 @@ def test_web_plan_fact_delete_accepts_canonical_and_legacy_double_post(
     async def fake_delete_plan(self, *, user_id, target_id):  # type: ignore[no-untyped-def]
         deleted_ids.append(target_id)
 
+    async def allow_plan_fact_access(session, user_id):  # type: ignore[no-untyped-def]
+        return None
+
     app.dependency_overrides[get_session] = fake_get_session
     app.dependency_overrides[current_web_user] = fake_current_web_user
+    monkeypatch.setattr(
+        "app.web.route_modules.planning._ensure_plan_fact_access",
+        allow_plan_fact_access,
+    )
     monkeypatch.setattr(
         "app.services.plan_fact_service.PlanFactService.delete_plan",
         fake_delete_plan,
     )
 
     with TestClient(app, raise_server_exceptions=True) as client:
-        canonical = client.post("/web/plan-fact/plans/42/delete", follow_redirects=False)
-        legacy = client.post("/web/web/plan-fact/plans/42/delete", follow_redirects=False)
+        canonical = client.post(
+            "/web/plan-fact/plans/42/delete",
+            headers={"Origin": "http://testserver"},
+            follow_redirects=False,
+        )
+        legacy = client.post(
+            "/web/web/plan-fact/plans/42/delete",
+            headers={"Origin": "http://testserver"},
+            follow_redirects=False,
+        )
 
     app.dependency_overrides.clear()
 
@@ -1375,6 +1417,10 @@ def test_yookassa_webhook_compat_route_accepts_post(monkeypatch: pytest.MonkeyPa
         "app.services.payment_service.PaymentService.handle_payment_cancel",
         lambda self, data: None,
     )
+    monkeypatch.setattr(
+        "app.api.webhooks.get_settings",
+        lambda: Settings(yookassa_webhook_secret="expected-secret"),
+    )
     app.dependency_overrides[get_session] = fake_get_session
 
     with TestClient(app, raise_server_exceptions=False) as client:
@@ -1385,6 +1431,7 @@ def test_yookassa_webhook_compat_route_accepts_post(monkeypatch: pytest.MonkeyPa
                 "event": "payment.succeeded",
                 "object": {"id": "yk-test-123", "status": "succeeded", "paid": True},
             },
+            headers={"x-yookassa-webhook-secret": "expected-secret"},
         )
 
     app.dependency_overrides.clear()
@@ -1399,12 +1446,20 @@ def test_yookassa_webhook_compat_rejects_invalid_json() -> None:
     """POST /web/webhooks/yookassa must return 400 for invalid JSON."""
     app = create_app()
 
-    with TestClient(app, raise_server_exceptions=False) as client:
-        response = client.post(
-            "/web/webhooks/yookassa",
-            content=b"not json",
-            headers={"content-type": "application/json"},
+    with pytest.MonkeyPatch().context() as mp:
+        mp.setattr(
+            "app.api.webhooks.get_settings",
+            lambda: Settings(yookassa_webhook_secret="expected-secret"),
         )
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.post(
+                "/web/webhooks/yookassa",
+                content=b"not json",
+                headers={
+                    "content-type": "application/json",
+                    "x-yookassa-webhook-secret": "expected-secret",
+                },
+            )
 
     assert response.status_code == 400
 
@@ -1413,11 +1468,17 @@ def test_yookassa_webhook_compat_rejects_missing_fields() -> None:
     """POST /web/webhooks/yookassa must return 400 when event/object missing."""
     app = create_app()
 
-    with TestClient(app, raise_server_exceptions=False) as client:
-        response = client.post(
-            "/web/webhooks/yookassa",
-            json={"type": "notification"},
+    with pytest.MonkeyPatch().context() as mp:
+        mp.setattr(
+            "app.api.webhooks.get_settings",
+            lambda: Settings(yookassa_webhook_secret="expected-secret"),
         )
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.post(
+                "/web/webhooks/yookassa",
+                json={"type": "notification"},
+                headers={"x-yookassa-webhook-secret": "expected-secret"},
+            )
 
     assert response.status_code == 400
 
@@ -1445,6 +1506,10 @@ def test_yookassa_webhook_compat_ignores_unknown_event() -> None:
             "app.services.payment_service.PaymentService.handle_payment_cancel",
             lambda self, data: None,
         )
+        mp.setattr(
+            "app.api.webhooks.get_settings",
+            lambda: Settings(yookassa_webhook_secret="expected-secret"),
+        )
         app.dependency_overrides[get_session] = fake_get_session
 
         with TestClient(app, raise_server_exceptions=False) as client:
@@ -1455,6 +1520,7 @@ def test_yookassa_webhook_compat_ignores_unknown_event() -> None:
                     "event": "payment.waiting_for_capture",
                     "object": {"id": "yk-waiting", "status": "waiting_for_capture"},
                 },
+                headers={"x-yookassa-webhook-secret": "expected-secret"},
             )
 
         app.dependency_overrides.clear()

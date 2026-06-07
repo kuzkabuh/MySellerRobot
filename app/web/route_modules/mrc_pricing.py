@@ -219,6 +219,12 @@ async def _resolve_user_tier_code(session: AsyncSession, user_id: int) -> str:
     return "free"
 
 
+async def _ensure_mrc_access(session: AsyncSession, user_id: int) -> None:
+    access = await FeatureAccessService(session).can_use_feature(user_id, FeatureCode.MRC_PRICING)
+    if not access.allowed:
+        raise HTTPException(status_code=403, detail=access.reason or "Раздел недоступен")
+
+
 @router.post("/mrc-pricing/products/{product_id}")
 async def save_mrc_price(
     product_id: int,
@@ -227,6 +233,7 @@ async def save_mrc_price(
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
     """Save MRC price for a product."""
+    await _ensure_mrc_access(session, user.id)
     form = await _urlencoded_form(request)
     mrc_value = _form_value(form, "mrc_price", "").strip()
 
@@ -291,6 +298,7 @@ async def clear_mrc_price(
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
     """Clear MRC price for a product."""
+    await _ensure_mrc_access(session, user.id)
     product = await session.get(Product, product_id)
     if product is None or product.user_id != user.id:
         raise HTTPException(status_code=404, detail="Товар не найден")
@@ -320,6 +328,7 @@ async def bulk_update_mrc(
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
     """Bulk update MRC for selected products."""
+    await _ensure_mrc_access(session, user.id)
     form = await _urlencoded_form(request)
     product_ids = form.get("product_ids", [])
     mrc_value = _form_value(form, "bulk_mrc", "").strip()
@@ -370,6 +379,7 @@ async def trigger_promotions_sync(
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
     """Manually trigger WB promotions sync (allPromo=true)."""
+    await _ensure_mrc_access(session, user.id)
     service = WbPromotionsSyncService(session)
     try:
         acquired, lock_msg = await service.try_acquire_sync_lock()
@@ -412,6 +422,7 @@ async def trigger_promotions_sync_limited(
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
     """Manually trigger WB promotions sync (allPromo=false — only joinable promos)."""
+    await _ensure_mrc_access(session, user.id)
     service = WbPromotionsSyncService(session)
     try:
         acquired, lock_msg = await service.try_acquire_sync_lock()
@@ -454,6 +465,7 @@ async def trigger_wb_prices_sync(
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
     """Manually trigger WB current prices sync."""
+    await _ensure_mrc_access(session, user.id)
     from app.core.security import TokenCipher
     from app.services.wb.wb_current_prices_sync_service import WbCurrentPricesSyncService
 
@@ -715,6 +727,7 @@ async def confirm_mrc_import(
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
     """Confirm and apply MRC import."""
+    await _ensure_mrc_access(session, user.id)
     user_id = user.id
     try:
         from app.services.pricing.mrc_import_service import MrcImportService
@@ -750,6 +763,7 @@ async def cancel_mrc_import(
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
     """Cancel MRC import."""
+    await _ensure_mrc_access(session, user.id)
     user_id = user.id
     try:
         from app.services.pricing.mrc_import_service import MrcImportService
@@ -1215,6 +1229,7 @@ async def auto_promo_condition_manual(
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
     """Manually set required_price for an auto promotion condition."""
+    await _ensure_mrc_access(session, user.id)
     try:
         form = await request.form()
         wb_nm_id = form.get("wb_nm_id", "").strip()

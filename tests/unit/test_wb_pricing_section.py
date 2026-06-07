@@ -406,7 +406,7 @@ def test_migration_chain_has_single_head() -> None:
     )
     heads = [line.strip() for line in result.stdout.strip().splitlines() if line.strip()]
     assert len(heads) == 1, f"Expected 1 head, got {len(heads)}: {heads}"
-    assert "20260607_0056" in heads[0]
+    assert "20260607_0057" in heads[0]
 
 
 def test_app_create_succeeds() -> None:

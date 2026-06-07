@@ -90,6 +90,7 @@ async def save_plan_fact_plan(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
+    await _ensure_plan_fact_access(session, user.id)
     form = await _urlencoded_form(request)
     target_id = _optional_int((form.get("target_id") or [""])[0])
     period_start = date.fromisoformat((form.get("period_start") or [""])[0])
@@ -116,6 +117,7 @@ async def delete_plan_fact_plan(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
+    await _ensure_plan_fact_access(session, user.id)
     await PlanFactService(session).delete_plan(user_id=user.id, target_id=target_id)
     await session.commit()
     return RedirectResponse(url="/web/plan-fact", status_code=303)
@@ -191,3 +193,9 @@ def _feature_locked_html(access) -> str:
         <p>Для доступа обновите тариф до <b>{required}</b> или выше.</p>
         <a class="btn btn-primary" href="/web/settings?tab=subscription">Перейти к подписке</a>
     </div>"""
+
+
+async def _ensure_plan_fact_access(session: AsyncSession, user_id: int) -> None:
+    access = await FeatureAccessService(session).can_use_feature(user_id, FeatureCode.PLAN_FACT)
+    if not access.allowed:
+        raise HTTPException(status_code=403, detail=access.reason or "Раздел недоступен")

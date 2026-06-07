@@ -54,6 +54,14 @@ def test_uses_first_public_ip_from_xff() -> None:
     assert get_client_ip(request) == "95.1.2.3"
 
 
+def test_direct_request_does_not_trust_spoofed_xff() -> None:
+    request = _make_request(
+        x_forwarded_for="95.1.2.3, 172.18.0.1",
+        client_host="8.8.8.8",
+    )
+    assert get_client_ip(request) == "8.8.8.8"
+
+
 def test_falls_back_to_x_real_ip_when_xff_has_no_public() -> None:
     request = _make_request(
         x_forwarded_for="172.18.0.1, 10.0.0.5",

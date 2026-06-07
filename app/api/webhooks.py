@@ -20,16 +20,16 @@ YOOKASSA_WEBHOOK_SECRET_HEADER = "x-yookassa-webhook-secret"
 
 
 def _verify_yookassa_webhook_secret(request: Request) -> None:
-    expected_secret = get_settings().get_yookassa_webhook_secret()
+    settings = get_settings()
+    expected_secret = settings.get_yookassa_webhook_secret()
     if not expected_secret:
-        logger.warning("yookassa_webhook_secret_not_configured")
-        return
+        if settings.webhook_insecure_dev_allowed:
+            logger.warning("yookassa_webhook_insecure_dev_mode")
+            return
+        logger.error("yookassa_webhook_secret_not_configured")
+        raise HTTPException(status_code=403, detail="Webhook secret is not configured")
 
-    provided_secret = (
-        request.headers.get(YOOKASSA_WEBHOOK_SECRET_HEADER)
-        or request.query_params.get("secret")
-        or ""
-    )
+    provided_secret = request.headers.get(YOOKASSA_WEBHOOK_SECRET_HEADER) or ""
     if not hmac.compare_digest(provided_secret, expected_secret):
         logger.warning(
             "yookassa_webhook_invalid_secret",

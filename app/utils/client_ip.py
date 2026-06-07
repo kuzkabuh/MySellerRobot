@@ -1,5 +1,5 @@
-"""version: 1.0.0
-description: Resolves external client IP behind reverse proxies (Nginx, Traefik, Cloudflare).
+"""version: 1.1.0
+description: Определяет внешний IP клиента только через доверенные reverse proxy.
 updated: 2026-06-07
 """
 from __future__ import annotations
@@ -8,6 +8,8 @@ import ipaddress
 from collections.abc import Iterable
 
 from fastapi import Request
+
+from app.core.config import get_settings
 
 _TRUSTED_PROXY_HEADERS: tuple[str, ...] = (
     "cf-connecting-ip",
@@ -89,31 +91,43 @@ def _first_public(candidates: Iterable[str]) -> str | None:
     return None
 
 
-def get_client_ip(request: Request) -> str:
-    """Return the best-effort external client IP for the given request.
-
-    Header order:
-    1. CF-Connecting-IP
-    2. X-Real-IP
-    3. X-Forwarded-For (first public IP in chain)
-    4. RFC 7239 Forwarded
-    5. True-Client-IP
-    6. request.client.host (fallback)
-    """
-    for header in _TRUSTED_PROXY_HEADERS:
-        raw_value = request.headers.get(header)
-        if not raw_value:
+def _parse_networks(raw_value: str) -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
+    networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+    for item in raw_value.split(","):
+        value = item.strip()
+        if not value:
             continue
-        chain = _normalize_chain(raw_value)
-        public = _first_public(chain) or _first_public([raw_value.strip()])
-        if public:
-            return public
+        try:
+            networks.append(ipaddress.ip_network(value, strict=False))
+        except ValueError:
+            continue
+    return tuple(networks)
 
+
+def _is_trusted_proxy(host: str | None) -> bool:
+    if not host:
+        return False
+    try:
+        parsed = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    networks = _parse_networks(get_settings().trusted_proxy_networks)
+    return any(parsed in network for network in networks)
+
+
+def get_client_ip(request: Request) -> str:
     if request.client is not None:
         host = request.client.host
-        if host and (not _is_public(host)) and host not in {"", "0.0.0.0"}:
-            return host
         if host:
+            if _is_trusted_proxy(host):
+                for header in _TRUSTED_PROXY_HEADERS:
+                    raw_value = request.headers.get(header)
+                    if not raw_value:
+                        continue
+                    chain = _normalize_chain(raw_value)
+                    public = _first_public(chain) or _first_public([raw_value.strip()])
+                    if public:
+                        return public
             return host
 
     return "unknown"

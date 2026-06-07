@@ -1,6 +1,7 @@
 """Tests for profile_service."""
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -34,6 +35,19 @@ def _make_user(**kwargs):
     return user
 
 
+class _CurrentSubscription:
+    def __init__(self, tier_name: str = "Free", tier_code: str = "free") -> None:
+        self.tier = SimpleNamespace(name=tier_name, code=tier_code)
+
+
+class _SubscriptionService:
+    def __init__(self, session) -> None:
+        self.session = session
+
+    async def get_user_current_subscription(self, user_id: int) -> _CurrentSubscription:
+        return _CurrentSubscription("PRO", "pro")
+
+
 @pytest.fixture
 def mock_session():
     session = AsyncMock()
@@ -43,8 +57,9 @@ def mock_session():
 
 
 @pytest.mark.asyncio
-async def test_get_profile_returns_profile_data(mock_session):
-    user = _make_user(first_name="Иван", last_name="Петров")
+async def test_get_profile_returns_profile_data(mock_session, monkeypatch):
+    monkeypatch.setattr("app.services.profile_service.SubscriptionService", _SubscriptionService)
+    user = _make_user(first_name="Иван", last_name="Петров", tariff="Free")
     mock_session.get = AsyncMock(return_value=user)
 
     service = ProfileService(mock_session)
@@ -54,6 +69,7 @@ async def test_get_profile_returns_profile_data(mock_session):
     assert profile.first_name == "Иван"
     assert profile.last_name == "Петров"
     assert profile.display_name == "Иван"
+    assert profile.tariff == "PRO"
 
 
 @pytest.mark.asyncio
