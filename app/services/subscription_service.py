@@ -1,6 +1,6 @@
-"""version: 1.2.0
+"""version: 1.3.0
 description: Subscription lifecycle service with trial, upgrade, admin assignment, and expiration.
-updated: 2026-05-17
+updated: 2026-06-07
 """
 
 import logging
@@ -9,6 +9,7 @@ from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.domain import MarketplaceAccount, User
 from app.models.enums import SubscriptionStatus
@@ -34,17 +35,37 @@ class SubscriptionService:
         self.session = session
 
     async def get_active_subscription(self, user_id: int) -> UserSubscription | None:
-        """Get user's active non-expired subscription, including trial."""
+        """Get user's active non-expired subscription, including trial.
+
+        This is the source of truth for current paid/trial tariff detection across web,
+        Telegram, API guards, and background services. If data drift leaves several active
+        subscriptions, the highest tier wins; ties use the latest start date.
+        """
         now = datetime.now(tz=UTC)
         result = await self.session.execute(
             select(UserSubscription)
+            .options(selectinload(UserSubscription.tier))
+            .join(SubscriptionTier, UserSubscription.tier_id == SubscriptionTier.id)
             .where(UserSubscription.user_id == user_id)
             .where(UserSubscription.status.in_(SUBSCRIPTION_ACTIVE_STATUSES))
             .where((UserSubscription.expires_at.is_(None)) | (UserSubscription.expires_at > now))
-            .order_by(UserSubscription.started_at.desc())
-            .limit(1)
+            .where(SubscriptionTier.is_active.is_(True))
+            .order_by(SubscriptionTier.sort_order.desc(), UserSubscription.started_at.desc())
+            .limit(2)
         )
-        return result.scalar_one_or_none()
+        subscriptions = list(result.scalars().all())
+        if len(subscriptions) > 1:
+            logger.warning(
+                "multiple_active_subscriptions_detected",
+                extra={
+                    "user_id": user_id,
+                    "selected_subscription_id": subscriptions[0].id,
+                    "selected_tier_id": subscriptions[0].tier_id,
+                    "conflicting_subscription_id": subscriptions[1].id,
+                    "conflicting_tier_id": subscriptions[1].tier_id,
+                },
+            )
+        return subscriptions[0] if subscriptions else None
 
     async def get_user_tier(self, user_id: int) -> SubscriptionTier:
         """Get user's current subscription tier (or FREE if none)."""
@@ -54,9 +75,7 @@ class SubscriptionService:
             return subscription.tier
 
         # Return FREE tier by default
-        result = await self.session.execute(
-            select(SubscriptionTier).where(SubscriptionTier.code == "free")
-        )
+        result = await self.session.execute(select(SubscriptionTier).where(_tier_code_is("free")))
         tier = result.scalar_one_or_none()
         if not tier:
             logger.warning("free_tier_missing_using_safe_fallback", extra={"user_id": user_id})
@@ -355,9 +374,7 @@ class SubscriptionService:
 
     async def get_tier_by_code(self, code: str) -> SubscriptionTier | None:
         """Get tier by code (public method)."""
-        result = await self.session.execute(
-            select(SubscriptionTier).where(SubscriptionTier.code == code)
-        )
+        result = await self.session.execute(select(SubscriptionTier).where(_tier_code_is(code)))
         return result.scalar_one_or_none()
 
     async def assign_admin_subscription(
@@ -517,6 +534,15 @@ def subscription_period_days(period: str) -> int:
 def _tier_rank(tier: SubscriptionTier) -> int:
     """Return tier ordering rank for upgrade decisions."""
     rank_by_code = {"free": 0, "basic": 10, "pro": 20, "business": 25, "enterprise": 30}
-    if tier.code in rank_by_code:
-        return rank_by_code[tier.code]
+    code = _normalize_tier_code(tier.code)
+    if code in rank_by_code:
+        return rank_by_code[code]
     return int(tier.sort_order or 0)
+
+
+def _normalize_tier_code(code: str) -> str:
+    return code.strip().lower()
+
+
+def _tier_code_is(code: str):
+    return func.lower(SubscriptionTier.code) == _normalize_tier_code(code)

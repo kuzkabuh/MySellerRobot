@@ -1,21 +1,20 @@
-"""version: 3.1.0
+"""version: 3.2.0
 description: Feature access checks using new subscription tier system.
     Implements default-deny: no active subscription = FREE tier permissions only.
     Tier codes are normalized to lowercase for case-insensitive comparison.
-updated: 2026-05-21
+updated: 2026-06-07
 """
 
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import MarketplaceAccount, Product
-from app.models.enums import FeatureCode, SubscriptionStatus
-from app.models.subscriptions import SubscriptionTier, UserSubscription
-from app.services.subscription_service import default_free_tier
+from app.models.enums import FeatureCode
+from app.models.subscriptions import SubscriptionTier
+from app.services.subscription_service import SubscriptionService, default_free_tier
 
 logger = logging.getLogger(__name__)
 
@@ -238,32 +237,11 @@ class FeatureAccessService:
         return FeatureAccessResult(allowed=True)
 
     async def _effective_tier(self, user_id: int) -> SubscriptionTier:
-        """Return the effective tier for a user.
-
-        If there is an active paid/trial subscription, return its tier.
-        Otherwise return the FREE tier (default-deny).
-        """
-        now = datetime.now(tz=UTC)
-        result = await self.session.execute(
-            select(SubscriptionTier)
-            .join(UserSubscription, UserSubscription.tier_id == SubscriptionTier.id)
-            .where(UserSubscription.user_id == user_id)
-            .where(
-                UserSubscription.status.in_(
-                    [SubscriptionStatus.ACTIVE.value, SubscriptionStatus.TRIAL.value]
-                )
-            )
-            .where((UserSubscription.expires_at.is_(None)) | (UserSubscription.expires_at > now))
-            .where(SubscriptionTier.is_active.is_(True))
-            .order_by(UserSubscription.started_at.desc())
-            .limit(1)
-        )
-        tier = result.scalar_one_or_none()
-        if tier is not None:
-            return tier
-        return await self._free_tier()
+        """Return the same effective tier shown in web and Telegram subscription screens."""
+        return await SubscriptionService(self.session).get_user_tier(user_id)
 
     async def _free_tier(self) -> SubscriptionTier:
+        """Backward-compatible helper for older tests and callers."""
         result = await self.session.execute(
             select(SubscriptionTier).where(func.lower(SubscriptionTier.code) == "free")
         )

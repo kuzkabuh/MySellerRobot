@@ -17,6 +17,7 @@ import pytest
 
 from app.models.enums import SubscriptionStatus
 from app.models.subscriptions import SubscriptionTier, UserSubscription
+from app.services.feature_access_service import FeatureAccessService, FeatureCode
 from app.services.subscription_service import SubscriptionService
 
 
@@ -32,6 +33,8 @@ class ScalarResult:
         return self
 
     def all(self) -> list[object]:
+        if self.value is not None:
+            return [self.value]
         return self.values
 
 
@@ -62,24 +65,29 @@ class SessionMock:
 
 
 def _make_tier(code: str, sort_order: int) -> SubscriptionTier:
+    normalized = code.lower()
     return SubscriptionTier(
-        id={"free": 0, "basic": 1, "pro": 2, "enterprise": 3}[code],
+        id={"free": 0, "basic": 1, "pro": 2, "enterprise": 3}[normalized],
         code=code,
-        name=code.upper(),
+        name=normalized.upper(),
         description=None,
-        price_monthly=Decimal({"free": 0, "basic": 490, "pro": 1490, "enterprise": 0}[code]),
-        price_yearly=Decimal({"free": 0, "basic": 4900, "pro": 14900, "enterprise": 0}[code]),
+        price_monthly=Decimal(
+            {"free": 0, "basic": 490, "pro": 1490, "enterprise": 0}[normalized]
+        ),
+        price_yearly=Decimal(
+            {"free": 0, "basic": 4900, "pro": 14900, "enterprise": 0}[normalized]
+        ),
         max_marketplace_accounts=2,
         max_orders_per_month=1000,
         max_products=1000,
         feature_web_cabinet=True,
-        feature_analytics=code in {"basic", "pro"},
-        feature_plan_fact=code == "pro",
-        feature_break_even=code == "pro",
-        feature_stock_forecast=code == "pro",
-        feature_alerts=code in {"basic", "pro"},
+        feature_analytics=normalized in {"basic", "pro"},
+        feature_plan_fact=normalized == "pro",
+        feature_break_even=normalized == "pro",
+        feature_stock_forecast=normalized == "pro",
+        feature_alerts=normalized in {"basic", "pro"},
         feature_api_access=False,
-        feature_priority_support=code == "pro",
+        feature_priority_support=normalized == "pro",
         is_active=True,
         sort_order=sort_order,
     )
@@ -313,3 +321,69 @@ class TestFeatureGatingUsesCorrectSubscription:
 
         assert has_analytics is True
         assert has_web is True
+
+
+class TestTariffSourceOfTruth:
+    """Cross-cutting tariff detection rules."""
+
+    @pytest.mark.asyncio
+    async def test_user_without_subscription_gets_free(self):
+        free = _make_tier("free", 0)
+        session = SessionMock([ScalarResult(None), ScalarResult(free)])
+
+        tier = await SubscriptionService(session).get_user_tier(1)
+
+        assert tier.code == "free"
+
+    @pytest.mark.asyncio
+    async def test_active_pro_is_returned_as_pro(self):
+        pro = _make_tier("pro", 20)
+        sub = _make_subscription(pro)
+        sub.tier = pro
+        session = SessionMock([ScalarResult(sub)])
+
+        tier = await SubscriptionService(session).get_user_tier(1)
+
+        assert tier.code == "pro"
+
+    @pytest.mark.asyncio
+    async def test_expired_pro_falls_back_to_free(self):
+        free = _make_tier("free", 0)
+        session = SessionMock([ScalarResult(None), ScalarResult(free)])
+
+        tier = await SubscriptionService(session).get_user_tier(1)
+
+        assert tier.code == "free"
+
+    @pytest.mark.asyncio
+    async def test_conflicting_active_subscriptions_choose_highest_tier(self, caplog):
+        basic = _make_tier("basic", 10)
+        pro = _make_tier("pro", 20)
+        basic_sub = _make_subscription(basic)
+        pro_sub = _make_subscription(pro)
+        session = SessionMock([ScalarResult(values=[pro_sub, basic_sub])])
+
+        active = await SubscriptionService(session).get_active_subscription(1)
+
+        assert active is pro_sub
+        assert "multiple_active_subscriptions_detected" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_tier_lookup_is_case_insensitive(self):
+        pro = _make_tier("PRO", 20)
+        session = SessionMock([ScalarResult(pro)])
+
+        tier = await SubscriptionService(session).get_tier_by_code("pro")
+
+        assert tier is pro
+
+    @pytest.mark.asyncio
+    async def test_feature_access_uses_subscription_service_tier(self):
+        pro = _make_tier("pro", 20)
+        sub = _make_subscription(pro)
+        sub.tier = pro
+        session = SessionMock([ScalarResult(sub)])
+
+        access = await FeatureAccessService(session).can_use_feature(1, FeatureCode.PLAN_FACT)
+
+        assert access.allowed is True
