@@ -25,6 +25,7 @@ from app.web.route_modules import (
     support_admin,
     tariffs_admin,
     user_settings,
+    wb_daily_reports,
     wb_logistics_admin,
 )
 from app.web.route_modules import (
@@ -128,6 +129,7 @@ for module_router in (
     backup_admin.router,
     mrc_pricing.router,
     wb_logistics_admin.router,
+    wb_daily_reports.router,
     compatibility.router,
 ):
     router.include_router(module_router)

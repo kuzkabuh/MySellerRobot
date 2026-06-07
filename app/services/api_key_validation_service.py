@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import TokenCipher, mask_secret
 from app.integrations.ozon import OzonClient
-from app.integrations.wb import WBClient
+from app.integrations.wb import WildberriesClient
 from app.models.domain import ApiKeyAuditLog, MarketplaceAccount
 from app.models.enums import Marketplace
 
@@ -49,19 +49,19 @@ class ApiKeyValidationService:
             )
 
         try:
-            client = WBClient(api_key=api_key)
-            await client.check_health()
+            client = WildberriesClient(api_key=api_key)
+            await client.check_connection()
             permissions = []
             missing = []
 
             try:
-                await client.get_new_orders(limit=1)
+                await client.get_new_fbs_orders()
                 permissions.append("orders")
             except Exception:
                 missing.append("orders")
 
             try:
-                await client.get_cards_list(limit=1)
+                await client.get_cards_list(cursor={"limit": 1})
                 permissions.append("content")
             except Exception:
                 missing.append("content")
@@ -106,7 +106,7 @@ class ApiKeyValidationService:
 
         try:
             client = OzonClient(api_key=api_key, client_id=client_id)
-            await client.check_health()
+            await client.check_connection()
             permissions = []
             missing = []
 
@@ -117,7 +117,8 @@ class ApiKeyValidationService:
                 missing.append("product")
 
             try:
-                await client.get_fbs_postings(limit=1)
+                now = datetime.now(UTC)
+                await client.get_fbs_postings(now, now, limit=1)
                 permissions.append("posting")
             except Exception:
                 missing.append("posting")

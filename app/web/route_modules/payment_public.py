@@ -20,6 +20,7 @@ from app.core.db import get_session
 from app.models.enums import PaymentStatus
 from app.models.subscriptions import Payment
 from app.services.payment_service import PaymentService
+from app.utils.client_ip import get_client_ip
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +161,7 @@ async def payment_success(
         "payment_return_success_opened",
         extra={
             "payment_id": payment_id,
-            "remote_addr": request.client.host if request.client else None,
+            "remote_addr": get_client_ip(request),
         },
     )
 
@@ -304,7 +305,7 @@ async def payment_cancel(
         "payment_return_cancel_opened",
         extra={
             "payment_id": payment_id,
-            "remote_addr": request.client.host if request.client else None,
+            "remote_addr": get_client_ip(request),
         },
     )
 

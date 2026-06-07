@@ -1534,3 +1534,95 @@ class SupportTicketEvent(Base):
 
     ticket: Mapped[SupportTicket] = relationship(back_populates="events")
     actor: Mapped[User | None] = relationship(back_populates="support_ticket_events")
+
+
+class WbDailyReportImport(TimestampMixin, Base):
+    """Metadata for a single WB daily realisation-report import attempt."""
+
+    __tablename__ = "wb_daily_report_imports"
+    __table_args__ = (
+        Index("ix_wb_daily_report_imports_user", "user_id"),
+        Index("ix_wb_daily_report_imports_account", "marketplace_account_id"),
+        Index("ix_wb_daily_report_imports_created", "created_at"),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    marketplace_account_id: Mapped[int] = mapped_column(
+        ForeignKey("marketplace_accounts.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    source_type: Mapped[str] = mapped_column(String(16), nullable=False, default="file")
+    original_filename: Mapped[str | None] = mapped_column(String(512))
+    report_number: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    report_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    file_hash: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    rows_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    rows_inserted: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    rows_skipped: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    rows: Mapped[list["WbDailyReportRow"]] = relationship(
+        back_populates="import_record",
+        cascade="all, delete-orphan",
+    )
+
+
+class WbDailyReportRow(TimestampMixin, Base):
+    """Single row of a WB daily realisation report (XLSX import)."""
+
+    __tablename__ = "wb_daily_report_rows"
+    __table_args__ = (
+        UniqueConstraint(
+            "marketplace_account_id",
+            "report_number",
+            "row_hash",
+            name="ux_wb_daily_report_row_dedupe",
+        ),
+        Index("ix_wb_daily_report_rows_user", "user_id"),
+        Index("ix_wb_daily_report_rows_account", "marketplace_account_id"),
+        Index("ix_wb_daily_report_rows_import", "import_id"),
+        Index("ix_wb_daily_report_rows_sale_dt", "sale_dt"),
+        Index("ix_wb_daily_report_rows_order_dt", "order_dt"),
+    )
+
+    id: Mapped[int_pk]
+    import_id: Mapped[int] = mapped_column(
+        ForeignKey("wb_daily_report_imports.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    marketplace_account_id: Mapped[int] = mapped_column(
+        ForeignKey("marketplace_accounts.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    report_number: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    row_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    row_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sale_dt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    order_dt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    nm_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    supplier_article: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    barcode: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    doc_type_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    subject_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    brand_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    retail_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    retail_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    for_pay: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    delivery_rub: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    penalty: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    storage_fee: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    acceptance: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    deduction: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    raw_json: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict, nullable=False)
+
+    import_record: Mapped[WbDailyReportImport] = relationship(back_populates="rows")

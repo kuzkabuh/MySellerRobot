@@ -42,6 +42,12 @@ NAV_GROUPS = [
         ],
     ),
     (
+        "Отчёты",
+        [
+            ("Отчёты WB", "/web/reports/wb-daily"),
+        ],
+    ),
+    (
         "Маркетплейсы",
         [
             ("Кабинеты МП", "/web/settings?tab=marketplaces"),

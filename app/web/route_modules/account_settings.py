@@ -133,8 +133,15 @@ async def save_product_cost_legacy_double_web(
 @router.get("/profile", response_class=HTMLResponse)
 async def profile_page(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
-) -> RedirectResponse:
-    return RedirectResponse(url="/web/settings?tab=profile", status_code=302)
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    subscription = await WebCabinetService(session).subscription_page(user.id, user.timezone)
+    return page(
+        "Профиль",
+        _user_display_name(user),
+        _profile_content(user, subscription),
+        active_path="/web/settings",
+    )
 
 
 @router.post("/profile")
@@ -159,15 +166,31 @@ async def save_profile_settings(
 @router.get("/subscription", response_class=HTMLResponse)
 async def subscription_page_web(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
-) -> RedirectResponse:
-    return RedirectResponse(url="/web/settings?tab=subscription", status_code=302)
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    data = await WebCabinetService(session).subscription_page(user.id, user.timezone)
+    service = SubscriptionService(session)
+    tiers = await service.get_all_tiers()
+    return page(
+        "Тариф и подписка",
+        _user_display_name(user),
+        _subscription_content(data, tiers, user.timezone),
+        active_path="/web/settings",
+    )
 
 
 @router.get("/accounts", response_class=HTMLResponse)
 async def accounts_page_web(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
-) -> RedirectResponse:
-    return RedirectResponse(url="/web/settings?tab=marketplaces", status_code=302)
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    data = await WebCabinetService(session).accounts_page(user.id, user.timezone)
+    return page(
+        "Кабинеты маркетплейсов",
+        _user_display_name(user),
+        _accounts_content(data, user.timezone),
+        active_path="/web/settings",
+    )
 
 
 @router.get("/sync/{sync_type}")

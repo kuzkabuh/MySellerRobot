@@ -12,6 +12,7 @@ from app.core.config import get_settings
 from app.repositories.web_auth import WebAuthRepository
 from app.services.web_auth_service import WEB_SESSION_COOKIE, WebAuthService
 from app.services.web_password_auth_service import WebPasswordAuthService
+from app.utils.client_ip import get_client_ip
 from app.web.dependencies import (
     SESSION_DEPENDENCY,
     WEB_DASHBOARD_PATH,
@@ -49,7 +50,7 @@ async def login(
     )
     web_session = await WebAuthService(session).consume_login_token(
         token,
-        ip_address=request.client.host if request.client else None,
+        ip_address=get_client_ip(request),
         user_agent=request.headers.get("user-agent"),
     )
     if web_session is None:
@@ -92,7 +93,7 @@ async def password_login(
     web_session = await WebPasswordAuthService(session).authenticate(
         login=login_value,
         password=password,
-        ip_address=request.client.host if request.client else None,
+        ip_address=get_client_ip(request),
         user_agent=request.headers.get("user-agent"),
     )
     if web_session is None:

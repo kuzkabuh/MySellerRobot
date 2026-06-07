@@ -23,6 +23,7 @@ from app.api.webhooks import router as webhooks_router
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.core.logging import configure_logging
+from app.utils.client_ip import get_client_ip
 from app.web.route_modules.payment_public import router as payment_public_router
 from app.web.route_modules.wb_logistics_admin import router as wb_logistics_router
 from app.web.routes import router as web_router
@@ -142,7 +143,7 @@ def create_app() -> FastAPI:
 
         headers = _sanitize_headers(dict(request.headers))
 
-        client_ip = request.client.host if request.client else "unknown"
+        client_ip = get_client_ip(request)
         x_forwarded_for = request.headers.get("x-forwarded-for", "")
         user_agent = request.headers.get("user-agent", "")
         referer = _sanitize_url(request.headers.get("referer", ""))
