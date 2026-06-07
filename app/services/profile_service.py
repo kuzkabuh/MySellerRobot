@@ -72,7 +72,8 @@ class ProfileService:
             or str(user.telegram_id)
         )
 
-        subscription = await SubscriptionService(self.session).get_user_current_subscription(user.id)
+        subscription_service = SubscriptionService(self.session)
+        subscription = await subscription_service.get_user_current_subscription(user.id)
 
         return ProfileData(
             user_id=user.id,

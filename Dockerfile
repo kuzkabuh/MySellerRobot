@@ -2,7 +2,7 @@
 # description: Multi-stage runtime image for MP Control services.
 # updated: 2026-06-01
 
-FROM python:3.12-slim AS builder
+FROM python:3.14-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -24,7 +24,7 @@ RUN python -m venv /opt/venv \
         /opt/venv/bin/pip install --no-cache-dir "."; \
     fi
 
-FROM python:3.12-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \

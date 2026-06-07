@@ -69,7 +69,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ## Project Overview
 
-Seller Profit Bot (KUZ'KA.SELLER BOT) — Telegram bot for Wildberries and Ozon sellers that shows planned profit/loss for each order immediately upon notification. Built with Python 3.12, FastAPI, aiogram 3, SQLAlchemy 2, Alembic, PostgreSQL, Redis, and arq.
+Seller Profit Bot (KUZ'KA.SELLER BOT) — Telegram bot for Wildberries and Ozon sellers that shows planned profit/loss for each order immediately upon notification. Built with Python 3.14, FastAPI, aiogram 3, SQLAlchemy 2, Alembic, PostgreSQL, Redis, and arq.
 
 Current version: **1.4.17** (stored in `VERSION` and `pyproject.toml`)
 

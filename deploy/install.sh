@@ -280,7 +280,7 @@ from cryptography.fernet import Fernet
 Fernet(os.environ["ENCRYPTION_KEY"].encode())
 PY
     log_error "ENCRYPTION_KEY is not a valid Fernet key."
-    log_error "Generate it with: docker run --rm python:3.12-slim sh -c \"pip install cryptography >/dev/null 2>&1 && python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'\""
+    log_error "Generate it with: docker run --rm python:3.14-slim sh -c \"pip install cryptography >/dev/null 2>&1 && python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'\""
     log_error "If this server uses an existing database, do not change ENCRYPTION_KEY or old marketplace API keys cannot be decrypted."
     exit 1
   }

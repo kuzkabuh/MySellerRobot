@@ -141,7 +141,7 @@ backups/               локальные/серверные бэкапы
 
 ## Технологический стек
 
-- Python 3.12;
+- Python 3.14;
 - FastAPI и uvicorn;
 - aiogram 3;
 - SQLAlchemy 2 и Alembic;
@@ -225,7 +225,7 @@ BACKUP_ENCRYPTION_ENABLED=1
 
 ```bash
 openssl rand -hex 32
-docker run --rm python:3.12-slim sh -c "pip install cryptography >/dev/null 2>&1 && python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
+docker run --rm python:3.14-slim sh -c "pip install cryptography >/dev/null 2>&1 && python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
 ```
 
 `APP_SECRET_KEY` используется для служебных admin endpoints и должен быть длинной
