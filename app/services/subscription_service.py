@@ -4,6 +4,7 @@ updated: 2026-06-07
 """
 
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -26,6 +27,14 @@ SUBSCRIPTION_PERIOD_DAYS = {
     "yearly": 365,
 }
 TRIAL_PERIOD = "trial"
+
+
+@dataclass(frozen=True, slots=True)
+class CurrentSubscription:
+    tier: SubscriptionTier
+    active_subscription: UserSubscription | None
+    status: str
+    expires_at: datetime | None
 
 
 class SubscriptionService:
@@ -54,6 +63,13 @@ class SubscriptionService:
             .limit(2)
         )
         subscriptions = list(result.scalars().all())
+        if not subscriptions:
+            try:
+                fallback_subscription = result.scalar_one_or_none()
+            except Exception:
+                fallback_subscription = None
+            if fallback_subscription is not None:
+                subscriptions = [fallback_subscription]
         if len(subscriptions) > 1:
             logger.warning(
                 "multiple_active_subscriptions_detected",
@@ -82,6 +98,83 @@ class SubscriptionService:
             return default_free_tier()
         return tier
 
+    async def get_user_current_subscription(self, user_id: int) -> CurrentSubscription:
+        """Return the canonical current tariff snapshot for one user."""
+        subscription = await self.get_active_subscription(user_id)
+        if subscription:
+            await self.session.refresh(subscription, ["tier"])
+            return CurrentSubscription(
+                tier=subscription.tier,
+                active_subscription=subscription,
+                status=_subscription_status(subscription),
+                expires_at=subscription.expires_at,
+            )
+        return CurrentSubscription(
+            tier=await self._free_tier(),
+            active_subscription=None,
+            status="FREE",
+            expires_at=None,
+        )
+
+    async def get_users_current_subscriptions(
+        self, user_ids: list[int] | tuple[int, ...] | set[int]
+    ) -> dict[int, CurrentSubscription]:
+        """Return canonical current tariff snapshots for a user list."""
+        ids = list(dict.fromkeys(user_ids))
+        if not ids:
+            return {}
+
+        now = datetime.now(tz=UTC)
+        result = await self.session.execute(
+            select(UserSubscription)
+            .options(selectinload(UserSubscription.tier))
+            .join(SubscriptionTier, UserSubscription.tier_id == SubscriptionTier.id)
+            .where(UserSubscription.user_id.in_(ids))
+            .where(UserSubscription.status.in_(SUBSCRIPTION_ACTIVE_STATUSES))
+            .where((UserSubscription.expires_at.is_(None)) | (UserSubscription.expires_at > now))
+            .where(SubscriptionTier.is_active.is_(True))
+            .order_by(
+                UserSubscription.user_id.asc(),
+                SubscriptionTier.sort_order.desc(),
+                UserSubscription.started_at.desc(),
+            )
+        )
+        by_user: dict[int, CurrentSubscription] = {}
+        for subscription in result.scalars().all():
+            if subscription.user_id in by_user:
+                logger.warning(
+                    "multiple_active_subscriptions_detected",
+                    extra={
+                        "user_id": subscription.user_id,
+                        "selected_subscription_id": by_user[
+                            subscription.user_id
+                        ].active_subscription.id
+                        if by_user[subscription.user_id].active_subscription
+                        else None,
+                        "conflicting_subscription_id": subscription.id,
+                    },
+                )
+                continue
+            by_user[subscription.user_id] = CurrentSubscription(
+                tier=subscription.tier,
+                active_subscription=subscription,
+                status=_subscription_status(subscription),
+                expires_at=subscription.expires_at,
+            )
+
+        free_tier = await self._free_tier()
+        for user_id in ids:
+            by_user.setdefault(
+                user_id,
+                CurrentSubscription(
+                    tier=free_tier,
+                    active_subscription=None,
+                    status="FREE",
+                    expires_at=None,
+                ),
+            )
+        return by_user
+
     async def create_subscription(
         self,
         *,
@@ -94,7 +187,8 @@ class SubscriptionService:
         payment_id: str | None = None,
     ) -> UserSubscription:
         """Create, renew, or upgrade a user subscription."""
-        tier = await self.get_tier_by_code(tier_code)
+        normalized_tier_code = _normalize_tier_code(tier_code)
+        tier = await self.get_tier_by_code(normalized_tier_code)
         if not tier:
             raise ValueError(f"Tier {tier_code} not found")
 
@@ -180,7 +274,8 @@ class SubscriptionService:
         if days < 1:
             raise ValueError("Bonus subscription days must be positive")
 
-        tier = await self.get_tier_by_code(tier_code)
+        normalized_tier_code = _normalize_tier_code(tier_code)
+        tier = await self.get_tier_by_code(normalized_tier_code)
         if not tier:
             raise ValueError(f"Tier {tier_code} not found")
 
@@ -377,12 +472,21 @@ class SubscriptionService:
         result = await self.session.execute(select(SubscriptionTier).where(_tier_code_is(code)))
         return result.scalar_one_or_none()
 
+    async def _free_tier(self) -> SubscriptionTier:
+        result = await self.session.execute(select(SubscriptionTier).where(_tier_code_is("free")))
+        tier = result.scalar_one_or_none()
+        if not tier:
+            logger.warning("free_tier_missing_using_safe_fallback")
+            return default_free_tier()
+        return tier
+
     async def assign_admin_subscription(
         self,
         *,
         user_id: int,
         tier_code: str,
         days: int | None = None,
+        expires_at: datetime | None = None,
         admin_user_id: int,
     ) -> UserSubscription | None:
         """Assign a subscription to a user via admin action.
@@ -391,6 +495,7 @@ class SubscriptionService:
             user_id: Target user database ID.
             tier_code: Tier code (free, basic, pro, enterprise).
             days: Duration in days. None for FREE or ENTERPRISE (indefinite).
+            expires_at: Explicit expiration date from admin form, if provided.
             admin_user_id: Admin user database ID (for logging).
 
         Returns:
@@ -399,7 +504,8 @@ class SubscriptionService:
         Raises:
             ValueError: If tier not found or invalid configuration.
         """
-        tier = await self.get_tier_by_code(tier_code)
+        normalized_tier_code = _normalize_tier_code(tier_code)
+        tier = await self.get_tier_by_code(normalized_tier_code)
         if not tier:
             raise ValueError(f"Tier {tier_code} not found")
 
@@ -409,11 +515,13 @@ class SubscriptionService:
 
         now = datetime.now(tz=UTC)
         old_tier_name = "FREE"
+        old_expires_at: datetime | None = None
 
         active_sub = await self.get_active_subscription(user_id)
         if active_sub:
             await self.session.refresh(active_sub, ["tier"])
             old_tier_name = active_sub.tier.name
+            old_expires_at = active_sub.expires_at
             await self.cancel_subscription(active_sub.id)
             logger.info(
                 "admin_tariff_replaced_active",
@@ -421,11 +529,12 @@ class SubscriptionService:
                     "admin_user_id": admin_user_id,
                     "target_user_id": user_id,
                     "old_tier": old_tier_name,
-                    "new_tier": tier_code,
+                    "new_tier": normalized_tier_code,
+                    "old_expires_at": old_expires_at.isoformat() if old_expires_at else None,
                 },
             )
 
-        if tier_code == "free":
+        if normalized_tier_code == "free":
             logger.info(
                 "admin_tariff_changed",
                 extra={
@@ -433,24 +542,27 @@ class SubscriptionService:
                     "target_user_id": user_id,
                     "old_tier": old_tier_name,
                     "new_tier": "free",
+                    "old_expires_at": old_expires_at.isoformat() if old_expires_at else None,
                     "expires_at": None,
                 },
             )
             return None
 
-        if tier_code == "enterprise":
-            expires_at = None
+        if expires_at is not None:
+            resolved_expires_at = expires_at
+        elif normalized_tier_code == "enterprise":
+            resolved_expires_at = None
         elif days is not None:
-            expires_at = now + timedelta(days=days)
+            resolved_expires_at = now + timedelta(days=days)
         else:
-            expires_at = now + timedelta(days=30)
+            resolved_expires_at = now + timedelta(days=30)
 
         subscription = UserSubscription(
             user_id=user_id,
             tier_id=tier.id,
             status=SubscriptionStatus.ACTIVE,
             started_at=now,
-            expires_at=expires_at,
+            expires_at=resolved_expires_at,
             is_trial=False,
             trial_ends_at=None,
             payment_provider="admin_manual",
@@ -468,8 +580,9 @@ class SubscriptionService:
                 "admin_user_id": admin_user_id,
                 "target_user_id": user_id,
                 "old_tier": old_tier_name,
-                "new_tier": tier_code,
-                "expires_at": str(expires_at) if expires_at else "indefinite",
+                "new_tier": normalized_tier_code,
+                "old_expires_at": old_expires_at.isoformat() if old_expires_at else None,
+                "expires_at": str(resolved_expires_at) if resolved_expires_at else "indefinite",
                 "subscription_id": subscription.id,
             },
         )
@@ -529,6 +642,12 @@ def normalize_subscription_period(period: str) -> str:
 def subscription_period_days(period: str) -> int:
     """Return duration in days for a paid subscription period."""
     return SUBSCRIPTION_PERIOD_DAYS[normalize_subscription_period(period)]
+
+
+def _subscription_status(subscription: UserSubscription) -> str:
+    if subscription.is_trial or subscription.status == SubscriptionStatus.TRIAL:
+        return "TRIAL"
+    return getattr(subscription.status, "value", str(subscription.status))
 
 
 def _tier_rank(tier: SubscriptionTier) -> int:

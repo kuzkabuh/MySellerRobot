@@ -2,10 +2,10 @@
 
 # ruff: noqa: E501
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time
 from html import escape
 
-from fastapi import APIRouter, Form, HTTPException, Query
+from fastapi import APIRouter, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import String, case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +25,7 @@ from app.models.subscriptions import Payment, SubscriptionTier
 from app.services.audit_log_service import AuditLogService
 from app.services.notification_event_service import NotificationEventService
 from app.services.payment_service import PaymentService
+from app.services.profile_service import ProfileService, ProfileValidationError
 from app.services.subscription_service import SubscriptionService
 from app.services.sync_status_service import SyncStatusService
 from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY, is_admin_user
@@ -48,6 +49,10 @@ def _h(value: object) -> str:
 
 def _dt(value: datetime | None) -> str:
     return value.strftime("%d.%m.%Y %H:%M") if value else "-"
+
+
+def _date_value(value: datetime | None) -> str:
+    return value.strftime("%Y-%m-%d") if value else ""
 
 
 def _badge(status: object) -> str:
@@ -82,14 +87,29 @@ async def admin_users_page(
             (User.username.ilike(term)) | (cast(User.telegram_id, String).ilike(term))
         )
     rows = list((await session.execute(query)).scalars().all())
+    subscriptions = await SubscriptionService(session).get_users_current_subscriptions(
+        [row.id for row in rows]
+    )
     body = "".join(
-        f"<tr><td><a href='/web/admin/users/{u.id}'>{u.id}</a></td><td>{u.telegram_id}</td><td>{_h(u.username)}</td><td>{_badge(u.status)}</td><td>{_h(u.tariff)}</td><td>{_dt(u.created_at)}</td></tr>"
+        (
+            f"<tr><td><a href='/web/admin/users/{u.id}'>{u.id}</a></td>"
+            f"<td>{u.telegram_id}</td>"
+            f"<td>{_h(_name(u))}<div class='muted'>{_h('@' + u.username if u.username else '')}</div></td>"
+            f"<td>{_h(u.email)}<div class='muted'>{_h(u.phone)}</div></td>"
+            f"<td>{_h(subscriptions[u.id].tier.name)}</td>"
+            f"<td>{_badge(subscriptions[u.id].status)}</td>"
+            f"<td>{_dt(subscriptions[u.id].expires_at)}</td>"
+            f"<td>{'вкл' if u.notifications_enabled else 'выкл'}</td>"
+            f"<td>{_h(u.role)}</td>"
+            f"<td>{_dt(u.created_at)}<div class='muted'>Активность: {_dt(u.last_activity_at)}</div></td>"
+            f"<td><a class='btn btn-sm' href='/web/admin/users/{u.id}'>Открыть</a></td></tr>"
+        )
         for u in rows
     )
     content = f"""
     <div class="page-header"><div><h2>Пользователи</h2><div class="summary-strip"><span>Показано: <strong>{len(rows)}</strong></span></div></div></div>
     <form class="filters" method="get"><div><label>Поиск</label><input name="q" value="{_h(q)}" placeholder="Telegram ID или username"></div><button class="btn btn-primary">Найти</button></form>
-    <div class="table-wrap"><table class="table"><thead><tr><th>ID</th><th>Telegram ID</th><th>Username</th><th>Статус</th><th>Тариф</th><th>Регистрация</th></tr></thead><tbody>{body or '<tr><td colspan="6"><div class="empty-state">Пользователи не найдены</div></td></tr>'}</tbody></table></div>
+    <div class="table-wrap"><table class="table"><thead><tr><th>ID</th><th>Telegram ID</th><th>Имя</th><th>Email / телефон</th><th>Тариф</th><th>Подписка</th><th>До</th><th>Увед.</th><th>Роль</th><th>Регистрация</th><th></th></tr></thead><tbody>{body or '<tr><td colspan="11"><div class="empty-state">Пользователи не найдены</div></td></tr>'}</tbody></table></div>
     """
     return _admin_page("Админка пользователей", user, content, "/web/admin/users")
 
@@ -193,6 +213,9 @@ async def admin_user_detail_page(
         .scalars()
         .all()
     )
+    current_subscription = await SubscriptionService(session).get_user_current_subscription(
+        target.id
+    )
 
     account_rows = "".join(
         f"<tr><td>{_h(a.marketplace.value)}</td><td>{_h(a.name)}</td><td>{_badge(a.status)}</td><td>{_dt(a.last_success_sync_at)}</td><td>{_h(a.last_error_message)}</td></tr>"
@@ -219,13 +242,44 @@ async def admin_user_detail_page(
         for e in errors
     )
     tier_options = "".join(
-        f"<option value='{_h(t.code)}'>{_h(t.name)} ({_h(t.code)})</option>" for t in tiers
+        f"<option value='{_h(t.code)}' {'selected' if t.code.lower() == current_subscription.tier.code.lower() else ''}>{_h(t.name)} ({_h(t.code)})</option>"
+        for t in tiers
+    )
+    status_options = "".join(
+        f"<option value='{status.value}' {'selected' if target.status == status else ''}>{status.value}</option>"
+        for status in UserStatus
+    )
+    role_options = "".join(
+        f"<option value='{role}' {'selected' if target.role == role else ''}>{role}</option>"
+        for role in ("user", "admin")
     )
     block_action = "unblock" if target.status == UserStatus.BLOCKED else "block"
     block_label = "Разблокировать" if target.status == UserStatus.BLOCKED else "Заблокировать"
 
     content = f"""
-    <div class="page-header"><div><h2>Пользователь #{target.id}</h2><div class="summary-strip"><span>Telegram: <strong>{target.telegram_id}</strong></span><span>Username: <strong>{_h(target.username) or '-'}</strong></span><span>Статус: <strong>{_h(target.status.value)}</strong></span></div></div><div class="page-actions"><a class="btn" href="/web/admin/users">К списку</a></div></div>
+    <div class="page-header"><div><h2>Пользователь #{target.id}</h2><div class="summary-strip"><span>Telegram: <strong>{target.telegram_id}</strong></span><span>Username: <strong>{_h(target.username) or '-'}</strong></span><span>Статус: <strong>{_h(target.status.value)}</strong></span><span>Тариф: <strong>{_h(current_subscription.tier.name)}</strong></span><span>Подписка: <strong>{_h(current_subscription.status)}</strong></span><span>До: <strong>{_dt(current_subscription.expires_at)}</strong></span></div></div><div class="page-actions"><a class="btn" href="/web/admin/users">К списку</a></div></div>
+    <div class="band"><h3>Профиль и тариф</h3>
+      <form method="post" action="/web/admin/users/{target.id}/update">
+        <div class="filters">
+          <div><label>Telegram ID</label><input value="{target.telegram_id}" disabled></div>
+          <div><label>Username</label><input name="username" value="{_h(target.username)}"></div>
+          <div><label>Имя</label><input name="first_name" value="{_h(target.first_name)}"></div>
+          <div><label>Фамилия</label><input name="last_name" value="{_h(target.last_name)}"></div>
+          <div><label>Email</label><input name="email" type="email" value="{_h(target.email)}"></div>
+          <div><label>Телефон</label><input name="phone" value="{_h(target.phone)}"></div>
+          <div><label>Компания</label><input name="company_name" value="{_h(target.company_name)}"></div>
+          <div><label>ИНН</label><input name="inn" value="{_h(target.inn)}"></div>
+          <div><label>ОГРН / ОГРНИП</label><input name="ogrn" value="{_h(target.ogrn)}"></div>
+          <div><label>Часовой пояс</label><input name="timezone" value="{_h(target.timezone)}"></div>
+          <div><label>Статус</label><select name="status">{status_options}</select></div>
+          <div><label>Роль</label><select name="role">{role_options}</select></div>
+          <div><label>Тариф</label><select name="tier_code">{tier_options}</select></div>
+          <div><label>Дата окончания тарифа</label><input name="subscription_expires_at" type="date" value="{_date_value(current_subscription.expires_at)}"></div>
+          <div><label class="status-chip"><input type="checkbox" name="notifications_enabled" {'checked' if target.notifications_enabled else ''}> Telegram-уведомления</label></div>
+        </div>
+        <button class="btn btn-primary" type="submit">Сохранить</button>
+      </form>
+    </div>
     <div class="band"><h3>Действия</h3><div style="display:flex;gap:8px;flex-wrap:wrap;">
       <form method="post" action="/web/admin/users/{target.id}/grant-tariff"><select name="tier_code">{tier_options}</select><input name="days" type="number" value="30" min="1" style="width:90px"><button class="btn btn-primary">Выдать тариф</button></form>
       <form method="post" action="/web/admin/users/{target.id}/status/{block_action}"><button class="btn btn-danger">{block_label}</button></form>
@@ -269,6 +323,144 @@ def _company_profile_admin_card(profile: UserCompanyProfile | None) -> str:
     return f"<div class='band'><h3>Данные компании</h3><div class='kv'>{body}</div></div>"
 
 
+def _clean_optional(value: object, max_length: int) -> str | None:
+    text = str(value or "").strip()
+    return text[:max_length] if text else None
+
+
+def _normalize_role(value: object) -> str:
+    role = str(value or "user").strip().lower()
+    return role if role in {"user", "admin"} else "user"
+
+
+def _parse_subscription_expires_at(value: object) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.strptime(text, "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Некорректная дата окончания тарифа") from exc
+    return datetime.combine(parsed, time.max, tzinfo=UTC)
+
+
+def _admin_user_profile_snapshot(user: User) -> dict[str, object]:
+    return {
+        "username": user.username,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "email": user.email,
+        "phone": user.phone,
+        "company_name": user.company_name,
+        "inn": user.inn,
+        "ogrn": user.ogrn,
+        "timezone": user.timezone,
+        "status": user.status.value,
+        "role": user.role,
+        "notifications_enabled": user.notifications_enabled,
+    }
+
+
+def _tariff_changed(
+    current_subscription: object,
+    tier_code: str,
+    expires_at: datetime | None,
+) -> bool:
+    current_tier = getattr(getattr(current_subscription, "tier", None), "code", "")
+    current_expires_at = getattr(current_subscription, "expires_at", None)
+    if current_tier.lower() != tier_code.lower():
+        return True
+    if current_expires_at is None or expires_at is None:
+        return current_expires_at is not expires_at
+    return current_expires_at.date() != expires_at.date()
+
+
+@router.post("/admin/users/{target_user_id}/update")
+async def admin_update_user(
+    target_user_id: int,
+    request: Request,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    _require_admin(user)
+    target = await session.get(User, target_user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    form = await request.form()
+    service = ProfileService(session)
+    phone = str(form.get("phone") or "")
+    email = str(form.get("email") or "")
+    inn = str(form.get("inn") or "")
+    ogrn = str(form.get("ogrn") or "")
+    try:
+        service._validate_phone(phone)
+        service._validate_email(email)
+        service._validate_inn(inn)
+        service._validate_ogrn(ogrn)
+    except ProfileValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    subscription_service = SubscriptionService(session)
+    old_subscription = await subscription_service.get_user_current_subscription(target.id)
+    old_profile = _admin_user_profile_snapshot(target)
+
+    target.username = _clean_optional(form.get("username"), 255)
+    target.first_name = _clean_optional(form.get("first_name"), 255)
+    target.last_name = _clean_optional(form.get("last_name"), 255)
+    target.email = email.strip().lower() if email.strip() else None
+    target.phone = phone.strip() if phone.strip() else None
+    target.company_name = _clean_optional(form.get("company_name"), 255)
+    target.inn = inn.strip() if inn.strip() else None
+    target.ogrn = ogrn.strip() if ogrn.strip() else None
+    target.timezone = (str(form.get("timezone") or target.timezone or "Europe/Moscow").strip())[
+        :64
+    ]
+    try:
+        target.status = UserStatus(str(form.get("status") or UserStatus.ACTIVE.value))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Некорректный статус пользователя") from exc
+    target.role = _normalize_role(form.get("role"))
+    target.notifications_enabled = form.get("notifications_enabled") == "on"
+
+    tier_code = str(form.get("tier_code") or old_subscription.tier.code).strip()
+    expires_at = _parse_subscription_expires_at(form.get("subscription_expires_at"))
+    tariff_changed = _tariff_changed(old_subscription, tier_code, expires_at)
+    if tariff_changed:
+        new_subscription = await subscription_service.assign_admin_subscription(
+            user_id=target.id,
+            tier_code=tier_code,
+            expires_at=expires_at,
+            admin_user_id=user.id,
+        )
+    else:
+        new_subscription = old_subscription.active_subscription
+
+    await AuditLogService(session).log(
+        "admin_user_updated",
+        user_id=target.id,
+        actor_user_id=user.id,
+        entity_type="user",
+        entity_id=target.id,
+        details={
+            "old_profile": old_profile,
+            "new_profile": _admin_user_profile_snapshot(target),
+            "old_tier": old_subscription.tier.code,
+            "new_tier": tier_code,
+            "old_expires_at": old_subscription.expires_at.isoformat()
+            if old_subscription.expires_at
+            else None,
+            "new_expires_at": new_subscription.expires_at.isoformat()
+            if new_subscription and new_subscription.expires_at
+            else None,
+            "subscription_id": new_subscription.id if new_subscription else None,
+            "tariff_changed": tariff_changed,
+        },
+    )
+    await session.commit()
+    return RedirectResponse(f"/web/admin/users/{target_user_id}?saved=1", status_code=303)
+
+
 @router.post("/admin/users/{target_user_id}/grant-tariff")
 async def admin_grant_tariff(
     target_user_id: int,
@@ -278,20 +470,28 @@ async def admin_grant_tariff(
     days: int = Form(30),
 ) -> RedirectResponse:
     _require_admin(user)
-    sub = await SubscriptionService(session).create_bonus_subscription(
+    subscription_service = SubscriptionService(session)
+    old_subscription = await subscription_service.get_user_current_subscription(target_user_id)
+    sub = await subscription_service.assign_admin_subscription(
         user_id=target_user_id,
         tier_code=tier_code,
         days=max(days, 1),
-        payment_provider="admin",
-        payment_id=f"admin:{user.id}:{datetime.now(tz=UTC).isoformat()}",
+        admin_user_id=user.id,
     )
     await AuditLogService(session).log(
         "tariff_changed",
         user_id=target_user_id,
         actor_user_id=user.id,
         entity_type="subscription",
-        entity_id=sub.id,
-        details={"tier_code": tier_code, "days": days},
+        entity_id=sub.id if sub else None,
+        details={
+            "old_tier": old_subscription.tier.code,
+            "new_tier": tier_code,
+            "old_expires_at": old_subscription.expires_at.isoformat()
+            if old_subscription.expires_at
+            else None,
+            "days": days,
+        },
     )
     await session.commit()
     return RedirectResponse(f"/web/admin/users/{target_user_id}", status_code=303)

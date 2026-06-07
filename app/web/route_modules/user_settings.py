@@ -672,6 +672,7 @@ async def save_profile(
         await UserActivityService(session).log_activity(
             user.id, "profile_update", ip_address=request.client.host if request.client else None
         )
+        await session.commit()
     except ProfileValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return RedirectResponse(url="/web/settings?saved=1", status_code=303)
