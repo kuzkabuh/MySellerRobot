@@ -1136,7 +1136,7 @@ def _accounts_content(data: AccountsPageData, timezone: str = "Europe/Moscow") -
             "</div></td></tr>"
         )
     return f"""
-      {_page_header("Кабинеты маркетплейсов", "Проверяйте подключённые кабинеты, статусы синхронизации и ошибки доступа.", "/web/profile", "Профиль")}
+      {_page_header("Кабинеты маркетплейсов", "Проверяйте подключённые кабинеты, статусы синхронизации и ошибки доступа.", "/web/settings?tab=profile", "Профиль")}
       {_sync_actions()}
       <section class="kpi-grid">
         {_simple_kpi("Подключено кабинетов", f"{data.active_accounts} из {data.tier.max_marketplace_accounts}")}
@@ -1352,7 +1352,7 @@ def _subscription_content(
         or '<tr><td colspan="4" class="muted">Платежей пока нет.</td></tr>'
     )
     return f"""
-      {_page_header("Подписка и тариф", "Следите за лимитами, функциями и историей платежей.", "/web/accounts", "Кабинеты МП")}
+      {_page_header("Подписка и тариф", "Следите за лимитами, функциями и историей платежей.", "/web/settings?tab=marketplaces", "Кабинеты МП")}
       <section class="detail-grid">
         <section class="band">
           <h2>Текущая подписка</h2>
@@ -1407,7 +1407,7 @@ def _profile_content(user: User, subscription: SubscriptionPageData) -> str:
     max_products = subscription.tier.max_products
     max_products_label = str(max_products) if max_products else "без ограничений"
     return f"""
-      {_page_header("Профиль", "Управляйте настройками пользователя, уведомлениями и подпиской.", "/web/subscription", "Подписка")}
+      {_page_header("Профиль", "Управляйте настройками пользователя, уведомлениями и подпиской.", "/web/settings?tab=subscription", "Подписка")}
       <section class="detail-grid">
         <section class="band">
           <h2>Данные Telegram</h2>
@@ -1431,12 +1431,12 @@ def _profile_content(user: User, subscription: SubscriptionPageData) -> str:
             <span>SKU</span><strong>{subscription.used_products} / {max_products_label}</strong>
             <span>Уведомления</span><strong>{"включены" if user.notifications_enabled else "выключены"}</strong>
           </div>
-          <p><a class="button primary" href="/web/subscription">Управление подпиской</a></p>
+          <p><a class="button primary" href="/web/settings?tab=subscription">Управление подпиской</a></p>
         </section>
       </section>
       <section class="band" style="margin-top:14px">
         <h2>Настройки профиля</h2>
-        <form class="filters" method="post" action="/web/profile">
+        <form class="filters" method="post" action="/web/settings/profile">
           <div>
             <label for="timezone">Часовой пояс</label>
             <input id="timezone" name="timezone" value="{escape(user.timezone)}">
@@ -1603,7 +1603,7 @@ def _settings_content(user: User) -> str:
     threshold = user.low_margin_threshold_percent or Decimal("10")
     checked = "включены" if user.notifications_enabled else "выключены"
     return f"""
-      {_page_header("Настройки", "Финансовый контроль, локализация, уведомления и быстрые переходы.", "/web/profile", "Профиль")}
+      {_page_header("Настройки", "Финансовый контроль, локализация, уведомления и быстрые переходы.", "/web/settings?tab=profile", "Профиль")}
       <section class="detail-grid">
         <section class="band">
           <h2>Финансовый контроль</h2>
@@ -1623,7 +1623,7 @@ def _settings_content(user: User) -> str:
             <span>Часовой пояс</span><strong>{escape(user.timezone)}</strong>
             <span>Язык</span><strong>{escape(user.language)}</strong>
           </div>
-          <p><a class="button" href="/web/profile">Изменить в профиле</a></p>
+          <p><a class="button" href="/web/settings?tab=profile">Изменить в профиле</a></p>
         </section>
         <section class="band">
           <h2>Уведомления</h2>
@@ -1633,7 +1633,7 @@ def _settings_content(user: User) -> str:
         <section class="band">
           <h2>Подписка и доступ</h2>
           <p class="muted">Проверьте текущий тариф, лимиты и доступные возможности.</p>
-          <p><a class="button primary" href="/web/subscription">Открыть подписку</a></p>
+          <p><a class="button primary" href="/web/settings?tab=subscription">Открыть подписку</a></p>
         </section>
       </section>
     """
@@ -1901,7 +1901,7 @@ def _dashboard_welcome(
           <div class="hero-stat"><span>Кабинеты МП</span><strong>{accounts.active_accounts} из {subscription.tier.max_marketplace_accounts}</strong></div>
           <div class="page-actions">
             <a class="button primary" href="/web/analytics">Аналитика</a>
-            <a class="button" href="/web/accounts">Кабинеты</a>
+            <a class="button" href="/web/settings?tab=marketplaces">Кабинеты</a>
           </div>
         </div>
       </section>
@@ -2064,7 +2064,7 @@ def _attention_list(data: DashboardData) -> str:
                 "warn",
                 "Нет выручки в выбранном периоде",
                 "Проверьте фильтры, синхронизацию заказов или подключение кабинетов.",
-                "/web/accounts",
+                "/web/settings?tab=marketplaces",
             )
         )
     if not items:

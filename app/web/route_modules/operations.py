@@ -131,7 +131,7 @@ async def data_quality_page(
             <h2>🔒 Раздел недоступен</h2>
             <p>{reason}</p>
             <p>Для доступа обновите тариф до <b>{required}</b> или выше.</p>
-            <a class="btn btn-primary" href="/web/subscription">Перейти к подписке</a>
+            <a class="btn btn-primary" href="/web/settings?tab=subscription">Перейти к подписке</a>
         </div>"""
         return page(
             "Качество данных", _user_display_name(user), locked, active_path="/web/data-quality"
@@ -170,7 +170,7 @@ async def analytics_page(
             <h2>🔒 Раздел недоступен</h2>
             <p>{reason}</p>
             <p>Для доступа обновите тариф до <b>{required}</b> или выше.</p>
-            <a class="btn btn-primary" href="/web/subscription">Перейти к подписке</a>
+            <a class="btn btn-primary" href="/web/settings?tab=subscription">Перейти к подписке</a>
         </div>"""
         return page("Аналитика", _user_display_name(user), locked, active_path="/web/analytics")
 

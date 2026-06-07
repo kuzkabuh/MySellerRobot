@@ -2643,7 +2643,7 @@ def _feature_locked_content(access) -> str:
         <h2>🔒 Функция недоступна</h2>
         <p>{escape(access.reason)}</p>
         <p>Для управления МРЦ и акциями WB нужен тариф: <b>{escape(access.required_plan or "Pro")}</b></p>
-        <p><a href="/web/subscription" class="button primary">Перейти к подписке</a></p>
+        <p><a href="/web/settings?tab=subscription" class="button primary">Перейти к подписке</a></p>
     </div>
     """
 
@@ -2677,7 +2677,7 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
         "</p>"
     )
 
-    # Sync status
+    # Статус синхронизации
     if data.last_sync_time:
         parts.append(
             f'<p style="margin-bottom:12px;font-size:13px;color:#64748b">'

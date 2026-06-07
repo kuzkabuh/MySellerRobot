@@ -133,15 +133,8 @@ async def save_product_cost_legacy_double_web(
 @router.get("/profile", response_class=HTMLResponse)
 async def profile_page(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
-    session: AsyncSession = SESSION_DEPENDENCY,
-) -> str:
-    subscription = await WebCabinetService(session).subscription_page(user.id, user.timezone)
-    return page(
-        "Профиль",
-        _user_display_name(user),
-        _profile_content(user, subscription),
-        active_path="/web/profile",
-    )
+) -> RedirectResponse:
+    return RedirectResponse(url="/web/settings?tab=profile", status_code=302)
 
 
 @router.post("/profile")
@@ -160,41 +153,26 @@ async def save_profile_settings(
             Decimal("10"),
         )
     await session.commit()
-    return RedirectResponse(url="/web/profile?saved=1", status_code=303)
+    return RedirectResponse(url="/web/settings?tab=profile&saved=1", status_code=303)
 
 
 @router.get("/subscription", response_class=HTMLResponse)
 async def subscription_page_web(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
-    session: AsyncSession = SESSION_DEPENDENCY,
-) -> str:
-    data = await WebCabinetService(session).subscription_page(user.id, user.timezone)
-    tiers = await SubscriptionService(session).get_all_tiers()
-    return page(
-        "Подписка и тариф",
-        _user_display_name(user),
-        _subscription_content(data, tiers, user.timezone),
-        active_path="/web/subscription",
-    )
+) -> RedirectResponse:
+    return RedirectResponse(url="/web/settings?tab=subscription", status_code=302)
 
 
 @router.get("/accounts", response_class=HTMLResponse)
 async def accounts_page_web(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
-    session: AsyncSession = SESSION_DEPENDENCY,
-) -> str:
-    data = await WebCabinetService(session).accounts_page(user.id, user.timezone)
-    return page(
-        "Кабинеты маркетплейсов",
-        _user_display_name(user),
-        _accounts_content(data, user.timezone),
-        active_path="/web/accounts",
-    )
+) -> RedirectResponse:
+    return RedirectResponse(url="/web/settings?tab=marketplaces", status_code=302)
 
 
 @router.get("/sync/{sync_type}")
 async def request_web_sync_get() -> RedirectResponse:
-    return RedirectResponse(url="/web/accounts", status_code=302)
+    return RedirectResponse(url="/web/settings?tab=sync", status_code=302)
 
 
 @router.post("/sync/{sync_type}")
@@ -204,7 +182,7 @@ async def request_web_sync(
 ) -> RedirectResponse:
     result = await WebSyncService().request_sync(sync_type, user.id)
     return RedirectResponse(
-        url=f"/web/accounts?sync={'queued' if result.queued else 'skipped'}",
+        url=f"/web/settings?tab=sync&sync={'queued' if result.queued else 'skipped'}",
         status_code=303,
     )
 

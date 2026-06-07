@@ -8,8 +8,9 @@ from datetime import datetime
 from html import escape
 from urllib.parse import quote
 
-from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi import APIRouter, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import MarketplaceAccount, User
@@ -49,14 +50,14 @@ def _url_quote(value: str) -> str:
 
 def _settings_tabs(active_tab: str) -> str:
     tabs = [
-        ("profile", "Профиль", "/web/settings"),
-        ("marketplaces", "Маркетплейсы", "/web/settings/marketplaces"),
-        ("tariff", "Тариф", "/web/settings/tariff"),
-        ("notifications", "Уведомления", "/web/settings/notifications"),
-        ("sync", "Синхронизация", "/web/settings/sync"),
-        ("company", "Данные компании", "/web/settings/company"),
-        ("security", "Безопасность", "/web/settings/security"),
-        ("support", "Поддержка", "/web/settings/support"),
+        ("profile", "Профиль", "/web/settings?tab=profile"),
+        ("marketplaces", "Маркетплейсы", "/web/settings?tab=marketplaces"),
+        ("subscription", "Тариф", "/web/settings?tab=subscription"),
+        ("notifications", "Уведомления", "/web/settings?tab=notifications"),
+        ("sync", "Синхронизация", "/web/settings?tab=sync"),
+        ("company", "Данные компании", "/web/settings?tab=company"),
+        ("security", "Безопасность", "/web/settings?tab=security"),
+        ("support", "Поддержка", "/web/settings?tab=support"),
     ]
     links = []
     for code, label, href in tabs:
@@ -175,8 +176,8 @@ def _profile_tab(user: User, subscription_data: object | None = None) -> str:
           <div class="kv">
             {tariff_block}
           </div>
-          <p style="margin-top:14px"><a class="btn btn-primary" href="/web/settings/tariff">Управление тарифом</a></p>
-          <p><a class="btn" href="/web/settings/notifications">Настроить уведомления</a></p>
+          <p style="margin-top:14px"><a class="btn btn-primary" href="/web/settings?tab=subscription">Управление тарифом</a></p>
+          <p><a class="btn" href="/web/settings?tab=notifications">Настроить уведомления</a></p>
         </section>
       </section>
     """
@@ -596,15 +597,85 @@ def _support_tab(tickets: list, timezone: str) -> str:
 
 @router.get("/settings", response_class=HTMLResponse)
 async def settings_profile_page(
+    request: Request,
+    tab: str = Query("profile"),
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> str:
+    active_tab = "subscription" if tab == "tariff" else tab
+    active_path = f"/web/settings?tab={active_tab}"
+    display_name = user.first_name or user.username or str(user.telegram_id)
+    if active_tab == "marketplaces":
+        stmt = select(MarketplaceAccount).where(
+            MarketplaceAccount.user_id == user.id,
+            MarketplaceAccount.is_active.is_(True),
+        )
+        result = await session.execute(stmt)
+        accounts = list(result.scalars().all())
+        return page(
+            "Настройки — Маркетплейсы",
+            display_name,
+            _marketplaces_tab(user, accounts, user.timezone),
+            active_path=active_path,
+        )
+    if active_tab == "subscription":
+        data = await WebCabinetService(session).subscription_page(user.id, user.timezone)
+        tiers = await SubscriptionService(session).get_all_tiers()
+        from app.web.views import _subscription_content
+
+        content = _settings_tabs("subscription") + _subscription_content(data, tiers, user.timezone)
+        return page("Настройки — Тариф", display_name, content, active_path=active_path)
+    if active_tab == "notifications":
+        return page(
+            "Настройки — Уведомления",
+            display_name,
+            _notifications_tab(user),
+            active_path=active_path,
+        )
+    if active_tab == "sync":
+        statuses = await UserSyncStatusService(session).get_statuses(user.id)
+        return page(
+            "Настройки — Синхронизация",
+            display_name,
+            _sync_tab(statuses, user.timezone),
+            active_path=active_path,
+        )
+    if active_tab == "company":
+        profile = await CompanyLookupService(session).get_user_company_profile(user.id)
+        return page(
+            "Настройки — Данные компании",
+            display_name,
+            _company_tab(
+                user,
+                profile,
+                message=request.query_params.get("saved"),
+                error=request.query_params.get("error"),
+            ),
+            active_path=active_path,
+        )
+    if active_tab == "security":
+        logs = await UserActivityService(session).get_recent_activity(user.id)
+        return page(
+            "Настройки — Безопасность",
+            display_name,
+            _security_tab(user, logs, user.timezone),
+            active_path=active_path,
+        )
+    if active_tab == "support":
+        tickets = await SupportService(session).get_user_tickets(user.id)
+        return page(
+            "Настройки — Поддержка",
+            display_name,
+            _support_tab(tickets, user.timezone),
+            active_path=active_path,
+        )
+
     subscription_data = await WebCabinetService(session).subscription_page(user.id, user.timezone)
     return page(
         "Настройки — Профиль",
-        user.first_name or user.username or str(user.telegram_id),
+        display_name,
         _profile_tab(user, subscription_data),
-        active_path="/web/settings",
+        active_path="/web/settings?tab=profile",
     )
 
 
@@ -634,7 +705,7 @@ async def save_password_login_settings(
     except WebPasswordAuthError as exc:
         await session.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return RedirectResponse(url="/web/settings/security?saved=1", status_code=303)
+    return RedirectResponse(url="/web/settings?tab=security&saved=1", status_code=303)
 
 
 @router.post("/settings/password-login/disable")
@@ -650,7 +721,7 @@ async def disable_password_login_settings(
         ip_address=request.client.host if request.client else None,
     )
     await session.commit()
-    return RedirectResponse(url="/web/settings/security?saved=1", status_code=303)
+    return RedirectResponse(url="/web/settings?tab=security&saved=1", status_code=303)
 
 
 @router.post("/settings/profile")
@@ -680,56 +751,28 @@ async def save_profile(
         await session.commit()
     except ProfileValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return RedirectResponse(url="/web/settings?saved=1", status_code=303)
+    return RedirectResponse(url="/web/settings?tab=profile&saved=1", status_code=303)
 
 
 @router.get("/settings/marketplaces", response_class=HTMLResponse)
 async def settings_marketplaces_page(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
-    session: AsyncSession = SESSION_DEPENDENCY,
-) -> str:
-    from sqlalchemy import select
-    stmt = select(MarketplaceAccount).where(
-        MarketplaceAccount.user_id == user.id,
-        MarketplaceAccount.is_active.is_(True),
-    )
-    result = await session.execute(stmt)
-    accounts = list(result.scalars().all())
-    return page(
-        "Настройки — Маркетплейсы",
-        user.first_name or user.username or str(user.telegram_id),
-        _marketplaces_tab(user, accounts, user.timezone),
-        active_path="/web/settings",
-    )
+) -> RedirectResponse:
+    return RedirectResponse(url="/web/settings?tab=marketplaces", status_code=302)
 
 
 @router.get("/settings/tariff", response_class=HTMLResponse)
 async def settings_tariff_page(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
-    session: AsyncSession = SESSION_DEPENDENCY,
-) -> str:
-    data = await WebCabinetService(session).subscription_page(user.id, user.timezone)
-    tiers = await SubscriptionService(session).get_all_tiers()
-    from app.web.views import _subscription_content
-    content = _settings_tabs("tariff") + _subscription_content(data, tiers, user.timezone)
-    return page(
-        "Настройки — Тариф",
-        user.first_name or user.username or str(user.telegram_id),
-        content,
-        active_path="/web/settings",
-    )
+) -> RedirectResponse:
+    return RedirectResponse(url="/web/settings?tab=subscription", status_code=302)
 
 
 @router.get("/settings/notifications", response_class=HTMLResponse)
 async def settings_notifications_page(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
-) -> str:
-    return page(
-        "Настройки — Уведомления",
-        user.first_name or user.username or str(user.telegram_id),
-        _notifications_tab(user),
-        active_path="/web/settings",
-    )
+) -> RedirectResponse:
+    return RedirectResponse(url="/web/settings?tab=notifications", status_code=302)
 
 
 @router.post("/settings/notifications")
@@ -747,21 +790,14 @@ async def save_notifications(
             user.id, "notification_settings_update",
             ip_address=request.client.host if request.client else None,
         )
-    return RedirectResponse(url="/web/settings/notifications?saved=1", status_code=303)
+    return RedirectResponse(url="/web/settings?tab=notifications&saved=1", status_code=303)
 
 
 @router.get("/settings/sync", response_class=HTMLResponse)
 async def settings_sync_page(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
-    session: AsyncSession = SESSION_DEPENDENCY,
-) -> str:
-    statuses = await UserSyncStatusService(session).get_statuses(user.id)
-    return page(
-        "Настройки — Синхронизация",
-        user.first_name or user.username or str(user.telegram_id),
-        _sync_tab(statuses, user.timezone),
-        active_path="/web/settings",
-    )
+) -> RedirectResponse:
+    return RedirectResponse(url="/web/settings?tab=sync", status_code=302)
 
 
 @router.get("/settings/company", response_class=HTMLResponse)
@@ -781,7 +817,7 @@ async def settings_company_page(
         "Настройки — Данные компании",
         user.first_name or user.username or str(user.telegram_id),
         content,
-        active_path="/web/settings/company",
+        active_path="/web/settings?tab=company",
     )
 
 
@@ -805,7 +841,7 @@ async def settings_company_lookup(
             "Настройки — Данные компании",
             user.first_name or user.username or str(user.telegram_id),
             content,
-            active_path="/web/settings/company",
+            active_path="/web/settings?tab=company",
         )
     content = _company_tab(
         user,
@@ -818,7 +854,7 @@ async def settings_company_lookup(
         "Настройки — Данные компании",
         user.first_name or user.username or str(user.telegram_id),
         content,
-        active_path="/web/settings/company",
+        active_path="/web/settings?tab=company",
     )
 
 
@@ -846,11 +882,11 @@ async def settings_company_save(
             extra={"user_id": user.id, "inn": normalize_inn(inn), "error": str(exc)},
         )
         return RedirectResponse(
-            f"/web/settings/company?error={_url_quote(str(exc) or INN_ERROR_MESSAGE)}",
+            f"/web/settings?tab=company&error={_url_quote(str(exc) or INN_ERROR_MESSAGE)}",
             status_code=303,
         )
     return RedirectResponse(
-        "/web/settings/company?saved=Данные компании сохранены",
+        "/web/settings?tab=company&saved=Данные компании сохранены",
         status_code=303,
     )
 
@@ -866,7 +902,7 @@ async def settings_company_refresh(
     inn = getattr(profile, "inn", None) or getattr(user, "inn", None)
     if not inn:
         return RedirectResponse(
-            f"/web/settings/company?error={_url_quote('Сначала укажите ИНН')}",
+            f"/web/settings?tab=company&error={_url_quote('Сначала укажите ИНН')}",
             status_code=303,
         )
     try:
@@ -885,11 +921,11 @@ async def settings_company_refresh(
             extra={"user_id": user.id, "inn": normalize_inn(inn), "error": str(exc)},
         )
         return RedirectResponse(
-            f"/web/settings/company?error={_url_quote(str(exc) or LOOKUP_UNAVAILABLE_MESSAGE)}",
+            f"/web/settings?tab=company&error={_url_quote(str(exc) or LOOKUP_UNAVAILABLE_MESSAGE)}",
             status_code=303,
         )
     return RedirectResponse(
-        "/web/settings/company?saved=Данные компании обновлены",
+        "/web/settings?tab=company&saved=Данные компании обновлены",
         status_code=303,
     )
 
@@ -912,11 +948,11 @@ async def settings_company_clear(
         await session.rollback()
         logger.exception("company_profile_clear_failed", extra={"user_id": user.id})
         return RedirectResponse(
-            f"/web/settings/company?error={_url_quote('Не удалось очистить данные компании')}",
+            f"/web/settings?tab=company&error={_url_quote('Не удалось очистить данные компании')}",
             status_code=303,
         )
     return RedirectResponse(
-        "/web/settings/company?saved=Данные компании очищены",
+        "/web/settings?tab=company&saved=Данные компании очищены",
         status_code=303,
     )
 
@@ -931,7 +967,7 @@ async def settings_security_page(
         "Настройки — Безопасность",
         user.first_name or user.username or str(user.telegram_id),
         _security_tab(user, logs, user.timezone),
-        active_path="/web/settings",
+        active_path="/web/settings?tab=security",
     )
 
 
@@ -945,7 +981,7 @@ async def settings_support_page(
         "Настройки — Поддержка",
         user.first_name or user.username or str(user.telegram_id),
         _support_tab(tickets, user.timezone),
-        active_path="/web/settings",
+        active_path="/web/settings?tab=support",
     )
 
 
@@ -972,4 +1008,4 @@ async def create_support_ticket(
         details={"subject": subject},
         ip_address=request.client.host if request.client else None,
     )
-    return RedirectResponse(url="/web/settings/support?created=1", status_code=303)
+    return RedirectResponse(url="/web/settings?tab=support&created=1", status_code=303)

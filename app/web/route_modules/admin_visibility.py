@@ -111,7 +111,7 @@ async def admin_users_page(
     <form class="filters" method="get"><div><label>Поиск</label><input name="q" value="{_h(q)}" placeholder="Telegram ID или username"></div><button class="btn btn-primary">Найти</button></form>
     <div class="table-wrap"><table class="table"><thead><tr><th>ID</th><th>Telegram ID</th><th>Имя</th><th>Email / телефон</th><th>Тариф</th><th>Подписка</th><th>До</th><th>Увед.</th><th>Роль</th><th>Регистрация</th><th></th></tr></thead><tbody>{body or '<tr><td colspan="11"><div class="empty-state">Пользователи не найдены</div></td></tr>'}</tbody></table></div>
     """
-    return _admin_page("Админка пользователей", user, content, "/web/admin/users")
+    return _admin_page("Пользователи", user, content, "/web/admin/users")
 
 
 @router.get("/admin", response_class=HTMLResponse)
@@ -120,18 +120,18 @@ async def admin_root_page(
 ) -> str:
     _require_admin(user)
     content = """
-    <div class="page-header"><div><h2>Администрирование</h2><div class="summary-strip"><span>Разделы управления MP Control</span></div></div></div>
+    <div class="page-header"><div><h2>Панель администратора</h2><div class="summary-strip"><span>Разделы управления MP Control</span></div></div></div>
     <div class="shortcut-grid">
       <a class="shortcut-card" href="/web/admin/users"><strong>Пользователи</strong><p>Статусы, кабинеты, уведомления</p></a>
       <a class="shortcut-card" href="/web/admin/tariffs"><strong>Тарифы</strong><p>Планы подписок и лимиты</p></a>
       <a class="shortcut-card" href="/web/admin/promocodes"><strong>Промокоды</strong><p>Скидки и бесплатные периоды</p></a>
-      <a class="shortcut-card" href="/web/admin/support"><strong>Обращения пользователей</strong><p>Поддержка и ответы</p></a>
+      <a class="shortcut-card" href="/web/admin/support"><strong>Обращения</strong><p>Поддержка и ответы</p></a>
       <a class="shortcut-card" href="/web/admin/logs"><strong>Логи</strong><p>Просмотр и скачивание логов</p></a>
       <a class="shortcut-card" href="/web/admin/backups"><strong>Бэкапы</strong><p>Статус ежедневных резервных копий</p></a>
       <a class="shortcut-card" href="/web/admin/sync-status"><strong>Синхронизации</strong><p>Фоновые задачи</p></a>
     </div>
     """
-    return _admin_page("Администрирование", user, content, "/web/admin")
+    return _admin_page("Панель администратора", user, content, "/web/admin")
 
 
 @router.get("/admin/users/{target_user_id}", response_class=HTMLResponse)
@@ -291,7 +291,7 @@ async def admin_user_detail_page(
     {_table('Платежи', ['Дата','Provider ID','Сумма','Статус','Оплачен'], payment_rows)}
     {_table('Ошибки', ['Дата','Путь','Ошибка'], error_rows)}
     {_table('Уведомления', ['Дата','Тип','Статус','Ошибка'], notification_rows)}
-    {_table('Audit log', ['Дата','Действие','Сущность','Детали'], audit_rows)}
+    {_table('Аудит действий', ['Дата','Действие','Сущность','Детали'], audit_rows)}
     """
     return _admin_page(f"Пользователь {target.id}", user, content, "/web/admin/users")
 
@@ -602,7 +602,7 @@ async def admin_payments_page(
         rows,
     )
     content = f"<div class='page-header'><div><h2>Платежи</h2></div></div><form class='filters'><div><label>Статус</label><select name='status'><option value=''>Все</option>{status_options}</select></div><div><label>User ID</label><input name='user_id' value='{_h(user_id or '')}'></div><button class='btn btn-primary'>Фильтр</button></form>{table}"
-    return _admin_page("Админка платежей", user, content, "/web/admin/payments")
+    return _admin_page("Платежи", user, content, "/web/admin/payments")
 
 
 @router.post("/admin/payments/{payment_id}/check")
@@ -650,7 +650,7 @@ async def admin_notifications_page(
         rows,
     )
     content = f"<div class='page-header'><div><h2>Уведомления</h2></div></div><form class='filters'><div><label>Статус</label><select name='status'><option value=''>Все</option>{notification_status_options}</select></div><button class='btn btn-primary'>Фильтр</button></form>{table}"
-    return _admin_page("Админка уведомлений", user, content, "/web/admin/notifications")
+    return _admin_page("Уведомления", user, content, "/web/admin/notifications")
 
 
 @router.post("/admin/notifications/{event_id}/retry")
@@ -687,9 +687,13 @@ async def admin_audit_page(
         for a in rows
     )
     return _admin_page(
-        "Audit log",
+        "Аудит действий",
         user,
-        _table("Audit log", ["Дата", "User", "Actor", "Action", "Entity", "Details"], body),
+        _table(
+            "Аудит действий",
+            ["Дата", "Пользователь", "Администратор", "Действие", "Сущность", "Детали"],
+            body,
+        ),
         "/web/admin/audit-log",
     )
 
@@ -776,7 +780,7 @@ async def admin_worker_diagnostics_page(
             f"<td>{latest_stats}</td><td>{_h(run.last_error if run else '')}</td></tr>"
         )
     content = (
-        "<div class='page-header'><div><h2>Диагностика worker</h2>"
+        "<div class='page-header'><div><h2>Диагностика воркеров</h2>"
         "<div class='summary-strip'><span>Источник: <strong>sync_task_runs</strong></span>"
         "<span>Ключевые задачи: <strong>4</strong></span></div></div></div>"
         + _table(
@@ -790,12 +794,12 @@ async def admin_worker_diagnostics_page(
                 "Успешно",
                 "Ошибки",
                 "Счётчики",
-                "last_error",
+                "Последняя ошибка",
             ],
             rows,
         )
     )
-    return _admin_page("Диагностика worker", user, content, "/web/admin/worker-diagnostics")
+    return _admin_page("Диагностика воркеров", user, content, "/web/admin/worker-diagnostics")
 
 
 @router.post("/admin/sync-status/run/{task_name}")
@@ -858,8 +862,8 @@ async def cabinet_health_page(
         for name, run in latest_runs.items()
     )
     content = f"""
-    <div class="page-header"><div><h2>Здоровье кабинета</h2><div class="summary-strip"><span>WB API: <strong>{'OK' if wb_ok else 'нет активного OK'}</strong></span><span>Ozon API: <strong>{'OK' if ozon_ok else 'нет активного OK'}</strong></span><span>Товары: <strong>{products_count}</strong></span><span>Заказы: <strong>{orders_count}</strong></span><span>Подписка: <strong>{'активна до ' + _dt(active_sub.expires_at) if active_sub else 'нет активной'}</strong></span></div></div></div>
+    <div class="page-header"><div><h2>Здоровье кабинетов</h2><div class="summary-strip"><span>WB API: <strong>{'OK' if wb_ok else 'нет активного OK'}</strong></span><span>Ozon API: <strong>{'OK' if ozon_ok else 'нет активного OK'}</strong></span><span>Товары: <strong>{products_count}</strong></span><span>Заказы: <strong>{orders_count}</strong></span><span>Подписка: <strong>{'активна до ' + _dt(active_sub.expires_at) if active_sub else 'нет активной'}</strong></span></div></div></div>
     {_table('Кабинеты и последние синхронизации', ['МП','Название','API','Заказы','Продажи','Товары','Остатки','Ошибка'], account_rows)}
     {_table('Фоновые задачи', ['Задача','Статус','Последний запуск','Ошибка'], run_rows)}
     """
-    return page("Здоровье кабинета", _name(user), content, active_path="/web/health")
+    return page("Здоровье кабинетов", _name(user), content, active_path="/web/health")

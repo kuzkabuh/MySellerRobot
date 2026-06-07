@@ -136,7 +136,7 @@ async def stocks_page(
             <h2>🔒 Раздел недоступен</h2>
             <p>{reason}</p>
             <p>Для доступа обновите тариф до <b>{required}</b> или выше.</p>
-            <a class="btn btn-primary" href="/web/subscription">Перейти к подписке</a>
+            <a class="btn btn-primary" href="/web/settings?tab=subscription">Перейти к подписке</a>
         </div>"""
         return page(
             "Остатки",

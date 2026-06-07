@@ -10,26 +10,26 @@ from html import escape
 NAV_GROUPS = [
     ("Обзор", [("Главная", "/web/")]),
     (
-        "Операции",
+        "Продажи",
         [("Заказы", "/web/orders"), ("Продажи", "/web/sales"), ("Возвраты", "/web/returns")],
-    ),
-    (
-        "Финансы",
-        [
-            ("Прибыль", "/web/profit"),
-            ("План/факт", "/web/plan-fact"),
-            ("Безубыточность", "/web/break-even"),
-            ("Себестоимость", "/web/costs"),
-            ("МРЦ WB", "/web/mrc-pricing"),
-            ("Цены и акции", "/web/pricing"),
-        ],
     ),
     (
         "Товары",
         [
             ("Товары", "/web/products"),
-            ("Сопоставление WB / Ozon", "/web/product-matching"),
             ("Остатки", "/web/stocks"),
+            ("Сопоставление WB / Ozon", "/web/product-matching"),
+        ],
+    ),
+    (
+        "Цены и финансы",
+        [
+            ("Прибыль", "/web/profit"),
+            ("План / факт", "/web/plan-fact"),
+            ("Безубыточность", "/web/break-even"),
+            ("Себестоимость", "/web/costs"),
+            ("МРЦ WB", "/web/mrc-pricing"),
+            ("Цены и акции", "/web/pricing"),
         ],
     ),
     (
@@ -38,17 +38,24 @@ NAV_GROUPS = [
             ("Алерты", "/web/alerts"),
             ("Качество данных", "/web/data-quality"),
             ("Контроль ошибок", "/web/control"),
-            ("Аналитика", "/web/analytics"),
+            ("Здоровье кабинетов", "/web/health"),
+        ],
+    ),
+    (
+        "Маркетплейсы",
+        [
+            ("Кабинеты МП", "/web/settings?tab=marketplaces"),
+            ("Синхронизация", "/web/settings?tab=sync"),
         ],
     ),
     (
         "Аккаунт",
         [
-            ("Кабинеты МП", "/web/accounts"),
-            ("Подписка и тариф", "/web/subscription"),
-            ("Профиль", "/web/profile"),
-            ("Профиль и настройки", "/web/settings"),
-            ("Здоровье кабинета", "/web/health"),
+            ("Профиль", "/web/settings?tab=profile"),
+            ("Подписка и тариф", "/web/settings?tab=subscription"),
+            ("Уведомления", "/web/settings?tab=notifications"),
+            ("Безопасность", "/web/settings?tab=security"),
+            ("Поддержка", "/web/settings?tab=support"),
         ],
     ),
 ]
@@ -57,18 +64,17 @@ ADMIN_NAV_GROUPS = [
     (
         "Админка",
         [
-            ("Администрирование", "/web/admin"),
+            ("Панель администратора", "/web/admin"),
             ("Пользователи", "/web/admin/users"),
             ("Тарифы", "/web/admin/tariffs"),
             ("Промокоды", "/web/admin/promocodes"),
             ("Платежи", "/web/admin/payments"),
-            ("Обращения пользователей", "/web/admin/support"),
+            ("Обращения", "/web/admin/support"),
             ("Логи", "/web/admin/logs"),
-            ("Комиссии МП", "/web/admin/commissions"),
-            ("Уведомления", "/web/admin/notifications"),
-            ("Sync status", "/web/admin/sync-status"),
-            ("Worker diagnostics", "/web/admin/worker-diagnostics"),
-            ("Audit log", "/web/admin/audit-log"),
+            ("Комиссии маркетплейсов", "/web/admin/commissions"),
+            ("Статус синхронизаций", "/web/admin/sync-status"),
+            ("Диагностика воркеров", "/web/admin/worker-diagnostics"),
+            ("Аудит действий", "/web/admin/audit-log"),
             ("Бэкапы", "/web/admin/backups"),
         ],
     ),
@@ -80,7 +86,7 @@ NAV_ICONS = {
     "Продажи": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 12l4-4 3 2 5-6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     "Возвраты": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 8l-2 2 2 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 10h8a4 4 0 000-8H6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
     "Прибыль": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M8 5v6M6.5 6.5h2a1.5 1.5 0 010 3h-2a1.5 1.5 0 000 3h2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
-    "План/факт": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="8" width="3" height="6" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="6.5" y="4" width="3" height="10" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="11" y="6" width="3" height="8" rx="1" stroke="currentColor" stroke-width="1.5"/></svg>',
+    "План / факт": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="8" width="3" height="6" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="6.5" y="4" width="3" height="10" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="11" y="6" width="3" height="8" rx="1" stroke="currentColor" stroke-width="1.5"/></svg>',
     "Безубыточность": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M2 8h12" stroke="currentColor" stroke-width="1.5"/></svg>',
     "Себестоимость": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 2v12M12 2v12M4 8h8M4 5h8M4 11h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
     "МРЦ WB": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 13V3l5 4 5-4v10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
@@ -94,22 +100,25 @@ NAV_ICONS = {
     "Аналитика": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M8 2v6l4 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
     "Кабинеты МП": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="10" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 7h6M5 10h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
     "Подписка и тариф": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4l6 3 6-3M2 4v8l6 3 6-3V4M2 4l6-2 6 2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
-    "Профиль и настройки": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M2 14c0-3 2.5-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Профиль": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M2 14c0-3 2.5-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
     "Настройки": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/><path d="M8 2v2M8 12v2M2 8h2M12 8h2M3.8 3.8l1.4 1.4M10.8 10.8l1.4 1.4M12.2 3.8l-1.4 1.4M5.2 10.8l-1.4 1.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
-    "Комиссии МП": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3" y="2" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M6 5h4M6 8h4M6 11h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
-    "Администрирование": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2l5 2v4c0 3-2 5-5 6-3-1-5-3-5-6V4l5-2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 8l1.3 1.3L10.5 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    "Комиссии маркетплейсов": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3" y="2" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M6 5h4M6 8h4M6 11h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Панель администратора": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2l5 2v4c0 3-2 5-5 6-3-1-5-3-5-6V4l5-2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 8l1.3 1.3L10.5 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     "Тарифы": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4l6 3 6-3M2 4v8l6 3 6-3V4M2 4l6-2 6 2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
     "Промокоды": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 5h12v6H2zM5 5v6M8 7h3M8 9h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-    "Обращения пользователей": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 3h10v8H6l-3 3V3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 6h5M6 8.5h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
-    "Здоровье кабинета": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 9h3l1.2-4 2.4 8L10 9h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    "Обращения": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 3h10v8H6l-3 3V3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 6h5M6 8.5h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Здоровье кабинетов": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 9h3l1.2-4 2.4 8L10 9h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     "Пользователи": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="6" cy="5" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M1.5 14c.8-3 2.4-5 4.5-5s3.7 2 4.5 5M11 6h4M13 4v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
     "Платежи": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="4" width="12" height="8" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M2 7h12M5 10h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
     "Уведомления": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2a4 4 0 014 4c0 3 1.5 4.5 2 5H2c.5-.5 2-2 2-5a4 4 0 014-4z" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 13a1.5 1.5 0 003 0" stroke="currentColor" stroke-width="1.5"/></svg>',
-    "Sync status": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13 5a5 5 0 00-8.5-1.8L3 5M3 11a5 5 0 008.5 1.8L13 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-    "Audit log": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3" y="2" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M6 5h4M6 8h4M6 11h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Статус синхронизаций": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13 5a5 5 0 00-8.5-1.8L3 5M3 11a5 5 0 008.5 1.8L13 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    "Аудит действий": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3" y="2" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M6 5h4M6 8h4M6 11h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
     "Логи": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 5h6M5 8h6M5 11h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
     "Бэкапы": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 4h10v10H3z" stroke="currentColor" stroke-width="1.5"/><path d="M5 2h6v4H5zM5 10h6M5 12h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-    "Worker diagnostics": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/><path d="M8 2v2M8 12v2M2 8h2M12 8h2M3.8 3.8l1.4 1.4M10.8 10.8l1.4 1.4M12.2 3.8l-1.4 1.4M5.2 10.8l-1.4 1.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Диагностика воркеров": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/><path d="M8 2v2M8 12v2M2 8h2M12 8h2M3.8 3.8l1.4 1.4M10.8 10.8l1.4 1.4M12.2 3.8l-1.4 1.4M5.2 10.8l-1.4 1.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Синхронизация": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13 5a5 5 0 00-8.5-1.8L3 5M3 11a5 5 0 008.5 1.8L13 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    "Безопасность": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2l5 2v4c0 3-2 5-5 6-3-1-5-3-5-6V4l5-2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
+    "Поддержка": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 3h10v8H6l-3 3V3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 6h5M6 8.5h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
 }
 
 NAV_ICONS_FALLBACK = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="3" stroke="currentColor" stroke-width="1.5"/></svg>'
@@ -239,7 +248,7 @@ def _css() -> str:
       --radius-lg: 14px;
       --radius-xl: 18px;
       --radius-full: 999px;
-      --sidebar-w: 260px;
+      --sidebar-w: 300px;
       --topbar-h: 56px;
       --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
       --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace;
@@ -270,6 +279,14 @@ def _css() -> str:
       grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
       min-height: 100vh;
     }
+    body.nav-open { overflow: hidden; }
+    body.nav-open .shell::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background: rgb(15 23 42 / 0.36);
+      z-index: 190;
+    }
     .main-wrap {
       display: flex;
       flex-direction: column;
@@ -286,7 +303,7 @@ def _css() -> str:
       height: 100vh;
       overflow-y: auto;
       overflow-x: hidden;
-      padding: 16px 12px;
+      padding: 16px 14px 18px 12px;
       z-index: 100;
       scrollbar-width: thin;
       scrollbar-color: var(--border) transparent;
@@ -300,6 +317,10 @@ def _css() -> str:
       padding: 4px 8px 16px;
       margin-bottom: 8px;
       border-bottom: 1px solid var(--border-light);
+      position: sticky;
+      top: 0;
+      background: var(--bg-sidebar);
+      z-index: 1;
     }
     .brand-icon {
       display: inline-grid;
@@ -333,6 +354,8 @@ def _css() -> str:
       font-weight: 500;
       transition: all 0.12s ease;
       line-height: 1.3;
+      min-height: 36px;
+      overflow-wrap: anywhere;
     }
     nav a:hover {
       background: var(--bg-sidebar-hover);
@@ -361,7 +384,7 @@ def _css() -> str:
       color: var(--text-muted);
       font-size: 10px;
       font-weight: 700;
-      letter-spacing: 0.08em;
+      letter-spacing: 0;
       text-transform: uppercase;
       padding: 4px 10px 6px;
     }
@@ -1208,7 +1231,7 @@ def _css() -> str:
 
     /* ── Responsive ── */
     @media (max-width: 1200px) {
-      .shell { grid-template-columns: 220px minmax(0, 1fr); }
+      .shell { grid-template-columns: var(--sidebar-w) minmax(0, 1fr); }
       .premium-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .premium-grid { grid-template-columns: 1fr; }
       .dashboard-grid { grid-template-columns: 1fr; }
@@ -1218,9 +1241,9 @@ def _css() -> str:
       .shell { grid-template-columns: 1fr; }
       aside {
         position: fixed;
-        left: -280px;
+        left: calc(var(--sidebar-w) * -1 - 16px);
         top: 0;
-        width: 260px;
+        width: min(var(--sidebar-w), 88vw);
         height: 100vh;
         z-index: 200;
         transition: left 0.2s ease;
@@ -1320,15 +1343,23 @@ def _js() -> str:
       }, 2000);
       var toggle = document.querySelector('.sidebar-toggle');
       var sidebar = document.getElementById('sidebar');
+      function closeNavigation() {
+        if (sidebar) sidebar.classList.remove('is-open');
+        document.body.classList.remove('nav-open');
+      }
       if (toggle && sidebar) {
         toggle.addEventListener('click', function() {
           sidebar.classList.toggle('is-open');
+          document.body.classList.toggle('nav-open', sidebar.classList.contains('is-open'));
         });
       }
       document.addEventListener('click', function(e) {
         if (sidebar && sidebar.classList.contains('is-open') && !sidebar.contains(e.target) && !e.target.closest('.sidebar-toggle')) {
-          sidebar.classList.remove('is-open');
+          closeNavigation();
         }
+      });
+      window.addEventListener('resize', function() {
+        if (window.innerWidth > 900) closeNavigation();
       });
       document.querySelectorAll('.table-wrap').forEach(function(wrap) {
         var table = wrap.querySelector('table');
@@ -1341,11 +1372,20 @@ def _js() -> str:
 
 
 def _nav(active_path: str, show_admin: bool = False) -> str:
+    def is_active(href: str) -> bool:
+        if href == active_path:
+            return True
+        if href.startswith("/web/settings?tab=") and active_path == "/web/settings":
+            return href.endswith("=profile")
+        if href.startswith("/web/settings?tab=") and active_path.startswith("/web/settings?tab="):
+            return href == active_path
+        return False
+
     groups = []
     for title, items in NAV_GROUPS:
         links = []
         for label, href in items:
-            active = ' class="active"' if href == active_path else ""
+            active = ' class="active"' if is_active(href) else ""
             icon_svg = NAV_ICONS.get(label, NAV_ICONS_FALLBACK)
             links.append(
                 f'<a{active} href="{href}"><span class="nav-icon">{icon_svg}</span>'
@@ -1360,7 +1400,7 @@ def _nav(active_path: str, show_admin: bool = False) -> str:
         for title, items in ADMIN_NAV_GROUPS:
             links = []
             for label, href in items:
-                active = ' class="active"' if href == active_path else ""
+                active = ' class="active"' if is_active(href) else ""
                 icon_svg = NAV_ICONS.get(label, NAV_ICONS_FALLBACK)
                 links.append(
                     f'<a{active} href="{href}"><span class="nav-icon">{icon_svg}</span>'

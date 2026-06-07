@@ -80,7 +80,7 @@ def _login_and_get_cookie(client: TestClient) -> str:
     return response.cookies.get(WEB_SESSION_COOKIE, "")
 
 
-def test_post_sync_ozon_balance_redirects_to_accounts(
+def test_post_sync_ozon_balance_redirects_to_sync_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app = create_app()
@@ -106,7 +106,7 @@ def test_post_sync_ozon_balance_redirects_to_accounts(
 
     app.dependency_overrides.clear()
     assert response.status_code == 303
-    assert "/web/accounts?sync=queued" in response.headers.get("location", "")
+    assert "/web/settings?tab=sync&sync=queued" in response.headers.get("location", "")
 
 
 def test_get_sync_ozon_balance_does_not_return_405(
@@ -131,10 +131,10 @@ def test_get_sync_ozon_balance_does_not_return_405(
 
     app.dependency_overrides.clear()
     assert response.status_code in (302, 303)
-    assert "/web/accounts" in response.headers.get("location", "")
+    assert "/web/settings?tab=sync" in response.headers.get("location", "")
 
 
-def test_get_sync_any_type_redirects_to_accounts(
+def test_get_sync_any_type_redirects_to_sync_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app = create_app()
@@ -158,6 +158,6 @@ def test_get_sync_any_type_redirects_to_accounts(
                 302,
                 303,
             ), f"GET /web/sync/{sync_type} returned {response.status_code}"
-            assert "/web/accounts" in response.headers.get("location", "")
+            assert "/web/settings?tab=sync" in response.headers.get("location", "")
 
     app.dependency_overrides.clear()

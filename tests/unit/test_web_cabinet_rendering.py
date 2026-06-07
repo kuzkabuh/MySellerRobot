@@ -24,13 +24,20 @@ def test_web_routes_facade_keeps_router_and_helper_imports() -> None:
 
 
 def test_navigation_contains_grouped_web_cabinet_sections() -> None:
-    html = page("Главная", "Артем", "<main></main>", active_path="/web/accounts")
+    html = page(
+        "Главная",
+        "Артем",
+        "<main></main>",
+        active_path="/web/settings?tab=marketplaces",
+    )
 
-    assert "Операции" in html
-    assert "Финансы" in html
+    assert "Продажи" in html
+    assert "Цены и финансы" in html
+    assert "Маркетплейсы" in html
     assert "Кабинеты МП" in html
-    assert 'href="/web/subscription"' in html
-    assert 'href="/web/profile"' in html
+    assert 'href="/web/settings?tab=subscription"' in html
+    assert 'href="/web/settings?tab=profile"' in html
+    assert "Профиль и настройки" not in html
     assert 'href="/web/web/' not in html
     assert "/web/web" not in html
 
@@ -530,10 +537,13 @@ def test_nav_links_cover_all_required_sections() -> None:
         "/web/returns",
         "/web/profit",
         "/web/alerts",
-        "/web/accounts",
-        "/web/subscription",
-        "/web/profile",
-        "/web/settings",
+        "/web/settings?tab=marketplaces",
+        "/web/settings?tab=sync",
+        "/web/settings?tab=subscription",
+        "/web/settings?tab=profile",
+        "/web/settings?tab=notifications",
+        "/web/settings?tab=security",
+        "/web/settings?tab=support",
     ]
     for href in required_hrefs:
         assert f'href="{href}"' in html, f"Missing nav link: {href}"
@@ -544,7 +554,7 @@ def test_nav_hides_admin_sections_for_regular_users() -> None:
 
     assert 'href="/web/admin"' not in html
     assert 'href="/web/admin/support"' not in html
-    assert "Администрирование" not in html
+    assert "Панель администратора" not in html
 
 
 def test_nav_shows_admin_sections_for_admin_users() -> None:
@@ -552,7 +562,13 @@ def test_nav_shows_admin_sections_for_admin_users() -> None:
 
     assert 'href="/web/admin"' in html
     assert 'href="/web/admin/support"' in html
-    assert "Администрирование" in html
+    assert "Панель администратора" in html
+    assert "Статус синхронизаций" in html
+    assert "Диагностика воркеров" in html
+    assert "Аудит действий" in html
+    assert "Sync status" not in html
+    assert "Worker diagnostics" not in html
+    assert "Audit log" not in html
 
 
 def test_is_admin_user_uses_role_before_render_name_suffix() -> None:
