@@ -56,3 +56,22 @@ async def test_telegram_webhook_allows_explicit_insecure_dev_mode(monkeypatch) -
     response = await telegram_webhook_module.telegram_webhook(_Request())
 
     assert response.status_code == 400
+
+
+def test_settings_accept_telegram_webhook_secret_alias() -> None:
+    settings = Settings(telegram_webhook_secret="alias-secret")
+
+    assert settings.get_bot_webhook_secret() == "alias-secret"
+
+
+def test_settings_reject_missing_telegram_secret_without_insecure_mode() -> None:
+    settings = Settings(app_env="production")
+
+    with pytest.raises(ValueError, match="Telegram webhook secret"):
+        settings.ensure_bot_webhook_secret_allowed()
+
+
+def test_settings_allow_missing_telegram_secret_only_in_explicit_dev_mode() -> None:
+    settings = Settings(app_env="local", webhook_allow_insecure_dev=True)
+
+    settings.ensure_bot_webhook_secret_allowed()

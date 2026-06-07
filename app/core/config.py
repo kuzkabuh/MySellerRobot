@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     bot_webhook_base_url: str = ""
     bot_webhook_path: str = "/webhook/telegram"
     bot_webhook_secret: SecretStr = Field(default=SecretStr(""))
+    telegram_webhook_secret: SecretStr = Field(default=SecretStr(""))
     bot_webhook_enabled: bool = False
 
     database_url: str = (
@@ -281,8 +282,23 @@ class Settings(BaseSettings):
 
     def get_bot_webhook_secret(self) -> str | None:
         """Return webhook secret token if configured."""
-        secret = self.bot_webhook_secret.get_secret_value()
+        secret = (
+            self.bot_webhook_secret.get_secret_value()
+            or self.telegram_webhook_secret.get_secret_value()
+        )
         return secret if secret else None
+
+    def ensure_bot_webhook_secret_allowed(self) -> None:
+        """Validate Telegram webhook secret policy for the current environment."""
+        if self.get_bot_webhook_secret():
+            return
+        if self.webhook_insecure_dev_allowed:
+            return
+        raise ValueError(
+            "Telegram webhook secret is not configured. "
+            "Set BOT_WEBHOOK_SECRET or TELEGRAM_WEBHOOK_SECRET. "
+            "For local debugging only, set WEBHOOK_ALLOW_INSECURE_DEV=1."
+        )
 
 
 @lru_cache

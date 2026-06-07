@@ -494,7 +494,7 @@ obtain_ssl() {
 
 configure_telegram_webhook() {
   cd "$PROJECT_DIR"
-  local enabled token base path secret webhook_url delete_response set_response
+  local enabled token base path secret app_env webhook_url delete_response set_response
   enabled="$(env_value "BOT_WEBHOOK_ENABLED")"
   if [[ "$enabled" != "true" && "$enabled" != "1" ]]; then
     log_warn "Skipping Telegram webhook setup because BOT_WEBHOOK_ENABLED=${enabled:-false}."
@@ -505,10 +505,18 @@ configure_telegram_webhook() {
   base="$(env_value "BOT_WEBHOOK_BASE_URL")"
   path="$(env_value "BOT_WEBHOOK_PATH")"
   secret="$(env_value "BOT_WEBHOOK_SECRET")"
+  if [[ -z "$secret" ]]; then
+    secret="$(env_value "TELEGRAM_WEBHOOK_SECRET")"
+  fi
+  app_env="$(env_value "APP_ENV")"
   path="${path:-/webhook/telegram}"
 
   if [[ -z "$token" || -z "$base" ]]; then
     log_error "BOT_TOKEN and BOT_WEBHOOK_BASE_URL are required to configure Telegram webhook."
+    exit 1
+  fi
+  if [[ -z "$secret" && "$app_env" =~ ^(production|prod|staging)$ ]]; then
+    log_error "BOT_WEBHOOK_SECRET or TELEGRAM_WEBHOOK_SECRET is required for Telegram webhook in production."
     exit 1
   fi
 
@@ -523,7 +531,13 @@ configure_telegram_webhook() {
     exit 1
   }
 
-  local curl_args=(-fsS -X POST "https://api.telegram.org/bot${token}/setWebhook" -F "url=${webhook_url}")
+  local curl_args=(
+    -fsS
+    -X POST
+    "https://api.telegram.org/bot${token}/setWebhook"
+    -F "url=${webhook_url}"
+    -F 'allowed_updates=["message","callback_query"]'
+  )
   if [[ -n "$secret" ]]; then
     curl_args+=(-F "secret_token=${secret}")
   fi

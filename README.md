@@ -181,7 +181,8 @@ API_BASE_URL=https://api.example.com
 PUBLIC_SITE_URL=https://example.com
 BOT_WEBHOOK_BASE_URL=https://bot.mpcontrol.online
 BOT_WEBHOOK_PATH=/webhook/telegram
-BOT_WEBHOOK_SECRET=
+BOT_WEBHOOK_SECRET=change-me
+TELEGRAM_WEBHOOK_SECRET=
 BOT_WEBHOOK_ENABLED=true
 WEB_TRUSTED_ORIGINS=https://app.mpcontrol.online,https://mpcontrol.online,https://www.mpcontrol.online
 WEBHOOK_ALLOW_INSECURE_DEV=0
@@ -451,6 +452,53 @@ curl -sS "https://api.telegram.org/bot${BOT_TOKEN}/getWebhookInfo"
 `https://bot.mpcontrol.online/webhook/telegram`. Если задан `BOT_WEBHOOK_SECRET`,
 FastAPI проверяет заголовок `X-Telegram-Bot-Api-Secret-Token`; сам secret не должен
 попадать в логи.
+
+### Диагностика Telegram webhook
+
+Если `getWebhookInfo` показывает `last_error_message: Connection refused`, запрос
+Telegram не доходит до FastAPI. Проверяйте цепочку:
+
+```text
+Telegram -> bot.mpcontrol.online:443 -> nginx -> 127.0.0.1:8000 -> FastAPI /webhook/telegram
+```
+
+Безопасные команды на сервере:
+
+```bash
+cd /opt/mpcontrol
+
+docker compose -f docker-compose.prod.yml ps
+docker compose -f docker-compose.prod.yml logs --tail=200 bot
+docker compose -f docker-compose.prod.yml logs --tail=200 api
+
+sudo nginx -t
+sudo ss -tulpn | grep -E ':80|:443|:8000'
+sudo grep -R "bot.mpcontrol.online" -n \
+  /etc/nginx/sites-enabled /etc/nginx/conf.d /opt/mpcontrol/deploy/nginx 2>/dev/null
+
+curl -4 -vkI https://bot.mpcontrol.online/health
+curl -4 -vkI https://bot.mpcontrol.online/webhook/telegram
+
+set -a
+source .env
+set +a
+curl -s "https://api.telegram.org/bot${BOT_TOKEN}/getWebhookInfo" | python3 -m json.tool
+```
+
+Для production задайте `BOT_WEBHOOK_SECRET` или совместимый alias
+`TELEGRAM_WEBHOOK_SECRET`, затем переустановите webhook:
+
+```bash
+curl -s "https://api.telegram.org/bot${BOT_TOKEN}/deleteWebhook?drop_pending_updates=false" \
+  | python3 -m json.tool
+
+curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/setWebhook" \
+  -d "url=https://bot.mpcontrol.online/webhook/telegram" \
+  -d "secret_token=${BOT_WEBHOOK_SECRET:-${TELEGRAM_WEBHOOK_SECRET}}" \
+  -d "drop_pending_updates=false" \
+  -d 'allowed_updates=["message","callback_query"]' \
+  | python3 -m json.tool
+```
 
 ## Web-кабинет
 

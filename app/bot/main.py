@@ -98,6 +98,7 @@ async def set_webhook() -> None:
     settings = get_settings()
     webhook_url = settings.get_bot_webhook_url()
     bot = create_bot()
+    settings.ensure_bot_webhook_secret_allowed()
     secret = settings.get_bot_webhook_secret()
 
     logger.info("setting_telegram_webhook", extra={"url": webhook_url, "has_secret": bool(secret)})
@@ -148,6 +149,7 @@ async def main() -> None:
 
     if settings.bot_webhook_enabled:
         webhook_url = settings.get_bot_webhook_url()
+        settings.ensure_bot_webhook_secret_allowed()
         secret = settings.get_bot_webhook_secret()
         logger.info(
             "bot_webhook_mode",

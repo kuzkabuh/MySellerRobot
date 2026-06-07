@@ -56,6 +56,17 @@ def test_readme_documents_bot_ssl_diagnostics() -> None:
     assert "getWebhookInfo" in readme
 
 
+def test_bot_nginx_config_proxies_webhook_to_host_api() -> None:
+    nginx_conf = read("deploy/nginx/bot.mpcontrol.online.conf")
+
+    assert "server_name bot.mpcontrol.online;" in nginx_conf
+    assert "listen 443 ssl" in nginx_conf
+    assert "location = /webhook/telegram" in nginx_conf
+    assert "server 127.0.0.1:8000;" in nginx_conf
+    assert "proxy_pass http://mpcontrol_api/webhook/telegram;" in nginx_conf
+    assert "proxy_pass http://bot" not in nginx_conf
+
+
 def test_backup_and_restore_entrypoints_exist() -> None:
     backup_sh = read("scripts/backup.sh")
     restore_sh = read("scripts/restore.sh")

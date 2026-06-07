@@ -19,7 +19,8 @@ https://bot.mpcontrol.online/webhook/telegram
 ```env
 BOT_WEBHOOK_BASE_URL=https://bot.mpcontrol.online
 BOT_WEBHOOK_PATH=/webhook/telegram
-BOT_WEBHOOK_SECRET=
+BOT_WEBHOOK_SECRET=change-me
+TELEGRAM_WEBHOOK_SECRET=
 BOT_WEBHOOK_ENABLED=false
 WEBHOOK_ALLOW_INSECURE_DEV=0
 ```
@@ -92,6 +93,43 @@ curl -sS "https://api.telegram.org/bot${BOT_TOKEN}/getWebhookInfo"
 https://bot.mpcontrol.online/webhook/telegram
 ```
 
+### Диагностика `Connection refused`
+
+Если Telegram показывает `last_error_message: Connection refused`, запрос обычно
+не дошёл до FastAPI. Рабочая цепочка:
+
+```text
+Telegram -> bot.mpcontrol.online:443 -> nginx -> 127.0.0.1:8000 -> FastAPI /webhook/telegram -> aiogram dispatcher
+```
+
+Проверьте на сервере:
+
+```bash
+cd /opt/mpcontrol
+
+docker compose -f docker-compose.prod.yml ps
+docker compose -f docker-compose.prod.yml logs --tail=200 bot
+docker compose -f docker-compose.prod.yml logs --tail=200 api
+
+sudo nginx -t
+sudo ss -tulpn | grep -E ':80|:443|:8000'
+sudo grep -R "bot.mpcontrol.online" -n \
+  /etc/nginx/sites-enabled /etc/nginx/conf.d /opt/mpcontrol/deploy/nginx 2>/dev/null
+
+curl -4 -vkI https://bot.mpcontrol.online/health
+curl -4 -vkI https://bot.mpcontrol.online/webhook/telegram
+
+set -a
+source .env
+set +a
+curl -s "https://api.telegram.org/bot${BOT_TOKEN}/getWebhookInfo" | python3 -m json.tool
+```
+
+`bot.mpcontrol.online.conf` должен быть включён в nginx и проксировать
+`/webhook/telegram` в API на `http://127.0.0.1:8000/webhook/telegram`.
+Если nginx проксирует в bot-контейнер, webhook не будет обработан: HTTP route
+живёт в API-контейнере.
+
 Проверка домена:
 
 ```bash
@@ -101,6 +139,23 @@ curl -I https://bot.mpcontrol.online/webhook/telegram
 
 Для `GET /webhook/telegram` допустимы `403` от nginx `limit_except` или `405` от FastAPI,
 поскольку Telegram отправляет webhook через POST.
+
+Переустановка webhook с secret:
+
+```bash
+curl -s "https://api.telegram.org/bot${BOT_TOKEN}/deleteWebhook?drop_pending_updates=false" \
+  | python3 -m json.tool
+
+curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/setWebhook" \
+  -d "url=https://bot.mpcontrol.online/webhook/telegram" \
+  -d "secret_token=${BOT_WEBHOOK_SECRET:-${TELEGRAM_WEBHOOK_SECRET}}" \
+  -d "drop_pending_updates=false" \
+  -d 'allowed_updates=["message","callback_query"]' \
+  | python3 -m json.tool
+```
+
+Без secret это допустимо только для локальной отладки при
+`WEBHOOK_ALLOW_INSECURE_DEV=1`; production должен использовать secret.
 
 ## YooKassa
 

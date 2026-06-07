@@ -417,6 +417,22 @@ curl -I https://bot.mpcontrol.online/webhook/telegram
 bash scripts/bot_get_webhook_info.sh
 ```
 
+Если Telegram возвращает `Connection refused`, проверьте, что nginx на хосте
+слушает 443 и включил конфиг bot-домена:
+
+```bash
+sudo nginx -t
+sudo ss -tulpn | grep -E ':80|:443|:8000'
+sudo grep -R "bot.mpcontrol.online" -n \
+  /etc/nginx/sites-enabled /etc/nginx/conf.d /opt/mpcontrol/deploy/nginx 2>/dev/null
+curl -4 -vkI https://bot.mpcontrol.online/health
+curl -4 -vkI https://bot.mpcontrol.online/webhook/telegram
+```
+
+Для host-nginx upstream должен указывать на API-контейнер через
+`127.0.0.1:8000`, потому что HTTP route `/webhook/telegram` обслуживает FastAPI,
+а не bot-контейнер.
+
 Для `app.example.com` путь проксируется в FastAPI без добавления лишнего `/web/`.
 Ссылка из Telegram вида:
 
