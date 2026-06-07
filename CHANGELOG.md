@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.9.4
+
+### Fixed
+
+- Production installer now includes `bot.mpcontrol.online` in the SSL certificate
+  domain flow, treats the bot webhook domain as critical during DNS validation, and
+  verifies that the issued certificate SAN contains `DNS:bot.mpcontrol.online`.
+- Installer diagnostics now print Certbot certificate details, the bot certificate
+  SAN, and Telegram `getWebhookInfo` after webhook setup.
+
 ## 1.9.3
 
 ### Changed

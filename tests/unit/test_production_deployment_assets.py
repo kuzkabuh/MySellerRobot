@@ -39,7 +39,21 @@ def test_install_script_prepares_production_prerequisites() -> None:
     assert "configure_backup_timer" in install_sh
     assert "configure_telegram_webhook" in install_sh
     assert "BOT_WEBHOOK_BASE_URL" in install_sh
+    assert "BOT_WEBHOOK_HOST" in install_sh
+    assert "prepare_ssl_domains" in install_sh
+    assert "verify_bot_certificate_san" in install_sh
+    assert "DNS:${BOT_WEBHOOK_HOST}" in install_sh
+    assert "getWebhookInfo" in install_sh
     assert "ALTER COLUMN version_num TYPE VARCHAR(255)" in install_sh
+
+
+def test_readme_documents_bot_ssl_diagnostics() -> None:
+    readme = read("README.md")
+
+    assert "bot.mpcontrol.online  -> SERVER_IP" in readme
+    assert "DNS:bot.mpcontrol.online" in readme
+    assert "openssl s_client -connect bot.mpcontrol.online:443" in readme
+    assert "getWebhookInfo" in readme
 
 
 def test_backup_and_restore_entrypoints_exist() -> None:

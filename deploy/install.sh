@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# version: 1.9.3
+# version: 1.9.4
 # description: First-time production installer for MP Control on Ubuntu.
 # updated: 2026-05-31
 
@@ -14,6 +14,8 @@ SSL_EMAIL="${SSL_EMAIL:-}"
 SKIP_SSL="${SKIP_SSL:-0}"
 SKIP_DNS_CHECK="${SKIP_DNS_CHECK:-0}"
 DOMAINS=()
+SSL_DOMAINS=()
+BOT_WEBHOOK_HOST=""
 PUBLIC_HEALTH_URL=""
 PUBLIC_SERVER_NAMES=""
 APP_SERVER_NAMES=""
@@ -72,7 +74,7 @@ detect_ubuntu() {
 install_dependencies() {
   log_info "Installing base packages, Nginx, Certbot, and DNS tools."
   apt-get update
-  apt-get install -y ca-certificates curl gnupg git nginx certbot python3-certbot-nginx dnsutils python3-cryptography
+  apt-get install -y ca-certificates curl gnupg git nginx certbot python3-certbot-nginx dnsutils openssl python3-cryptography
 }
 
 install_docker() {
@@ -203,6 +205,8 @@ resolve_public_health_url() {
 load_domains_from_env() {
   local key value host public_host
   DOMAINS=()
+  SSL_DOMAINS=()
+  BOT_WEBHOOK_HOST=""
   public_host="$(url_host "$(env_value "PUBLIC_SITE_URL")")"
   if [[ -n "$public_host" ]]; then
     DOMAINS+=("$public_host" "www.${public_host}")
@@ -219,8 +223,13 @@ load_domains_from_env() {
       DOMAINS+=("$host")
     fi
   done
+  BOT_WEBHOOK_HOST="$(url_host "$(env_value "BOT_WEBHOOK_BASE_URL")")"
   if [[ -z "$PUBLIC_SERVER_NAMES" || -z "$APP_SERVER_NAMES" ]]; then
     log_error "PUBLIC_SITE_URL and one of WEB_APP_BASE_URL/API_BASE_URL must contain valid hosts."
+    exit 1
+  fi
+  if [[ -z "$BOT_WEBHOOK_HOST" ]]; then
+    log_error "BOT_WEBHOOK_BASE_URL must contain a valid host, for example https://bot.mpcontrol.online."
     exit 1
   fi
 }
@@ -404,26 +413,48 @@ server_ipv4() {
   curl -fsS4 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}'
 }
 
-check_dns() {
+resolve_ipv4_records() {
+  local domain="$1"
+  if check_command dig; then
+    dig +short A "$domain" | sort -u | tr '\n' ' '
+  else
+    getent ahostsv4 "$domain" | awk '{print $1}' | sort -u | tr '\n' ' '
+  fi
+}
+
+prepare_ssl_domains() {
+  SSL_DOMAINS=()
   if [[ "$SKIP_DNS_CHECK" == "1" ]]; then
     log_warn "Skipping DNS check because SKIP_DNS_CHECK=1."
+    SSL_DOMAINS=("${DOMAINS[@]}")
     return
   fi
-  local ip failures=0
+  local ip
   ip="$(server_ipv4)"
   log_info "Server public IPv4 detected as ${ip}."
   for domain in "${DOMAINS[@]}"; do
     local resolved
-    resolved="$(getent ahostsv4 "$domain" | awk '{print $1}' | sort -u | tr '\n' ' ')"
+    resolved="$(resolve_ipv4_records "$domain")"
     if [[ -z "$resolved" || " $resolved " != *" $ip "* ]]; then
-      log_warn "${domain} does not resolve to ${ip}. Current A records: ${resolved:-none}"
-      failures=$((failures + 1))
+      if [[ "$domain" == "$BOT_WEBHOOK_HOST" ]]; then
+        log_error "${domain} is required for Telegram webhook SSL but does not resolve to ${ip}."
+        log_error "Fix the DNS A record: ${domain} -> ${ip}, wait for propagation, then re-run install.sh."
+        log_error "Current A records: ${resolved:-none}"
+        exit 1
+      fi
+      log_warn "${domain} does not resolve to ${ip}. Current A records: ${resolved:-none}. It will be skipped for this Certbot run."
     else
       log_info "${domain} resolves correctly."
+      SSL_DOMAINS+=("$domain")
     fi
   done
-  if [[ "$failures" -gt 0 ]]; then
-    log_error "DNS is not ready. Create A records first or run with SKIP_SSL=1 SKIP_DNS_CHECK=1."
+
+  if [[ " ${SSL_DOMAINS[*]} " != *" ${BOT_WEBHOOK_HOST} "* ]]; then
+    log_error "${BOT_WEBHOOK_HOST} is missing from the SSL domain list. Telegram webhook cannot work without it."
+    exit 1
+  fi
+  if [[ "${#SSL_DOMAINS[@]}" -eq 0 ]]; then
+    log_error "No domains are eligible for Certbot. Fix DNS records or run with SKIP_SSL=1."
     exit 1
   fi
 }
@@ -437,17 +468,21 @@ obtain_ssl() {
     log_error "Set SSL_EMAIL to request Let's Encrypt certificates."
     exit 1
   fi
-  check_dns
+  prepare_ssl_domains
   log_info "Requesting Let's Encrypt certificates with Certbot."
   local certbot_args=()
   local domain
-  for domain in "${DOMAINS[@]}"; do
+  log_info "Certbot domains: ${SSL_DOMAINS[*]}"
+  for domain in "${SSL_DOMAINS[@]}"; do
     certbot_args+=("-d" "$domain")
   done
   certbot --nginx --non-interactive --agree-tos --redirect --email "$SSL_EMAIL" "${certbot_args[@]}"
   certbot renew --dry-run
   nginx -t
   systemctl reload nginx
+  verify_bot_certificate_san
+  log_info "Installed Certbot certificates:"
+  certbot certificates || true
 }
 
 configure_telegram_webhook() {
@@ -494,6 +529,32 @@ configure_telegram_webhook() {
     exit 1
   }
   log_info "Telegram webhook configured successfully."
+  log_info "Telegram getWebhookInfo:"
+  curl -fsS "https://api.telegram.org/bot${token}/getWebhookInfo" || true
+  echo
+}
+
+verify_bot_certificate_san() {
+  if [[ -z "$BOT_WEBHOOK_HOST" ]]; then
+    log_error "BOT_WEBHOOK_HOST is empty; cannot verify Telegram webhook certificate."
+    exit 1
+  fi
+  log_info "Checking certificate SAN for ${BOT_WEBHOOK_HOST}."
+  local san_output
+  san_output="$(
+    echo | openssl s_client -connect "${BOT_WEBHOOK_HOST}:443" -servername "$BOT_WEBHOOK_HOST" 2>/dev/null |
+      openssl x509 -noout -issuer -subject -dates -ext subjectAltName
+  )" || {
+    log_error "Failed to read certificate for ${BOT_WEBHOOK_HOST}:443."
+    exit 1
+  }
+  echo "$san_output"
+  if [[ "$san_output" != *"DNS:${BOT_WEBHOOK_HOST}"* ]]; then
+    log_error "Certificate SAN does not contain DNS:${BOT_WEBHOOK_HOST}."
+    log_error "Telegram will reject webhook HTTPS with certificate verify failed."
+    exit 1
+  fi
+  log_info "Telegram webhook SSL certificate contains DNS:${BOT_WEBHOOK_HOST}."
 }
 
 prepare_alembic_version_table() {
