@@ -48,10 +48,10 @@ def _make_request(
 
 def test_uses_first_public_ip_from_xff() -> None:
     request = _make_request(
-        x_forwarded_for="172.18.0.1, 10.0.0.5, 8.8.8.8",
+        x_forwarded_for="95.1.2.3, 172.18.0.1",
         client_host="172.18.0.1",
     )
-    assert get_client_ip(request) == "8.8.8.8"
+    assert get_client_ip(request) == "95.1.2.3"
 
 
 def test_falls_back_to_x_real_ip_when_xff_has_no_public() -> None:
@@ -66,9 +66,20 @@ def test_falls_back_to_x_real_ip_when_xff_has_no_public() -> None:
 def test_uses_cf_connecting_ip_when_set() -> None:
     request = _make_request(
         cf_connecting_ip="104.16.0.1",
+        x_real_ip="95.1.2.3",
+        x_forwarded_for="8.8.8.8, 172.18.0.1",
         client_host="172.18.0.1",
     )
     assert get_client_ip(request) == "104.16.0.1"
+
+
+def test_x_real_ip_has_priority_over_xff() -> None:
+    request = _make_request(
+        x_real_ip="95.1.2.3",
+        x_forwarded_for="8.8.8.8, 172.18.0.1",
+        client_host="172.18.0.1",
+    )
+    assert get_client_ip(request) == "95.1.2.3"
 
 
 def test_returns_client_host_when_no_headers() -> None:

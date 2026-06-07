@@ -5,19 +5,19 @@ updated: 2026-06-07
 from __future__ import annotations
 
 import ipaddress
-from typing import Iterable
+from collections.abc import Iterable
 
 from fastapi import Request
 
 _TRUSTED_PROXY_HEADERS: tuple[str, ...] = (
-    "x-forwarded-for",
-    "x-real-ip",
     "cf-connecting-ip",
-    "true-client-ip",
+    "x-real-ip",
+    "x-forwarded-for",
     "forwarded",
+    "true-client-ip",
 )
 
-_INTERNAL_NETWORKS: tuple[ipaddress._BaseNetwork, ...] = (
+_INTERNAL_NETWORKS: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = (
     ipaddress.ip_network("0.0.0.0/8"),
     ipaddress.ip_network("10.0.0.0/8"),
     ipaddress.ip_network("100.64.0.0/10"),
@@ -93,11 +93,11 @@ def get_client_ip(request: Request) -> str:
     """Return the best-effort external client IP for the given request.
 
     Header order:
-    1. X-Forwarded-For (first public IP in chain)
+    1. CF-Connecting-IP
     2. X-Real-IP
-    3. CF-Connecting-IP
-    4. True-Client-IP
-    5. RFC 7239 Forwarded
+    3. X-Forwarded-For (first public IP in chain)
+    4. RFC 7239 Forwarded
+    5. True-Client-IP
     6. request.client.host (fallback)
     """
     for header in _TRUSTED_PROXY_HEADERS:

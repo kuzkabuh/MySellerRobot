@@ -45,6 +45,19 @@ def format_datetime_for_user(
     return ensure_aware_utc(value).astimezone(get_user_timezone(timezone_name)).strftime(fmt)
 
 
+def format_user_datetime(
+    value: datetime | None,
+    user_timezone: str | None = DEFAULT_TIMEZONE,
+    empty_value: str = "не указано",
+    fmt: str = USER_DATETIME_FORMAT,
+) -> str:
+    """Format a UTC datetime for UI display in the user's timezone."""
+
+    if value is None:
+        return empty_value
+    return ensure_aware_utc(value).astimezone(get_user_timezone(user_timezone)).strftime(fmt)
+
+
 def user_day_bounds_utc(
     day: date,
     timezone_name: str | None = DEFAULT_TIMEZONE,

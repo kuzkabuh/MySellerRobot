@@ -4,12 +4,17 @@ updated: 2026-06-07
 """
 from __future__ import annotations
 
-from app.utils.telegram_html import html_to_lines, strip_telegram_html
+from app.utils.telegram_html import html_to_lines, strip_telegram_html, telegram_html_to_plain_text
 
 
 def test_strips_basic_telegram_tags() -> None:
     text = "<b>Заголовок</b>: <code>code</code> и <i>italic</i>"
     assert strip_telegram_html(text) == "Заголовок: code и italic"
+
+
+def test_telegram_html_to_plain_text_alias() -> None:
+    text = "<b>Ошибка</b>: &quot;ключ&quot; <code>401</code>"
+    assert telegram_html_to_plain_text(text) == 'Ошибка: "ключ" 401'
 
 
 def test_unescapes_html_entities() -> None:

@@ -20,7 +20,12 @@ def upgrade() -> None:
     op.create_table(
         "wb_daily_report_imports",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "user_id",
+            sa.Integer(),
+            sa.ForeignKey("users.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column(
             "marketplace_account_id",
             sa.Integer(),
@@ -37,8 +42,18 @@ def upgrade() -> None:
         sa.Column("rows_skipped", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("status", sa.String(length=16), nullable=False, server_default="pending"),
         sa.Column("error_message", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
     )
     op.create_index(
         "ix_wb_daily_report_imports_user", "wb_daily_report_imports", ["user_id"]
@@ -71,7 +86,12 @@ def upgrade() -> None:
             sa.ForeignKey("wb_daily_report_imports.id", ondelete="CASCADE"),
             nullable=False,
         ),
-        sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "user_id",
+            sa.Integer(),
+            sa.ForeignKey("users.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column(
             "marketplace_account_id",
             sa.Integer(),
@@ -98,9 +118,23 @@ def upgrade() -> None:
         sa.Column("storage_fee", sa.Numeric(14, 2), nullable=True),
         sa.Column("acceptance", sa.Numeric(14, 2), nullable=True),
         sa.Column("deduction", sa.Numeric(14, 2), nullable=True),
-        sa.Column("raw_json", sa.JSON().with_variant(sa.dialects.postgresql.JSONB, "postgresql"), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "raw_json",
+            sa.JSON().with_variant(sa.dialects.postgresql.JSONB, "postgresql"),
+            nullable=False,
+        ),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
         sa.UniqueConstraint(
             "marketplace_account_id",
             "report_number",

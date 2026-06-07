@@ -32,6 +32,12 @@ def strip_telegram_html(value: str | None, *, unescape_entities: bool = True) ->
     return text.strip()
 
 
+def telegram_html_to_plain_text(value: str | None) -> str:
+    """Convert Telegram HTML into plain text for safe Web UI display."""
+
+    return strip_telegram_html(value)
+
+
 def html_to_lines(value: str | None, *, max_line_length: int = 120) -> list[str]:
     """Strip Telegram HTML and return a list of display-friendly lines.
 

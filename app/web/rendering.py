@@ -37,8 +37,6 @@ NAV_GROUPS = [
         [
             ("Алерты", "/web/alerts"),
             ("Качество данных", "/web/data-quality"),
-            ("Контроль ошибок", "/web/control"),
-            ("Здоровье кабинетов", "/web/health"),
         ],
     ),
     (

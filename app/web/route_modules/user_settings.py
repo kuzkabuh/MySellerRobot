@@ -47,7 +47,7 @@ router = APIRouter()
 
 def _dt(dt_value: datetime | None, timezone: str) -> str:
     if dt_value is None:
-        return "РЅ/Рґ"
+        return "н/д"
     return format_datetime_for_user(dt_value, timezone, "%d.%m.%Y %H:%M")
 
 
@@ -57,14 +57,14 @@ def _url_quote(value: str) -> str:
 
 def _settings_tabs(active_tab: str) -> str:
     tabs = [
-        ("profile", "РџСЂРѕС„РёР»СЊ", "/web/settings?tab=profile"),
-        ("marketplaces", "РњР°СЂРєРµС‚РїР»РµР№СЃС‹", "/web/settings?tab=marketplaces"),
-        ("subscription", "РўР°СЂРёС„", "/web/settings?tab=subscription"),
-        ("notifications", "РЈРІРµРґРѕРјР»РµРЅРёСЏ", "/web/settings?tab=notifications"),
-        ("sync", "РЎРёРЅС…СЂРѕРЅРёР·Р°С†РёСЏ", "/web/settings?tab=sync"),
-        ("company", "Р”Р°РЅРЅС‹Рµ РєРѕРјРїР°РЅРёРё", "/web/settings?tab=company"),
-        ("security", "Р‘РµР·РѕРїР°СЃРЅРѕСЃС‚СЊ", "/web/settings?tab=security"),
-        ("support", "РџРѕРґРґРµСЂР¶РєР°", "/web/settings?tab=support"),
+        ("profile", "Профиль", "/web/settings?tab=profile"),
+        ("marketplaces", "Маркетплейсы", "/web/settings?tab=marketplaces"),
+        ("subscription", "Тариф", "/web/settings?tab=subscription"),
+        ("notifications", "Уведомления", "/web/settings?tab=notifications"),
+        ("sync", "Синхронизация", "/web/settings?tab=sync"),
+        ("company", "Данные компании", "/web/settings?tab=company"),
+        ("security", "Безопасность", "/web/settings?tab=security"),
+        ("support", "Поддержка", "/web/settings?tab=support"),
     ]
     links = []
     for code, label, href in tabs:
@@ -75,13 +75,13 @@ def _settings_tabs(active_tab: str) -> str:
 
 def _subscription_status_russian(status_value: str) -> str:
     mapping = {
-        "ACTIVE": "РђРєС‚РёРІРµРЅ",
-        "EXPIRED": "РСЃС‚С‘Рє",
-        "CANCELLED": "РћС‚РјРµРЅС‘РЅ",
-        "TRIAL": "РџСЂРѕР±РЅС‹Р№",
-        "PENDING": "РћР¶РёРґР°РµС‚ РѕРїР»Р°С‚С‹",
-        "FREE": "Р‘РµСЃРїР»Р°С‚РЅС‹Р№ С‚Р°СЂРёС„",
-        "REPLACED": "Р—Р°РјРµРЅС‘РЅ",
+        "ACTIVE": "Активен",
+        "EXPIRED": "Истёк",
+        "CANCELLED": "Отменён",
+        "TRIAL": "Пробный",
+        "PENDING": "Ожидает оплаты",
+        "FREE": "Бесплатный тариф",
+        "REPLACED": "Заменён",
     }
     return mapping.get(status_value.upper(), status_value)
 
@@ -104,54 +104,54 @@ def _profile_tab(user: User, subscription_data: object | None = None) -> str:
         expires_label = (
             format_datetime_for_user(expires_at, timezone, "%d.%m.%Y")
             if expires_at
-            else "Р±РµСЃСЃСЂРѕС‡РЅРѕ"
+            else "бессрочно"
         )
         used_accounts = getattr(subscription_data, "used_accounts", 0)
         max_accounts = getattr(tier, "max_marketplace_accounts", 1) if tier else 1
         used_orders = getattr(subscription_data, "used_orders_month", 0)
         max_orders = getattr(tier, "max_orders_per_month", None) if tier else None
-        max_orders_label = str(max_orders) if max_orders else "Р±РµР· РѕРіСЂР°РЅРёС‡РµРЅРёР№"
+        max_orders_label = str(max_orders) if max_orders else "без ограничений"
         used_products = getattr(subscription_data, "used_products", 0)
         max_products = getattr(tier, "max_products", None) if tier else None
-        max_products_label = str(max_products) if max_products else "Р±РµР· РѕРіСЂР°РЅРёС‡РµРЅРёР№"
+        max_products_label = str(max_products) if max_products else "без ограничений"
         tariff_block = f"""
-            <span>РўР°СЂРёС„</span><strong>{escape(tier_name)}</strong>
-            <span>РЎС‚Р°С‚СѓСЃ</span><strong>{escape(status_label)}</strong>
-            <span>Р”РµР№СЃС‚РІСѓРµС‚ РґРѕ</span><strong>{escape(expires_label)}</strong>
-            <span>РљР°Р±РёРЅРµС‚С‹</span><strong>{used_accounts} / {max_accounts}</strong>
-            <span>Р—Р°РєР°Р·С‹ Р·Р° РјРµСЃСЏС†</span><strong>{used_orders} / {max_orders_label}</strong>
+            <span>Тариф</span><strong>{escape(tier_name)}</strong>
+            <span>Статус</span><strong>{escape(status_label)}</strong>
+            <span>Действует до</span><strong>{escape(expires_label)}</strong>
+            <span>Кабинеты</span><strong>{used_accounts} / {max_accounts}</strong>
+            <span>Заказы за месяц</span><strong>{used_orders} / {max_orders_label}</strong>
             <span>SKU</span><strong>{used_products} / {max_products_label}</strong>
-            <span>РЈРІРµРґРѕРјР»РµРЅРёСЏ</span><strong>{"РІРєР»СЋС‡РµРЅС‹" if getattr(user, "notifications_enabled", True) else "РІС‹РєР»СЋС‡РµРЅС‹"}</strong>
+            <span>Уведомления</span><strong>{"включены" if getattr(user, "notifications_enabled", True) else "выключены"}</strong>
         """
     else:
         tariff_block = f"""
-            <span>РўР°СЂРёС„</span><strong>РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ РґР°РЅРЅС‹Рµ С‚Р°СЂРёС„Р°</strong>
-            <span>РЈРІРµРґРѕРјР»РµРЅРёСЏ</span><strong>{"РІРєР»СЋС‡РµРЅС‹" if getattr(user, "notifications_enabled", True) else "РІС‹РєР»СЋС‡РµРЅС‹"}</strong>
+            <span>Тариф</span><strong>Не удалось загрузить данные тарифа</strong>
+            <span>Уведомления</span><strong>{"включены" if getattr(user, "notifications_enabled", True) else "выключены"}</strong>
         """
 
     return f"""
       {_settings_tabs("profile")}
       <section class="detail-grid">
         <section class="band">
-          <h2>Р”Р°РЅРЅС‹Рµ РїСЂРѕС„РёР»СЏ</h2>
+          <h2>Данные профиля</h2>
           <form method="post" action="/web/settings/profile">
             <div class="kv" style="margin-bottom:14px">
               <span>Telegram ID</span><strong>{user.telegram_id}</strong>
-              <span>Username</span><strong>{escape("@" + username if username else "РЅ/Рґ")}</strong>
-              <span>Р”Р°С‚Р° СЂРµРіРёСЃС‚СЂР°С†РёРё</span><strong>{_dt(getattr(user, "created_at", None), timezone)}</strong>
-              <span>РџРѕСЃР»РµРґРЅСЏСЏ Р°РєС‚РёРІРЅРѕСЃС‚СЊ</span><strong>{_dt(getattr(user, "last_activity_at", None), timezone)}</strong>
+              <span>Username</span><strong>{escape("@" + username if username else "н/д")}</strong>
+              <span>Дата регистрации</span><strong>{_dt(getattr(user, "created_at", None), timezone)}</strong>
+              <span>Последняя активность</span><strong>{_dt(getattr(user, "last_activity_at", None), timezone)}</strong>
             </div>
             <div class="filters">
               <div>
-                <label for="first_name">РРјСЏ</label>
+                <label for="first_name">Имя</label>
                 <input id="first_name" name="first_name" value="{escape(first_name or "")}">
               </div>
               <div>
-                <label for="last_name">Р¤Р°РјРёР»РёСЏ</label>
+                <label for="last_name">Фамилия</label>
                 <input id="last_name" name="last_name" value="{escape(last_name or "")}">
               </div>
               <div>
-                <label for="phone">РўРµР»РµС„РѕРЅ</label>
+                <label for="phone">Телефон</label>
                 <input id="phone" name="phone" value="{escape(getattr(user, "phone", None) or "")}" placeholder="+7 900 123-45-67">
               </div>
               <div>
@@ -159,32 +159,32 @@ def _profile_tab(user: User, subscription_data: object | None = None) -> str:
                 <input id="email" name="email" type="email" value="{escape(getattr(user, "email", None) or "")}">
               </div>
               <div>
-                <label for="company_name">РљРѕРјРїР°РЅРёСЏ</label>
+                <label for="company_name">Компания</label>
                 <input id="company_name" name="company_name" value="{escape(getattr(user, "company_name", None) or "")}">
               </div>
               <div>
-                <label for="inn">РРќРќ</label>
-                <input id="inn" name="inn" value="{escape(getattr(user, "inn", None) or "")}" placeholder="10 РёР»Рё 12 С†РёС„СЂ">
+                <label for="inn">ИНН</label>
+                <input id="inn" name="inn" value="{escape(getattr(user, "inn", None) or "")}" placeholder="10 или 12 цифр">
               </div>
               <div>
-                <label for="ogrn">РћР“Р Рќ / РћР“Р РќРРџ</label>
-                <input id="ogrn" name="ogrn" value="{escape(getattr(user, "ogrn", None) or "")}" placeholder="13 РёР»Рё 15 С†РёС„СЂ">
+                <label for="ogrn">ОГРН / ОГРНИП</label>
+                <input id="ogrn" name="ogrn" value="{escape(getattr(user, "ogrn", None) or "")}" placeholder="13 или 15 цифр">
               </div>
               <div>
-                <label for="timezone">Р§Р°СЃРѕРІРѕР№ РїРѕСЏСЃ</label>
+                <label for="timezone">Часовой пояс</label>
                 <input id="timezone" name="timezone" value="{escape(timezone)}">
               </div>
             </div>
-            <button class="btn btn-primary" type="submit">РЎРѕС…СЂР°РЅРёС‚СЊ</button>
+            <button class="btn btn-primary" type="submit">Сохранить</button>
           </form>
         </section>
         <section class="band">
-          <h2>РўРµРєСѓС‰РёР№ С‚Р°СЂРёС„</h2>
+          <h2>Текущий тариф</h2>
           <div class="kv">
             {tariff_block}
           </div>
-          <p style="margin-top:14px"><a class="btn btn-primary" href="/web/settings?tab=subscription">РЈРїСЂР°РІР»РµРЅРёРµ С‚Р°СЂРёС„РѕРј</a></p>
-          <p><a class="btn" href="/web/settings?tab=notifications">РќР°СЃС‚СЂРѕРёС‚СЊ СѓРІРµРґРѕРјР»РµРЅРёСЏ</a></p>
+          <p style="margin-top:14px"><a class="btn btn-primary" href="/web/settings?tab=subscription">Управление тарифом</a></p>
+          <p><a class="btn" href="/web/settings?tab=notifications">Настроить уведомления</a></p>
         </section>
       </section>
     """
@@ -216,14 +216,14 @@ def _company_tab(
     preview_html = _company_preview(preview) if preview else ""
     saved_html = _company_saved_card(profile)
     clear_button = (
-        '<button class="btn btn-danger" type="submit">РћС‡РёСЃС‚РёС‚СЊ РґР°РЅРЅС‹Рµ РєРѕРјРїР°РЅРёРё</button>'
+        '<button class="btn btn-danger" type="submit">Очистить данные компании</button>'
         if profile
         else ""
     )
     refresh_button = (
         """
         <form method="post" action="/web/settings/company/refresh">
-          <button class="btn" type="submit">РћР±РЅРѕРІРёС‚СЊ РґР°РЅРЅС‹Рµ</button>
+          <button class="btn" type="submit">Обновить данные</button>
         </form>
         """
         if profile
@@ -233,14 +233,14 @@ def _company_tab(
       {_settings_tabs("company")}
       <section class="detail-grid">
         <section class="band">
-          <h2>Р”Р°РЅРЅС‹Рµ РєРѕРјРїР°РЅРёРё</h2>
+          <h2>Данные компании</h2>
           {status_message}
           <form method="post" action="/web/settings/company/lookup" class="filters">
             <div>
-              <label for="company_lookup_inn">РРќРќ</label>
-              <input id="company_lookup_inn" name="inn" value="{escape(current_inn)}" placeholder="10 РёР»Рё 12 С†РёС„СЂ">
+              <label for="company_lookup_inn">ИНН</label>
+              <input id="company_lookup_inn" name="inn" value="{escape(current_inn)}" placeholder="10 или 12 цифр">
             </div>
-            <button class="btn btn-primary" type="submit">Р—Р°РіСЂСѓР·РёС‚СЊ РґР°РЅРЅС‹Рµ РїРѕ РРќРќ</button>
+            <button class="btn btn-primary" type="submit">Загрузить данные по ИНН</button>
           </form>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
             {refresh_button}
@@ -264,12 +264,12 @@ def _company_preview(company: CompanyProfileDTO | None) -> str:
     )
     return f"""
       <section class="band">
-        <h2>РќР°Р№РґРµРЅРЅС‹Рµ РґР°РЅРЅС‹Рµ</h2>
+        <h2>Найденные данные</h2>
         {warning}
         <div class="kv">{rows}</div>
         <form method="post" action="/web/settings/company/save" style="margin-top:14px">
           <input type="hidden" name="inn" value="{escape(company.inn)}">
-          <button class="btn btn-primary" type="submit">РЎРѕС…СЂР°РЅРёС‚СЊ</button>
+          <button class="btn btn-primary" type="submit">Сохранить</button>
         </form>
       </section>
     """
@@ -279,13 +279,13 @@ def _company_saved_card(profile: object | None) -> str:
     if profile is None:
         return """
         <section class="band">
-          <h2>РЎРѕС…СЂР°РЅС‘РЅРЅС‹Рµ РґР°РЅРЅС‹Рµ</h2>
-          <div class="empty-state">Р”Р°РЅРЅС‹Рµ РєРѕРјРїР°РЅРёРё РµС‰С‘ РЅРµ СЃРѕС…СЂР°РЅРµРЅС‹.</div>
+          <h2>Сохранённые данные</h2>
+          <div class="empty-state">Данные компании ещё не сохранены.</div>
         </section>
         """
     return f"""
       <section class="band">
-        <h2>РЎРѕС…СЂР°РЅС‘РЅРЅС‹Рµ РґР°РЅРЅС‹Рµ</h2>
+        <h2>Сохранённые данные</h2>
         <div class="kv">{_company_kv_rows(profile)}</div>
       </section>
     """
@@ -296,30 +296,30 @@ def _company_kv_rows(company: object) -> str:
     registration_date = getattr(company, "registration_date", None)
     source = getattr(company, "source", None)
     rows = [
-        ("РРќРќ", getattr(company, "inn", None)),
-        ("РљРџРџ", getattr(company, "kpp", None)),
-        ("РћР“Р Рќ/РћР“Р РќРРџ", getattr(company, "ogrn", None)),
-        ("РџРѕР»РЅРѕРµ РЅР°РёРјРµРЅРѕРІР°РЅРёРµ", getattr(company, "name_full", None)),
-        ("РљСЂР°С‚РєРѕРµ РЅР°РёРјРµРЅРѕРІР°РЅРёРµ", getattr(company, "name_short", None)),
-        ("РўРёРї", getattr(company, "company_type", None)),
-        ("РЎС‚Р°С‚СѓСЃ", getattr(company, "status", None)),
-        ("Р®СЂРёРґРёС‡РµСЃРєРёР№ Р°РґСЂРµСЃ", getattr(company, "address", None)),
-        ("РћРљР’Р­Р”", getattr(company, "okved", None)),
-        ("РћРљР’Р­Р” РЅР°Р·РІР°РЅРёРµ", getattr(company, "okved_name", None)),
-        ("Р СѓРєРѕРІРѕРґРёС‚РµР»СЊ", getattr(company, "director_name", None)),
-        ("Р”Р°С‚Р° СЂРµРіРёСЃС‚СЂР°С†РёРё", _dt(registration_date, "Europe/Moscow") if registration_date else None),
-        ("РСЃС‚РѕС‡РЅРёРє РґР°РЅРЅС‹С…", source),
-        ("Р”Р°С‚Р° РїРѕСЃР»РµРґРЅРµРіРѕ РѕР±РЅРѕРІР»РµРЅРёСЏ", _dt(updated_at, "Europe/Moscow") if updated_at else None),
+        ("ИНН", getattr(company, "inn", None)),
+        ("КПП", getattr(company, "kpp", None)),
+        ("ОГРН/ОГРНИП", getattr(company, "ogrn", None)),
+        ("Полное наименование", getattr(company, "name_full", None)),
+        ("Краткое наименование", getattr(company, "name_short", None)),
+        ("Тип", getattr(company, "company_type", None)),
+        ("Статус", getattr(company, "status", None)),
+        ("Юридический адрес", getattr(company, "address", None)),
+        ("ОКВЭД", getattr(company, "okved", None)),
+        ("ОКВЭД название", getattr(company, "okved_name", None)),
+        ("Руководитель", getattr(company, "director_name", None)),
+        ("Дата регистрации", _dt(registration_date, "Europe/Moscow") if registration_date else None),
+        ("Источник данных", source),
+        ("Дата последнего обновления", _dt(updated_at, "Europe/Moscow") if updated_at else None),
     ]
     return "".join(
-        f"<span>{escape(label)}</span><strong>{escape(str(value) if value else 'РЅ/Рґ')}</strong>"
+        f"<span>{escape(label)}</span><strong>{escape(str(value) if value else 'н/д')}</strong>"
         for label, value in rows
     )
 
 
 def _marketplaces_tab(user: User, accounts: list[MarketplaceAccount], timezone: str) -> str:
     if not accounts:
-        rows = '<tr><td colspan="7"><div class="empty-state">РљР°Р±РёРЅРµС‚С‹ РµС‰С‘ РЅРµ РїРѕРґРєР»СЋС‡РµРЅС‹. РџРѕРґРєР»СЋС‡РµРЅРёРµ РІС‹РїРѕР»РЅСЏРµС‚СЃСЏ С‡РµСЂРµР· Telegram-Р±РѕС‚Р°.</div></td></tr>'
+        rows = '<tr><td colspan="7"><div class="empty-state">Кабинеты ещё не подключены. Подключение выполняется через Telegram-бота.</div></td></tr>'
     else:
         row_parts = []
         for acc in accounts:
@@ -330,12 +330,12 @@ def _marketplaces_tab(user: User, accounts: list[MarketplaceAccount], timezone: 
             api_status = acc.api_key_status or "unchecked"
             api_cls = "good" if api_status == "active" else "bad" if api_status in ("auth_error", "expired") else "warn"
             api_status_labels = {
-                "active": "РђРєС‚РёРІРµРЅ",
-                "auth_error": "РћС€РёР±РєР° Р°РІС‚РѕСЂРёР·Р°С†РёРё",
-                "insufficient_permissions": "РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ РїСЂР°РІ",
-                "expired": "РСЃС‚С‘Рє",
-                "unchecked": "РќРµ РїСЂРѕРІРµСЂРµРЅ",
-                "pending_check": "РћР¶РёРґР°РµС‚ РїСЂРѕРІРµСЂРєРё",
+                "active": "Активен",
+                "auth_error": "Ошибка авторизации",
+                "insufficient_permissions": "Недостаточно прав",
+                "expired": "Истёк",
+                "unchecked": "Не проверен",
+                "pending_check": "Ожидает проверки",
             }
             api_label = api_status_labels.get(api_status, api_status)
             row_parts.append(
@@ -356,8 +356,8 @@ def _marketplaces_tab(user: User, accounts: list[MarketplaceAccount], timezone: 
     return f"""
       {_settings_tabs("marketplaces")}
       <section class="band">
-        <h2>РџРѕРґРєР»СЋС‡С‘РЅРЅС‹Рµ РєР°Р±РёРЅРµС‚С‹</h2>
-        <p class="muted">РџРѕРґРєР»СЋС‡РµРЅРёРµ РЅРѕРІРѕРіРѕ РєР°Р±РёРЅРµС‚Р° РІС‹РїРѕР»РЅСЏРµС‚СЃСЏ С‡РµСЂРµР· Telegram-Р±РѕС‚Р°. API-РєР»СЋС‡Рё С…СЂР°РЅСЏС‚СЃСЏ РІ Р·Р°С€РёС„СЂРѕРІР°РЅРЅРѕРј РІРёРґРµ Рё РЅРµ РѕС‚РѕР±СЂР°Р¶Р°СЋС‚СЃСЏ РїРѕР»РЅРѕСЃС‚СЊСЋ.</p>
+        <h2>Подключённые кабинеты</h2>
+        <p class="muted">Подключение нового кабинета выполняется через Telegram-бота. API-ключи хранятся в зашифрованном виде и не отображаются полностью.</p>
         <div class="table-wrap">
           <table class="table">
             <thead>
@@ -371,24 +371,24 @@ def _marketplaces_tab(user: User, accounts: list[MarketplaceAccount], timezone: 
         </div>
       </section>
       <section class="band" style="margin-top:14px">
-        <h2>РљР°Рє РїРѕР»СѓС‡РёС‚СЊ API-РєР»СЋС‡</h2>
+        <h2>Как получить API-ключ</h2>
         <div class="detail-grid">
           <div class="band">
             <h3>Wildberries</h3>
             <ol class="muted">
-              <li>Р’РѕР№РґРёС‚Рµ РІ Р»РёС‡РЅС‹Р№ РєР°Р±РёРЅРµС‚ WB: <strong>sellers.wildberries.ru</strong></li>
-              <li>РџРµСЂРµР№РґРёС‚Рµ РІ СЂР°Р·РґРµР» В«РќР°СЃС‚СЂРѕР№РєРёВ» в†’ В«Р”РѕСЃС‚СѓРї Рє APIВ»</li>
-              <li>РЎРѕР·РґР°Р№С‚Рµ РЅРѕРІС‹Р№ С‚РѕРєРµРЅ СЃ РЅСѓР¶РЅС‹РјРё РїСЂР°РІР°РјРё</li>
-              <li>РЎРєРѕРїРёСЂСѓР№С‚Рµ РєР»СЋС‡ Рё РѕС‚РїСЂР°РІСЊС‚Рµ Р±РѕС‚Сѓ</li>
+              <li>Войдите в личный кабинет WB: <strong>sellers.wildberries.ru</strong></li>
+              <li>Перейдите в раздел «Настройки» → «Доступ к API»</li>
+              <li>Создайте новый токен с нужными правами</li>
+              <li>Скопируйте ключ и отправьте боту</li>
             </ol>
           </div>
           <div class="band">
             <h3>Ozon</h3>
             <ol class="muted">
-              <li>Р’РѕР№РґРёС‚Рµ РІ РєР°Р±РёРЅРµС‚ Ozon Seller: <strong>seller.ozon.ru</strong></li>
-              <li>РџРµСЂРµР№РґРёС‚Рµ РІ В«РќР°СЃС‚СЂРѕР№РєРёВ» в†’ В«API-РєР»СЋС‡РёВ»</li>
-              <li>РЎРѕР·РґР°Р№С‚Рµ РєР»СЋС‡ СЃ РїСЂР°РІР°РјРё РЅР° С‡С‚РµРЅРёРµ</li>
-              <li>РЎРєРѕРїРёСЂСѓР№С‚Рµ Client-Id Рё Api-Key, РѕС‚РїСЂР°РІСЊС‚Рµ Р±РѕС‚Сѓ</li>
+              <li>Войдите в кабинет Ozon Seller: <strong>seller.ozon.ru</strong></li>
+              <li>Перейдите в «Настройки» → «API-ключи»</li>
+              <li>Создайте ключ с правами на чтение</li>
+              <li>Скопируйте Client-Id и Api-Key, отправьте боту</li>
             </ol>
           </div>
         </div>
@@ -438,7 +438,7 @@ def _notifications_tab(user: User, type_settings: dict[NotificationType, bool]) 
 
 def _sync_tab(sync_statuses: list, timezone: str) -> str:
     if not sync_statuses:
-        rows = '<tr><td colspan="5"><div class="empty-state">РЎРёРЅС…СЂРѕРЅРёР·Р°С†РёРё РµС‰С‘ РЅРµ Р·Р°РїСѓСЃРєР°Р»РёСЃСЊ.</div></td></tr>'
+        rows = '<tr><td colspan="5"><div class="empty-state">Синхронизации ещё не запускались.</div></td></tr>'
     else:
         row_parts = []
         for s in sync_statuses:
@@ -450,7 +450,7 @@ def _sync_tab(sync_statuses: list, timezone: str) -> str:
                 f'<td><span class="badge {status_cls}">{status_label}</span></td>'
                 f"<td>{_dt(s.last_run_at, timezone)}</td>"
                 f"<td>{_dt(s.last_success_at, timezone)}</td>"
-                f"<td>{escape(s.last_error_message or 'вЂ”')}</td>"
+                f"<td>{escape(s.last_error_message or '—')}</td>"
                 "</tr>"
             )
         rows = "".join(row_parts)
@@ -458,12 +458,12 @@ def _sync_tab(sync_statuses: list, timezone: str) -> str:
     return f"""
       {_settings_tabs("sync")}
       <section class="band">
-        <h2>РЎС‚Р°С‚СѓСЃ СЃРёРЅС…СЂРѕРЅРёР·Р°С†РёР№</h2>
-        <p class="muted">Р§Р°СЃС‚РѕС‚Р° СЃРёРЅС…СЂРѕРЅРёР·Р°С†РёРё Р·Р°РІРёСЃРёС‚ РѕС‚ РІР°С€РµРіРѕ С‚Р°СЂРёС„Р°. Р СѓС‡РЅРѕР№ Р·Р°РїСѓСЃРє РґРѕСЃС‚СѓРїРµРЅ С‡РµСЂРµР· Telegram-Р±РѕС‚Р° РёР»Рё СЃС‚СЂР°РЅРёС†Сѓ В«РљР°Р±РёРЅРµС‚С‹ РњРџВ».</p>
+        <h2>Статус синхронизаций</h2>
+        <p class="muted">Частота синхронизации зависит от вашего тарифа. Ручной запуск доступен через Telegram-бота или страницу «Кабинеты МП».</p>
         <div class="table-wrap">
           <table class="table">
             <thead>
-              <tr><th>РўРёРї РґР°РЅРЅС‹С…</th><th>РЎС‚Р°С‚СѓСЃ</th><th>РџРѕСЃР»РµРґРЅРёР№ Р·Р°РїСѓСЃРє</th><th>РџРѕСЃР»РµРґРЅРёР№ СѓСЃРїРµС…</th><th>РџРѕСЃР»РµРґРЅСЏСЏ РѕС€РёР±РєР°</th></tr>
+              <tr><th>Тип данных</th><th>Статус</th><th>Последний запуск</th><th>Последний успех</th><th>Последняя ошибка</th></tr>
             </thead>
             <tbody>{rows}</tbody>
           </table>
@@ -474,78 +474,78 @@ def _sync_tab(sync_statuses: list, timezone: str) -> str:
 
 def _security_tab(user: User, activity_logs: list, timezone: str) -> str:
     if not activity_logs:
-        log_rows = '<tr><td colspan="4"><div class="empty-state">Р”РµР№СЃС‚РІРёР№ РїРѕРєР° РЅРµ Р·Р°С„РёРєСЃРёСЂРѕРІР°РЅРѕ.</div></td></tr>'
+        log_rows = '<tr><td colspan="4"><div class="empty-state">Действий пока не зафиксировано.</div></td></tr>'
     else:
         log_rows = "".join(
             "<tr>"
             f"<td>{_dt(log.created_at, timezone)}</td>"
             f"<td>{escape(action_label(log.action))}</td>"
-            f"<td>{escape(log.entity_type or 'вЂ”')}</td>"
-            f"<td>{escape(log.ip_address or 'вЂ”')}</td>"
+            f"<td>{escape(log.entity_type or '—')}</td>"
+            f"<td>{escape(log.ip_address or '—')}</td>"
             "</tr>"
             for log in activity_logs[:30]
         )
 
     password_enabled = bool(getattr(user, "web_password_enabled", False))
-    password_status = "РІРєР»СЋС‡С‘РЅ" if password_enabled else "РІС‹РєР»СЋС‡РµРЅ"
+    password_status = "включён" if password_enabled else "выключен"
     password_updated = _dt(getattr(user, "web_password_updated_at", None), timezone)
     password_login = escape(getattr(user, "web_login", None) or "")
     return f"""
       {_settings_tabs("security")}
       <section class="detail-grid">
         <section class="band">
-          <h2>РџРѕСЃР»РµРґРЅРёР№ РІС…РѕРґ</h2>
+          <h2>Последний вход</h2>
           <div class="kv">
-            <span>Р”Р°С‚Р°</span><strong>{_dt(getattr(user, "last_login_at", None), timezone)}</strong>
-            <span>IP-Р°РґСЂРµСЃ</span><strong>{escape(getattr(user, "last_login_ip", None) or "РЅ/Рґ")}</strong>
-            <span>User-Agent</span><strong style="word-break:break-all;font-size:12px">{escape((getattr(user, "last_login_user_agent", None) or "РЅ/Рґ")[:120])}</strong>
-            <span>Р’С…РѕРґ РїРѕ РїР°СЂРѕР»СЋ</span><strong>{password_status}</strong>
-            <span>РџР°СЂРѕР»СЊ РѕР±РЅРѕРІР»С‘РЅ</span><strong>{password_updated}</strong>
+            <span>Дата</span><strong>{_dt(getattr(user, "last_login_at", None), timezone)}</strong>
+            <span>IP-адрес</span><strong>{escape(getattr(user, "last_login_ip", None) or "н/д")}</strong>
+            <span>User-Agent</span><strong style="word-break:break-all;font-size:12px">{escape((getattr(user, "last_login_user_agent", None) or "н/д")[:120])}</strong>
+            <span>Вход по паролю</span><strong>{password_status}</strong>
+            <span>Пароль обновлён</span><strong>{password_updated}</strong>
           </div>
         </section>
         <section class="band">
-          <h2>РђРєС‚РёРІРЅС‹Рµ СЃРµСЃСЃРёРё</h2>
-          <p class="muted">Web-СЃРµСЃСЃРёРё СѓРїСЂР°РІР»СЏСЋС‚СЃСЏ С‡РµСЂРµР· cookie. РџСЂРё РІС‹С…РѕРґРµ СЃРµСЃСЃРёСЏ Р°РЅРЅСѓР»РёСЂСѓРµС‚СЃСЏ.</p>
-          <p><a class="btn btn-danger" href="/web/logout">Р’С‹Р№С‚Рё РёР· РІСЃРµС… СЃРµСЃСЃРёР№</a></p>
+          <h2>Активные сессии</h2>
+          <p class="muted">Web-сессии управляются через cookie. При выходе сессия аннулируется.</p>
+          <p><a class="btn btn-danger" href="/web/logout">Выйти из всех сессий</a></p>
         </section>
       </section>
       <section class="band" style="margin-top:14px">
-        <h2>Р’С…РѕРґ РїРѕ Р»РѕРіРёРЅСѓ Рё РїР°СЂРѕР»СЋ</h2>
-        <p class="muted">Telegram-РІС…РѕРґ РїСЂРѕРґРѕР»Р¶РёС‚ СЂР°Р±РѕС‚Р°С‚СЊ. РџР°СЂРѕР»СЊ С…СЂР°РЅРёС‚СЃСЏ С‚РѕР»СЊРєРѕ РІ РІРёРґРµ hash.</p>
+        <h2>Вход по логину и паролю</h2>
+        <p class="muted">Telegram-вход продолжит работать. Пароль хранится только в виде hash.</p>
         <form method="post" action="/web/settings/password-login">
           <div class="filters">
             <div>
-              <label for="web_login">Р›РѕРіРёРЅ</label>
+              <label for="web_login">Логин</label>
               <input id="web_login" name="web_login" value="{password_login}" placeholder="seller.login">
             </div>
             <div>
-              <label for="web_current_password">РўРµРєСѓС‰РёР№ РїР°СЂРѕР»СЊ</label>
-              <input id="web_current_password" name="web_current_password" type="password" autocomplete="current-password" placeholder="РќСѓР¶РµРЅ РїСЂРё СЃРјРµРЅРµ РїР°СЂРѕР»СЏ">
+              <label for="web_current_password">Текущий пароль</label>
+              <input id="web_current_password" name="web_current_password" type="password" autocomplete="current-password" placeholder="Нужен при смене пароля">
             </div>
             <div>
-              <label for="web_password">РќРѕРІС‹Р№ РїР°СЂРѕР»СЊ</label>
+              <label for="web_password">Новый пароль</label>
               <input id="web_password" name="web_password" type="password" autocomplete="new-password">
             </div>
             <div>
-              <label for="web_password_confirm">РџРѕРІС‚РѕСЂРёС‚Рµ РЅРѕРІС‹Р№ РїР°СЂРѕР»СЊ</label>
+              <label for="web_password_confirm">Повторите новый пароль</label>
               <input id="web_password_confirm" name="web_password_confirm" type="password" autocomplete="new-password">
             </div>
             <div>
               <label class="status-chip">
                 <input type="checkbox" name="web_password_enabled" {"checked" if password_enabled else ""}>
-                Р Р°Р·СЂРµС€РёС‚СЊ РІС…РѕРґ РїРѕ Р»РѕРіРёРЅСѓ Рё РїР°СЂРѕР»СЋ
+                Разрешить вход по логину и паролю
               </label>
             </div>
           </div>
-          <button class="btn btn-primary" type="submit">РЎРѕС…СЂР°РЅРёС‚СЊ</button>
+          <button class="btn btn-primary" type="submit">Сохранить</button>
         </form>
-        {'<form method="post" action="/web/settings/password-login/disable" style="margin-top:10px"><button class="btn btn-danger" type="submit">РћС‚РєР»СЋС‡РёС‚СЊ РІС…РѕРґ РїРѕ РїР°СЂРѕР»СЋ</button></form>' if password_enabled else ''}
+        {'<form method="post" action="/web/settings/password-login/disable" style="margin-top:10px"><button class="btn btn-danger" type="submit">Отключить вход по паролю</button></form>' if password_enabled else ''}
       </section>
       <section class="band" style="margin-top:14px">
-        <h2>РСЃС‚РѕСЂРёСЏ РґРµР№СЃС‚РІРёР№</h2>
+        <h2>История действий</h2>
         <div class="table-wrap">
           <table class="table">
-            <thead><tr><th>Р”Р°С‚Р°</th><th>Р”РµР№СЃС‚РІРёРµ</th><th>РћР±СЉРµРєС‚</th><th>IP</th></tr></thead>
+            <thead><tr><th>Дата</th><th>Действие</th><th>Объект</th><th>IP</th></tr></thead>
             <tbody>{log_rows}</tbody>
           </table>
         </div>
@@ -555,15 +555,15 @@ def _security_tab(user: User, activity_logs: list, timezone: str) -> str:
 
 def _support_tab(tickets: list, timezone: str) -> str:
     if not tickets:
-        ticket_rows = '<tr><td colspan="5"><div class="empty-state">РћР±СЂР°С‰РµРЅРёР№ РІ РїРѕРґРґРµСЂР¶РєСѓ РїРѕРєР° РЅРµС‚.</div></td></tr>'
+        ticket_rows = '<tr><td colspan="5"><div class="empty-state">Обращений в поддержку пока нет.</div></td></tr>'
     else:
         ticket_rows = "".join(
             "<tr>"
             f"<td>{_dt(t.created_at, timezone)}</td>"
             f"<td>{escape(t.subject)}</td>"
             f'<td><span class="badge {"good" if t.status == "closed" else "warn" if t.status == "responded" else "action"}">{TICKET_STATUS_LABELS.get(t.status, t.status)}</span></td>'
-            f"<td>{escape(t.category or "вЂ”")}</td>"
-            f'<td>{escape((t.admin_response or "вЂ”")[:100])}</td>'
+            f"<td>{escape(t.category or "—")}</td>"
+            f'<td>{escape((t.admin_response or "—")[:100])}</td>'
             "</tr>"
             for t in tickets
         )
@@ -575,30 +575,30 @@ def _support_tab(tickets: list, timezone: str) -> str:
     return f"""
       {_settings_tabs("support")}
       <section class="band">
-        <h2>РЎРѕР·РґР°С‚СЊ РѕР±СЂР°С‰РµРЅРёРµ</h2>
+        <h2>Создать обращение</h2>
         <form method="post" action="/web/settings/support">
           <div class="filters">
             <div>
-              <label for="subject">РўРµРјР°</label>
-              <input id="subject" name="subject" required placeholder="РљСЂР°С‚РєРѕ РѕРїРёС€РёС‚Рµ РїСЂРѕР±Р»РµРјСѓ">
+              <label for="subject">Тема</label>
+              <input id="subject" name="subject" required placeholder="Кратко опишите проблему">
             </div>
             <div>
-              <label for="category">РљР°С‚РµРіРѕСЂРёСЏ</label>
+              <label for="category">Категория</label>
               <select id="category" name="category">{category_options}</select>
             </div>
           </div>
           <div style="margin-top:10px">
-            <label for="message">РЎРѕРѕР±С‰РµРЅРёРµ</label>
-            <textarea id="message" name="message" rows="4" required placeholder="РџРѕРґСЂРѕР±РЅРѕ РѕРїРёС€РёС‚Рµ РїСЂРѕР±Р»РµРјСѓ РёР»Рё РІРѕРїСЂРѕСЃ"></textarea>
+            <label for="message">Сообщение</label>
+            <textarea id="message" name="message" rows="4" required placeholder="Подробно опишите проблему или вопрос"></textarea>
           </div>
-          <button class="btn btn-primary" type="submit" style="margin-top:10px">РћС‚РїСЂР°РІРёС‚СЊ</button>
+          <button class="btn btn-primary" type="submit" style="margin-top:10px">Отправить</button>
         </form>
       </section>
       <section class="band" style="margin-top:14px">
-        <h2>РњРѕРё РѕР±СЂР°С‰РµРЅРёСЏ</h2>
+        <h2>Мои обращения</h2>
         <div class="table-wrap">
           <table class="table">
-            <thead><tr><th>Р”Р°С‚Р°</th><th>РўРµРјР°</th><th>РЎС‚Р°С‚СѓСЃ</th><th>РљР°С‚РµРіРѕСЂРёСЏ</th><th>РћС‚РІРµС‚</th></tr></thead>
+            <thead><tr><th>Дата</th><th>Тема</th><th>Статус</th><th>Категория</th><th>Ответ</th></tr></thead>
             <tbody>{ticket_rows}</tbody>
           </table>
         </div>
@@ -624,7 +624,7 @@ async def settings_profile_page(
         result = await session.execute(stmt)
         accounts = list(result.scalars().all())
         return page(
-            "РќР°СЃС‚СЂРѕР№РєРё вЂ” РњР°СЂРєРµС‚РїР»РµР№СЃС‹",
+            "Настройки — Маркетплейсы",
             display_name,
             _marketplaces_tab(user, accounts, user.timezone),
             active_path=active_path,
@@ -635,7 +635,7 @@ async def settings_profile_page(
         from app.web.views import _subscription_content
 
         content = _settings_tabs("subscription") + _subscription_content(data, tiers, user.timezone)
-        return page("РќР°СЃС‚СЂРѕР№РєРё вЂ” РўР°СЂРёС„", display_name, content, active_path=active_path)
+        return page("Настройки — Тариф", display_name, content, active_path=active_path)
     if active_tab == "notifications":
         type_settings = await NotificationSettingsService(session).get_user_settings(user.id)
         return page(
@@ -647,7 +647,7 @@ async def settings_profile_page(
     if active_tab == "sync":
         statuses = await UserSyncStatusService(session).get_statuses(user.id)
         return page(
-            "РќР°СЃС‚СЂРѕР№РєРё вЂ” РЎРёРЅС…СЂРѕРЅРёР·Р°С†РёСЏ",
+            "Настройки — Синхронизация",
             display_name,
             _sync_tab(statuses, user.timezone),
             active_path=active_path,
@@ -655,7 +655,7 @@ async def settings_profile_page(
     if active_tab == "company":
         profile = await CompanyLookupService(session).get_user_company_profile(user.id)
         return page(
-            "РќР°СЃС‚СЂРѕР№РєРё вЂ” Р”Р°РЅРЅС‹Рµ РєРѕРјРїР°РЅРёРё",
+            "Настройки — Данные компании",
             display_name,
             _company_tab(
                 user,
@@ -668,7 +668,7 @@ async def settings_profile_page(
     if active_tab == "security":
         logs = await UserActivityService(session).get_recent_activity(user.id)
         return page(
-            "РќР°СЃС‚СЂРѕР№РєРё вЂ” Р‘РµР·РѕРїР°СЃРЅРѕСЃС‚СЊ",
+            "Настройки — Безопасность",
             display_name,
             _security_tab(user, logs, user.timezone),
             active_path=active_path,
@@ -676,7 +676,7 @@ async def settings_profile_page(
     if active_tab == "support":
         tickets = await SupportService(session).get_user_tickets(user.id)
         return page(
-            "РќР°СЃС‚СЂРѕР№РєРё вЂ” РџРѕРґРґРµСЂР¶РєР°",
+            "Настройки — Поддержка",
             display_name,
             _support_tab(tickets, user.timezone),
             active_path=active_path,
@@ -684,7 +684,7 @@ async def settings_profile_page(
 
     subscription_data = await WebCabinetService(session).subscription_page(user.id, user.timezone)
     return page(
-        "РќР°СЃС‚СЂРѕР№РєРё вЂ” РџСЂРѕС„РёР»СЊ",
+        "Настройки — Профиль",
         display_name,
         _profile_tab(user, subscription_data),
         active_path="/web/settings?tab=profile",
@@ -869,7 +869,7 @@ async def settings_company_page(
         error=request.query_params.get("error"),
     )
     return page(
-        "РќР°СЃС‚СЂРѕР№РєРё вЂ” Р”Р°РЅРЅС‹Рµ РєРѕРјРїР°РЅРёРё",
+        "Настройки — Данные компании",
         user.first_name or user.username or str(user.telegram_id),
         content,
         active_path="/web/settings?tab=company",
@@ -893,7 +893,7 @@ async def settings_company_lookup(
         )
         content = _company_tab(user, profile, error=str(exc) or INN_ERROR_MESSAGE)
         return page(
-            "РќР°СЃС‚СЂРѕР№РєРё вЂ” Р”Р°РЅРЅС‹Рµ РєРѕРјРїР°РЅРёРё",
+            "Настройки — Данные компании",
             user.first_name or user.username or str(user.telegram_id),
             content,
             active_path="/web/settings?tab=company",
@@ -902,11 +902,11 @@ async def settings_company_lookup(
         user,
         profile,
         preview=result.company,
-        message="Р”Р°РЅРЅС‹Рµ РЅР°Р№РґРµРЅС‹. РџСЂРѕРІРµСЂСЊС‚Рµ РёС… Рё РЅР°Р¶РјРёС‚Рµ В«РЎРѕС…СЂР°РЅРёС‚СЊВ».",
+        message="Данные найдены. Проверьте их и нажмите «Сохранить».",
         warning=result.warning,
     )
     return page(
-        "РќР°СЃС‚СЂРѕР№РєРё вЂ” Р”Р°РЅРЅС‹Рµ РєРѕРјРїР°РЅРёРё",
+        "Настройки — Данные компании",
         user.first_name or user.username or str(user.telegram_id),
         content,
         active_path="/web/settings?tab=company",
@@ -941,7 +941,7 @@ async def settings_company_save(
             status_code=303,
         )
     return RedirectResponse(
-        "/web/settings?tab=company&saved=Р”Р°РЅРЅС‹Рµ РєРѕРјРїР°РЅРёРё СЃРѕС…СЂР°РЅРµРЅС‹",
+        "/web/settings?tab=company&saved=Данные компании сохранены",
         status_code=303,
     )
 
@@ -957,7 +957,7 @@ async def settings_company_refresh(
     inn = getattr(profile, "inn", None) or getattr(user, "inn", None)
     if not inn:
         return RedirectResponse(
-            f"/web/settings?tab=company&error={_url_quote('РЎРЅР°С‡Р°Р»Р° СѓРєР°Р¶РёС‚Рµ РРќРќ')}",
+            f"/web/settings?tab=company&error={_url_quote('Сначала укажите ИНН')}",
             status_code=303,
         )
     try:
@@ -980,7 +980,7 @@ async def settings_company_refresh(
             status_code=303,
         )
     return RedirectResponse(
-        "/web/settings?tab=company&saved=Р”Р°РЅРЅС‹Рµ РєРѕРјРїР°РЅРёРё РѕР±РЅРѕРІР»РµРЅС‹",
+        "/web/settings?tab=company&saved=Данные компании обновлены",
         status_code=303,
     )
 
@@ -1003,11 +1003,11 @@ async def settings_company_clear(
         await session.rollback()
         logger.exception("company_profile_clear_failed", extra={"user_id": user.id})
         return RedirectResponse(
-            f"/web/settings?tab=company&error={_url_quote('РќРµ СѓРґР°Р»РѕСЃСЊ РѕС‡РёСЃС‚РёС‚СЊ РґР°РЅРЅС‹Рµ РєРѕРјРїР°РЅРёРё')}",
+            f"/web/settings?tab=company&error={_url_quote('Не удалось очистить данные компании')}",
             status_code=303,
         )
     return RedirectResponse(
-        "/web/settings?tab=company&saved=Р”Р°РЅРЅС‹Рµ РєРѕРјРїР°РЅРёРё РѕС‡РёС‰РµРЅС‹",
+        "/web/settings?tab=company&saved=Данные компании очищены",
         status_code=303,
     )
 
@@ -1019,7 +1019,7 @@ async def settings_security_page(
 ) -> str:
     logs = await UserActivityService(session).get_recent_activity(user.id)
     return page(
-        "РќР°СЃС‚СЂРѕР№РєРё вЂ” Р‘РµР·РѕРїР°СЃРЅРѕСЃС‚СЊ",
+        "Настройки — Безопасность",
         user.first_name or user.username or str(user.telegram_id),
         _security_tab(user, logs, user.timezone),
         active_path="/web/settings?tab=security",
@@ -1033,7 +1033,7 @@ async def settings_support_page(
 ) -> str:
     tickets = await SupportService(session).get_user_tickets(user.id)
     return page(
-        "РќР°СЃС‚СЂРѕР№РєРё вЂ” РџРѕРґРґРµСЂР¶РєР°",
+        "Настройки — Поддержка",
         user.first_name or user.username or str(user.telegram_id),
         _support_tab(tickets, user.timezone),
         active_path="/web/settings?tab=support",
@@ -1051,7 +1051,7 @@ async def create_support_ticket(
     message = (form.get("message") or "").strip()
     category = form.get("category")
     if not subject or not message:
-        raise HTTPException(status_code=400, detail="Р—Р°РїРѕР»РЅРёС‚Рµ С‚РµРјСѓ Рё СЃРѕРѕР±С‰РµРЅРёРµ")
+        raise HTTPException(status_code=400, detail="Заполните тему и сообщение")
     await SupportService(session).create_ticket(
         user_id=user.id,
         subject=subject,
