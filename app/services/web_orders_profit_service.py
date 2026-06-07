@@ -12,7 +12,7 @@ from sqlalchemy import Select, func, literal_column, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.domain import Order, OrderItem, ProfitSnapshot, SalesEvent
+from app.models.domain import Order, OrderItem, ProfitSnapshot, SalesEvent, WbDailyReportRow
 from app.models.enums import CalculationType, EconomyConfidence, Marketplace, SaleModel
 from app.services.marketplace_presentation import order_status_label
 from app.services.web_dashboard_service import (
@@ -392,8 +392,94 @@ class WebOrdersProfitService:
                 )
             )
         rows = _filter_profit_rows(rows, filters.economy)
+        rows = await self._merge_wb_daily_report_rows(user_id, filters, rows)
         rows = _sort_profit_rows(rows, filters.sort, filters.direction)[:limit]
         return ProfitPageData(filters=filters, summary=_profit_summary(rows), rows=rows)
+
+    async def _merge_wb_daily_report_rows(
+        self,
+        user_id: int,
+        filters: OrderWebFilters,
+        rows: list[ProfitSkuRow],
+    ) -> list[ProfitSkuRow]:
+        if filters.marketplace not in (None, Marketplace.WB):
+            return rows
+        article_expr = func.coalesce(WbDailyReportRow.supplier_article, literal_column("''"))
+        sales_case = func.lower(func.coalesce(WbDailyReportRow.doc_type_name, "")).not_like(
+            "%возврат%"
+        )
+        query = (
+            select(
+                article_expr.label("seller_article"),
+                func.coalesce(func.sum(WbDailyReportRow.quantity).filter(sales_case), 0),
+                func.coalesce(func.sum(WbDailyReportRow.retail_amount), 0),
+                func.coalesce(func.sum(WbDailyReportRow.for_pay), 0),
+                func.coalesce(func.sum(WbDailyReportRow.commission_rub), 0),
+                func.coalesce(func.sum(WbDailyReportRow.delivery_rub), 0),
+                func.coalesce(func.sum(WbDailyReportRow.storage_fee), 0),
+                func.coalesce(func.sum(WbDailyReportRow.penalty), 0),
+                func.coalesce(func.sum(WbDailyReportRow.deduction), 0),
+            )
+            .where(WbDailyReportRow.user_id == user_id)
+            .where(WbDailyReportRow.sale_dt >= filters.date_from)
+            .where(WbDailyReportRow.sale_dt <= filters.date_to)
+            .group_by(article_expr)
+        )
+        if filters.sku:
+            query = query.where(WbDailyReportRow.supplier_article.ilike(f"%{filters.sku}%"))
+        result = await self.session.execute(query)
+        by_key = {(row.marketplace, row.seller_article): row for row in rows}
+        for (
+            seller_article,
+            sales,
+            revenue,
+            payout,
+            commission,
+            logistics,
+            storage,
+            penalty,
+            deduction,
+        ) in result.all():
+            article = str(seller_article or "")
+            marketplace_costs = sum(
+                (
+                    _decimal(commission),
+                    _decimal(logistics),
+                    _decimal(storage),
+                    _decimal(penalty),
+                    _decimal(deduction),
+                ),
+                ZERO,
+            )
+            actual_profit = _decimal(payout) - marketplace_costs
+            key = (Marketplace.WB, article)
+            existing = by_key.get(key)
+            if existing is not None:
+                existing.sales += int(sales or 0)
+                existing.revenue += _decimal(revenue)
+                existing.marketplace_costs += marketplace_costs
+                existing.actual_profit += actual_profit
+                continue
+            rows.append(
+                ProfitSkuRow(
+                    title=article or "WB daily report",
+                    seller_article=article or "н/д",
+                    marketplace=Marketplace.WB,
+                    sale_model=None,
+                    orders=0,
+                    sales=int(sales or 0),
+                    revenue=_decimal(revenue),
+                    cost=ZERO,
+                    marketplace_costs=marketplace_costs,
+                    estimated_profit=ZERO,
+                    actual_profit=actual_profit,
+                    margin_percent=ZERO,
+                    roi_percent=None,
+                    missing_cost_items=0,
+                    preliminary_items=0,
+                )
+            )
+        return rows
 
     async def _profit_order_rows(
         self,

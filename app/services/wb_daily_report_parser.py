@@ -41,6 +41,7 @@ class WbDailyReportParsedRow:
     nm_id: int | None
     supplier_article: str | None
     barcode: str | None
+    srid: str | None
     doc_type_name: str | None
     subject_name: str | None
     brand_name: str | None
@@ -53,6 +54,7 @@ class WbDailyReportParsedRow:
     storage_fee: Decimal | None
     acceptance: Decimal | None
     deduction: Decimal | None
+    commission_rub: Decimal | None
     raw: dict[str, object]
 
     def compute_hash(self) -> str:
@@ -62,6 +64,7 @@ class WbDailyReportParsedRow:
             "nm_id": self.nm_id,
             "supplier_article": _stable_string(self.supplier_article),
             "barcode": _stable_string(self.barcode),
+            "srid": _stable_string(self.srid),
             "doc_type_name": _stable_string(self.doc_type_name),
             "sale_dt": self.sale_dt.isoformat() if self.sale_dt else None,
             "order_dt": self.order_dt.isoformat() if self.order_dt else None,
@@ -84,6 +87,9 @@ COLUMN_ALIASES: dict[str, str] = {
     "Название": "subject_name",
     "Размер": "size",
     "Баркод": "barcode",
+    "Srid": "srid",
+    "SRID": "srid",
+    "srid": "srid",
     "Тип документа": "doc_type_name",
     "Обоснование для оплаты": "doc_type_name",
     "Дата заказа покупателем": "order_dt",
@@ -315,6 +321,7 @@ def _build_row(record: dict[str, object], row_number: int) -> WbDailyReportParse
         nm_id=nm_id,
         supplier_article=_stringify(record.get("supplier_article")) or None,
         barcode=_stringify(record.get("barcode")) or None,
+        srid=_stringify(record.get("srid")) or None,
         doc_type_name=_stringify(record.get("doc_type_name")) or None,
         subject_name=_stringify(record.get("subject_name")) or None,
         brand_name=_stringify(record.get("brand_name")) or None,
@@ -327,6 +334,7 @@ def _build_row(record: dict[str, object], row_number: int) -> WbDailyReportParse
         storage_fee=_coerce_decimal(record.get("storage_fee")),
         acceptance=_coerce_decimal(record.get("acceptance")),
         deduction=_coerce_decimal(record.get("deduction")),
+        commission_rub=_coerce_decimal(record.get("commission_rub")),
         raw=record,
     )
 

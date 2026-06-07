@@ -1588,6 +1588,9 @@ class WbDailyReportRow(TimestampMixin, Base):
         Index("ix_wb_daily_report_rows_import", "import_id"),
         Index("ix_wb_daily_report_rows_sale_dt", "sale_dt"),
         Index("ix_wb_daily_report_rows_order_dt", "order_dt"),
+        Index("ix_wb_daily_report_rows_barcode", "barcode"),
+        Index("ix_wb_daily_report_rows_srid", "srid"),
+        Index("ix_wb_daily_report_rows_status", "row_status"),
     )
 
     id: Mapped[int_pk]
@@ -1611,6 +1614,13 @@ class WbDailyReportRow(TimestampMixin, Base):
     nm_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
     supplier_article: Mapped[str | None] = mapped_column(String(255), nullable=True)
     barcode: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    srid: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    linked_order_id: Mapped[int | None] = mapped_column(
+        ForeignKey("orders.id", ondelete="SET NULL"), nullable=True
+    )
+    linked_product_id: Mapped[int | None] = mapped_column(
+        ForeignKey("products.id", ondelete="SET NULL"), nullable=True
+    )
     doc_type_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     subject_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     brand_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -1623,6 +1633,33 @@ class WbDailyReportRow(TimestampMixin, Base):
     storage_fee: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     acceptance: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     deduction: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    commission_rub: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    row_status: Mapped[str] = mapped_column(String(24), nullable=False, default="new")
+    skip_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     raw_json: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict, nullable=False)
 
     import_record: Mapped[WbDailyReportImport] = relationship(back_populates="rows")
+
+
+class WbDailyReportImportRowLog(TimestampMixin, Base):
+    """Processing journal for one uploaded WB daily report row."""
+
+    __tablename__ = "wb_daily_report_import_row_logs"
+    __table_args__ = (
+        Index("ix_wb_daily_report_row_logs_import", "import_id"),
+        Index("ix_wb_daily_report_row_logs_source_hash", "source_hash"),
+        Index("ix_wb_daily_report_row_logs_status", "status"),
+    )
+
+    id: Mapped[int_pk]
+    import_id: Mapped[int] = mapped_column(
+        ForeignKey("wb_daily_report_imports.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    row_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    skip_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    normalized_payload: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)

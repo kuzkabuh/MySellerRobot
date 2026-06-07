@@ -151,6 +151,16 @@ def test_parses_basic_report() -> None:
     assert isinstance(first.sale_dt, datetime)
 
 
+def test_parses_srid_and_commission_amount() -> None:
+    headers = SAMPLE_HEADERS + ["Srid", "Размер комиссии"]
+    row = SAMPLE_ROW_1 + ["srid-123", "123,45"]
+
+    parsed = iter_wb_daily_report_rows(_build_xlsx_bytes([headers, row]))
+
+    assert parsed.rows[0].srid == "srid-123"
+    assert parsed.rows[0].commission_rub == Decimal("123.45")
+
+
 def test_handles_corrupt_dimension_a1() -> None:
     """openpyxl may report dimension=A1 while data is much larger.
 

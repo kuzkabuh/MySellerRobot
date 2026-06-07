@@ -11,7 +11,14 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.domain import Order, OrderItem, ProfitSnapshot, ReturnsEvent, SalesEvent
+from app.models.domain import (
+    Order,
+    OrderItem,
+    ProfitSnapshot,
+    ReturnsEvent,
+    SalesEvent,
+    WbDailyReportRow,
+)
 from app.models.enums import CalculationType, Marketplace, SaleModel
 
 ZERO = Decimal("0")
@@ -111,6 +118,16 @@ class _ReturnAggregate:
 
 
 @dataclass(slots=True)
+class _WbDailyReportAggregate:
+    payout: Decimal = ZERO
+    sales_amount: Decimal = ZERO
+    commission: Decimal = ZERO
+    logistics: Decimal = ZERO
+    penalties: Decimal = ZERO
+    deductions: Decimal = ZERO
+
+
+@dataclass(slots=True)
 class _RawDashboardRows:
     order_rows: list[
         tuple[datetime, Marketplace, SaleModel, int, str | None, Decimal, Decimal | None]
@@ -158,13 +175,18 @@ class WebDashboardService:
             previous_to=filters.previous_to,
         )
         previous = await self._aggregate(user_id=user_id, filters=previous_filters)
+        wb_current = await self._wb_daily_report_aggregate(user_id=user_id, filters=filters)
+        wb_previous = await self._wb_daily_report_aggregate(
+            user_id=user_id,
+            filters=previous_filters,
+        )
         raw_rows = await self._raw_rows(user_id=user_id, filters=filters)
         points = self._build_daily_points(filters, raw_rows)
         marketplace_breakdown = self._build_marketplace_breakdown(raw_rows)
         actual_profit = await self._actual_profit(user_id=user_id, filters=filters)
         return DashboardData(
             filters=filters,
-            metrics=self._build_metrics(current, previous, actual_profit),
+            metrics=self._build_metrics(current, previous, actual_profit, wb_current, wb_previous),
             points=points,
             marketplace_breakdown=marketplace_breakdown,
             actual_profit=actual_profit,
@@ -250,6 +272,38 @@ class WebDashboardService:
         if filters.marketplace is not None:
             query = query.where(ReturnsEvent.marketplace == filters.marketplace)
         return query
+
+    async def _wb_daily_report_aggregate(
+        self,
+        *,
+        user_id: int,
+        filters: DashboardFilters,
+    ) -> _WbDailyReportAggregate:
+        if filters.marketplace not in (None, Marketplace.WB):
+            return _WbDailyReportAggregate()
+        query = (
+            select(
+                func.coalesce(func.sum(WbDailyReportRow.for_pay), 0),
+                func.coalesce(func.sum(WbDailyReportRow.retail_amount), 0),
+                func.coalesce(func.sum(WbDailyReportRow.commission_rub), 0),
+                func.coalesce(func.sum(WbDailyReportRow.delivery_rub), 0),
+                func.coalesce(func.sum(WbDailyReportRow.penalty), 0),
+                func.coalesce(func.sum(WbDailyReportRow.deduction), 0),
+            )
+            .where(WbDailyReportRow.user_id == user_id)
+            .where(WbDailyReportRow.sale_dt >= filters.date_from)
+            .where(WbDailyReportRow.sale_dt <= filters.date_to)
+        )
+        result = await self.session.execute(query)
+        payout, sales_amount, commission, logistics, penalties, deductions = result.one()
+        return _WbDailyReportAggregate(
+            payout=_decimal(payout),
+            sales_amount=_decimal(sales_amount),
+            commission=_decimal(commission),
+            logistics=_decimal(logistics),
+            penalties=_decimal(penalties),
+            deductions=_decimal(deductions),
+        )
 
     async def _raw_rows(self, *, user_id: int, filters: DashboardFilters) -> _RawDashboardRows:
         order_query = (
@@ -451,6 +505,8 @@ class WebDashboardService:
         current: tuple[_OrderAggregate, _SalesAggregate, _ReturnAggregate],
         previous: tuple[_OrderAggregate, _SalesAggregate, _ReturnAggregate],
         actual_profit: Decimal,
+        wb_current: _WbDailyReportAggregate,
+        wb_previous: _WbDailyReportAggregate,
     ) -> list[KpiMetric]:
         current_orders, current_sales, current_returns = current
         previous_orders, previous_sales, previous_returns = previous
@@ -483,6 +539,12 @@ class WebDashboardService:
                     current_orders.estimated_profit, previous_orders.estimated_profit
                 ),
                 tone="good" if current_orders.estimated_profit >= 0 else "bad",
+            ),
+            KpiMetric(
+                label="К выплате",
+                value=wb_current.payout,
+                suffix="₽",
+                change_percent=percent_change(wb_current.payout, wb_previous.payout),
             ),
             KpiMetric(label="Фактическая прибыль", value=actual_profit, suffix="₽"),
             KpiMetric(

@@ -5,10 +5,12 @@ updated: 2026-05-19
 
 from decimal import Decimal
 
+import pytest
 from sqlalchemy.dialects import postgresql
 
 from app.models.enums import Marketplace, SaleModel
 from app.services.web_orders_profit_service import (
+    ProfitSkuRow,
     WebOrdersProfitService,
     build_order_web_filters,
     order_state_label,
@@ -214,3 +216,77 @@ def test_filters_preserved_across_pages() -> None:
     assert filters.economy == "loss"
     assert filters.status == "action_required"
     assert filters.sku == "test-sku"
+
+
+class _FakeResult:
+    def __init__(self, rows: list[tuple[object, ...]]) -> None:
+        self._rows = rows
+
+    def all(self) -> list[tuple[object, ...]]:
+        return self._rows
+
+
+class _FakeSession:
+    async def execute(self, query: object) -> _FakeResult:
+        return _FakeResult(
+            [
+                (
+                    "ART-001",
+                    2,
+                    Decimal("3000"),
+                    Decimal("2400"),
+                    Decimal("100"),
+                    Decimal("80"),
+                    Decimal("20"),
+                    Decimal("10"),
+                    Decimal("30"),
+                )
+            ]
+        )
+
+
+@pytest.mark.asyncio
+async def test_profit_merges_wb_daily_report_rows_as_actual_fact() -> None:
+    filters = build_order_web_filters(
+        timezone="Europe/Moscow",
+        period="7d",
+        marketplace="WB",
+        sale_model="all",
+        date_from=None,
+        date_to=None,
+        economy="all",
+        status="all",
+        sku="",
+        sort="profit",
+        direction="desc",
+    )
+    existing = [
+        ProfitSkuRow(
+            title="Товар",
+            seller_article="ART-001",
+            marketplace=Marketplace.WB,
+            sale_model=None,
+            orders=1,
+            sales=0,
+            revenue=Decimal("1000"),
+            cost=Decimal("0"),
+            marketplace_costs=Decimal("0"),
+            estimated_profit=Decimal("0"),
+            actual_profit=Decimal("0"),
+            margin_percent=Decimal("0"),
+            roi_percent=None,
+            missing_cost_items=0,
+            preliminary_items=0,
+        )
+    ]
+
+    rows = await WebOrdersProfitService(_FakeSession())._merge_wb_daily_report_rows(
+        1,
+        filters,
+        existing,
+    )
+
+    assert rows[0].sales == 2
+    assert rows[0].revenue == Decimal("4000")
+    assert rows[0].marketplace_costs == Decimal("240")
+    assert rows[0].actual_profit == Decimal("2160")

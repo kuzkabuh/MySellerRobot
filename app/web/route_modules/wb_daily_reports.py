@@ -2,16 +2,20 @@
 description: Web routes for WB daily realisation report XLSX/ZIP import.
 updated: 2026-06-07
 """
+# ruff: noqa: E501
 from __future__ import annotations
 
+import csv
 import logging
 from collections import Counter
 from decimal import Decimal
 from html import escape
+from io import StringIO
 from pathlib import Path
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,11 +25,15 @@ from app.models.domain import (
     MarketplaceAccount,
     User,
     WbDailyReportImport,
+    WbDailyReportImportRowLog,
 )
 from app.models.enums import Marketplace
 from app.services.api_key_validation_service import ApiKeyValidationService
 from app.services.audit_log_service import AuditLogService
-from app.services.wb_daily_report_import_service import WbDailyReportImportService
+from app.services.wb_daily_report_import_service import (
+    WbDailyReportImportService,
+    WbDailyReportRowFilters,
+)
 from app.services.wb_daily_report_parser import (
     WbDailyReportParsed,
     compute_file_hash,
@@ -33,7 +41,7 @@ from app.services.wb_daily_report_parser import (
 )
 from app.utils.client_ip import get_client_ip
 from app.utils.datetime import format_datetime_for_user
-from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY
+from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY, is_admin_user
 from app.web.rendering import page
 
 logger = logging.getLogger(__name__)
@@ -103,13 +111,17 @@ async def wb_daily_reports_page(
     request: Request,
     message: str | None = Query(default=None),
     error: str | None = Query(default=None),
+    details_id: int | None = Query(default=None),
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> str:
     accounts = await _load_user_accounts(session, user.id)
-    imports = await WbDailyReportImportService(session).list_imports(user_id=user.id, limit=20)
+    imports = await WbDailyReportImportService(session).list_imports(
+        user_id=None if is_admin_user(user) else user.id,
+        limit=20,
+    )
 
-    if not accounts:
+    if not accounts and not is_admin_user(user):
         return _page_layout(
             "Отчёты WB — ежедневный отчёт",
             user,
@@ -121,7 +133,13 @@ async def wb_daily_reports_page(
 
     status_banner = ""
     if message:
-        status_banner = f'<div class="notice success">{escape(message)}</div>'
+        details_link = (
+            f' <a class="btn btn-sm btn-primary" href="{_settings_path()}/imports/{details_id}">'
+            "Открыть подробности</a>"
+            if details_id
+            else ""
+        )
+        status_banner = f'<div class="notice success">{escape(message)}{details_link}</div>'
     if error:
         status_banner = f'<div class="notice danger">{escape(error)}</div>'
 
@@ -162,6 +180,16 @@ async def wb_daily_reports_page(
         </form>
       </section>
       <section class="band" style="margin-top:14px">
+        <h2>Что происходит после загрузки отчёта</h2>
+        <p class="muted">
+          Мы проверяем файл на дубли, сохраняем новые строки в базу и показываем результат
+          в финансовой аналитике. Эти данные помогают считать выручку, комиссии, логистику,
+          хранение, удержания, штрафы, возвраты и сумму к выплате. После загрузки отчёт
+          можно открыть в истории импортов, а пропущенные строки и причины пропуска посмотреть
+          на странице подробностей.
+        </p>
+      </section>
+      <section class="band" style="margin-top:14px">
         <h2>История импортов</h2>
         <div class="table-wrap">
           <table class="table">
@@ -175,6 +203,7 @@ async def wb_daily_reports_page(
                 <th>Пропущено</th>
                 <th>Статус</th>
                 <th>Файл</th>
+                <th>Действия</th>
               </tr>
             </thead>
             <tbody>{rows_html}</tbody>
@@ -302,7 +331,7 @@ async def wb_daily_reports_apply(
         )
 
     return RedirectResponse(
-        url=f"{_settings_path()}?message={_q(message)}",
+        url=f"{_settings_path()}?message={_q(message)}&details_id={result.import_id}",
         status_code=303,
     )
 
@@ -352,7 +381,10 @@ async def wb_daily_reports_imports(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> str:
-    imports = await WbDailyReportImportService(session).list_imports(user_id=user.id, limit=100)
+    imports = await WbDailyReportImportService(session).list_imports(
+        user_id=None if is_admin_user(user) else user.id,
+        limit=100,
+    )
     return _page_layout(
         "Отчёты WB — история импортов",
         user,
@@ -370,6 +402,8 @@ async def wb_daily_reports_imports(
                   <th>Новых</th>
                   <th>Пропущено</th>
                   <th>Статус</th>
+                  <th>Файл</th>
+                  <th>Действия</th>
                 </tr>
               </thead>
               <tbody>{_render_imports_rows(imports, user.timezone)}</tbody>
@@ -377,6 +411,96 @@ async def wb_daily_reports_imports(
           </div>
         </section>
         """,
+    )
+
+
+@router.get("/reports/wb-daily/imports/{import_id}", response_class=HTMLResponse)
+async def wb_daily_report_import_detail(
+    import_id: int,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+    page_number: int = Query(default=1, ge=1),
+    per_page: int = Query(default=50, ge=10, le=100),
+    operation_type: str = Query(default=""),
+    nm_id: int | None = Query(default=None),
+    supplier_article: str = Query(default=""),
+    barcode: str = Query(default=""),
+    srid: str = Query(default=""),
+    status: str = Query(default=""),
+    date_from: str = Query(default=""),
+    date_to: str = Query(default=""),
+    amount_from: Decimal | None = None,
+    amount_to: Decimal | None = None,
+    linked_order: str = Query(default=""),
+    linked_product: str = Query(default=""),
+    search: str = Query(default=""),
+) -> str:
+    import_record = await _load_import_record(session, user, import_id)
+    service = WbDailyReportImportService(session)
+    filters = WbDailyReportRowFilters(
+        operation_type=operation_type,
+        nm_id=nm_id,
+        supplier_article=supplier_article,
+        barcode=barcode,
+        srid=srid,
+        status=status,
+        date_from=date_from,
+        date_to=date_to,
+        amount_from=amount_from,
+        amount_to=amount_to,
+        linked_order=linked_order,
+        linked_product=linked_product,
+        search=search,
+    )
+    rows_page = await service.list_rows(
+        import_id=import_id,
+        filters=filters,
+        page=page_number,
+        per_page=per_page,
+    )
+    summary = await service.import_summary(import_id=import_id)
+    account = await session.get(MarketplaceAccount, import_record.marketplace_account_id)
+    content = _import_detail_content(
+        import_record,
+        account,
+        summary,
+        rows_page,
+        filters,
+        user,
+        is_admin_user(user),
+    )
+    return _page_layout(f"Импорт WB #{import_id}", user, content)
+
+
+@router.get("/reports/wb-daily/imports/{import_id}/log.csv")
+async def wb_daily_report_import_log_download(
+    import_id: int,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> Response:
+    await _load_import_record(session, user, import_id)
+    result = await session.execute(
+        select(WbDailyReportImportRowLog)
+        .where(WbDailyReportImportRowLog.import_id == import_id)
+        .order_by(WbDailyReportImportRowLog.row_number.asc().nullslast())
+    )
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["row_number", "source_hash", "status", "skip_reason", "error_message"])
+    for row in result.scalars().all():
+        writer.writerow(
+            [
+                row.row_number,
+                row.source_hash,
+                row.status,
+                row.skip_reason or "",
+                row.error_message or "",
+            ]
+        )
+    return Response(
+        output.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="wb-import-{import_id}-log.csv"'},
     )
 
 
@@ -393,6 +517,21 @@ async def _load_account(
     if account is None:
         raise HTTPException(status_code=404, detail="Кабинет не найден")
     return account
+
+
+async def _load_import_record(
+    session: AsyncSession,
+    user: User,
+    import_id: int,
+) -> WbDailyReportImport:
+    conditions = [WbDailyReportImport.id == import_id]
+    if not is_admin_user(user):
+        conditions.append(WbDailyReportImport.user_id == user.id)
+    result = await session.execute(select(WbDailyReportImport).where(*conditions))
+    import_record = result.scalar_one_or_none()
+    if import_record is None:
+        raise HTTPException(status_code=404, detail="Импорт не найден")
+    return import_record
 
 
 async def _read_upload(file: UploadFile) -> bytes:
@@ -509,7 +648,7 @@ def _render_imports_rows(
 ) -> str:
     if not imports:
         return (
-            '<tr><td colspan="8">'
+            '<tr><td colspan="9">'
             '<div class="empty-state">Импортов пока не было.</div>'
             "</td></tr>"
         )
@@ -531,9 +670,205 @@ def _render_imports_rows(
             f"<td>{item.rows_skipped}</td>"
             f'<td><span class="badge {status_cls}">{escape(status_label)}</span></td>'
             f"<td>{escape(item.original_filename or '—')}</td>"
+            '<td><div style="display:flex;gap:6px;flex-wrap:wrap">'
+            f'<a class="btn btn-sm btn-primary" href="{_settings_path()}/imports/{item.id}">'
+            "Открыть</a>"
+            f'<a class="btn btn-sm" href="{_settings_path()}/imports/{item.id}/log.csv">'
+            "Скачать журнал</a>"
+            "</div></td>"
             "</tr>"
         )
     return "".join(rows)
+
+
+def _import_detail_content(
+    import_record: WbDailyReportImport,
+    account: MarketplaceAccount | None,
+    summary: object,
+    rows_page: object,
+    filters: WbDailyReportRowFilters,
+    user: User,
+    is_admin: bool,
+) -> str:
+    account_name = account.name if account is not None else f"#{import_record.marketplace_account_id}"
+    user_line = (
+        f"<span>Пользователь</span><strong>#{import_record.user_id}</strong>"
+        if is_admin
+        else ""
+    )
+    reasons = getattr(summary, "skip_reasons", [])
+    reasons_html = (
+        "".join(
+            f'<span class="badge warn">{escape(reason)}: {count}</span>'
+            for reason, count in reasons
+        )
+        or '<span class="badge good">Причин пропуска нет</span>'
+    )
+    return f"""
+      <section class="page-header">
+        <div>
+          <h2>Импорт WB #{import_record.id}</h2>
+          <div class="summary-strip">
+            <span>Кабинет: <strong>{escape(account_name)}</strong></span>
+            <span>Отчёт: <strong>{escape(import_record.report_number)}</strong></span>
+            <span>Статус: <strong>{escape(_status_label(import_record.status))}</strong></span>
+          </div>
+        </div>
+        <div class="page-actions">
+          <a class="btn" href="{_settings_path()}">К истории</a>
+          <a class="btn btn-primary" href="/web/profit?marketplace=WB">Финансовая аналитика</a>
+        </div>
+      </section>
+      <section class="detail-grid">
+        <section class="band">
+          <h2>Общая информация</h2>
+          <div class="kv">
+            <span>ID импорта</span><strong>#{import_record.id}</strong>
+            <span>Кабинет WB</span><strong>#{import_record.marketplace_account_id}</strong>
+            <span>Имя кабинета</span><strong>{escape(account_name)}</strong>
+            <span>Дата загрузки</span><strong>{escape(format_datetime_for_user(import_record.created_at, user.timezone))}</strong>
+            <span>Файл</span><strong>{escape(import_record.original_filename or "—")}</strong>
+            <span>Тип файла</span><strong>{escape(_file_type(import_record.original_filename))}</strong>
+            <span>Период отчёта</span><strong>{escape(str(import_record.report_date or "—"))}</strong>
+            <span>Номер отчёта</span><strong>{escape(import_record.report_number)}</strong>
+            <span>Статус</span><strong>{escape(_status_label(import_record.status))}</strong>
+            <span>Всего строк</span><strong>{import_record.rows_total}</strong>
+            <span>Новых строк</span><strong>{import_record.rows_inserted}</strong>
+            <span>Пропущенных строк</span><strong>{import_record.rows_skipped}</strong>
+            <span>Строк с ошибками</span><strong>{getattr(summary, "unrecognized_rows", 0)}</strong>
+            <span>Источник</span><strong>{escape(import_record.source_type)}</strong>
+            {user_line}
+          </div>
+        </section>
+        <section class="band">
+          <h2>Финансовая сводка</h2>
+          <div class="kv">
+            <span>Продажи</span><strong>{_rub(getattr(summary, "sales_amount", 0))}</strong>
+            <span>Возвраты</span><strong>{_rub(getattr(summary, "returns_amount", 0))}</strong>
+            <span>Перечисления</span><strong>{_rub(getattr(summary, "payout_amount", 0))}</strong>
+            <span>Комиссия WB</span><strong>{_rub(getattr(summary, "commission_amount", 0))}</strong>
+            <span>Логистика</span><strong>{_rub(getattr(summary, "logistics_amount", 0))}</strong>
+            <span>Хранение</span><strong>{_rub(getattr(summary, "storage_amount", 0))}</strong>
+            <span>Удержания</span><strong>{_rub(getattr(summary, "deductions_amount", 0))}</strong>
+            <span>Штрафы</span><strong>{_rub(getattr(summary, "penalties_amount", 0))}</strong>
+            <span>Доплаты/приёмка</span><strong>{_rub(getattr(summary, "acceptance_amount", 0))}</strong>
+            <span>Итог к выплате</span><strong>{_rub(getattr(summary, "payout_amount", 0))}</strong>
+            <span>Заказов</span><strong>{getattr(summary, "orders_count", 0)}</strong>
+            <span>Продаж</span><strong>{getattr(summary, "sales_count", 0)}</strong>
+            <span>Возвратов</span><strong>{getattr(summary, "returns_count", 0)}</strong>
+            <span>Уникальных nm_id</span><strong>{getattr(summary, "unique_nm_ids", 0)}</strong>
+            <span>Уникальных артикулов</span><strong>{getattr(summary, "unique_articles", 0)}</strong>
+          </div>
+        </section>
+      </section>
+      <section class="band" style="margin-top:14px">
+        <h2>Статус обработки</h2>
+        <div class="summary-strip">
+          <span>Распознано: <strong>{getattr(summary, "recognized_rows", 0)}</strong></span>
+          <span>Не распознано: <strong>{getattr(summary, "unrecognized_rows", 0)}</strong></span>
+          <span>Связано с товарами: <strong>{getattr(summary, "linked_products", 0)}</strong></span>
+          <span>Без товара: <strong>{getattr(summary, "unlinked_products", 0)}</strong></span>
+          <span>Связано с заказами: <strong>{getattr(summary, "linked_orders", 0)}</strong></span>
+          <span>Без заказа: <strong>{getattr(summary, "unlinked_orders", 0)}</strong></span>
+          <span>Дубли: <strong>{getattr(summary, "duplicate_rows", 0)}</strong></span>
+        </div>
+        <p class="muted">Дедупликация выполняется по ключу: кабинет WB + номер отчёта + хеш нормализованной строки.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">{reasons_html}</div>
+      </section>
+      <section class="band" style="margin-top:14px">
+        <h2>Строки отчёта</h2>
+        {_row_filters(import_record.id, filters)}
+        {_rows_table(rows_page, user.timezone)}
+        {_pagination(import_record.id, rows_page, filters)}
+      </section>
+    """
+
+
+def _row_filters(import_id: int, filters: WbDailyReportRowFilters) -> str:
+    return f"""
+      <form class="filters" method="get" action="{_settings_path()}/imports/{import_id}">
+        <div><label>Поиск</label><input name="search" value="{escape(filters.search)}"></div>
+        <div><label>Тип операции</label><input name="operation_type" value="{escape(filters.operation_type)}"></div>
+        <div><label>nm_id</label><input name="nm_id" value="{filters.nm_id or ''}"></div>
+        <div><label>Артикул продавца</label><input name="supplier_article" value="{escape(filters.supplier_article)}"></div>
+        <div><label>Barcode</label><input name="barcode" value="{escape(filters.barcode)}"></div>
+        <div><label>srid</label><input name="srid" value="{escape(filters.srid)}"></div>
+        <div><label>Статус</label>{_select_status(filters.status)}</div>
+        <div><label>Дата от</label><input type="date" name="date_from" value="{escape(filters.date_from)}"></div>
+        <div><label>Дата до</label><input type="date" name="date_to" value="{escape(filters.date_to)}"></div>
+        <div><label>Сумма от</label><input name="amount_from" value="{filters.amount_from or ''}"></div>
+        <div><label>Сумма до</label><input name="amount_to" value="{filters.amount_to or ''}"></div>
+        <div><label>Заказ</label>{_yes_no_select("linked_order", filters.linked_order)}</div>
+        <div><label>Товар</label>{_yes_no_select("linked_product", filters.linked_product)}</div>
+        <button class="btn btn-primary" type="submit">Показать</button>
+      </form>
+    """
+
+
+def _rows_table(rows_page: object, timezone: str) -> str:
+    rows = getattr(rows_page, "rows", [])
+    if not rows:
+        body = '<tr><td colspan="19"><div class="empty-state">Строк по выбранным фильтрам нет.</div></td></tr>'
+    else:
+        body = "".join(_row_html(row, timezone) for row in rows)
+    return f"""
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Дата операции</th><th>Тип операции</th><th>nm_id</th>
+              <th>Артикул</th><th>Barcode</th><th>srid</th><th class="num">Кол-во</th>
+              <th class="num">Цена</th><th class="num">Сумма продажи</th>
+              <th class="num">Комиссия</th><th class="num">Логистика</th>
+              <th class="num">Хранение</th><th class="num">Штрафы</th>
+              <th class="num">Удержания</th><th class="num">К перечислению</th>
+              <th>Статус</th><th>Причина</th><th>Заказ/продажа</th><th>Товар</th>
+            </tr>
+          </thead>
+          <tbody>{body}</tbody>
+        </table>
+      </div>
+    """
+
+
+def _row_html(row: object, timezone: str) -> str:
+    sale_dt = getattr(row, "sale_dt", None)
+    row_status = getattr(row, "row_status", "new")
+    order_id = getattr(row, "linked_order_id", None)
+    product_id = getattr(row, "linked_product_id", None)
+    order_link = (
+        f'<a href="/web/orders/{order_id}">Заказ #{order_id}</a>'
+        if order_id
+        else '<span class="muted">Не связано</span>'
+    )
+    product_link = (
+        f'<a href="/web/products?sku={escape(str(getattr(row, "supplier_article", "") or ""))}">Товар #{product_id}</a>'
+        if product_id
+        else '<span class="muted">Не связано</span>'
+    )
+    return (
+        "<tr>"
+        f"<td>{escape(format_datetime_for_user(sale_dt, timezone) if sale_dt else '—')}</td>"
+        f"<td>{escape(getattr(row, 'doc_type_name', None) or '—')}</td>"
+        f"<td>{escape(str(getattr(row, 'nm_id', '') or '—'))}</td>"
+        f"<td>{escape(getattr(row, 'supplier_article', None) or '—')}</td>"
+        f"<td>{escape(getattr(row, 'barcode', None) or '—')}</td>"
+        f"<td>{escape(getattr(row, 'srid', None) or '—')}</td>"
+        f"<td class='num'>{escape(str(getattr(row, 'quantity', '') or '—'))}</td>"
+        f"<td class='num'>{_rub(getattr(row, 'retail_price', None))}</td>"
+        f"<td class='num'>{_rub(getattr(row, 'retail_amount', None))}</td>"
+        f"<td class='num'>{_rub(getattr(row, 'commission_rub', None))}</td>"
+        f"<td class='num'>{_rub(getattr(row, 'delivery_rub', None))}</td>"
+        f"<td class='num'>{_rub(getattr(row, 'storage_fee', None))}</td>"
+        f"<td class='num'>{_rub(getattr(row, 'penalty', None))}</td>"
+        f"<td class='num'>{_rub(getattr(row, 'deduction', None))}</td>"
+        f"<td class='num'>{_rub(getattr(row, 'for_pay', None))}</td>"
+        f"<td><span class='badge {_row_status_class(row_status)}'>{escape(_row_status_label(row_status))}</span></td>"
+        f"<td>{escape(getattr(row, 'skip_reason', None) or getattr(row, 'error_message', None) or '—')}</td>"
+        f"<td>{order_link}</td>"
+        f"<td>{product_link}</td>"
+        "</tr>"
+    )
 
 
 def _status_label(status: str) -> str:
@@ -543,6 +878,7 @@ def _status_label(status: str) -> str:
         "empty": "Пусто",
         "failed": "Ошибка",
         "pending": "В обработке",
+        "duplicate": "Дубликат",
     }.get(status, status)
 
 
@@ -553,7 +889,109 @@ def _status_class(status: str) -> str:
         "empty": "warn",
         "failed": "bad",
         "pending": "action",
+        "duplicate": "warn",
     }.get(status, "")
+
+
+def _select_status(selected: str) -> str:
+    options = {
+        "": "Все",
+        "new": "Новая",
+        "duplicate": "Дубль",
+        "error": "Ошибка",
+        "skipped": "Пропущена",
+    }
+    return "<select name='status'>" + "".join(
+        f'<option value="{escape(value)}" {"selected" if value == selected else ""}>'
+        f"{escape(label)}</option>"
+        for value, label in options.items()
+    ) + "</select>"
+
+
+def _yes_no_select(name: str, selected: str) -> str:
+    options = {"": "Все", "yes": "Да", "no": "Нет"}
+    return f"<select name='{escape(name)}'>" + "".join(
+        f'<option value="{escape(value)}" {"selected" if value == selected else ""}>'
+        f"{escape(label)}</option>"
+        for value, label in options.items()
+    ) + "</select>"
+
+
+def _pagination(import_id: int, rows_page: object, filters: WbDailyReportRowFilters) -> str:
+    page_number = int(getattr(rows_page, "page", 1))
+    total_pages = int(getattr(rows_page, "total_pages", 1))
+    total_count = int(getattr(rows_page, "total_count", 0))
+    if total_pages <= 1:
+        return f'<p class="muted">Всего строк: {total_count}</p>'
+
+    def url(page: int) -> str:
+        params = _filter_params(filters)
+        params["page_number"] = str(page)
+        return f"{_settings_path()}/imports/{import_id}?{urlencode(params)}"
+
+    items = [f'<span class="muted">Всего строк: {total_count}</span>']
+    if page_number > 1:
+        items.append(f'<a class="btn" href="{url(page_number - 1)}">Назад</a>')
+    items.append(f'<span class="btn btn-primary" style="cursor:default">{page_number}</span>')
+    if page_number < total_pages:
+        items.append(f'<a class="btn" href="{url(page_number + 1)}">Далее</a>')
+    return '<div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">' + "".join(items) + "</div>"
+
+
+def _filter_params(filters: WbDailyReportRowFilters) -> dict[str, str]:
+    values = {
+        "operation_type": filters.operation_type,
+        "nm_id": str(filters.nm_id or ""),
+        "supplier_article": filters.supplier_article,
+        "barcode": filters.barcode,
+        "srid": filters.srid,
+        "status": filters.status,
+        "date_from": filters.date_from,
+        "date_to": filters.date_to,
+        "amount_from": str(filters.amount_from or ""),
+        "amount_to": str(filters.amount_to or ""),
+        "linked_order": filters.linked_order,
+        "linked_product": filters.linked_product,
+        "search": filters.search,
+    }
+    return {key: value for key, value in values.items() if value}
+
+
+def _row_status_label(status: str) -> str:
+    return {
+        "new": "Новая",
+        "duplicate": "Дубль",
+        "error": "Ошибка",
+        "skipped": "Пропущена",
+    }.get(status, status)
+
+
+def _row_status_class(status: str) -> str:
+    return {
+        "new": "good",
+        "duplicate": "warn",
+        "error": "bad",
+        "skipped": "warn",
+    }.get(status, "")
+
+
+def _file_type(filename: str | None) -> str:
+    suffix = Path(filename or "").suffix.lower()
+    if suffix == ".zip":
+        return "ZIP"
+    if suffix == ".xlsx":
+        return "XLSX"
+    return "—"
+
+
+def _rub(value: object) -> str:
+    if value is None or value == "":
+        return "—"
+    try:
+        amount = Decimal(str(value))
+    except Exception:
+        return "—"
+    return f"{amount.quantize(Decimal('0.01'))} ₽"
 
 
 def _q(value: str) -> str:
