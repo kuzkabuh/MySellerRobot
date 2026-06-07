@@ -6,9 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.services.user_sync_status_service import (
-    SYNC_TYPES,
-    SYNC_TYPE_LABELS,
     SYNC_STATUS_LABELS,
+    SYNC_TYPES,
     UserSyncStatusService,
 )
 
@@ -68,7 +67,7 @@ async def test_update_status_creates_new(mock_session):
     mock_session.refresh = AsyncMock(side_effect=lambda obj: setattr(obj, "id", 1))
 
     service = UserSyncStatusService(mock_session)
-    result = await service.update_status(
+    await service.update_status(
         user_id=1,
         sync_type="orders",
         status="success",

@@ -22,7 +22,7 @@ async def test_log_activity_creates_entry(mock_session):
     mock_session.refresh = AsyncMock(side_effect=lambda obj: setattr(obj, "id", 1))
 
     service = UserActivityService(mock_session)
-    entry = await service.log_activity(
+    await service.log_activity(
         user_id=1,
         action="profile_update",
         entity_type="user",

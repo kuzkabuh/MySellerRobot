@@ -3,17 +3,39 @@ description: Webhook endpoints for payment providers with structured logging.
 updated: 2026-05-19
 """
 
+import hmac
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.db import get_session
 from app.services.payment_service import PaymentService
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = logging.getLogger(__name__)
 SESSION_DEPENDENCY = Depends(get_session)
+YOOKASSA_WEBHOOK_SECRET_HEADER = "x-yookassa-webhook-secret"
+
+
+def _verify_yookassa_webhook_secret(request: Request) -> None:
+    expected_secret = get_settings().get_yookassa_webhook_secret()
+    if not expected_secret:
+        logger.warning("yookassa_webhook_secret_not_configured")
+        return
+
+    provided_secret = (
+        request.headers.get(YOOKASSA_WEBHOOK_SECRET_HEADER)
+        or request.query_params.get("secret")
+        or ""
+    )
+    if not hmac.compare_digest(provided_secret, expected_secret):
+        logger.warning(
+            "yookassa_webhook_invalid_secret",
+            extra={"provided": bool(provided_secret)},
+        )
+        raise HTTPException(status_code=403, detail="Invalid webhook secret")
 
 
 @router.post("/yookassa")
@@ -37,6 +59,8 @@ async def yookassa_webhook(
 
     Supported events: payment.succeeded, payment.canceled
     """
+    _verify_yookassa_webhook_secret(request)
+
     try:
         payload = await request.json()
     except Exception as exc:

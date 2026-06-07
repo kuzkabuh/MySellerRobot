@@ -5,16 +5,16 @@ Revises: 20260531_0050
 Create Date: 2026-06-01
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB
 
 revision: str = "20260601_0051"
-down_revision: Union[str, None] = "20260531_0050"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "20260531_0050"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -45,8 +45,15 @@ def upgrade() -> None:
     op.create_table(
         "api_key_audit_logs",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("account_id", sa.Integer(), sa.ForeignKey("marketplace_accounts.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "user_id", sa.Integer(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        ),
+        sa.Column(
+            "account_id",
+            sa.Integer(),
+            sa.ForeignKey("marketplace_accounts.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("marketplace", sa.String(16), nullable=False),
         sa.Column("action", sa.String(32), nullable=False),
         sa.Column("old_key_mask", sa.String(64), nullable=True),
@@ -54,7 +61,9 @@ def upgrade() -> None:
         sa.Column("check_result", sa.String(32), nullable=True),
         sa.Column("check_details", JSONB(), nullable=True),
         sa.Column("ip_address", sa.String(64), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index("ix_api_key_audit_logs_user_id", "api_key_audit_logs", ["user_id"])
@@ -63,14 +72,18 @@ def upgrade() -> None:
     op.create_table(
         "user_activity_logs",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "user_id", sa.Integer(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        ),
         sa.Column("action", sa.String(64), nullable=False),
         sa.Column("entity_type", sa.String(64), nullable=True),
         sa.Column("entity_id", sa.Integer(), nullable=True),
         sa.Column("details", JSONB(), nullable=True),
         sa.Column("ip_address", sa.String(64), nullable=True),
         sa.Column("user_agent", sa.String(512), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index("ix_user_activity_logs_user_id", "user_activity_logs", ["user_id"])
@@ -79,8 +92,15 @@ def upgrade() -> None:
     op.create_table(
         "sync_statuses",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("account_id", sa.Integer(), sa.ForeignKey("marketplace_accounts.id", ondelete="CASCADE"), nullable=True),
+        sa.Column(
+            "user_id", sa.Integer(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        ),
+        sa.Column(
+            "account_id",
+            sa.Integer(),
+            sa.ForeignKey("marketplace_accounts.id", ondelete="CASCADE"),
+            nullable=True,
+        ),
         sa.Column("sync_type", sa.String(64), nullable=False),
         sa.Column("status", sa.String(32), nullable=False, server_default="pending"),
         sa.Column("last_run_at", sa.DateTime(timezone=True), nullable=True),
@@ -89,17 +109,25 @@ def upgrade() -> None:
         sa.Column("last_error_message", sa.Text(), nullable=True),
         sa.Column("items_processed", sa.Integer(), nullable=True),
         sa.Column("duration_seconds", sa.Float(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("user_id", "account_id", "sync_type", name="uq_sync_statuses_user_account_type"),
+        sa.UniqueConstraint(
+            "user_id", "account_id", "sync_type", name="uq_sync_statuses_user_account_type"
+        ),
     )
     op.create_index("ix_sync_statuses_user_id", "sync_statuses", ["user_id"])
 
     op.create_table(
         "support_tickets",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "user_id", sa.Integer(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        ),
         sa.Column("subject", sa.String(255), nullable=False),
         sa.Column("message", sa.Text(), nullable=False),
         sa.Column("status", sa.String(32), nullable=False, server_default="open"),
@@ -109,8 +137,12 @@ def upgrade() -> None:
         sa.Column("responded_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("responded_by", sa.Integer(), nullable=True),
         sa.Column("closed_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index("ix_support_tickets_user_id", "support_tickets", ["user_id"])

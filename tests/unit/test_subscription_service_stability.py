@@ -7,6 +7,12 @@ from app.services.subscription_service import SubscriptionService
 
 
 class EmptyResult:
+    def scalars(self):  # type: ignore[no-untyped-def]
+        return self
+
+    def all(self) -> list:
+        return []
+
     def scalar_one_or_none(self):  # type: ignore[no-untyped-def]
         return None
 

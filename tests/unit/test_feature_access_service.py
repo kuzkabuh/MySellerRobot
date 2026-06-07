@@ -13,9 +13,24 @@ from app.models.enums import FeatureCode, SubscriptionStatus
 from app.services.feature_access_service import FeatureAccessService
 
 
+class FakeScalars:
+    def __init__(self, values):
+        self.values = list(values)
+
+    def all(self):
+        return self.values
+
+
 class FakeScalar:
     def __init__(self, value):
         self.value = value
+
+    def scalars(self):
+        if isinstance(self.value, list):
+            return FakeScalars(self.value)
+        if self.value is None:
+            return FakeScalars([])
+        return FakeScalars([self.value])
 
     def scalar_one_or_none(self):
         return self.value
@@ -32,9 +47,16 @@ class FakeSession:
 
     async def execute(self, query):
         self._call_count += 1
+        if self._call_count == 1:
+            return FakeScalar([])
+        if self._call_count == 2:
+            return FakeScalar(self.tier)
         if self.count_result is not None:
             return FakeScalar(self.count_result)
         return FakeScalar(self.tier)
+
+    async def refresh(self, obj, attrs=None):
+        return None
 
 
 class CapturingSession(FakeSession):
@@ -44,7 +66,12 @@ class CapturingSession(FakeSession):
 
     async def execute(self, query):
         self.queries.append(query)
-        return await super().execute(query)
+        self._call_count += 1
+        if self._call_count == 1:
+            if self.tier is None:
+                return FakeScalar([])
+            return FakeScalar([SimpleNamespace(tier=self.tier)])
+        return FakeScalar(self.tier)
 
 
 def _make_tier(**kwargs):

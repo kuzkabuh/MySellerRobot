@@ -4,12 +4,39 @@ updated: 2026-05-17
 """
 
 from pathlib import Path
+from types import SimpleNamespace
 
-from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 from app.api.main import create_app
 from app.bot.main import create_bot, create_dispatcher
+from app.core.config import Settings
 from app.models.subscriptions import Payment
+
+
+class FakeAsyncSession:
+    async def commit(self) -> None:
+        return None
+
+    async def rollback(self) -> None:
+        return None
+
+
+class FakeRequest:
+    def __init__(
+        self,
+        payload: dict | None = None,
+        *,
+        headers: dict[str, str] | None = None,
+        query_params: dict[str, str] | None = None,
+    ) -> None:
+        self._payload = payload or {}
+        self.headers = headers or {}
+        self.query_params = query_params or {}
+        self.client = SimpleNamespace(host="127.0.0.1")
+
+    async def json(self) -> dict:
+        return self._payload
 
 
 def test_api_imports_successfully() -> None:
@@ -49,21 +76,32 @@ def test_webhooks_router_registered() -> None:
 
 def test_payment_success_page_exists() -> None:
     """Payment success return URL should exist and return 200."""
-    app = create_app()
-    client = TestClient(app)
-    response = client.get("/payment/success")
+    import asyncio
+
+    from app.web.route_modules.payment_public import payment_success
+
+    response = asyncio.run(
+        payment_success(request=FakeRequest(), session=FakeAsyncSession(), payment_id=None)
+    )
+
     assert response.status_code == 200
-    assert "Платёж принят" in response.text
-    assert "активируется автоматически" in response.text.lower()
+    text = response.body.decode("utf-8")
+    assert "Платёж принят" in text
+    assert "активируется автоматически" in text.lower()
 
 
 def test_payment_cancel_page_exists() -> None:
     """Payment cancel return URL should exist and return 200."""
-    app = create_app()
-    client = TestClient(app)
-    response = client.get("/payment/cancel")
+    import asyncio
+
+    from app.web.route_modules.payment_public import payment_cancel
+
+    response = asyncio.run(
+        payment_cancel(request=FakeRequest(), session=FakeAsyncSession(), payment_id=None)
+    )
+
     assert response.status_code == 200
-    assert "Платёж отменён" in response.text
+    assert "Платёж отменён" in response.body.decode("utf-8")
 
 
 def test_public_payment_routes_not_under_web_prefix() -> None:
@@ -81,6 +119,77 @@ def test_webhook_route_structure() -> None:
     assert webhooks_router.prefix == "/webhooks"
     routes = [route.path for route in webhooks_router.routes]
     assert "/webhooks/yookassa" in routes
+
+
+def test_yookassa_webhook_rejects_invalid_secret(monkeypatch) -> None:
+    """Configured YooKassa webhook secret must be provided by caller."""
+    import asyncio
+
+    import pytest
+
+    from app.api import webhooks as webhooks_module
+
+    monkeypatch.setattr(
+        webhooks_module,
+        "get_settings",
+        lambda: Settings(yookassa_webhook_secret=SecretStr("expected-secret")),
+    )
+
+    with pytest.raises(webhooks_module.HTTPException) as exc_info:
+        asyncio.run(
+            webhooks_module.yookassa_webhook(
+                request=FakeRequest(
+                    {
+                        "type": "notification",
+                        "event": "payment.succeeded",
+                        "object": {"id": "yk-test-123", "status": "succeeded", "paid": True},
+                    },
+                    headers={"x-yookassa-webhook-secret": "wrong-secret"},
+                ),
+                session=FakeAsyncSession(),
+            )
+        )
+
+    assert exc_info.value.status_code == 403
+
+
+def test_yookassa_webhook_accepts_valid_secret(monkeypatch) -> None:
+    """Valid YooKassa webhook secret should allow normal payment handling."""
+    import asyncio
+
+    from app.api import webhooks as webhooks_module
+
+    handled: list[dict] = []
+
+    async def fake_handle_success(self, payment_data):
+        handled.append(payment_data)
+
+    monkeypatch.setattr(
+        webhooks_module,
+        "get_settings",
+        lambda: Settings(yookassa_webhook_secret=SecretStr("expected-secret")),
+    )
+    monkeypatch.setattr(
+        "app.services.payment_service.PaymentService.handle_payment_success",
+        fake_handle_success,
+    )
+
+    response = asyncio.run(
+        webhooks_module.yookassa_webhook(
+            request=FakeRequest(
+                {
+                    "type": "notification",
+                    "event": "payment.succeeded",
+                    "object": {"id": "yk-test-123", "status": "succeeded", "paid": True},
+                },
+                headers={"x-yookassa-webhook-secret": "expected-secret"},
+            ),
+            session=FakeAsyncSession(),
+        )
+    )
+
+    assert response == {"status": "ok"}
+    assert handled[0]["id"] == "yk-test-123"
 
 
 def test_middleware_registered() -> None:

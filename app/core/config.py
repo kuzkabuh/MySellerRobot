@@ -65,6 +65,7 @@ class Settings(BaseSettings):
     yookassa_secret_key: SecretStr = Field(default=SecretStr(""))
     yookassa_return_url: str | None = None
     yookassa_webhook_url: str | None = None
+    yookassa_webhook_secret: SecretStr = Field(default=SecretStr(""))
 
     # Support contact
     support_telegram_username: str = "mpcontrol_support"
@@ -222,6 +223,11 @@ class Settings(BaseSettings):
                 f"Set YOOKASSA_WEBHOOK_URL to a public HTTPS URL."
             )
         return url
+
+    def get_yookassa_webhook_secret(self) -> str | None:
+        """Return YooKassa webhook shared secret if configured."""
+        secret = self.yookassa_webhook_secret.get_secret_value()
+        return secret if secret else None
 
     def get_bot_webhook_url(self) -> str:
         """Return full Telegram bot webhook URL."""

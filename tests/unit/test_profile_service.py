@@ -1,7 +1,6 @@
 """Tests for profile_service."""
 
 from datetime import UTC, datetime
-from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -72,7 +71,7 @@ async def test_update_profile_email(mock_session):
     mock_session.get = AsyncMock(return_value=user)
 
     service = ProfileService(mock_session)
-    result = await service.update_profile(1, ProfileUpdateData(email="test@example.com"))
+    await service.update_profile(1, ProfileUpdateData(email="test@example.com"))
 
     assert user.email == "test@example.com"
     mock_session.commit.assert_called_once()

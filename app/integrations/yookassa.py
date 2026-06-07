@@ -3,6 +3,7 @@ description: YooKassa payment gateway client for subscription payments.
 updated: 2026-05-19
 """
 
+import hmac
 import logging
 from dataclasses import dataclass
 from decimal import Decimal
@@ -166,10 +167,10 @@ class YooKassaClient:
             raise
 
     @staticmethod
-    def verify_webhook_signature(payload: dict[str, Any], signature: str) -> bool:
-        """Verify webhook notification signature.
-
-        TODO: Implement signature verification when YooKassa provides the method.
-        For now, we rely on HTTPS and secret webhook URL.
-        """
-        return True
+    def verify_webhook_signature(
+        payload: dict[str, Any], signature: str, expected_secret: str | None = None
+    ) -> bool:
+        """Verify a shared webhook secret when one is configured."""
+        if not expected_secret:
+            return False
+        return hmac.compare_digest(signature, expected_secret)
