@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.9.5
+
+### Added
+
+- Добавлена адаптивная публичная главная страница `public/index.html` для
+  `mpcontrol.online` с отдельными CSS/JS ассетами, SEO/meta/OG-тегами,
+  favicon, manifest, robots.txt и sitemap.xml.
+- Публичная страница согласована с доменной схемой проекта: лендинг на
+  `mpcontrol.online`, web-кабинет на `app.mpcontrol.online`, Telegram-бот через
+  `https://t.me/mpcontrolrobot`.
+
+### Changed
+
+- Nginx-шаблон для публичного сайта отдаёт HTML без кэша и статические ассеты с
+  cache headers.
+- Production installer больше не затирает существующий `public/index.html`
+  стартовой заглушкой.
+- Версия проекта обновлена до 1.9.5.
+
 ## 1.9.4
 
 ### Fixed

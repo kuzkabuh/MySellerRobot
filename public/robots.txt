@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /web/
+Disallow: /admin/
+Disallow: /webhooks/
+Disallow: /webhook/
+Disallow: /api/
+
+Sitemap: https://mpcontrol.online/sitemap.xml

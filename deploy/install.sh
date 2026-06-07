@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# version: 1.9.4
+# version: 1.9.5
 # description: First-time production installer for MP Control on Ubuntu.
 # updated: 2026-05-31
 
@@ -287,6 +287,13 @@ PY
 }
 
 write_landing_placeholder() {
+  if [[ -f "${PROJECT_DIR}/public/index.html" ]]; then
+    log_info "Public landing page already exists; keeping ${PROJECT_DIR}/public/index.html."
+    write_service_unavailable_page
+    chown -R "$PROJECT_USER:$PROJECT_USER" "${PROJECT_DIR}/public"
+    return
+  fi
+
   cat > "${PROJECT_DIR}/public/index.html" <<'HTML'
 <!doctype html>
 <html lang="ru">
