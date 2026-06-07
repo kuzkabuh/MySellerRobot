@@ -98,7 +98,13 @@ async def password_login(
     if web_session is None:
         await session.rollback()
         return HTMLResponse(
-            _password_login_page(error="Неверный логин или пароль", login_value=login_value),
+            _password_login_page(
+                error=(
+                    "Неверный логин или пароль. Если попыток было слишком много, "
+                    "подождите 15 минут и попробуйте снова."
+                ),
+                login_value=login_value,
+            ),
             status_code=400,
         )
     await session.commit()
@@ -165,6 +171,14 @@ async def logout(
     return response
 
 
+@router.post("/logout")
+async def logout_post(
+    request: Request,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    return await logout(request=request, session=session)
+
+
 @router.get("/login-required", response_class=HTMLResponse)
 async def login_required() -> str:
     return _password_login_page(
@@ -205,7 +219,7 @@ def _password_login_page(error: str = "", login_value: str = "") -> str:
     <h1>Вход в web-кабинет</h1>
     {error_html}
     <form method="post" action="/web/login">
-      <label for="login">Логин</label>
+      <label for="login">Логин, email или Telegram ID</label>
       <input id="login" name="login" value="{safe_login}" autocomplete="username" required>
       <label for="password">Пароль</label>
       <input id="password" name="password" type="password" autocomplete="current-password" required>

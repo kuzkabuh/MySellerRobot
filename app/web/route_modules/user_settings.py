@@ -507,6 +507,10 @@ def _security_tab(user: User, activity_logs: list, timezone: str) -> str:
               <input id="web_login" name="web_login" value="{password_login}" placeholder="seller.login">
             </div>
             <div>
+              <label for="web_current_password">Текущий пароль</label>
+              <input id="web_current_password" name="web_current_password" type="password" autocomplete="current-password" placeholder="Нужен при смене пароля">
+            </div>
+            <div>
               <label for="web_password">Новый пароль</label>
               <input id="web_password" name="web_password" type="password" autocomplete="new-password">
             </div>
@@ -619,6 +623,7 @@ async def save_password_login_settings(
             password=str(form.get("web_password") or ""),
             password_confirm=str(form.get("web_password_confirm") or ""),
             enabled=enabled,
+            current_password=str(form.get("web_current_password") or ""),
         )
         await UserActivityService(session).log_activity(
             user.id,

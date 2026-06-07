@@ -74,6 +74,9 @@ class FakePasswordRepository:
     async def get_user_by_web_login(self, _web_login: str) -> object | None:
         return self.existing_user
 
+    async def get_user_by_password_identity(self, _identity: str) -> object | None:
+        return self.existing_user
+
 
 def _service(repo: FakeWebAuthRepository) -> WebAuthService:
     service = object.__new__(WebAuthService)
@@ -211,6 +214,28 @@ async def test_update_password_login_enables_login_with_normalized_username() ->
 
 
 @pytest.mark.asyncio
+async def test_update_password_login_allows_three_symbol_login() -> None:
+    service, _session = _password_service()
+    user = SimpleNamespace(
+        id=1,
+        web_login=None,
+        web_password_hash=None,
+        web_password_enabled=False,
+        web_password_updated_at=None,
+    )
+
+    await service.update_password_login(
+        user,
+        login="abc",
+        password="StrongPass123",
+        password_confirm="StrongPass123",
+        enabled=True,
+    )
+
+    assert user.web_login == "abc"
+
+
+@pytest.mark.asyncio
 async def test_update_password_login_rejects_duplicate_login() -> None:
     existing = SimpleNamespace(id=2)
     service, _session = _password_service(FakePasswordRepository(existing_user=existing))
@@ -230,3 +255,35 @@ async def test_update_password_login_rejects_duplicate_login() -> None:
             password_confirm="StrongPass123",
             enabled=True,
         )
+
+
+@pytest.mark.asyncio
+async def test_update_password_login_requires_current_password_for_password_change() -> None:
+    service, _session = _password_service()
+    user = SimpleNamespace(
+        id=1,
+        web_login="seller",
+        web_password_hash=WebPasswordAuthService.hash_password("OldStrongPass123"),
+        web_password_enabled=True,
+        web_password_updated_at=None,
+    )
+
+    with pytest.raises(WebPasswordAuthError, match="текущий пароль"):
+        await service.update_password_login(
+            user,
+            login="seller",
+            password="NewStrongPass123",
+            password_confirm="NewStrongPass123",
+            enabled=True,
+        )
+
+    await service.update_password_login(
+        user,
+        login="seller",
+        password="NewStrongPass123",
+        password_confirm="NewStrongPass123",
+        enabled=True,
+        current_password="OldStrongPass123",
+    )
+
+    assert WebPasswordAuthService.verify_password("NewStrongPass123", user.web_password_hash)

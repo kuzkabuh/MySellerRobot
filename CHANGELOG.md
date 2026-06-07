@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.9.7
+
+### Fixed
+
+- Web-вход по паролю приведён к требованиям безопасности: логин 3-50 символов,
+  вход доступен по логину, email или Telegram ID, а при смене пароля требуется
+  текущий пароль.
+- Добавлена простая защита POST `/web/login` от перебора пароля по IP и логину.
+- Production-примеры доменов синхронизированы: API использует
+  `https://api.mpcontrol.online`, Telegram webhook — `https://bot.mpcontrol.online`.
+
 ## 1.9.6
 
 ### Fixed

@@ -6,7 +6,7 @@ updated: 2026-05-14
 from datetime import UTC, datetime
 from typing import cast
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import OneTimeLoginToken, User, UserWebSession
@@ -98,6 +98,17 @@ class WebAuthRepository:
             return None
         result = await self.session.execute(
             select(User).where(User.web_login == web_login)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_user_by_password_identity(self, identity: str) -> User | None:
+        if not identity:
+            return None
+        conditions = [User.web_login == identity, func.lower(User.email) == identity]
+        if identity.isdigit():
+            conditions.append(User.telegram_id == int(identity))
+        result = await self.session.execute(
+            select(User).where(or_(*conditions)).order_by(User.id.asc()).limit(1)
         )
         return result.scalar_one_or_none()
 
