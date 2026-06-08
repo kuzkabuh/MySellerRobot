@@ -37,6 +37,8 @@ def _report_row(
         barcode=barcode,
         shk=shk,
         srid=srid,
+        srid_normalized=srid.lower() if srid else None,
+        rid_normalized=srid.lower() if srid else None,
         doc_type_name=None,
         payment_reason=payment_reason,
         subject_name=None,
@@ -60,6 +62,7 @@ def _report_row(
         sale_method=None,
         finance_operation_type=operation_type,
         finance_category=category,
+        order_required=True,
         raw={"for_pay": str(for_pay)},
     )
 

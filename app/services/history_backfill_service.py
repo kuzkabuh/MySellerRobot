@@ -24,6 +24,7 @@ from app.repositories.sync_jobs import SyncJobRepository
 from app.services.finance_service import FinanceService
 from app.services.order_profit_service import OrderProfitService
 from app.services.product_sync_service import ProductSyncService
+from app.services.wb_report_relink_service import WbReportRelinkService
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +98,31 @@ class HistoryBackfillService:
         await self.session.commit()
         return job
 
+    async def schedule_period(
+        self,
+        account: MarketplaceAccount,
+        *,
+        date_from: datetime,
+        date_to: datetime,
+        job_type: SyncJobType = SyncJobType.MANUAL_HISTORY_BACKFILL,
+    ) -> SyncJob:
+        chunks = self.build_chunks(date_from, date_to, self.chunk_days)
+        job = await self.jobs.create_history_backfill(
+            account=account,
+            job_type=job_type,
+            date_from=date_from,
+            date_to=date_to,
+            total_chunks=len(chunks),
+            payload={
+                "source": "wb_report_import",
+                "date_from": date_from.isoformat(),
+                "date_to": date_to.isoformat(),
+                "chunk_days": self.chunk_days,
+            },
+        )
+        await self.session.commit()
+        return job
+
     async def run_job(self, job_id: int) -> BackfillCounters:
         job = await self.jobs.get(job_id)
         if job is None:
@@ -145,6 +171,18 @@ class HistoryBackfillService:
                 else SyncJobStatus.COMPLETED
             )
             await self.jobs.mark_finished(job, status=status)
+            if account.marketplace == Marketplace.WB:
+                relink = await WbReportRelinkService(self.session).relink_pending_rows(
+                    marketplace_account_id=account.id
+                )
+                metadata["wb_report_relink"] = {
+                    "scanned": relink.scanned,
+                    "matched": relink.matched,
+                    "pending": relink.pending,
+                    "ambiguous": relink.ambiguous,
+                    "errors": relink.errors,
+                }
+                job.job_metadata = metadata
             await self.session.commit()
             return counters
         except Exception as exc:

@@ -398,6 +398,7 @@ def test_parse_wb_daily_report_zip_from_local_example() -> None:
     assert parsed.rows[0].payment_reason
     assert parsed.rows[0].shk
     assert parsed.rows[0].srid
+    assert parsed.rows[0].raw["_headers_count"] == 82
 
 
 def test_parse_wb_weekly_report_zip_from_local_example() -> None:
@@ -415,6 +416,7 @@ def test_parse_wb_weekly_report_zip_from_local_example() -> None:
     assert parsed.report_period_start is not None
     assert parsed.report_period_end is not None
     assert parsed.rows[0].finance_category
+    assert parsed.rows[0].raw["_headers_count"] == 82
 
 
 def _path_with_bytes(payload: bytes, *, suffix: str = ".zip"):

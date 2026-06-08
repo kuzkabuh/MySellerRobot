@@ -1,0 +1,28 @@
+from decimal import Decimal
+
+from app.models.domain import WbDailyReportRow
+from app.services.wb_daily_report_import_service import _finance_components_for_row
+
+
+def test_wb_report_finance_components_split_amounts_by_category() -> None:
+    row = WbDailyReportRow(
+        id=1,
+        import_id=2,
+        user_id=3,
+        marketplace_account_id=4,
+        order_id=5,
+        product_id=6,
+        retail_amount=Decimal("1000"),
+        for_pay=Decimal("800"),
+        commission_rub=Decimal("0"),
+        acceptance=Decimal("25"),
+        is_active=True,
+    )
+
+    components = _finance_components_for_row(row)
+    by_category = {item.finance_category: item for item in components}
+
+    assert by_category["revenue"].operation_type == "income"
+    assert by_category["payout"].operation_type == "cashflow"
+    assert by_category["paid_acceptance"].original_amount == Decimal("25")
+    assert by_category["wb_commission"].original_amount == Decimal("0")

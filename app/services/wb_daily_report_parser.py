@@ -50,6 +50,8 @@ class WbDailyReportParsedRow:
     barcode: str | None
     shk: str | None
     srid: str | None
+    srid_normalized: str | None
+    rid_normalized: str | None
     doc_type_name: str | None
     payment_reason: str | None
     subject_name: str | None
@@ -73,11 +75,30 @@ class WbDailyReportParsedRow:
     sale_method: str | None
     finance_operation_type: str
     finance_category: str
+    order_required: bool
     raw: dict[str, object]
 
     def compute_hash(self) -> str:
+        return self.compute_source_row_hash()
+
+    def compute_source_row_hash(self) -> str:
+        encoded = json.dumps(
+            _normalize_hash_payload(self.raw),
+            sort_keys=True,
+            ensure_ascii=False,
+            default=str,
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    def compute_stable_business_key(
+        self,
+        *,
+        marketplace_account_id: int,
+        report_number: str,
+    ) -> str:
         payload = {
-            "report_number": _stable_string(self.raw.get("report_number")),
+            "marketplace_account_id": marketplace_account_id,
+            "report_number": report_number,
             "report_type": self.report_type,
             "row_number": self.row_number,
             "nm_id": self.nm_id,
@@ -85,13 +106,11 @@ class WbDailyReportParsedRow:
             "barcode": _stable_string(self.barcode),
             "shk": _stable_string(self.shk),
             "srid": _stable_string(self.srid),
+            "srid_normalized": _stable_string(self.srid_normalized),
+            "basket_id": _stable_string(self.basket_id),
             "payment_reason": _stable_string(self.payment_reason),
             "doc_type_name": _stable_string(self.doc_type_name),
             "sale_dt": self.sale_dt.isoformat() if self.sale_dt else None,
-            "quantity": self.quantity,
-            "retail_amount": _stable_decimal(self.retail_amount),
-            "commission_rub": _stable_decimal(self.commission_rub),
-            "for_pay": _stable_decimal(self.for_pay),
         }
         encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
@@ -128,6 +147,7 @@ COLUMN_ALIASES: dict[str, str] = {
     "Комиссия, %": "commission_percent",
     "Размер комиссии": "commission_rub",
     "Вознаграждение Вайлдберриз (ВВ), без НДС": "commission_rub",
+    "НДС с Вознаграждения Вайлдберриз": "commission_vat",
     "К перечислению Продавцу за реализованный Товар": "for_pay",
     "Количество доставок": "delivery_count",
     "Количество возврата": "return_count",
@@ -146,7 +166,15 @@ COLUMN_ALIASES: dict[str, str] = {
     "Возмещение издержек по перевозке/по складским операциям с товаром": "reimbursement_amount",
     "Id корзины заказа": "basket_id",
     "Способы продажи и тип товара": "sale_method",
+    "Компенсация платёжных услуг": "payment_services_amount",
+    "Комиссия за интеграцию платёжных сервисов": "payment_services_amount",
+    "Возмещение за выдачу и возврат товаров на ПВЗ": "pvz_amount",
+    "Стоимость участия в программе лояльности": "loyalty_program_fee",
+    "Сумма баллов, удержанных по программе лояльности": "loyalty_points_deduction",
+    "Компенсация скидки по программе лояльности": "loyalty_discount_compensation",
 }
+
+WEEKLY_REPORT_EXPECTED_COLUMNS = 82
 
 DATE_KEYS = {"order_dt", "sale_dt"}
 REQUIRED_COLUMNS = {
@@ -223,7 +251,10 @@ def iter_wb_daily_report_rows(
             continue
 
         record: dict[str, object] = {}
-        for column, cell in zip(mapped_columns, raw_row, strict=False):
+        raw_columns: dict[str, object] = {}
+        for header, column, cell in zip(headers, mapped_columns, raw_row, strict=False):
+            if header:
+                raw_columns[header] = cell
             if not column:
                 continue
             record[column] = cell
@@ -246,6 +277,8 @@ def iter_wb_daily_report_rows(
 
         if report_number is not None:
             record["report_number"] = report_number
+        record["_raw_columns"] = raw_columns
+        record["_headers_count"] = len([header for header in headers if header])
 
         try:
             parsed = _build_row(record, row_index + 1, report_type=report_type)
@@ -397,6 +430,8 @@ def _build_row(
     quantity = _coerce_int(record.get("quantity")) if "quantity" in record else None
     payment_reason = _stringify(record.get("payment_reason")) or None
     finance_operation_type, finance_category = classify_payment_reason(payment_reason)
+    srid = _stringify(record.get("srid")) or None
+    srid_normalized = normalize_srid(srid)
 
     return WbDailyReportParsedRow(
         row_number=_coerce_int(record.get("row_number"), default=row_number),
@@ -409,7 +444,9 @@ def _build_row(
         size=_stringify(record.get("size")) or None,
         barcode=_stringify(record.get("barcode")) or None,
         shk=_stringify(record.get("shk")) or None,
-        srid=_stringify(record.get("srid")) or None,
+        srid=srid,
+        srid_normalized=srid_normalized,
+        rid_normalized=extract_rid_from_srid(srid_normalized),
         doc_type_name=_stringify(record.get("doc_type_name")) or None,
         payment_reason=payment_reason,
         subject_name=_stringify(record.get("subject_name")) or None,
@@ -435,6 +472,7 @@ def _build_row(
         sale_method=_stringify(record.get("sale_method")) or None,
         finance_operation_type=finance_operation_type,
         finance_category=finance_category,
+        order_required=is_order_required(record, payment_reason),
         raw=record,
     )
 
@@ -462,6 +500,50 @@ def classify_payment_reason(reason: str | None) -> tuple[str, str]:
     if "продаж" in text or "реализац" in text or "товар" in text:
         return "income", "revenue"
     return "unknown", "other"
+
+
+def normalize_srid(value: str | None) -> str | None:
+    text = (value or "").strip().lower()
+    if not text:
+        return None
+    return re.sub(r"\s+", "", text)
+
+
+def extract_rid_from_srid(value: str | None) -> str | None:
+    text = normalize_srid(value)
+    if not text:
+        return None
+    match = re.search(r"(?:rid|srid)[_:=/-]?([a-z0-9-]+)", text)
+    if match:
+        return match.group(1)
+    if "." in text:
+        tail = text.rsplit(".", 1)[-1]
+        return tail or None
+    return text
+
+
+def is_order_required(record: dict[str, object], payment_reason: str | None) -> bool:
+    for key in ("nm_id", "barcode", "supplier_article", "srid", "shk", "basket_id"):
+        if _stringify(record.get(key)):
+            return True
+    text = (payment_reason or "").lower()
+    markers = (
+        "продаж",
+        "возврат",
+        "логист",
+        "достав",
+        "комисс",
+        "вознаграж",
+        "перечисл",
+        "прием",
+        "приём",
+        "штраф",
+        "удерж",
+        "компенсац",
+        "возмещ",
+        "товар",
+    )
+    return any(marker in text for marker in markers)
 
 
 def _coerce_datetime(value: object) -> datetime | None:
@@ -546,6 +628,20 @@ def _stable_decimal(value: Decimal | None) -> str | None:
     if value is None:
         return None
     return format(value, "f")
+
+
+def _normalize_hash_payload(value: object) -> object:
+    if isinstance(value, Decimal):
+        return format(value, "f")
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(key): _normalize_hash_payload(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_normalize_hash_payload(item) for item in value]
+    return value
 
 
 def _public_column_name(column: str) -> str:

@@ -8,6 +8,7 @@ from __future__ import annotations
 import csv
 import logging
 from collections import Counter
+from datetime import UTC, datetime, time
 from decimal import Decimal
 from html import escape
 from io import StringIO
@@ -30,6 +31,7 @@ from app.models.domain import (
 from app.models.enums import Marketplace
 from app.services.api_key_validation_service import ApiKeyValidationService
 from app.services.audit_log_service import AuditLogService
+from app.services.history_backfill_service import HistoryBackfillService
 from app.services.wb_daily_report_import_service import (
     WbDailyReportImportService,
     WbDailyReportRowFilters,
@@ -39,6 +41,7 @@ from app.services.wb_daily_report_parser import (
     compute_file_hash,
     parse_wb_daily_report_upload,
 )
+from app.services.wb_report_relink_service import WbReportRelinkService
 from app.utils.client_ip import get_client_ip
 from app.utils.datetime import format_datetime_for_user
 from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY, is_admin_user
@@ -419,6 +422,7 @@ async def wb_daily_report_import_detail(
     import_id: int,
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
+    message: str | None = Query(default=None),
     page_number: int = Query(default=1, ge=1),
     per_page: int = Query(default=50, ge=10, le=100),
     operation_type: str = Query(default=""),
@@ -468,6 +472,7 @@ async def wb_daily_report_import_detail(
         filters,
         user,
         is_admin_user(user),
+        message,
     )
     return _page_layout(f"Импорт WB #{import_id}", user, content)
 
@@ -501,6 +506,111 @@ async def wb_daily_report_import_log_download(
         output.getvalue(),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="wb-import-{import_id}-log.csv"'},
+    )
+
+
+@router.post("/reports/wb-daily/imports/{import_id}/relink")
+async def wb_daily_report_import_relink(
+    import_id: int,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    import_record = await _load_import_record(session, user, import_id)
+    result = await WbReportRelinkService(session).relink_pending_rows(import_id=import_id)
+    import_record.rows_matched_count = (import_record.rows_matched_count or 0) + result.matched
+    import_record.rows_pending_match_count = result.pending
+    import_record.rows_ambiguous_count = result.ambiguous
+    await session.commit()
+    message = (
+        f"Повторная привязка выполнена. Связано: {result.matched}, "
+        f"ожидают: {result.pending}, неоднозначно: {result.ambiguous}."
+    )
+    return RedirectResponse(
+        url=f"{_settings_path()}/imports/{import_id}?message={_q(message)}",
+        status_code=303,
+    )
+
+
+@router.post("/reports/wb-daily/imports/{import_id}/delete")
+async def wb_daily_report_import_delete(
+    import_id: int,
+    reason: str = Form(""),
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    await _load_import_record(session, user, import_id)
+    deleted = await WbDailyReportImportService(session).soft_delete_import(
+        import_id=import_id,
+        user_id=user.id,
+        reason=reason or "Удалено пользователем",
+    )
+    await session.commit()
+    message = (
+        "Отчёт удалён. Связанные строки и финансовые операции больше не учитываются в аналитике."
+        if deleted
+        else "Импорт не найден."
+    )
+    return RedirectResponse(
+        url=f"{_settings_path()}?message={_q(message)}&details_id={import_id}",
+        status_code=303,
+    )
+
+
+@router.post("/reports/wb-daily/imports/{import_id}/backfill-orders")
+async def wb_daily_report_import_backfill_orders(
+    import_id: int,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    import_record = await _load_import_record(session, user, import_id)
+    account = await session.get(MarketplaceAccount, import_record.marketplace_account_id)
+    if account is None:
+        raise HTTPException(status_code=404, detail="Кабинет WB не найден")
+    start = import_record.report_period_start or import_record.report_date
+    end = import_record.report_period_end or import_record.report_date
+    if start is None or end is None:
+        return RedirectResponse(
+            url=f"{_settings_path()}/imports/{import_id}?message={_q('Не удалось определить период отчёта.')}",
+            status_code=303,
+        )
+    job = await HistoryBackfillService(session).schedule_period(
+        account,
+        date_from=datetime.combine(start, time.min, tzinfo=UTC),
+        date_to=datetime.combine(end, time.max, tzinfo=UTC),
+    )
+    message = (
+        f"Дозагрузка заказов WB за период отчёта поставлена в очередь, задача #{job.id}. "
+        "После выполнения worker автоматически повторит привязку."
+    )
+    return RedirectResponse(
+        url=f"{_settings_path()}/imports/{import_id}?message={_q(message)}",
+        status_code=303,
+    )
+
+
+@router.post("/reports/wb-daily/imports/{import_id}/restore")
+async def wb_daily_report_import_restore(
+    import_id: int,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> RedirectResponse:
+    if not is_admin_user(user):
+        raise HTTPException(status_code=403, detail="Восстановление доступно только администратору")
+    await _load_import_record(session, user, import_id)
+    restored = await WbDailyReportImportService(session).restore_import(
+        import_id=import_id,
+        user_id=user.id,
+    )
+    result = await WbReportRelinkService(session).relink_pending_rows(import_id=import_id)
+    await session.commit()
+    message = (
+        f"Отчёт восстановлен. Повторно связано: {result.matched}."
+        if restored
+        else "Импорт не найден."
+    )
+    return RedirectResponse(
+        url=f"{_settings_path()}/imports/{import_id}?message={_q(message)}",
+        status_code=303,
     )
 
 
@@ -691,6 +801,7 @@ def _import_detail_content(
     filters: WbDailyReportRowFilters,
     user: User,
     is_admin: bool,
+    message: str | None = None,
 ) -> str:
     account_name = account.name if account is not None else f"#{import_record.marketplace_account_id}"
     user_line = (
@@ -707,6 +818,7 @@ def _import_detail_content(
         or '<span class="badge good">Причин пропуска нет</span>'
     )
     return f"""
+      {f'<div class="notice success">{escape(message)}</div>' if message else ''}
       <section class="page-header">
         <div>
           <h2>Импорт WB #{import_record.id}</h2>
@@ -777,6 +889,19 @@ def _import_detail_content(
         </div>
         <p class="muted">Дедупликация выполняется по ключу: кабинет WB + тип отчёта + номер отчёта + хеш нормализованной строки.</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap">{reasons_html}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+          <form method="post" action="{_settings_path()}/imports/{import_record.id}/relink">
+            <button class="btn btn-primary" type="submit">Повторить привязку</button>
+          </form>
+          <form method="post" action="{_settings_path()}/imports/{import_record.id}/backfill-orders">
+            <button class="btn" type="submit">Дозагрузить заказы за период</button>
+          </form>
+          <form method="post" action="{_settings_path()}/imports/{import_record.id}/delete" onsubmit="return confirm('Удалить отчёт? Связанные строки и финансовые операции перестанут учитываться в аналитике.')">
+            <input name="reason" placeholder="Причина удаления" value="">
+            <button class="btn btn-danger" type="submit">Удалить отчёт</button>
+          </form>
+          {f'<form method="post" action="{_settings_path()}/imports/{import_record.id}/restore"><button class="btn" type="submit">Восстановить отчёт</button></form>' if is_admin else ''}
+        </div>
       </section>
       <section class="band" style="margin-top:14px">
         <h2>Строки отчёта</h2>
@@ -886,6 +1011,7 @@ def _status_label(status: str) -> str:
         "failed": "Ошибка",
         "pending": "В обработке",
         "duplicate": "Дубликат",
+        "deleted": "Удалён",
     }.get(status, status)
 
 
@@ -897,6 +1023,7 @@ def _status_class(status: str) -> str:
         "failed": "bad",
         "pending": "action",
         "duplicate": "warn",
+        "deleted": "bad",
     }.get(status, "")
 
 
@@ -905,6 +1032,9 @@ def _select_status(selected: str) -> str:
         "": "Все",
         "new": "Новая",
         "partial": "Частично связана",
+        "order_pending_match": "Ожидает привязки",
+        "ambiguous_order_match": "Неоднозначный заказ",
+        "ambiguous_product_match": "Неоднозначный товар",
         "duplicate": "Дубль",
         "error": "Ошибка",
         "skipped": "Пропущена",

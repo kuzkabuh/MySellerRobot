@@ -43,6 +43,7 @@ from app.services.sales_event_sync_service import (
 )
 from app.services.stock_service import StockService
 from app.services.wb_daily_financial_detail_service import WbDailyFinancialDetailService
+from app.services.wb_report_relink_service import WbReportRelinkService
 from app.services.wb_report_service import WbFinancialReportService
 
 logger = logging.getLogger(__name__)
@@ -156,6 +157,14 @@ async def poll_new_orders(ctx: dict[str, Any]) -> dict[str, Any]:
                     stats["recovery_warnings"] += int(
                         getattr(poll_result, "recovery_failed", False) is True
                     )
+                    if account.marketplace == Marketplace.WB and poll_result.fetched:
+                        relink = await WbReportRelinkService(session).relink_pending_rows(
+                            marketplace_account_id=account.id
+                        )
+                        stats["wb_report_rows_relinked"] = (
+                            stats.get("wb_report_rows_relinked", 0) + relink.matched
+                        )
+                    await session.commit()
                     logger.info(
                         "order_poll_notifications_sent",
                         extra={
@@ -824,6 +833,29 @@ async def sync_wb_daily_financial_details(ctx: dict[str, Any]) -> None:
                     await session.rollback()
                 except Exception:
                     pass
+
+
+async def relink_wb_report_rows(ctx: dict[str, Any]) -> dict[str, int]:
+    async with AsyncSessionFactory() as session:
+        result = await WbReportRelinkService(session).relink_pending_rows(limit=2000)
+        await session.commit()
+        logger.info(
+            "wb_report_rows_relinked",
+            extra={
+                "scanned": result.scanned,
+                "matched": result.matched,
+                "pending": result.pending,
+                "ambiguous": result.ambiguous,
+                "errors": result.errors,
+            },
+        )
+        return {
+            "scanned": result.scanned,
+            "matched": result.matched,
+            "pending": result.pending,
+            "ambiguous": result.ambiguous,
+            "errors": result.errors,
+        }
 
 
 async def sync_ozon_catalog_enrichment(ctx: dict[str, Any]) -> None:
@@ -1545,6 +1577,7 @@ for _task_name in (
     "send_alert_notifications",
     "send_fbo_digests",
     "process_history_backfills",
+    "relink_wb_report_rows",
     "check_fbs_deadlines",
     "check_low_stocks",
     "sync_sale_events",

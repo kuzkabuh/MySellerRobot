@@ -1546,6 +1546,7 @@ class WbDailyReportImport(TimestampMixin, Base):
         Index("ix_wb_daily_report_imports_user", "user_id"),
         Index("ix_wb_daily_report_imports_account", "marketplace_account_id"),
         Index("ix_wb_daily_report_imports_created", "created_at"),
+        Index("ix_wb_daily_report_imports_deleted", "deleted_at"),
     )
 
     id: Mapped[int_pk]
@@ -1568,8 +1569,21 @@ class WbDailyReportImport(TimestampMixin, Base):
     rows_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     rows_inserted: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     rows_skipped: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    rows_created_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    rows_updated_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    rows_unchanged_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    rows_pending_match_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    rows_matched_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    rows_ambiguous_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    deleted_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    delete_reason: Mapped[str | None] = mapped_column(Text)
+    restored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    restored_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
 
     rows: Mapped[list["WbDailyReportRow"]] = relationship(
         back_populates="import_record",
@@ -1601,6 +1615,17 @@ class WbDailyReportRow(TimestampMixin, Base):
         Index("ix_wb_daily_report_rows_payment_reason", "payment_reason"),
         Index("ix_wb_daily_report_rows_srid", "srid"),
         Index("ix_wb_daily_report_rows_status", "row_status"),
+        Index("ix_wb_daily_report_rows_source_hash", "source_row_hash"),
+        Index("ix_wb_daily_report_rows_stable_key", "stable_business_key"),
+        Index("ix_wb_daily_report_rows_srid_raw", "srid_raw"),
+        Index("ix_wb_daily_report_rows_srid_normalized", "srid_normalized"),
+        Index("ix_wb_daily_report_rows_rid_normalized", "rid_normalized"),
+        Index("ix_wb_daily_report_rows_basket_id", "basket_id"),
+        Index("ix_wb_daily_report_rows_order_match_status", "order_match_status"),
+        Index("ix_wb_daily_report_rows_order_required", "order_required"),
+        Index("ix_wb_daily_report_rows_deleted", "deleted_at"),
+        Index("ix_wb_daily_report_rows_order_id", "order_id"),
+        Index("ix_wb_daily_report_rows_product_id", "product_id"),
     )
 
     id: Mapped[int_pk]
@@ -1621,6 +1646,11 @@ class WbDailyReportRow(TimestampMixin, Base):
     report_period_start: Mapped[date | None] = mapped_column(Date, nullable=True)
     report_period_end: Mapped[date | None] = mapped_column(Date, nullable=True)
     row_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    stable_business_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    source_row_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    previous_payload: Mapped[dict[str, Any] | None] = mapped_column(JsonType, nullable=True)
+    changed_fields: Mapped[list[str] | None] = mapped_column(JsonType, nullable=True)
     row_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     sale_dt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     order_dt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -1631,10 +1661,19 @@ class WbDailyReportRow(TimestampMixin, Base):
     barcode: Mapped[str | None] = mapped_column(String(64), nullable=True)
     shk: Mapped[str | None] = mapped_column(String(128), nullable=True)
     srid: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    srid_raw: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    srid_normalized: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    rid_normalized: Mapped[str | None] = mapped_column(String(255), nullable=True)
     linked_order_id: Mapped[int | None] = mapped_column(
         ForeignKey("orders.id", ondelete="SET NULL"), nullable=True
     )
     linked_product_id: Mapped[int | None] = mapped_column(
+        ForeignKey("products.id", ondelete="SET NULL"), nullable=True
+    )
+    order_id: Mapped[int | None] = mapped_column(
+        ForeignKey("orders.id", ondelete="SET NULL"), nullable=True
+    )
+    product_id: Mapped[int | None] = mapped_column(
         ForeignKey("products.id", ondelete="SET NULL"), nullable=True
     )
     doc_type_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
@@ -1666,6 +1705,14 @@ class WbDailyReportRow(TimestampMixin, Base):
     order_match_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     product_match_method: Mapped[str | None] = mapped_column(String(32), nullable=True)
     order_match_method: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    product_match_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    order_match_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    order_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    match_attempts_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_match_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_match_error: Mapped[str | None] = mapped_column(Text)
+    matched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    matched_order_id: Mapped[int | None] = mapped_column(Integer)
     finance_operation_type: Mapped[str] = mapped_column(
         String(32), nullable=False, default="unknown"
     )
@@ -1673,9 +1720,52 @@ class WbDailyReportRow(TimestampMixin, Base):
     row_status: Mapped[str] = mapped_column(String(24), nullable=False, default="new")
     skip_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     raw_json: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict, nullable=False)
 
     import_record: Mapped[WbDailyReportImport] = relationship(back_populates="rows")
+
+
+class WbReportFinanceComponent(TimestampMixin, Base):
+    """Normalized financial component created from a WB report row."""
+
+    __tablename__ = "wb_report_finance_components"
+    __table_args__ = (
+        Index("ix_wb_report_components_import", "report_import_id"),
+        Index("ix_wb_report_components_row", "report_row_id"),
+        Index("ix_wb_report_components_account", "marketplace_account_id"),
+        Index("ix_wb_report_components_order", "order_id"),
+        Index("ix_wb_report_components_product", "product_id"),
+        Index("ix_wb_report_components_category", "finance_category"),
+        Index("ix_wb_report_components_active", "is_active"),
+        Index("ix_wb_report_components_deleted", "deleted_at"),
+    )
+
+    id: Mapped[int_pk]
+    report_import_id: Mapped[int] = mapped_column(
+        ForeignKey("wb_daily_report_imports.id", ondelete="CASCADE"), nullable=False
+    )
+    report_row_id: Mapped[int] = mapped_column(
+        ForeignKey("wb_daily_report_rows.id", ondelete="CASCADE"), nullable=False
+    )
+    marketplace_account_id: Mapped[int] = mapped_column(
+        ForeignKey("marketplace_accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id", ondelete="SET NULL"))
+    product_id: Mapped[int | None] = mapped_column(ForeignKey("products.id", ondelete="SET NULL"))
+    finance_category: Mapped[str] = mapped_column(String(64), nullable=False)
+    operation_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    original_column_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    original_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    normalized_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    sign_rule: Mapped[str] = mapped_column(String(64), nullable=False)
+    is_order_fact: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_product_fact: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_global_fact: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class WbDailyReportImportRowLog(TimestampMixin, Base):
