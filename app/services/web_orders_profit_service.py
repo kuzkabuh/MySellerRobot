@@ -4,7 +4,7 @@ updated: 2026-05-17
 """
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -70,12 +70,29 @@ class OrderDetailItem:
 
 
 @dataclass(slots=True)
+class WbFactArticleState:
+    key: str
+    label: str
+    amount: Decimal | None
+    state: str
+
+
+@dataclass(slots=True)
+class WbOrderFact:
+    status: str
+    article_states: list[WbFactArticleState]
+    linked_rows: list[WbDailyReportRow]
+    unlinked_product_rows: list[WbDailyReportRow]
+
+
+@dataclass(slots=True)
 class OrderDetail:
     order: Order
     items: list[OrderDetailItem]
     estimated_profit: Decimal
     actual_profit: Decimal | None
     deviation: Decimal | None
+    wb_fact: WbOrderFact | None = None
 
 
 @dataclass(slots=True)
@@ -311,13 +328,86 @@ class WebOrdersProfitService:
             )
         actual_profit = actual_total if has_actual else None
         deviation = actual_total - estimated_total if has_actual else None
+        wb_fact = await self._wb_order_fact(order) if order.marketplace == Marketplace.WB else None
         return OrderDetail(
             order=order,
             items=items,
             estimated_profit=estimated_total,
             actual_profit=actual_profit,
             deviation=deviation,
+            wb_fact=wb_fact,
         )
+
+    async def _wb_order_fact(self, order: Order) -> WbOrderFact:
+        linked_rows = await self._wb_rows_linked_to_order(order)
+        unlinked_rows = await self._wb_rows_unlinked_for_order_products(order)
+        has_report_near_order = bool(linked_rows or unlinked_rows)
+        if not has_report_near_order:
+            has_report_near_order = await self._has_wb_report_rows_near_order(order)
+        article_states = _wb_fact_article_states(
+            linked_rows=linked_rows,
+            unlinked_rows=unlinked_rows,
+            has_report_near_order=has_report_near_order,
+        )
+        if linked_rows and all(state.state == "present" for state in article_states):
+            status = "full"
+        elif linked_rows:
+            status = "partial"
+        elif unlinked_rows:
+            status = "product_linked_order_not_found"
+        elif has_report_near_order:
+            status = "not_found"
+        else:
+            status = "report_not_loaded"
+        return WbOrderFact(
+            status=status,
+            article_states=article_states,
+            linked_rows=linked_rows,
+            unlinked_product_rows=unlinked_rows,
+        )
+
+    async def _wb_rows_linked_to_order(self, order: Order) -> list[WbDailyReportRow]:
+        result = await self.session.execute(
+            select(WbDailyReportRow)
+            .where(WbDailyReportRow.user_id == order.user_id)
+            .where(WbDailyReportRow.marketplace_account_id == order.marketplace_account_id)
+            .where(WbDailyReportRow.linked_order_id == order.id)
+            .order_by(WbDailyReportRow.sale_dt.desc().nullslast(), WbDailyReportRow.id.desc())
+            .limit(200)
+        )
+        return list(result.scalars().all())
+
+    async def _wb_rows_unlinked_for_order_products(self, order: Order) -> list[WbDailyReportRow]:
+        product_ids = {item.product_id for item in order.items if item.product_id is not None}
+        if not product_ids:
+            return []
+        date_from = order.order_date - timedelta(days=14)
+        date_to = order.order_date + timedelta(days=14)
+        result = await self.session.execute(
+            select(WbDailyReportRow)
+            .where(WbDailyReportRow.user_id == order.user_id)
+            .where(WbDailyReportRow.marketplace_account_id == order.marketplace_account_id)
+            .where(WbDailyReportRow.linked_product_id.in_(product_ids))
+            .where(WbDailyReportRow.linked_order_id.is_(None))
+            .where(WbDailyReportRow.sale_dt >= date_from)
+            .where(WbDailyReportRow.sale_dt <= date_to)
+            .order_by(WbDailyReportRow.sale_dt.desc().nullslast(), WbDailyReportRow.id.desc())
+            .limit(200)
+        )
+        return list(result.scalars().all())
+
+    async def _has_wb_report_rows_near_order(self, order: Order) -> bool:
+        date_from = order.order_date - timedelta(days=14)
+        date_to = order.order_date + timedelta(days=14)
+        result = await self.session.execute(
+            select(WbDailyReportRow.id)
+            .where(WbDailyReportRow.user_id == order.user_id)
+            .where(WbDailyReportRow.marketplace_account_id == order.marketplace_account_id)
+            .where(WbDailyReportRow.sale_dt >= date_from)
+            .where(WbDailyReportRow.sale_dt <= date_to)
+            .limit(1)
+        )
+        return result.scalar_one_or_none() is not None
 
     async def profit_by_sku(
         self,
@@ -751,6 +841,57 @@ def _profit_summary(rows: list[ProfitSkuRow]) -> ProfitSummary:
         ),
         roi_percent=roi_percent(estimated, cost),
     )
+
+
+WB_FACT_ARTICLES: tuple[tuple[str, str, str], ...] = (
+    ("sale", "Продажа", "retail_amount"),
+    ("commission", "Комиссия WB", "commission_rub"),
+    ("logistics", "Логистика", "delivery_rub"),
+    ("storage", "Хранение", "storage_fee"),
+    ("penalty", "Штрафы", "penalty"),
+    ("deduction", "Удержания", "deduction"),
+    ("acceptance", "Платная приемка FBS", "acceptance"),
+    ("compensation", "Компенсации", "reimbursement_amount"),
+    ("returns", "Возвраты", "return_count"),
+    ("payout", "К перечислению", "for_pay"),
+)
+
+
+def _wb_fact_article_states(
+    *,
+    linked_rows: list[WbDailyReportRow],
+    unlinked_rows: list[WbDailyReportRow],
+    has_report_near_order: bool,
+) -> list[WbFactArticleState]:
+    states: list[WbFactArticleState] = []
+    for key, label, attr in WB_FACT_ARTICLES:
+        amount = _sum_wb_attr(linked_rows, attr)
+        if amount is not None:
+            state = "present"
+        elif _sum_wb_attr(unlinked_rows, attr) is not None:
+            state = "unlinked"
+        elif has_report_near_order:
+            state = "missing"
+        else:
+            state = "report_not_loaded"
+        states.append(WbFactArticleState(key=key, label=label, amount=amount, state=state))
+    return states
+
+
+def _sum_wb_attr(rows: list[WbDailyReportRow], attr: str) -> Decimal | None:
+    values: list[Decimal] = []
+    for row in rows:
+        if attr == "return_count":
+            return_count = getattr(row, "return_count", None)
+            if return_count is not None and int(return_count or 0) > 0:
+                values.append(_decimal(getattr(row, "retail_amount", None)))
+            continue
+        value = getattr(row, attr, None)
+        if value is not None:
+            values.append(_decimal(value))
+    if not values:
+        return None
+    return sum(values, ZERO)
 
 
 def _decimal(value: object) -> Decimal:

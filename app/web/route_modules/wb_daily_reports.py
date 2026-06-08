@@ -904,6 +904,7 @@ def _select_status(selected: str) -> str:
     options = {
         "": "Все",
         "new": "Новая",
+        "partial": "Частично связана",
         "duplicate": "Дубль",
         "error": "Ошибка",
         "skipped": "Пропущена",
@@ -967,6 +968,7 @@ def _filter_params(filters: WbDailyReportRowFilters) -> dict[str, str]:
 def _row_status_label(status: str) -> str:
     return {
         "new": "Новая",
+        "partial": "Частично связана",
         "duplicate": "Дубль",
         "error": "Ошибка",
         "skipped": "Пропущена",
@@ -976,6 +978,7 @@ def _row_status_label(status: str) -> str:
 def _row_status_class(status: str) -> str:
     return {
         "new": "good",
+        "partial": "warn",
         "duplicate": "warn",
         "error": "bad",
         "skipped": "warn",

@@ -296,8 +296,8 @@ class WbDailyReportImportService:
                 func.count(func.distinct(WbDailyReportRow.supplier_article)).filter(
                     WbDailyReportRow.supplier_article.is_not(None)
                 ),
-                func.count(WbDailyReportRow.id).filter(row_status == "new"),
-                func.count(WbDailyReportRow.id).filter(row_status == "error"),
+                func.count(WbDailyReportRow.id).filter(row_status.in_(("new", "partial"))),
+                func.count(WbDailyReportRow.id).filter(row_status.in_(("error", "skipped"))),
                 func.count(WbDailyReportRow.id).filter(WbDailyReportRow.linked_product_id.is_not(None)),
                 func.count(WbDailyReportRow.id).filter(WbDailyReportRow.linked_product_id.is_(None)),
                 func.count(WbDailyReportRow.id).filter(WbDailyReportRow.linked_order_id.is_not(None)),
@@ -725,12 +725,24 @@ def _resolve_order_link(
 def _row_status(product_link: _LinkedEntity, order_link: _LinkedEntity) -> str:
     if "ambiguous_match" in {product_link.status, order_link.status}:
         return "skipped"
-    if product_link.id is None or order_link.id is None:
+    if product_link.id is None:
         return "skipped"
+    if order_link.id is None:
+        return "partial"
     return "new"
 
 
 def _row_reason(product_link: _LinkedEntity, order_link: _LinkedEntity) -> str | None:
+    if product_link.id is not None and order_link.id is None:
+        product_method = {
+            "barcode": "barcode",
+            "nm_id": "nm_id",
+            "supplier_article": "артикулу поставщика",
+        }.get(product_link.method or "", product_link.method or "товару")
+        return (
+            f"Товар найден по {product_method}; "
+            "заказ не найден по Srid или ШК, строка учтена по товару"
+        )
     reasons = [reason for reason in (product_link.reason, order_link.reason) if reason]
     return "; ".join(reasons) if reasons else None
 

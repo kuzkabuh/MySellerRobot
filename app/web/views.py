@@ -234,8 +234,8 @@ def _orders_content(
             f"<td>{_sale_model_badge(row.sale_model)}</td>"
             f'<td><a href="/web/orders/{row.order_id}">{escape(row.title)}</a>'
             f'<div class="muted">{escape(row.seller_article)}</div>{cost_badge}</td>'
-            f"<td>{escape(row.order_external_id)}"
-            f'<div class="muted">{escape(row.posting_number or "")}</div></td>'
+            f"<td><strong>Заказ WB:</strong> {escape(row.order_external_id)}"
+            f'<div class="muted">Отправление: {escape(row.posting_number or "н/д")}</div></td>'
             f'<td class="num">{row.quantity}</td>'
             f'<td class="num">{_rub(row.revenue)}</td>'
             f"{profit_cell}"
@@ -274,7 +274,7 @@ def _orders_content(
             <thead>
               <tr>
                 <th>Дата</th><th>МП</th><th>Модель</th><th>Товар</th>
-                <th>Заказ / отправление</th><th class="num">Кол-во</th>
+                <th>Идентификаторы</th><th class="num">Кол-во</th>
                 <th class="num">Цена</th><th class="num">Плановая прибыль</th>
                 <th class="num">Маржа</th><th>Статус</th><th>Источник</th>
               </tr>
@@ -304,7 +304,9 @@ def _order_detail_content(detail: OrderDetail, timezone: str) -> str:
         item_rows.append(
             "<tr>"
             f"<td>{escape(item.title or 'Без названия')}"
-            f'<div class="muted">{escape(item.seller_article or "н/д")}</div></td>'
+            f'<div class="muted">Артикул: {escape(item.seller_article or "н/д")}</div>'
+            f'<div class="muted">nm_id: {escape(item.marketplace_article or "н/д")}</div>'
+            f'<div class="muted">product_id: {escape(str(item.product_id or "н/д"))}</div></td>'
             f'<td class="num">{item.quantity}</td>'
             f'<td class="num">{_rub(item.discounted_price * item.quantity)}</td>'
             f'<td class="num">{_rub_optional(item.commission_estimated)}</td>'
@@ -326,6 +328,7 @@ def _order_detail_content(detail: OrderDetail, timezone: str) -> str:
     sale_model = _sale_model_badge(order.sale_model)
     order_date = localized_order_date(order.order_date, timezone)
     order_state = escape(order_state_label(order.normalized_status, order.requires_seller_action))
+    wb_fact_html = _wb_order_fact_html(getattr(detail, "wb_fact", None), timezone)
     return f"""
       {_section_subnav("orders")}
       <section class="detail-grid">
@@ -337,7 +340,9 @@ def _order_detail_content(detail: OrderDetail, timezone: str) -> str:
             <span>Статус</span><strong>{_order_status_badge(order.normalized_status or order.status, order.requires_seller_action)}</strong>
             <span>Дата заказа</span><strong>{order_date}</strong>
             <span>Дедлайн</span><strong>{deadline}</strong>
-            <span>Заказ</span><strong>{escape(order.order_external_id)}</strong>
+            <span>Заказ WB</span><strong>{escape(order.order_external_id)}</strong>
+            <span>Srid</span><strong>{escape(order.srid or "н/д")}</strong>
+            <span>ШК / posting</span><strong>{escape(order.posting_number or "н/д")}</strong>
             <span>Действие</span><strong>{order_state}</strong>
           </div>
         </section>
@@ -371,11 +376,146 @@ def _order_detail_content(detail: OrderDetail, timezone: str) -> str:
           </table>
         </div>
       </section>
+      {wb_fact_html}
       <section class="band" style="margin-top:14px">
         <h2>Исходные данные</h2>
         <pre class="mono">{raw_payload}</pre>
       </section>
     """
+
+
+def _wb_order_fact_html(wb_fact: Any, timezone: str) -> str:
+    if wb_fact is None:
+        return ""
+    status_label = {
+        "full": "Факт полный",
+        "partial": "Факт частичный",
+        "product_linked_order_not_found": "Товар найден, заказ не связан",
+        "not_found": "Не найдено в отчётах",
+        "report_not_loaded": "Только план",
+    }.get(getattr(wb_fact, "status", ""), "Только план")
+    states = "".join(
+        "<tr>"
+        f"<td>{escape(state.label)}</td>"
+        f"<td>{_wb_fact_state_badge(state.state)}</td>"
+        f'<td class="num">{_rub(state.amount) if state.amount is not None else escape(_wb_fact_state_text(state.state))}</td>'
+        "</tr>"
+        for state in getattr(wb_fact, "article_states", [])
+    )
+    linked_rows = _wb_report_rows_table(
+        getattr(wb_fact, "linked_rows", []),
+        timezone,
+        empty_text="Связанных строк WB-отчёта по заказу пока нет.",
+    )
+    unlinked_rows = _wb_report_rows_table(
+        getattr(wb_fact, "unlinked_product_rows", []),
+        timezone,
+        empty_text="Непривязанных строк по товарам этого заказа не найдено.",
+    )
+    return f"""
+      <section class="band" style="margin-top:14px">
+        <h2>Факт по отчёту WB</h2>
+        <p><span class="badge warn">{escape(status_label)}</span></p>
+        <p class="muted">
+          Строки отчёта WB могут быть связаны с товаром, но не связаны с конкретным заказом.
+          Такие строки учитываются в аналитике товара и общей финансовой аналитике, но не
+          включаются в факт заказа до точного сопоставления.
+        </p>
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>Статья</th><th>Состояние</th><th class="num">Факт заказа</th></tr></thead>
+            <tbody>{states}</tbody>
+          </table>
+        </div>
+      </section>
+      <section class="band" style="margin-top:14px">
+        <h2>Связанные строки отчёта WB</h2>
+        {linked_rows}
+      </section>
+      <section class="band" style="margin-top:14px">
+        <h2>Непривязанные строки по этому товару</h2>
+        {unlinked_rows}
+      </section>
+    """
+
+
+def _wb_report_rows_table(rows: list[Any], timezone: str, *, empty_text: str) -> str:
+    if not rows:
+        return f'<div class="empty-state">{escape(empty_text)}</div>'
+    body = "".join(_wb_report_row_html(row, timezone) for row in rows)
+    return f"""
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Дата операции</th><th>Тип отчёта</th><th>Номер отчёта</th>
+              <th>Обоснование</th><th>Статья</th><th>Тип операции</th><th>Товар</th>
+              <th>Barcode</th><th>nm_id</th><th>Артикул</th><th>ШК</th><th>Srid</th>
+              <th class="num">Сумма продажи</th><th class="num">Комиссия</th>
+              <th class="num">Логистика</th><th class="num">Хранение</th>
+              <th class="num">Штрафы</th><th class="num">Удержания</th>
+              <th class="num">Приемка FBS</th><th class="num">Компенсации</th>
+              <th class="num">К перечислению</th><th>Статус связи</th><th>Причина</th>
+            </tr>
+          </thead>
+          <tbody>{body}</tbody>
+        </table>
+      </div>
+    """
+
+
+def _wb_report_row_html(row: Any, timezone: str) -> str:
+    sale_dt = getattr(row, "sale_dt", None)
+    return (
+        "<tr>"
+        f"<td>{escape(format_datetime_for_user(sale_dt, timezone) if sale_dt else 'н/д')}</td>"
+        f"<td>{escape({'daily': 'ежедневный', 'weekly': 'еженедельный'}.get(getattr(row, 'report_type', ''), getattr(row, 'report_type', None) or 'н/д'))}</td>"
+        f"<td>{escape(getattr(row, 'report_number', None) or 'н/д')}</td>"
+        f"<td>{escape(getattr(row, 'payment_reason', None) or 'н/д')}</td>"
+        f"<td>{escape(getattr(row, 'finance_category', None) or 'н/д')}</td>"
+        f"<td>{escape(getattr(row, 'finance_operation_type', None) or 'н/д')}</td>"
+        f"<td>{escape(getattr(row, 'product_name', None) or f'Товар #{getattr(row, "linked_product_id", None) or "н/д"}')}</td>"
+        f"<td>{escape(getattr(row, 'barcode', None) or 'н/д')}</td>"
+        f"<td>{escape(str(getattr(row, 'nm_id', None) or 'н/д'))}</td>"
+        f"<td>{escape(getattr(row, 'supplier_article', None) or 'н/д')}</td>"
+        f"<td>{escape(getattr(row, 'shk', None) or 'н/д')}</td>"
+        f"<td>{escape(getattr(row, 'srid', None) or 'н/д')}</td>"
+        f'<td class="num">{_rub(getattr(row, "retail_amount", None))}</td>'
+        f'<td class="num">{_rub(getattr(row, "commission_rub", None))}</td>'
+        f'<td class="num">{_rub(getattr(row, "delivery_rub", None))}</td>'
+        f'<td class="num">{_rub(getattr(row, "storage_fee", None))}</td>'
+        f'<td class="num">{_rub(getattr(row, "penalty", None))}</td>'
+        f'<td class="num">{_rub(getattr(row, "deduction", None))}</td>'
+        f'<td class="num">{_rub(getattr(row, "acceptance", None))}</td>'
+        f'<td class="num">{_rub(getattr(row, "reimbursement_amount", None))}</td>'
+        f'<td class="num">{_rub(getattr(row, "for_pay", None))}</td>'
+        f"<td>{escape(_wb_link_status_text(row))}</td>"
+        f"<td>{escape(getattr(row, 'skip_reason', None) or '—')}</td>"
+        "</tr>"
+    )
+
+
+def _wb_fact_state_badge(state: str) -> str:
+    label = _wb_fact_state_text(state)
+    tone = {"present": "good", "unlinked": "warn", "missing": "warn"}.get(state, "")
+    return f'<span class="badge {tone}">{escape(label)}</span>'
+
+
+def _wb_fact_state_text(state: str) -> str:
+    return {
+        "present": "есть",
+        "unlinked": "не связано",
+        "missing": "не найдено в отчёте",
+        "report_not_loaded": "отчёт WB ещё не загружен",
+    }.get(state, "нет данных")
+
+
+def _wb_link_status_text(row: Any) -> str:
+    if getattr(row, "linked_order_id", None):
+        return "Связана с заказом"
+    if getattr(row, "linked_product_id", None):
+        return "Товар найден, заказ не связан"
+    return "Не связано"
 
 
 def _plan_fact_content(data: PlanFactPageData) -> str:
