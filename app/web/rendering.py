@@ -8,58 +8,36 @@ updated: 2026-05-31
 from html import escape
 
 NAV_GROUPS = [
-    ("Обзор", [("Главная", "/web/")]),
-    (
-        "Продажи",
-        [("Заказы", "/web/orders"), ("Продажи", "/web/sales"), ("Возвраты", "/web/returns")],
-    ),
+    ("Основное", [("Главная", "/web/")]),
+    ("Заказы", [("Заказы", "/web/orders")]),
     (
         "Товары",
         [
             ("Товары", "/web/products"),
-            ("Остатки", "/web/stocks"),
-            ("Сопоставление WB / Ozon", "/web/product-matching"),
         ],
     ),
     (
-        "Цены и финансы",
+        "Финансы",
         [
             ("Прибыль", "/web/profit"),
-            ("План / факт", "/web/plan-fact"),
-            ("Безубыточность", "/web/break-even"),
-            ("Себестоимость", "/web/costs"),
-            ("МРЦ WB", "/web/mrc-pricing"),
+        ],
+    ),
+    (
+        "Цены и акции",
+        [
             ("Цены и акции", "/web/pricing"),
         ],
     ),
     (
-        "Контроль",
-        [
-            ("Алерты", "/web/alerts"),
-            ("Качество данных", "/web/data-quality"),
-        ],
-    ),
-    (
-        "Отчёты",
-        [
-            ("Отчёты WB", "/web/reports/wb-daily"),
-        ],
-    ),
-    (
-        "Маркетплейсы",
+        "Кабинеты МП",
         [
             ("Кабинеты МП", "/web/settings?tab=marketplaces"),
-            ("Синхронизация", "/web/settings?tab=sync"),
         ],
     ),
     (
         "Аккаунт",
         [
-            ("Профиль", "/web/settings?tab=profile"),
-            ("Подписка и тариф", "/web/settings?tab=subscription"),
-            ("Уведомления", "/web/settings?tab=notifications"),
-            ("Безопасность", "/web/settings?tab=security"),
-            ("Поддержка", "/web/settings?tab=support"),
+            ("Аккаунт", "/web/settings?tab=profile"),
         ],
     ),
 ]
@@ -68,17 +46,13 @@ ADMIN_NAV_GROUPS = [
     (
         "Админка",
         [
-            ("Панель администратора", "/web/admin"),
+            ("Обзор", "/web/admin"),
             ("Пользователи", "/web/admin/users"),
-            ("Тарифы", "/web/admin/tariffs"),
-            ("Промокоды", "/web/admin/promocodes"),
+            ("Тарифы и промокоды", "/web/admin/tariffs"),
             ("Платежи", "/web/admin/payments"),
-            ("Обращения", "/web/admin/support"),
-            ("Логи", "/web/admin/logs"),
-            ("Комиссии маркетплейсов", "/web/admin/commissions"),
-            ("Статус синхронизаций", "/web/admin/sync-status"),
-            ("Диагностика воркеров", "/web/admin/worker-diagnostics"),
-            ("Аудит действий", "/web/admin/audit-log"),
+            ("Интеграции", "/web/admin/commissions"),
+            ("Синхронизации", "/web/admin/sync-status"),
+            ("Логи и аудит", "/web/admin/logs"),
             ("Бэкапы", "/web/admin/backups"),
         ],
     ),

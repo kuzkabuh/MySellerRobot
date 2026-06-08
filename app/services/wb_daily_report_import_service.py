@@ -1083,24 +1083,24 @@ def _count_match(counters: dict[str, int], order_link: _LinkedEntity) -> None:
 
 
 FINANCE_COMPONENT_COLUMNS: tuple[tuple[str, str, str, str], ...] = (
-    ("retail_amount", "Вайлдберриз реализовал Товар (Пр)", "revenue", "income"),
-    ("commission_rub", "Вознаграждение Вайлдберриз (ВВ), без НДС", "wb_commission", "expense"),
+    ("retail_amount", "Вайлдберриз реализовал Товар (Пр)", "sale", "income"),
+    ("commission_rub", "Вознаграждение Вайлдберриз (ВВ), без НДС", "commission", "expense"),
     ("for_pay", "К перечислению Продавцу за реализованный Товар", "payout", "cashflow"),
     ("delivery_rub", "Услуги по доставке товара покупателю", "logistics", "expense"),
     ("storage_fee", "Хранение", "storage", "expense"),
     ("deduction", "Удержания", "deduction", "expense"),
-    ("acceptance", "Операции на приемке", "paid_acceptance", "expense"),
+    ("acceptance", "Операции на приемке", "acceptance", "expense"),
     ("penalty", "Общая сумма штрафов", "penalty", "expense"),
     (
         "reimbursement_amount",
         "Возмещение издержек по перевозке/по складским операциям с товаром",
-        "logistics_reimbursement",
+        "reimbursement",
         "correction",
     ),
     (
         "commission_correction_amount",
         "Корректировка Вознаграждения Вайлдберриз (ВВ)",
-        "wb_commission_correction",
+        "commission",
         "correction",
     ),
 )
@@ -1114,9 +1114,10 @@ def _finance_components_for_row(row: WbDailyReportRow) -> list[WbReportFinanceCo
             continue
         order_id = row.order_id or row.linked_order_id
         product_id = row.product_id or row.linked_product_id
-        if row.operation_scope != "order":
+        operation_scope = _normalized_operation_scope(row.operation_scope)
+        if operation_scope != "order":
             order_id = None
-        if row.operation_scope not in {"order", "product"}:
+        if operation_scope not in {"order", "product"}:
             product_id = None
         components.append(
             WbReportFinanceComponent(
@@ -1126,21 +1127,29 @@ def _finance_components_for_row(row: WbDailyReportRow) -> list[WbReportFinanceCo
                 user_id=row.user_id,
                 order_id=order_id,
                 product_id=product_id,
-                operation_scope=row.operation_scope,
+                operation_scope=operation_scope,
                 finance_category=category,
                 operation_type=operation_type,
                 original_column_name=original_name,
                 original_amount=amount,
                 normalized_amount=amount,
                 sign_rule="preserve",
-                is_order_fact=row.operation_scope == "order" and bool(order_id),
-                is_product_fact=row.operation_scope in {"order", "product"} and bool(product_id),
-                is_global_fact=row.operation_scope in {"account", "warehouse", "period", "unknown"},
+                is_order_fact=operation_scope == "order" and bool(order_id),
+                is_product_fact=operation_scope in {"order", "product"} and bool(product_id),
+                is_global_fact=operation_scope in {"global", "unknown"},
                 is_active=row.is_active,
                 deleted_at=row.deleted_at,
             )
         )
     return components
+
+
+def _normalized_operation_scope(scope: str | None) -> str:
+    if scope in {"order", "product", "global", "unknown"}:
+        return scope
+    if scope in {"account", "warehouse", "period"}:
+        return "global"
+    return "unknown"
 
 
 def _raw_text(raw: dict[str, Any], *keys: str) -> str | None:

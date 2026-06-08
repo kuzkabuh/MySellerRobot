@@ -1907,7 +1907,9 @@ def _profit_content(data: ProfitPageData) -> str:
             f"<td>{escape(row.sale_model.value if row.sale_model else 'н/д')}</td>"
             f'<td class="num">{row.orders}</td>'
             f'<td class="num">{row.sales}</td>'
-            f'<td class="num">{_rub(row.revenue)}</td>'
+            f'<td class="num">{_rub(row.estimated_revenue)}</td>'
+            f'<td class="num">{_rub(row.actual_revenue)}</td>'
+            f'<td class="num">{_rub(row.payout)}</td>'
             f'<td class="num">{_rub(row.cost)}</td>'
             f'<td class="num">{_rub(row.marketplace_costs)}</td>'
             f'<td class="num">{_rub(row.estimated_profit)}</td>'
@@ -1920,7 +1922,7 @@ def _profit_content(data: ProfitPageData) -> str:
         "".join(row_html)
         if row_html
         else (
-            '<tr><td colspan="12" class="muted">'
+            '<tr><td colspan="14" class="muted">'
             "Данных по прибыли за выбранный период пока нет.</td></tr>"
         )
     )
@@ -1945,7 +1947,8 @@ def _profit_content(data: ProfitPageData) -> str:
             <thead>
               <tr>
                 <th>Товар</th><th>МП</th><th>Модель</th><th class="num">Заказов</th>
-                <th class="num">Продаж</th><th class="num">Выручка</th>
+                <th class="num">Продаж</th><th class="num">Плановая выручка</th>
+                <th class="num">Фактическая выручка</th><th class="num">К перечислению</th>
                 <th class="num">Себестоимость</th><th class="num">Расходы МП</th>
                 <th class="num">Плановая прибыль</th><th class="num">Фактическая прибыль</th>
                 <th class="num">Маржа</th><th class="num">ROI</th>

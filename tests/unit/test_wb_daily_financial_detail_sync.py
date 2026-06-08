@@ -14,6 +14,7 @@ from app.models.domain import (
     ProfitSnapshot,
 )
 from app.models.enums import CalculationType, Marketplace, SaleModel, SourceEventType
+from app.schemas.profit import CostInput, ProfitInput
 from app.services.wb_daily_financial_detail_service import (
     DETAILED_REPORT_FIELDS,
     SyncCounters,
@@ -482,6 +483,39 @@ class TestActualProfitCalculation:
         assert aggregated["logistics_cost"] == Decimal("50")
         assert aggregated["other_marketplace_costs"] == Decimal("30")
         assert aggregated["storage_cost"] == Decimal("10")
+        assert aggregated["expected_payout"] == Decimal("1000")
+
+    def test_actual_profit_uses_for_pay_without_double_subtracting_wb_costs(self) -> None:
+        mock_session = AsyncMock()
+        service = WbDailyFinancialDetailService(mock_session)
+        item = _make_order_item()
+
+        rows = [
+            {
+                "rrdId": 1,
+                "docTypeName": "Продажа",
+                "retailAmount": 1490,
+                "forPay": 1000,
+                "ppvzSalesCommission": 200,
+                "deliveryService": 50,
+                "penalty": 30,
+            }
+        ]
+
+        aggregated = service._aggregate_report_rows(rows, item)
+        result = service.calculator.calculate(
+            ProfitInput(
+                gross_revenue=aggregated["gross_revenue"],
+                expected_payout=aggregated["expected_payout"],
+                marketplace_commission=aggregated["marketplace_commission"],
+                logistics_cost=aggregated["logistics_cost"],
+                other_marketplace_costs=aggregated["other_marketplace_costs"],
+                cost=CostInput(cost_price=Decimal("400"), package_cost=Decimal("25")),
+            )
+        )
+
+        assert result.expected_payout == Decimal("1000.00")
+        assert result.profit == Decimal("575.00")
 
     def test_aggregate_with_return(self) -> None:
         mock_session = AsyncMock()
@@ -500,12 +534,14 @@ class TestActualProfitCalculation:
                 "docTypeName": "Возврат",
                 "returnAmount": 1490,
                 "retailAmount": 1490,
+                "forPay": -1200,
             },
         ]
 
         aggregated = service._aggregate_report_rows(rows, item)
 
         assert aggregated["gross_revenue"] == Decimal("0")
+        assert aggregated["expected_payout"] == Decimal("0")
         assert aggregated["return_cost"] == Decimal("1490")
 
 

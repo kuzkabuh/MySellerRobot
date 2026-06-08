@@ -31,11 +31,10 @@ def test_navigation_contains_grouped_web_cabinet_sections() -> None:
         active_path="/web/settings?tab=marketplaces",
     )
 
-    assert "Продажи" in html
-    assert "Цены и финансы" in html
-    assert "Маркетплейсы" in html
+    assert "Заказы" in html
+    assert "Финансы" in html
     assert "Кабинеты МП" in html
-    assert 'href="/web/settings?tab=subscription"' in html
+    assert "Кабинеты МП" in html
     assert 'href="/web/settings?tab=profile"' in html
     assert "Профиль и настройки" not in html
     assert 'href="/web/web/' not in html
@@ -532,23 +531,11 @@ def test_nav_links_cover_all_required_sections() -> None:
     html = page("Главная", "Артем", "<main></main>")
     required_hrefs = [
         "/web/products",
-        "/web/stocks",
-        "/web/product-matching",
-        "/web/plan-fact",
-        "/web/break-even",
-        "/web/costs",
         "/web/orders",
-        "/web/sales",
-        "/web/returns",
         "/web/profit",
-        "/web/alerts",
+        "/web/pricing",
         "/web/settings?tab=marketplaces",
-        "/web/settings?tab=sync",
-        "/web/settings?tab=subscription",
         "/web/settings?tab=profile",
-        "/web/settings?tab=notifications",
-        "/web/settings?tab=security",
-        "/web/settings?tab=support",
     ]
     for href in required_hrefs:
         assert f'href="{href}"' in html, f"Missing nav link: {href}"
@@ -570,11 +557,10 @@ def test_nav_shows_admin_sections_for_admin_users() -> None:
     html = page("Главная", "Артем", "<main></main>", is_admin=True, user_role="admin")
 
     assert 'href="/web/admin"' in html
-    assert 'href="/web/admin/support"' in html
-    assert "Панель администратора" in html
-    assert "Статус синхронизаций" in html
-    assert "Диагностика воркеров" in html
-    assert "Аудит действий" in html
+    assert 'href="/web/admin/support"' not in html
+    assert "Обзор" in html
+    assert "Синхронизации" in html
+    assert "Логи и аудит" in html
     assert "Sync status" not in html
     assert "Worker diagnostics" not in html
     assert "Audit log" not in html

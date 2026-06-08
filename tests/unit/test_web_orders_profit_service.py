@@ -104,6 +104,30 @@ def test_profit_order_query_reuses_postgresql_safe_group_by_expressions() -> Non
     assert "GROUP BY coalesce(order_items.title, order_items.seller_article, 'Без названия')" in sql
 
 
+def test_profit_order_query_uses_latest_actual_snapshot_subquery() -> None:
+    filters = build_order_web_filters(
+        timezone="Europe/Moscow",
+        period="7d",
+        marketplace="all",
+        sale_model="all",
+        date_from=None,
+        date_to=None,
+        economy="all",
+        status="all",
+        sku="",
+        sort="profit",
+        direction="desc",
+    )
+
+    query = WebOrdersProfitService._profit_order_query(user_id=1, filters=filters)
+    sql = str(query.compile(dialect=postgresql.dialect()))
+
+    assert "row_number() OVER" in sql
+    assert "PARTITION BY profit_snapshots.order_item_id" in sql
+    assert "profit_snapshots.calculated_at DESC, profit_snapshots.id DESC" in sql
+    assert "anon_1.rn = " in sql
+
+
 def test_profit_merge_wb_rows_excludes_period_storage_scope() -> None:
     source = inspect.getsource(WebOrdersProfitService._merge_wb_daily_report_rows)
 
@@ -277,6 +301,9 @@ async def test_profit_merges_wb_daily_report_rows_as_actual_fact() -> None:
             orders=1,
             sales=0,
             revenue=Decimal("1000"),
+            estimated_revenue=Decimal("1000"),
+            actual_revenue=Decimal("0"),
+            payout=Decimal("0"),
             cost=Decimal("0"),
             marketplace_costs=Decimal("0"),
             estimated_profit=Decimal("0"),
@@ -295,6 +322,9 @@ async def test_profit_merges_wb_daily_report_rows_as_actual_fact() -> None:
     )
 
     assert rows[0].sales == 2
-    assert rows[0].revenue == Decimal("4000")
+    assert rows[0].revenue == Decimal("1000")
+    assert rows[0].estimated_revenue == Decimal("1000")
+    assert rows[0].actual_revenue == Decimal("3000")
+    assert rows[0].payout == Decimal("2400")
     assert rows[0].marketplace_costs == Decimal("250")
-    assert rows[0].actual_profit == Decimal("2150")
+    assert rows[0].actual_profit == Decimal("2400")

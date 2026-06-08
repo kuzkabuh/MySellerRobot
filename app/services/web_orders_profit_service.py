@@ -104,6 +104,9 @@ class ProfitSkuRow:
     orders: int
     sales: int
     revenue: Decimal
+    estimated_revenue: Decimal
+    actual_revenue: Decimal
+    payout: Decimal
     cost: Decimal
     marketplace_costs: Decimal
     estimated_profit: Decimal
@@ -474,6 +477,9 @@ class WebOrdersProfitService:
                     orders=int(orders or 0),
                     sales=sales,
                     revenue=_decimal(revenue),
+                    estimated_revenue=_decimal(revenue),
+                    actual_revenue=ZERO,
+                    payout=ZERO,
                     cost=total_cost,
                     marketplace_costs=_decimal(marketplace_costs),
                     estimated_profit=profit,
@@ -555,12 +561,13 @@ class WebOrdersProfitService:
                 ),
                 ZERO,
             )
-            actual_profit = _decimal(payout) - marketplace_costs
+            actual_profit = _decimal(payout)
             key = (Marketplace.WB, article)
             existing = by_key.get(key)
             if existing is not None:
                 existing.sales += int(sales or 0)
-                existing.revenue += _decimal(revenue)
+                existing.actual_revenue += _decimal(revenue)
+                existing.payout += _decimal(payout)
                 existing.marketplace_costs += marketplace_costs
                 existing.actual_profit += actual_profit
                 continue
@@ -572,7 +579,10 @@ class WebOrdersProfitService:
                     sale_model=None,
                     orders=0,
                     sales=int(sales or 0),
-                    revenue=_decimal(revenue),
+                    revenue=ZERO,
+                    estimated_revenue=ZERO,
+                    actual_revenue=_decimal(revenue),
+                    payout=_decimal(payout),
                     cost=ZERO,
                     marketplace_costs=marketplace_costs,
                     estimated_profit=ZERO,
@@ -602,6 +612,20 @@ class WebOrdersProfitService:
             literal_column("'Без названия'"),
         )
         article_expr = func.coalesce(OrderItem.seller_article, literal_column("''"))
+        latest_actual = (
+            select(
+                ProfitSnapshot.order_item_id.label("order_item_id"),
+                ProfitSnapshot.profit.label("profit"),
+                func.row_number()
+                .over(
+                    partition_by=ProfitSnapshot.order_item_id,
+                    order_by=(ProfitSnapshot.calculated_at.desc(), ProfitSnapshot.id.desc()),
+                )
+                .label("rn"),
+            )
+            .where(ProfitSnapshot.calculation_type == CalculationType.ACTUAL)
+            .subquery()
+        )
         query = (
             select(
                 title_expr.label("title"),
@@ -630,12 +654,7 @@ class WebOrdersProfitService:
                     0,
                 ),
                 func.coalesce(func.sum(OrderItem.profit_estimated), 0),
-                func.coalesce(
-                    func.sum(ProfitSnapshot.profit).filter(
-                        ProfitSnapshot.calculation_type == CalculationType.ACTUAL
-                    ),
-                    0,
-                ),
+                func.coalesce(func.sum(latest_actual.c.profit), 0),
                 func.avg(OrderItem.margin_percent_estimated),
                 func.count(OrderItem.id).filter(OrderItem.cost_price_used.is_(None)),
                 func.count(OrderItem.id).filter(
@@ -643,7 +662,10 @@ class WebOrdersProfitService:
                 ),
             )
             .join(OrderItem, OrderItem.order_id == Order.id)
-            .outerjoin(ProfitSnapshot, ProfitSnapshot.order_item_id == OrderItem.id)
+            .outerjoin(
+                latest_actual,
+                (latest_actual.c.order_item_id == OrderItem.id) & (latest_actual.c.rn == 1),
+            )
             .where(Order.user_id == user_id)
             .where(Order.deleted_at.is_(None))
             .where(Order.order_date >= filters.date_from)
@@ -863,7 +885,7 @@ def _latest_snapshot(
     filtered = [item for item in snapshots if item.calculation_type == calculation_type]
     if not filtered:
         return None
-    return max(filtered, key=lambda item: item.calculated_at)
+    return max(filtered, key=lambda item: (item.calculated_at, item.id or 0))
 
 
 def _filter_profit_rows(rows: list[ProfitSkuRow], economy: str) -> list[ProfitSkuRow]:

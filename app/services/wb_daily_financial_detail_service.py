@@ -584,7 +584,8 @@ class WbDailyFinancialDetailService:
         item: OrderItem,
     ) -> dict[str, Decimal]:
         gross_revenue = Decimal("0")
-        expected_payout = None
+        expected_payout = Decimal("0")
+        has_for_pay = False
         marketplace_commission = Decimal("0")
         logistics_cost = Decimal("0")
         acquiring_cost = Decimal("0")
@@ -595,14 +596,12 @@ class WbDailyFinancialDetailService:
 
         for row in report_rows:
             op_type = self._determine_operation_type(row).lower()
+            if row.get("forPay") is not None:
+                expected_payout += _safe_decimal(row.get("forPay"))
+                has_for_pay = True
 
             if any(kw in op_type for kw in ("продажа", "sale", "реализация")):
                 gross_revenue += _safe_decimal(row.get("retailAmount", 0))
-                payout = _safe_decimal(row.get("forPay", 0))
-                if expected_payout is None:
-                    expected_payout = payout
-                else:
-                    expected_payout += payout
                 commission = _safe_decimal(row.get("ppvzSalesCommission", 0))
                 if commission > 0:
                     marketplace_commission += commission
@@ -653,7 +652,7 @@ class WbDailyFinancialDetailService:
                 acquiring_cost += _safe_decimal(row.get("acquiringFee", 0))
                 acquiring_cost += _safe_decimal(row.get("paymentProcessing", 0))
 
-        if expected_payout is None:
+        if not has_for_pay:
             total_expenses = (
                 marketplace_commission
                 + logistics_cost

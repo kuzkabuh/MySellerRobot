@@ -22,10 +22,10 @@ def test_wb_report_finance_components_split_amounts_by_category() -> None:
     components = _finance_components_for_row(row)
     by_category = {item.finance_category: item for item in components}
 
-    assert by_category["revenue"].operation_type == "income"
+    assert by_category["sale"].operation_type == "income"
     assert by_category["payout"].operation_type == "cashflow"
-    assert by_category["paid_acceptance"].original_amount == Decimal("25")
-    assert by_category["wb_commission"].original_amount == Decimal("0")
+    assert by_category["acceptance"].original_amount == Decimal("25")
+    assert by_category["commission"].original_amount == Decimal("0")
 
 
 def test_storage_component_is_period_expense_without_order_fact() -> None:
@@ -48,7 +48,7 @@ def test_storage_component_is_period_expense_without_order_fact() -> None:
     assert len(components) == 1
     component = components[0]
     assert component.finance_category == "storage"
-    assert component.operation_scope == "period"
+    assert component.operation_scope == "global"
     assert component.is_order_fact is False
     assert component.is_product_fact is False
     assert component.is_global_fact is True
