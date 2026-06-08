@@ -1069,29 +1069,46 @@ def _alerts_content(events: list[AlertEvent], timezone: str = "Europe/Moscow") -
     """
 
 
+def _fact_status_badge(status: str, label: str) -> str:
+    tone = {
+        "full": "good",
+        "partial": "warn",
+        "pending_link": "warn",
+        "no_report": "",
+    }.get(status, "")
+    return f'<span class="badge {tone}">{escape(label)}</span>'
+
+
 def _sales_content(data: SalesPageData, timezone: str, sku: str) -> str:
     rows = "".join(
         "<tr>"
         f"<td>{localized_order_date(row.event_date, timezone)}</td>"
         f"<td>{_marketplace_label(row.marketplace)}</td>"
+        f"<td>{_sale_model_badge(row.sale_model) if row.sale_model else '—'}</td>"
         f"<td>{escape(row.event_type)}</td>"
-        f"<td>{escape(row.seller_article)}"
-        f'<div class="muted">{escape(row.marketplace_article)}</div></td>'
+        f"<td>"
+        f'  <div>{escape(row.product_name or row.seller_article)}</div>'
+        f'  <div class="muted">{escape(row.marketplace_article)}</div>'
+        f'  <div class="muted">{_nm_barcode(row.nm_id, row.barcode)}</div>'
+        f"</td>"
         f'<td class="num">{row.quantity}</td>'
         f'<td class="num">{_rub(row.amount)}</td>'
-        f'<td class="num">{_rub_optional(row.expected_payout)}</td>'
         f'<td class="num">{_rub_optional(row.estimated_profit)}</td>'
         f'<td class="num">{_rub_optional(row.actual_profit)}</td>'
-        f"<td>{escape(row.order_external_id or 'н/д')}</td>"
+        f"<td>{_fact_status_badge(row.fact_status, row.fact_status_label)}</td>"
+        f"<td>{_order_link(row.order_id, row.order_external_id)}</td>"
+        f"<td>{_wb_report_link(row.wb_report_number, row.wb_report_type, row.wb_report_import_id)}</td>"
+        f"<td>{_sales_actions(row.order_id, row.wb_report_import_id)}</td>"
         "</tr>"
         for row in data.rows
     )
     if not rows:
         rows = (
-            '<tr><td colspan="10"><div class="empty-state">'
+            '<tr><td colspan="13"><div class="empty-state">'
             "Продаж за выбранный период пока нет. Дождитесь синхронизации выкупов WB/Ozon."
             "</div></td></tr>"
         )
+    avg_check = data.total_amount / Decimal(data.total_quantity) if data.total_quantity else ZERO
     return f"""
       {_page_header("Продажи", "Отслеживайте выкупы и завершённые продажи WB/Ozon.", "/web/orders", "Заказы")}
       {_sales_returns_filters("/web/sales", data.filters, sku)}
@@ -1099,18 +1116,66 @@ def _sales_content(data: SalesPageData, timezone: str, sku: str) -> str:
         {_simple_kpi("Продаж", str(data.total_quantity))}
         {_simple_kpi("Выручка", _rub(data.total_amount))}
         {_simple_kpi("Плановая прибыль", _rub(data.total_profit), "good" if data.total_profit >= 0 else "bad")}
-        {_simple_kpi("Средний чек", _rub(data.total_amount / Decimal(data.total_quantity) if data.total_quantity else ZERO))}
+        {_simple_kpi("Факт WB", _rub(data.total_actual_profit), "good" if data.total_actual_profit >= 0 else "bad")}
+        {_simple_kpi("Средний чек", _rub(avg_check))}
+        {_simple_kpi("Полный факт", str(data.full_fact_count), "good")}
+        {_simple_kpi("Ожидают", str(data.pending_fact_count), "warn")}
+        {_simple_kpi("Нет отчёта", str(data.no_report_count), "warn" if data.no_report_count else "neutral")}
       </section>
       <section class="band" style="margin-top:14px">
         <h2>События продаж</h2>
         <div class="table-wrap"><table class="table">
-          <thead><tr><th>Дата</th><th>МП</th><th>Тип</th><th>Товар</th>
-          <th class="num">Кол-во</th><th class="num">Сумма</th><th class="num">Выплата</th>
-          <th class="num">План</th><th class="num">Факт</th><th>Заказ</th></tr></thead>
+          <thead><tr><th>Дата</th><th>МП</th><th>Модель</th><th>Операция</th><th>Товар</th>
+          <th class="num">Кол-во</th><th class="num">Цена</th><th class="num">План</th>
+          <th class="num">Факт WB</th><th>Статус факта</th><th>Заказ</th><th>Отчёт WB</th>
+          <th>Действия</th></tr></thead>
           <tbody>{rows}</tbody>
         </table></div>
       </section>
     """
+
+
+def _nm_barcode(nm_id: int | None, barcode: str | None) -> str:
+    parts = []
+    if nm_id:
+        parts.append(f"NM {nm_id}")
+    if barcode:
+        parts.append(f"ШК {barcode}")
+    return " / ".join(parts) if parts else ""
+
+
+def _order_link(order_id: int | None, external_id: str | None) -> str:
+    if order_id:
+        return f'<a href="/web/orders/{order_id}">{escape(external_id or "Заказ")}</a>'
+    if external_id:
+        return escape(external_id)
+    return "н/д"
+
+
+def _wb_report_link(
+    report_number: str | None,
+    report_type: str | None,
+    import_id: int | None,
+) -> str:
+    if not report_number:
+        return '<span class="muted">нет отчёта</span>'
+    label = f"{report_number}"
+    if report_type:
+        label += f" ({report_type})"
+    if import_id:
+        return f'<a href="/web/wb-reports/{import_id}">{escape(label)}</a>'
+    return escape(label)
+
+
+def _sales_actions(order_id: int | None, wb_report_import_id: int | None) -> str:
+    links = []
+    if order_id:
+        links.append(f'<a class="button-tiny" href="/web/orders/{order_id}">Заказ</a>')
+    if wb_report_import_id:
+        links.append(
+            f'<a class="button-tiny" href="/web/wb-reports/{wb_report_import_id}">Отчёт</a>'
+        )
+    return " ".join(links) if links else '<span class="muted">—</span>'
 
 
 def _returns_content(data: ReturnsPageData, timezone: str, sku: str) -> str:

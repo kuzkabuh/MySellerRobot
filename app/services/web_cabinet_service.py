@@ -1,13 +1,14 @@
-"""version: 1.1.0
+"""version: 1.2.0
 description: Web cabinet account, subscription, costs, prices, sales, returns, and control data.
-updated: 2026-05-17
+updated: 2026-06-08
 """
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
+from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import (
@@ -23,8 +24,11 @@ from app.models.domain import (
     SalesEvent,
     StockSnapshot,
     SyncJob,
+    WbDailyReportImport,
+    WbDailyReportRow,
     WbFinancialReport,
     WbReportCheckState,
+    WbReportFinanceComponent,
 )
 from app.models.enums import Marketplace, SubscriptionStatus
 from app.models.subscriptions import Payment, SubscriptionTier, UserSubscription
@@ -41,14 +45,25 @@ class SalesRow:
     event_date: datetime
     marketplace: Marketplace
     event_type: str
+    sale_model: str | None
     seller_article: str
     marketplace_article: str
+    product_name: str | None
+    barcode: str | None
+    nm_id: int | None
     quantity: int
     amount: Decimal
     expected_payout: Decimal | None
     estimated_profit: Decimal | None
     actual_profit: Decimal | None
+    fact_status: str
+    fact_status_label: str
     order_external_id: str | None
+    order_id: int | None
+    wb_report_number: str | None
+    wb_report_type: str | None
+    wb_report_import_id: int | None
+    wb_components: dict[str, Decimal] | None
 
 
 @dataclass(slots=True)
@@ -58,6 +73,11 @@ class SalesPageData:
     total_quantity: int
     total_amount: Decimal
     total_profit: Decimal
+    total_actual_profit: Decimal
+    full_fact_count: int
+    partial_fact_count: int
+    pending_fact_count: int
+    no_report_count: int
 
 
 @dataclass(slots=True)
@@ -184,28 +204,208 @@ class WebCabinetService:
                 | (SalesEvent.marketplace_article.ilike(pattern))
             )
         result = await self.session.execute(query)
-        rows = [
-            SalesRow(
-                event_date=event.event_date,
-                marketplace=event.marketplace,
-                event_type=event.event_type.value,
-                seller_article=event.seller_article or "н/д",
-                marketplace_article=event.marketplace_article or "н/д",
-                quantity=int(event.quantity or 0),
-                amount=_decimal(event.amount),
-                expected_payout=event.expected_payout,
-                estimated_profit=event.estimated_profit,
-                actual_profit=event.actual_profit,
-                order_external_id=event.order_external_id,
+        events = list(result.scalars().all())
+
+        order_ids = [e.related_order_id for e in events if e.related_order_id]
+        product_ids = [e.product_id for e in events if e.product_id]
+        orders_map: dict[int, Order] = {}
+        products_map: dict[int, Product] = {}
+
+        if order_ids:
+            orders_result = await self.session.execute(
+                select(Order).where(Order.id.in_(order_ids))
             )
-            for event in result.scalars().all()
-        ]
+            orders_map = {o.id: o for o in orders_result.scalars().all()}
+
+        if product_ids:
+            products_result = await self.session.execute(
+                select(Product).where(Product.id.in_(product_ids))
+            )
+            products_map = {p.id: p for p in products_result.scalars().all()}
+
+        order_id_set = list(orders_map.keys())
+        report_rows_map: dict[int, list[WbDailyReportRow]] = {}
+        components_map: dict[int, list[WbReportFinanceComponent]] = {}
+
+        if order_id_set:
+            rows_result = await self.session.execute(
+                select(WbDailyReportRow)
+                .where(WbDailyReportRow.order_id.in_(order_id_set))
+                .where(WbDailyReportRow.is_active.is_(True))
+                .where(WbDailyReportRow.deleted_at.is_(None))
+            )
+            for rr in rows_result.scalars().all():
+                oid = rr.order_id
+                if oid is not None:
+                    report_rows_map.setdefault(oid, []).append(rr)
+
+            for oid, rrs in report_rows_map.items():
+                rids = [r.id for r in rrs]
+                comps_result = await self.session.execute(
+                    select(WbReportFinanceComponent)
+                    .where(WbReportFinanceComponent.report_row_id.in_(rids))
+                    .where(WbReportFinanceComponent.is_active.is_(True))
+                )
+                for comp in comps_result.scalars().all():
+                    components_map.setdefault(oid, []).append(comp)
+
+        report_import_ids = set()
+        for rr_list in report_rows_map.values():
+            for rr in rr_list:
+                if rr.import_id:
+                    report_import_ids.add(rr.import_id)
+        imports_map: dict[int, WbDailyReportImport] = {}
+        if report_import_ids:
+            imp_result = await self.session.execute(
+                select(WbDailyReportImport).where(
+                    WbDailyReportImport.id.in_(list(report_import_ids))
+                ).where(WbDailyReportImport.deleted_at.is_(None))
+            )
+            imports_map = {imp.id: imp for imp in imp_result.scalars().all()}
+
+        FINANCE_REVENUE = "Реализация товаров"
+        FINANCE_WB_COMMISSION = "Вознаграждение WB"
+        FINANCE_WB_COMMISSION_VAT = "НДС вознаграждения WB"
+        FINANCE_LOGISTICS = "Логистика"
+        FINANCE_STORAGE = "Хранение"
+        FINANCE_DEDUCTION = "Удержания"
+        FINANCE_PENALTY = "Штрафы"
+        FINANCE_PAID_ACCEPTANCE = "Платная приемка"
+        FINANCE_COMPENSATION = "Компенсации"
+        FINANCE_PAYMENT_SERVICES = "Платежные услуги"
+        FINANCE_LOYALTY = "Программа лояльности"
+
+        FACT_CATEGORIES = {
+            FINANCE_REVENUE,
+            FINANCE_WB_COMMISSION,
+            FINANCE_WB_COMMISSION_VAT,
+            FINANCE_LOGISTICS,
+            FINANCE_STORAGE,
+            FINANCE_DEDUCTION,
+            FINANCE_PENALTY,
+            FINANCE_PAID_ACCEPTANCE,
+            FINANCE_COMPENSATION,
+            FINANCE_PAYMENT_SERVICES,
+            FINANCE_LOYALTY,
+        }
+
+        rows: list[SalesRow] = []
+        for event in events:
+            order = orders_map.get(event.related_order_id) if event.related_order_id else None
+            product = products_map.get(event.product_id) if event.product_id else None
+
+            report_rows_for_order = report_rows_map.get(event.related_order_id, []) if event.related_order_id else []
+            comps_for_order = components_map.get(event.related_order_id, []) if event.related_order_id else []
+
+            wb_components: dict[str, Decimal] = {}
+            for comp in comps_for_order:
+                cat = comp.finance_category
+                wb_components[cat] = wb_components.get(cat, ZERO) + comp.normalized_amount
+
+            has_report = len(report_rows_for_order) > 0
+            has_all_categories = all(cat in wb_components for cat in FACT_CATEGORIES)
+            has_any_components = bool(wb_components)
+
+            if not has_report:
+                fact_status = "no_report"
+                fact_status_label = "Отчёт не загружен"
+            elif not has_any_components:
+                fact_status = "pending_link"
+                fact_status_label = "Ожидает привязки"
+            elif has_all_categories:
+                fact_status = "full"
+                fact_status_label = "Факт полный"
+            else:
+                fact_status = "partial"
+                fact_status_label = "Факт частичный"
+
+            actual_fact_profit = None
+            if has_any_components:
+                revenue = wb_components.get(FINANCE_REVENUE, ZERO)
+                wb_comm = wb_components.get(FINANCE_WB_COMMISSION, ZERO)
+                wb_comm_vat = wb_components.get(FINANCE_WB_COMMISSION_VAT, ZERO)
+                logistics = wb_components.get(FINANCE_LOGISTICS, ZERO)
+                storage = wb_components.get(FINANCE_STORAGE, ZERO)
+                deduction = wb_components.get(FINANCE_DEDUCTION, ZERO)
+                penalty = wb_components.get(FINANCE_PENALTY, ZERO)
+                paid_acc = wb_components.get(FINANCE_PAID_ACCEPTANCE, ZERO)
+                compensation = wb_components.get(FINANCE_COMPENSATION, ZERO)
+                payment_svc = wb_components.get(FINANCE_PAYMENT_SERVICES, ZERO)
+                loyalty = wb_components.get(FINANCE_LOYALTY, ZERO)
+
+                actual_fact_profit = (
+                    revenue - wb_comm - wb_comm_vat - logistics - storage
+                    - deduction - penalty - paid_acc - payment_svc - loyalty
+                    + compensation
+                )
+
+            wb_report_number = None
+            wb_report_type = None
+            wb_report_import_id = None
+            if report_rows_for_order:
+                first_rr = report_rows_for_order[0]
+                wb_report_number = first_rr.report_number
+                wb_report_type = first_rr.report_type
+                imp = imports_map.get(first_rr.import_id)
+                if imp:
+                    wb_report_import_id = imp.id
+
+            barcode = product.barcode if product else None
+            nm_id = product.nm_id if product else None
+            if barcode is None and report_rows_for_order:
+                barcode = report_rows_for_order[0].barcode
+
+            sale_model_str = order.sale_model.value if order and order.sale_model else None
+
+            rows.append(
+                SalesRow(
+                    event_date=event.event_date,
+                    marketplace=event.marketplace,
+                    event_type=event.event_type.value,
+                    sale_model=sale_model_str,
+                    seller_article=event.seller_article or "н/д",
+                    marketplace_article=event.marketplace_article or "н/д",
+                    product_name=product.title if product else None,
+                    barcode=barcode,
+                    nm_id=nm_id,
+                    quantity=int(event.quantity or 0),
+                    amount=_decimal(event.amount),
+                    expected_payout=event.expected_payout,
+                    estimated_profit=event.estimated_profit,
+                    actual_profit=actual_fact_profit,
+                    fact_status=fact_status,
+                    fact_status_label=fact_status_label,
+                    order_external_id=(
+                        order.order_external_id if order else event.order_external_id
+                    ),
+                    order_id=event.related_order_id,
+                    wb_report_number=wb_report_number,
+                    wb_report_type=wb_report_type,
+                    wb_report_import_id=wb_report_import_id,
+                    wb_components=wb_components if wb_components else None,
+                )
+            )
+
+        total_quantity = sum(row.quantity for row in rows)
+        total_amount = sum((row.amount for row in rows), ZERO)
+        total_plan_profit = sum((_decimal(row.estimated_profit) for row in rows), ZERO)
+        total_actual_profit = sum((_decimal(row.actual_profit) for row in rows), ZERO)
+        full_fact_count = sum(1 for r in rows if r.fact_status == "full")
+        partial_fact_count = sum(1 for r in rows if r.fact_status == "partial")
+        pending_fact_count = sum(1 for r in rows if r.fact_status == "pending_link")
+        no_report_count = sum(1 for r in rows if r.fact_status == "no_report")
+
         return SalesPageData(
             filters=filters,
             rows=rows,
-            total_quantity=sum(row.quantity for row in rows),
-            total_amount=sum((row.amount for row in rows), ZERO),
-            total_profit=sum((_decimal(row.estimated_profit) for row in rows), ZERO),
+            total_quantity=total_quantity,
+            total_amount=total_amount,
+            total_profit=total_plan_profit,
+            total_actual_profit=total_actual_profit,
+            full_fact_count=full_fact_count,
+            partial_fact_count=partial_fact_count,
+            pending_fact_count=pending_fact_count,
+            no_report_count=no_report_count,
         )
 
     async def returns_page(

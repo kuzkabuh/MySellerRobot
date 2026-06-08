@@ -323,6 +323,11 @@ def test_sales_content_has_canonical_filter_form_action() -> None:
         total_quantity=0,
         total_amount=Decimal("0"),
         total_profit=Decimal("0"),
+        total_actual_profit=Decimal("0"),
+        full_fact_count=0,
+        partial_fact_count=0,
+        pending_fact_count=0,
+        no_report_count=0,
     )
     html = routes._sales_content(data, "Europe/Moscow", sku="")
 
