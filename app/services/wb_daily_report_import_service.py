@@ -293,15 +293,27 @@ class WbDailyReportImportService:
                 WbDailyReportImportRowLog.status == "duplicate",
             )
         )
-        reasons_result = await self.session.execute(
+        reason_expr = func.coalesce(
+            WbDailyReportImportRowLog.skip_reason,
+            "Без причины",
+        ).label("reason")
+        reasons_subquery = (
             select(
-                func.coalesce(WbDailyReportImportRowLog.skip_reason, "Без причины"),
-                func.count(WbDailyReportImportRowLog.id),
+                WbDailyReportImportRowLog.id.label("row_log_id"),
+                reason_expr,
             )
             .where(WbDailyReportImportRowLog.import_id == import_id)
             .where(WbDailyReportImportRowLog.status != "new")
-            .group_by(func.coalesce(WbDailyReportImportRowLog.skip_reason, "Без причины"))
-            .order_by(func.count(WbDailyReportImportRowLog.id).desc())
+            .subquery()
+        )
+        reasons_count = func.count(reasons_subquery.c.row_log_id)
+        reasons_result = await self.session.execute(
+            select(
+                reasons_subquery.c.reason,
+                reasons_count,
+            )
+            .group_by(reasons_subquery.c.reason)
+            .order_by(reasons_count.desc())
         )
         return WbDailyReportImportSummary(
             sales_amount=_decimal(values[0]),

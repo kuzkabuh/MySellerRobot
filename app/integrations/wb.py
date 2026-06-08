@@ -322,8 +322,54 @@ class WildberriesClient:
             "/api/v1/tariffs/box",
             headers=self.headers,
             params=params,
+            retries=4,
         )
-        tariffs = data.get("tariffs", []) if isinstance(data, dict) else []
+        if not isinstance(data, dict):
+            raise MarketplaceApiError(
+                "Wildberries вернул ответ в неизвестном формате",
+                marketplace="Wildberries",
+                details={
+                    "endpoint": "/api/v1/tariffs/box",
+                    "params": params,
+                    "attempts": 4,
+                    "reason": "invalid_payload_type",
+                },
+            )
+        if "text" in data:
+            raise MarketplaceApiError(
+                "Wildberries вернул не JSON-ответ",
+                marketplace="Wildberries",
+                details={
+                    "endpoint": "/api/v1/tariffs/box",
+                    "params": params,
+                    "attempts": 4,
+                    "reason": "invalid_json",
+                    "body_preview": str(data.get("text") or "")[:500],
+                },
+            )
+        tariffs = data.get("tariffs", [])
+        if not isinstance(tariffs, list):
+            raise MarketplaceApiError(
+                "Wildberries вернул тарифы в неизвестном формате",
+                marketplace="Wildberries",
+                details={
+                    "endpoint": "/api/v1/tariffs/box",
+                    "params": params,
+                    "attempts": 4,
+                    "reason": "invalid_tariffs_type",
+                },
+            )
+        if not tariffs:
+            raise MarketplaceApiError(
+                "Wildberries вернул пустой ответ",
+                marketplace="Wildberries",
+                details={
+                    "endpoint": "/api/v1/tariffs/box",
+                    "params": params,
+                    "attempts": 4,
+                    "reason": "empty_response",
+                },
+            )
         return list(tariffs) if isinstance(tariffs, list) else []
 
     async def get_pallet_tariffs(self, *, date: str | None = None) -> dict[str, Any]:

@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.core.exceptions import MarketplaceApiError
 from app.integrations.wb import WildberriesClient
 from app.models.enums import EconomyConfidence
 from app.services.product_dimensions import calculate_volume_liters, decimal_or_none
@@ -316,6 +317,7 @@ class TestWbLogisticsTariffSyncService:
         mock_wb_client.get_box_tariffs = AsyncMock(side_effect=Exception("API down"))
         result = await sync_service.sync()
         assert result["status"] == "error"
+        assert "Не удалось обновить тарифы логистики WB" in result["message"]
 
     @pytest.mark.asyncio
     async def test_empty_response_returns_error(
@@ -324,6 +326,8 @@ class TestWbLogisticsTariffSyncService:
         mock_wb_client.get_box_tariffs = AsyncMock(return_value=[])
         result = await sync_service.sync()
         assert result["status"] == "error"
+        assert "Wildberries вернул пустой ответ" in result["message"]
+        assert "Попыток: 4" in result["message"]
 
     @pytest.mark.asyncio
     async def test_unchanged_tariffs_returns_no_changes(
@@ -364,7 +368,39 @@ class TestWbTariffsClient:
             "/api/v1/tariffs/box",
             headers=client.headers,
             params={"date": "2026-06-02"},
+            retries=4,
         )
+
+    @pytest.mark.asyncio
+    async def test_box_tariffs_empty_response_raises_clear_error(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr("app.integrations.wb.get_moscow_today", lambda: "2026-06-02")
+        client = WildberriesClient("token")
+        client.common.request = AsyncMock(return_value={})
+
+        with pytest.raises(MarketplaceApiError) as exc_info:
+            await client.get_box_tariffs()
+
+        assert exc_info.value.message == "Wildberries вернул пустой ответ"
+        assert exc_info.value.details["reason"] == "empty_response"
+        assert exc_info.value.details["attempts"] == 4
+
+    @pytest.mark.asyncio
+    async def test_box_tariffs_invalid_json_raises_clear_error(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr("app.integrations.wb.get_moscow_today", lambda: "2026-06-02")
+        client = WildberriesClient("token")
+        client.common.request = AsyncMock(return_value={"text": "<html>oops</html>"})
+
+        with pytest.raises(MarketplaceApiError) as exc_info:
+            await client.get_box_tariffs()
+
+        assert exc_info.value.message == "Wildberries вернул не JSON-ответ"
+        assert exc_info.value.details["body_preview"] == "<html>oops</html>"
 
     @pytest.mark.asyncio
     async def test_pallet_and_return_tariffs_pass_date_params(

@@ -82,6 +82,32 @@ docker compose -f ${COMPOSE_FILE} logs --tail=200 postgres"
   exit 1
 }
 
+fail_archive_security() {
+  local reason="$1"
+  log_error "Проверка безопасности архива: ${reason}"
+  notify_telegram "❌ Ошибка ежедневного бэкапа MP Control
+
+Дата: $(date '+%d.%m.%Y %H:%M')
+Этап: Проверка безопасности архива
+Причина: ${reason}
+Решение: включите BACKUP_ENCRYPTION_ENABLED=1 и задайте пароль шифрования."
+  exit 1
+}
+
+check_archive_security() {
+  if [[ "${BACKUP_INCLUDE_FILES:-1}" != "1" ]]; then
+    return 0
+  fi
+  if [[ "${APP_ENV:-local}" =~ ^(production|prod|staging)$ ]] \
+    && [[ "${BACKUP_ENCRYPTION_ENABLED:-0}" != "1" ]] \
+    && [[ "${BACKUP_ALLOW_PLAINTEXT_SECRETS:-0}" != "1" ]]; then
+    fail_archive_security "бэкап содержит файлы с секретами, но шифрование отключено."
+  fi
+  if [[ "${BACKUP_ENCRYPTION_ENABLED:-0}" == "1" && -z "${BACKUP_ENCRYPTION_PASSWORD:-}" ]]; then
+    fail_archive_security "BACKUP_ENCRYPTION_ENABLED=1, но BACKUP_ENCRYPTION_PASSWORD пустой."
+  fi
+}
+
 encrypt_if_enabled() {
   local path="$1"
   if [[ "${BACKUP_ENCRYPTION_ENABLED:-0}" != "1" ]]; then
@@ -89,7 +115,7 @@ encrypt_if_enabled() {
     return 0
   fi
   if [[ -z "${BACKUP_ENCRYPTION_PASSWORD:-}" ]]; then
-    fail "Шифрование" "BACKUP_ENCRYPTION_ENABLED=1, но BACKUP_ENCRYPTION_PASSWORD пустой"
+    fail_archive_security "BACKUP_ENCRYPTION_ENABLED=1, но BACKUP_ENCRYPTION_PASSWORD пустой."
   fi
   require_command gpg "Шифрование"
   gpg --batch --yes --symmetric --cipher-algo AES256 \
@@ -132,7 +158,10 @@ archive_project_files() {
     --exclude='.mypy_cache' \
     --exclude='.ruff_cache' \
     --exclude='logs' \
+    --exclude='logs/*.log' \
     --exclude='backups' \
+    --exclude='tmp' \
+    --exclude='*.tmp' \
     --exclude='postgres_data' \
     --exclude='redis_data' \
     -czf "$target" \
@@ -146,13 +175,7 @@ main() {
     log_info "Бэкапы отключены: BACKUP_ENABLED=${BACKUP_ENABLED:-0}"
     exit 0
   fi
-  if [[ "${APP_ENV:-local}" =~ ^(production|prod|staging)$ ]] \
-    && [[ "${BACKUP_INCLUDE_FILES:-1}" == "1" ]] \
-    && [[ "${BACKUP_ENCRYPTION_ENABLED:-0}" != "1" ]] \
-    && [[ "${BACKUP_ALLOW_PLAINTEXT_SECRETS:-0}" != "1" ]]; then
-    fail "Проверка шифрования" \
-      "в production архив файлов может содержать .env; включите BACKUP_ENCRYPTION_ENABLED=1 или явно задайте BACKUP_ALLOW_PLAINTEXT_SECRETS=1"
-  fi
+  check_archive_security
 
   cd "$PROJECT_DIR"
   require_command docker "Проверка Docker"

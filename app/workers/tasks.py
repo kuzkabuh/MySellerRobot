@@ -1157,7 +1157,18 @@ async def sync_wb_logistics_tariffs(ctx: dict[str, Any]) -> None:
             status_emoji = {"new_version": "✅", "no_changes": "ℹ️", "error": "❌"}.get(
                 result["status"], "❓"
             )
-            message = f"{status_emoji} Логистика WB: {result['message']}"
+            if result["status"] == "error":
+                account.last_error_at = datetime.now(UTC)
+                account.last_error_message = str(result["message"])[:1000]
+                await session.commit()
+                message = (
+                    f"{status_emoji} Логистика WB не обновлена\n\n"
+                    f"Кабинет: {account.name} (#{account.id})\n"
+                    f"{result['message']}\n"
+                    f"Время: {datetime.now(ZoneInfo('Europe/Moscow')):%d.%m.%Y %H:%M}"
+                )
+            else:
+                message = f"{status_emoji} Логистика WB: {result['message']}"
 
             if result["status"] in ("new_version", "error"):
                 await notify_admins(bot, message)

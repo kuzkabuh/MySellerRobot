@@ -28,6 +28,7 @@ WB_LOGISTICS_ERROR_MESSAGE = (
     "Не удалось обновить тарифы логистики WB. "
     "Попробуйте позже или проверьте API-ключ."
 )
+WB_LOGISTICS_RETRY_ATTEMPTS = 4
 
 
 def _compute_version_hash(payload: list[dict[str, Any]]) -> str:
@@ -91,6 +92,37 @@ def _safe_decimal(value: Any) -> Decimal | None:
         return None
 
 
+def _format_wb_logistics_error(exc: MarketplaceApiError) -> str:
+    attempts = int(exc.details.get("attempts") or WB_LOGISTICS_RETRY_ATTEMPTS)
+    reason = str(exc.details.get("reason") or "")
+
+    if exc.status_code in (401, 403):
+        cause = "API-ключ WB недействителен или не имеет нужных прав."
+        action = "проверьте ключ в разделе Кабинеты МП."
+    elif exc.status_code == 429:
+        cause = "превышен лимит запросов WB API."
+        action = "задача будет повторена при следующем запуске."
+    elif exc.status_code is not None and exc.status_code >= 500:
+        cause = "Wildberries временно недоступен."
+        action = "задача будет повторена при следующем запуске."
+    elif reason == "invalid_json":
+        cause = "Wildberries вернул ответ не в формате JSON."
+        action = "задача будет повторена при следующем запуске."
+    elif reason == "empty_response":
+        cause = "Wildberries вернул пустой ответ."
+        action = "задача будет повторена при следующем запуске."
+    else:
+        cause = exc.message
+        action = "проверьте API-ключ WB или повторите позже."
+
+    return (
+        "Логистика WB не обновлена\n"
+        f"Причина: {cause}\n"
+        f"Попыток: {attempts}\n"
+        f"Действие: {action}"
+    )
+
+
 class WbLogisticsTariffSyncService:
     """Syncs WB box delivery logistics tariffs from /api/v1/tariffs/box."""
 
@@ -125,13 +157,17 @@ class WbLogisticsTariffSyncService:
                     "request_id": request_id,
                     "response_body": payload,
                     "tariff_date": effective_date,
+                    "attempts": (
+                        exc.details.get("attempts") if isinstance(exc.details, dict) else None
+                    ),
+                    "reason": exc.details.get("reason") if isinstance(exc.details, dict) else None,
                 },
             )
             return {
                 "status": "error",
                 "version_id": None,
                 "rows_count": 0,
-                "message": WB_LOGISTICS_ERROR_MESSAGE,
+                "message": _format_wb_logistics_error(exc),
             }
         except Exception:
             logger.exception(
@@ -146,11 +182,20 @@ class WbLogisticsTariffSyncService:
             }
 
         if not raw_tariffs:
+            exc = MarketplaceApiError(
+                "Wildberries вернул пустой ответ",
+                marketplace="Wildberries",
+                details={
+                    "endpoint": "/api/v1/tariffs/box",
+                    "attempts": WB_LOGISTICS_RETRY_ATTEMPTS,
+                    "reason": "empty_response",
+                },
+            )
             return {
                 "status": "error",
                 "version_id": None,
                 "rows_count": 0,
-                "message": "Empty response from WB API",
+                "message": _format_wb_logistics_error(exc),
             }
 
         payload_hash = _compute_version_hash(raw_tariffs)

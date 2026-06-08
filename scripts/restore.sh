@@ -55,6 +55,29 @@ find_first() {
   find "$WORK_DIR" -type f -name "$pattern" | head -n 1
 }
 
+decrypt_if_needed() {
+  local path="$1"
+  if [[ "$path" != *.gpg ]]; then
+    echo "$path"
+    return 0
+  fi
+
+  local password output
+  password="${BACKUP_ENCRYPTION_PASSWORD:-$(env_value BACKUP_ENCRYPTION_PASSWORD)}"
+  if [[ -z "$password" ]]; then
+    log_error "Encrypted backup found, but BACKUP_ENCRYPTION_PASSWORD is empty."
+    exit 1
+  fi
+  if ! command -v gpg >/dev/null 2>&1; then
+    log_error "Encrypted backup found, but gpg is not installed."
+    exit 1
+  fi
+  output="${path%.gpg}"
+  gpg --batch --yes --decrypt --passphrase "$password" --output "$output" "$path" >/dev/null
+  chmod 600 "$output"
+  echo "$output"
+}
+
 main() {
   require_file
   require_confirmation
@@ -66,7 +89,13 @@ main() {
 
   local db_dump files_archive pg_user pg_db safety_name
   db_dump="$(find_first '*.sql.gz')"
+  if [[ -z "$db_dump" ]]; then
+    db_dump="$(find_first '*.sql.gz.gpg')"
+  fi
   files_archive="$(find_first 'mpcontrol_files_*.tar.gz')"
+  if [[ -z "$files_archive" ]]; then
+    files_archive="$(find_first 'mpcontrol_files_*.tar.gz.gpg')"
+  fi
   pg_user="$(env_value POSTGRES_USER)"
   pg_db="$(env_value POSTGRES_DB)"
   pg_user="${pg_user:-seller_bot}"
@@ -75,6 +104,10 @@ main() {
   if [[ -z "$db_dump" ]]; then
     log_error "No PostgreSQL .sql.gz dump found inside backup archive."
     exit 1
+  fi
+  db_dump="$(decrypt_if_needed "$db_dump")"
+  if [[ -n "$files_archive" ]]; then
+    files_archive="$(decrypt_if_needed "$files_archive")"
   fi
 
   log_info "Creating safety backup before restore."

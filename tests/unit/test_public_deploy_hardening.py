@@ -39,6 +39,34 @@ def test_backup_requires_encryption_for_production_file_archive() -> None:
 
     assert "BACKUP_ALLOW_PLAINTEXT_SECRETS" in source
     assert "BACKUP_ENCRYPTION_ENABLED=1" in source
+    assert "Проверка безопасности архива" in source
+    assert "бэкап содержит файлы с секретами, но шифрование отключено" in source
+
+
+def test_backup_requires_password_when_encryption_enabled() -> None:
+    source = Path("scripts/backup_daily.sh").read_text(encoding="utf-8")
+
+    assert '[[ "${BACKUP_ENCRYPTION_ENABLED:-0}" == "1"' in source
+    assert "BACKUP_ENCRYPTION_PASSWORD пустой" in source
+
+
+def test_env_example_defaults_to_encrypted_backups() -> None:
+    source = Path(".env.example").read_text(encoding="utf-8")
+
+    assert "BACKUP_ENABLED=1" in source
+    assert "BACKUP_ENCRYPTION_ENABLED=1" in source
+    assert "BACKUP_ENCRYPTION_PASSWORD=" in source
+    assert "BACKUP_ALLOW_PLAINTEXT_SECRETS=0" in source
+    assert "BACKUP_RETENTION_DAYS=14" in source
+
+
+def test_restore_supports_encrypted_backup_members() -> None:
+    source = Path("scripts/restore.sh").read_text(encoding="utf-8")
+
+    assert "decrypt_if_needed" in source
+    assert "BACKUP_ENCRYPTION_PASSWORD" in source
+    assert "*.sql.gz.gpg" in source
+    assert "mpcontrol_files_*.tar.gz.gpg" in source
 
 
 def test_logrotate_config_keeps_48_hour_window() -> None:
