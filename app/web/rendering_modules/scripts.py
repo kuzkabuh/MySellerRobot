@@ -1,0 +1,108 @@
+"""version: 1.0.0
+description: Browser scripts for MP Control web rendering.
+updated: 2026-06-09
+"""
+
+# ruff: noqa: E501
+
+__all__ = [
+    "_js",
+]
+
+
+def _js() -> str:
+    return """
+    (function() {
+      var errorNode = document.getElementById('interface-error');
+      var loadingSelectors = [
+        '.' + 'page' + '-loader',
+        '.' + 'loading' + '-overlay',
+        '.' + 'pre' + 'loader',
+        '.' + 'spin' + 'ner'
+      ];
+      function reportFrontendError(message, source, lineno, colno, stack) {
+        var payload = {
+          message: String(message || ''),
+          source: String(source || ''),
+          lineno: lineno || null,
+          colno: colno || null,
+          stack: String(stack || ''),
+          path: location.pathname + location.search,
+          user_agent: navigator.userAgent
+        };
+        try {
+          fetch('/web/frontend-error', {
+            method: 'POST',
+            headers: {'content-type': 'application/json'},
+            body: JSON.stringify(payload),
+            keepalive: true
+          }).catch(function(){});
+        } catch (sendError) {
+          console.error('frontend diagnostics failed', sendError);
+        }
+      }
+      function showInterfaceError() {
+        if (errorNode) errorNode.hidden = false;
+      }
+      function hideLegacyLoadingArtifacts() {
+        loadingSelectors.forEach(function(selector) {
+          document.querySelectorAll(selector).forEach(function(node) {
+            node.setAttribute('hidden', 'hidden');
+            node.style.display = 'none';
+            node.setAttribute('aria-hidden', 'true');
+          });
+        });
+      }
+      window.addEventListener('error', function(event) {
+        console.error('web frontend error', event.error || event.message);
+        reportFrontendError(event.message, event.filename, event.lineno, event.colno, event.error && event.error.stack);
+        showInterfaceError();
+      });
+      window.addEventListener('unhandledrejection', function(event) {
+        var reason = event.reason || {};
+        console.error('web frontend rejection', reason);
+        reportFrontendError(reason.message || reason, 'unhandledrejection', null, null, reason.stack);
+        showInterfaceError();
+      });
+      document.addEventListener('DOMContentLoaded', hideLegacyLoadingArtifacts);
+      window.setTimeout(function() {
+        hideLegacyLoadingArtifacts();
+        var stuckLoader = loadingSelectors.some(function(selector) {
+          return Array.prototype.some.call(document.querySelectorAll(selector), function(node) {
+            var style = window.getComputedStyle(node);
+            return !node.hidden && style.display !== 'none' && style.visibility !== 'hidden';
+          });
+        });
+        if (stuckLoader) {
+          reportFrontendError('legacy loading indicator was still visible after timeout', 'loader-failsafe', null, null, '');
+          showInterfaceError();
+        }
+      }, 2000);
+      var toggle = document.querySelector('.sidebar-toggle');
+      var sidebar = document.getElementById('sidebar');
+      function closeNavigation() {
+        if (sidebar) sidebar.classList.remove('is-open');
+        document.body.classList.remove('nav-open');
+      }
+      if (toggle && sidebar) {
+        toggle.addEventListener('click', function() {
+          sidebar.classList.toggle('is-open');
+          document.body.classList.toggle('nav-open', sidebar.classList.contains('is-open'));
+        });
+      }
+      document.addEventListener('click', function(e) {
+        if (sidebar && sidebar.classList.contains('is-open') && !sidebar.contains(e.target) && !e.target.closest('.sidebar-toggle')) {
+          closeNavigation();
+        }
+      });
+      window.addEventListener('resize', function() {
+        if (window.innerWidth > 900) closeNavigation();
+      });
+      document.querySelectorAll('.table-wrap').forEach(function(wrap) {
+        var table = wrap.querySelector('table');
+        if (table && table.scrollWidth > wrap.clientWidth) {
+          wrap.style.position = 'relative';
+        }
+      });
+    })();
+    """

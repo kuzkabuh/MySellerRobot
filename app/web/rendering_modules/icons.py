@@ -1,0 +1,54 @@
+"""version: 1.0.0
+description: Navigation icons for MP Control web rendering.
+updated: 2026-06-09
+"""
+
+# ruff: noqa: E501
+
+NAV_ICONS = {
+    "Главная": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 6l6-4 6 4v7a1 1 0 01-1 1H3a1 1 0 01-1-1V6z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 14V9h4v5" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
+    "Заказы": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 6h6M5 8.5h6M5 11h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Продажи": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 12l4-4 3 2 5-6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    "Возвраты": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 8l-2 2 2 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 10h8a4 4 0 000-8H6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Прибыль": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M8 5v6M6.5 6.5h2a1.5 1.5 0 010 3h-2a1.5 1.5 0 000 3h2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "План / факт": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="8" width="3" height="6" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="6.5" y="4" width="3" height="10" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="11" y="6" width="3" height="8" rx="1" stroke="currentColor" stroke-width="1.5"/></svg>',
+    "Безубыточность": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M2 8h12" stroke="currentColor" stroke-width="1.5"/></svg>',
+    "Себестоимость": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 2v12M12 2v12M4 8h8M4 5h8M4 11h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "МРЦ WB": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 13V3l5 4 5-4v10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    "Цены и акции": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M9 2H4a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2V7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M11 2l3 3-6 6H5V8l6-6z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
+    "Товары": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4l6-2 6 2v8l-6 2-6-2V4z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M2 4l6 2 6-2M8 6v8" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
+    "Сопоставление WB / Ozon": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6h8M10 4l2 2-2 2M12 10H4M6 8l-2 2 2 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    "Остатки": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="6" width="12" height="8" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M4 6V4a2 2 0 012-2h4a2 2 0 012 2v2" stroke="currentColor" stroke-width="1.5"/></svg>',
+    "Алерты": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2a4 4 0 014 4c0 3 1.5 4.5 2 5H4c.5-.5 2-2 2-5a4 4 0 014-4z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6.5 13a1.5 1.5 0 003 0" stroke="currentColor" stroke-width="1.5"/></svg>',
+    "Качество данных": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 8l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/></svg>',
+    "Контроль ошибок": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2l6 11H2L8 2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M8 6v3M8 11.5v.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Аналитика": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M8 2v6l4 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Кабинеты МП": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="10" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 7h6M5 10h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Подписка и тариф": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4l6 3 6-3M2 4v8l6 3 6-3V4M2 4l6-2 6 2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
+    "Профиль": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M2 14c0-3 2.5-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Настройки": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/><path d="M8 2v2M8 12v2M2 8h2M12 8h2M3.8 3.8l1.4 1.4M10.8 10.8l1.4 1.4M12.2 3.8l-1.4 1.4M5.2 10.8l-1.4 1.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Комиссии маркетплейсов": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3" y="2" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M6 5h4M6 8h4M6 11h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Панель администратора": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2l5 2v4c0 3-2 5-5 6-3-1-5-3-5-6V4l5-2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 8l1.3 1.3L10.5 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    "Тарифы": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4l6 3 6-3M2 4v8l6 3 6-3V4M2 4l6-2 6 2" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
+    "Промокоды": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 5h12v6H2zM5 5v6M8 7h3M8 9h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    "Обращения": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 3h10v8H6l-3 3V3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 6h5M6 8.5h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Здоровье кабинетов": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 9h3l1.2-4 2.4 8L10 9h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    "Пользователи": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="6" cy="5" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M1.5 14c.8-3 2.4-5 4.5-5s3.7 2 4.5 5M11 6h4M13 4v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Платежи": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="4" width="12" height="8" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M2 7h12M5 10h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Уведомления": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2a4 4 0 014 4c0 3 1.5 4.5 2 5H2c.5-.5 2-2 2-5a4 4 0 014-4z" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 13a1.5 1.5 0 003 0" stroke="currentColor" stroke-width="1.5"/></svg>',
+    "Статус синхронизаций": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13 5a5 5 0 00-8.5-1.8L3 5M3 11a5 5 0 008.5 1.8L13 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    "Аудит действий": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3" y="2" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M6 5h4M6 8h4M6 11h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Логи": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 5h6M5 8h6M5 11h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Бэкапы": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 4h10v10H3z" stroke="currentColor" stroke-width="1.5"/><path d="M5 2h6v4H5zM5 10h6M5 12h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    "Диагностика воркеров": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/><path d="M8 2v2M8 12v2M2 8h2M12 8h2M3.8 3.8l1.4 1.4M10.8 10.8l1.4 1.4M12.2 3.8l-1.4 1.4M5.2 10.8l-1.4 1.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Синхронизация": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13 5a5 5 0 00-8.5-1.8L3 5M3 11a5 5 0 008.5 1.8L13 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    "Безопасность": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2l5 2v4c0 3-2 5-5 6-3-1-5-3-5-6V4l5-2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
+    "Поддержка": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 3h10v8H6l-3 3V3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 6h5M6 8.5h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+}
+
+NAV_ICONS_FALLBACK = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="3" stroke="currentColor" stroke-width="1.5"/></svg>'
+
+__all__ = [
+    "NAV_ICONS",
+    "NAV_ICONS_FALLBACK",
+]
