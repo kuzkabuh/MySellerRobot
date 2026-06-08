@@ -97,6 +97,14 @@ class WbDailyReportRowsPage:
     total_pages: int
 
 
+@dataclass(slots=True)
+class _LinkedEntity:
+    id: int | None
+    status: str
+    method: str | None = None
+    reason: str | None = None
+
+
 class WbDailyReportImportService:
     """Persist parsed WB daily reports with idempotency and deduplication."""
 
@@ -136,6 +144,7 @@ class WbDailyReportImportService:
                 "user_id": user_id,
                 "account_id": marketplace_account.id,
                 "report_number": parsed.report_number,
+                "report_type": parsed.report_type,
                 "rows_total": len(parsed.rows),
                 "filename": original_filename,
             },
@@ -144,9 +153,12 @@ class WbDailyReportImportService:
             user_id=user_id,
             marketplace_account_id=marketplace_account.id,
             source_type=source_type,
+            report_type=parsed.report_type,
             original_filename=original_filename,
             report_number=parsed.report_number,
             report_date=parsed.report_date,
+            report_period_start=parsed.report_period_start,
+            report_period_end=parsed.report_period_end,
             file_hash=file_hash,
             rows_total=len(parsed.rows),
             rows_inserted=0,
@@ -168,6 +180,9 @@ class WbDailyReportImportService:
                     account=marketplace_account,
                     import_id=import_record.id,
                     report_number=parsed.report_number,
+                    report_type=parsed.report_type,
+                    report_period_start=parsed.report_period_start,
+                    report_period_end=parsed.report_period_end,
                     batch=batch,
                 )
                 inserted += batch_inserted
@@ -250,12 +265,15 @@ class WbDailyReportImportService:
 
     async def import_summary(self, *, import_id: int) -> WbDailyReportImportSummary:
         row_status = func.coalesce(WbDailyReportRow.row_status, "new")
-        sales_case = func.lower(func.coalesce(WbDailyReportRow.doc_type_name, "")).not_like(
-            "%возврат%"
+        operation_text = func.lower(
+            func.concat(
+                func.coalesce(WbDailyReportRow.doc_type_name, ""),
+                " ",
+                func.coalesce(WbDailyReportRow.payment_reason, ""),
+            )
         )
-        returns_case = func.lower(func.coalesce(WbDailyReportRow.doc_type_name, "")).like(
-            "%возврат%"
-        )
+        sales_case = operation_text.not_like("%возврат%")
+        returns_case = operation_text.like("%возврат%")
         result = await self.session.execute(
             select(
                 func.coalesce(func.sum(WbDailyReportRow.retail_amount).filter(sales_case), 0),
@@ -267,8 +285,8 @@ class WbDailyReportImportService:
                 func.coalesce(func.sum(WbDailyReportRow.deduction), 0),
                 func.coalesce(func.sum(WbDailyReportRow.penalty), 0),
                 func.coalesce(func.sum(WbDailyReportRow.acceptance), 0),
-                func.count(func.distinct(WbDailyReportRow.srid)).filter(
-                    WbDailyReportRow.srid.is_not(None)
+                func.count(func.distinct(WbDailyReportRow.shk)).filter(
+                    WbDailyReportRow.shk.is_not(None)
                 ),
                 func.coalesce(func.sum(WbDailyReportRow.quantity).filter(sales_case), 0),
                 func.coalesce(func.sum(WbDailyReportRow.quantity).filter(returns_case), 0),
@@ -377,12 +395,16 @@ class WbDailyReportImportService:
         account: MarketplaceAccount,
         import_id: int,
         report_number: str,
+        report_type: str,
+        report_period_start: object,
+        report_period_end: object,
         batch: list[WbDailyReportParsedRow],
     ) -> int:
         hashes = [row.compute_hash() for row in batch]
         existing_hashes = await self._existing_hashes(
             account_id=account.id,
             report_number=report_number,
+            report_type=report_type,
             hashes=hashes,
         )
         product_map = await self._product_links(user_id=user_id, account_id=account.id, rows=batch)
@@ -391,8 +413,8 @@ class WbDailyReportImportService:
         logs: list[WbDailyReportImportRowLog] = []
         for row in batch:
             row_hash = row.compute_hash()
-            linked_product_id = product_map.get(row.nm_id) if row.nm_id is not None else None
-            linked_order_id = order_map.get(row.srid or "") if row.srid else None
+            product_link = _resolve_product_link(row, product_map)
+            order_link = _resolve_order_link(row, order_map)
             if row_hash in existing_hashes:
                 logs.append(
                     WbDailyReportImportRowLog(
@@ -422,30 +444,51 @@ class WbDailyReportImportService:
                     "user_id": user_id,
                     "marketplace_account_id": account.id,
                     "report_number": report_number,
+                    "report_type": report_type,
+                    "report_period_start": report_period_start,
+                    "report_period_end": report_period_end,
                     "row_hash": row_hash,
                     "row_number": row.row_number,
                     "sale_dt": row.sale_dt,
                     "order_dt": row.order_dt,
                     "nm_id": row.nm_id,
                     "supplier_article": row.supplier_article,
+                    "product_name": row.product_name,
+                    "size": row.size,
                     "barcode": row.barcode,
+                    "shk": row.shk,
                     "srid": row.srid,
-                    "linked_order_id": linked_order_id,
-                    "linked_product_id": linked_product_id,
+                    "linked_order_id": order_link.id,
+                    "linked_product_id": product_link.id,
                     "doc_type_name": row.doc_type_name,
+                    "payment_reason": row.payment_reason,
                     "subject_name": row.subject_name,
                     "brand_name": row.brand_name,
                     "quantity": row.quantity,
                     "retail_price": row.retail_price,
                     "retail_amount": row.retail_amount,
                     "for_pay": row.for_pay,
+                    "delivery_count": row.delivery_count,
+                    "return_count": row.return_count,
                     "delivery_rub": row.delivery_rub,
                     "penalty": row.penalty,
                     "storage_fee": row.storage_fee,
                     "acceptance": row.acceptance,
                     "deduction": row.deduction,
                     "commission_rub": row.commission_rub,
-                    "row_status": "new",
+                    "commission_correction_amount": row.commission_correction_amount,
+                    "reimbursement_amount": row.reimbursement_amount,
+                    "logistics_penalty_correction_type": row.logistics_penalty_correction_type,
+                    "basket_id": row.basket_id,
+                    "sale_method": row.sale_method,
+                    "product_match_status": product_link.status,
+                    "order_match_status": order_link.status,
+                    "product_match_method": product_link.method,
+                    "order_match_method": order_link.method,
+                    "finance_operation_type": row.finance_operation_type,
+                    "finance_category": row.finance_category,
+                    "row_status": _row_status(product_link, order_link),
+                    "skip_reason": _row_reason(product_link, order_link),
                     "raw_json": row.raw,
                 }
             )
@@ -455,7 +498,7 @@ class WbDailyReportImportService:
             return 0
         insert_stmt = pg_insert(WbDailyReportRow).values(values)
         insert_stmt = insert_stmt.on_conflict_do_nothing(
-            index_elements=["marketplace_account_id", "report_number", "row_hash"]
+            index_elements=["marketplace_account_id", "report_type", "report_number", "row_hash"]
         )
         result = await self.session.execute(insert_stmt)
         return result.rowcount or 0
@@ -465,6 +508,7 @@ class WbDailyReportImportService:
         *,
         account_id: int,
         report_number: str,
+        report_type: str,
         hashes: list[str],
     ) -> set[str]:
         if not hashes:
@@ -472,6 +516,7 @@ class WbDailyReportImportService:
         result = await self.session.execute(
             select(WbDailyReportRow.row_hash).where(
                 WbDailyReportRow.marketplace_account_id == account_id,
+                WbDailyReportRow.report_type == report_type,
                 WbDailyReportRow.report_number == report_number,
                 WbDailyReportRow.row_hash.in_(hashes),
             )
@@ -484,19 +529,46 @@ class WbDailyReportImportService:
         user_id: int,
         account_id: int,
         rows: list[WbDailyReportParsedRow],
-    ) -> dict[int, int]:
-        nm_ids = {row.nm_id for row in rows if row.nm_id is not None}
-        if not nm_ids:
+    ) -> dict[tuple[str, str], list[int]]:
+        barcodes = {row.barcode for row in rows if row.barcode}
+        nm_ids = {str(row.nm_id) for row in rows if row.nm_id is not None}
+        articles = {row.supplier_article for row in rows if row.supplier_article}
+        if not barcodes and not nm_ids and not articles:
             return {}
         result = await self.session.execute(
-            select(Product.external_product_id, Product.id).where(
+            select(
+                Product.id,
+                Product.barcode,
+                Product.external_product_id,
+                Product.marketplace_article,
+                Product.seller_article,
+            ).where(
                 Product.user_id == user_id,
                 Product.marketplace_account_id == account_id,
                 Product.marketplace == Marketplace.WB,
-                Product.external_product_id.in_([str(value) for value in nm_ids]),
             )
         )
-        return {int(external_id): int(product_id) for external_id, product_id in result.all()}
+        mapping: dict[tuple[str, str], list[int]] = {}
+        for product_id, barcode, external_id, marketplace_article, seller_article in result.all():
+            for key, value in (
+                ("barcode", barcode),
+                ("nm_id", external_id),
+                ("nm_id", marketplace_article),
+                ("supplier_article", seller_article),
+            ):
+                if value is None:
+                    continue
+                text = str(value).strip()
+                if not text:
+                    continue
+                if key == "barcode" and text not in barcodes:
+                    continue
+                if key == "nm_id" and text not in nm_ids:
+                    continue
+                if key == "supplier_article" and text not in articles:
+                    continue
+                mapping.setdefault((key, text), []).append(int(product_id))
+        return mapping
 
     async def _order_links(
         self,
@@ -504,19 +576,36 @@ class WbDailyReportImportService:
         user_id: int,
         account_id: int,
         rows: list[WbDailyReportParsedRow],
-    ) -> dict[str, int]:
+    ) -> dict[tuple[str, str], list[int]]:
         srids = {row.srid for row in rows if row.srid}
-        if not srids:
+        shks = {row.shk for row in rows if row.shk}
+        if not srids and not shks:
             return {}
         result = await self.session.execute(
-            select(Order.srid, Order.id).where(
+            select(Order.srid, Order.order_external_id, Order.posting_number, Order.id).where(
                 Order.user_id == user_id,
                 Order.marketplace_account_id == account_id,
                 Order.marketplace == Marketplace.WB,
-                Order.srid.in_(srids),
             )
         )
-        return {str(srid): int(order_id) for srid, order_id in result.all() if srid}
+        mapping: dict[tuple[str, str], list[int]] = {}
+        for srid, order_external_id, posting_number, order_id in result.all():
+            for key, value in (
+                ("srid", srid),
+                ("shk", order_external_id),
+                ("shk", posting_number),
+            ):
+                if value is None:
+                    continue
+                text = str(value).strip()
+                if not text:
+                    continue
+                if key == "srid" and text not in srids:
+                    continue
+                if key == "shk" and text not in shks:
+                    continue
+                mapping.setdefault((key, text), []).append(int(order_id))
+        return mapping
 
     async def _record_duplicate(
         self,
@@ -532,9 +621,12 @@ class WbDailyReportImportService:
             user_id=user_id,
             marketplace_account_id=account.id,
             source_type=source_type,
+            report_type=parsed.report_type,
             original_filename=original_filename,
             report_number=parsed.report_number,
             report_date=parsed.report_date,
+            report_period_start=parsed.report_period_start,
+            report_period_end=parsed.report_period_end,
             file_hash=file_hash,
             rows_total=len(parsed.rows),
             rows_inserted=0,
@@ -578,6 +670,71 @@ class WbDailyReportImportService:
         )
 
 
+def _resolve_product_link(
+    row: WbDailyReportParsedRow,
+    mapping: dict[tuple[str, str], list[int]],
+) -> _LinkedEntity:
+    for method, value in (
+        ("barcode", row.barcode),
+        ("nm_id", str(row.nm_id) if row.nm_id is not None else None),
+        ("supplier_article", row.supplier_article),
+    ):
+        if not value:
+            continue
+        ids = sorted(set(mapping.get((method, value), [])))
+        if len(ids) == 1:
+            return _LinkedEntity(id=ids[0], status="matched", method=method)
+        if len(ids) > 1:
+            return _LinkedEntity(
+                id=None,
+                status="ambiguous_match",
+                method=method,
+                reason=f"Неоднозначное сопоставление товара по {method}",
+            )
+    return _LinkedEntity(
+        id=None,
+        status="product_not_found",
+        reason="Товар не найден по barcode, nm_id и артикулу продавца",
+    )
+
+
+def _resolve_order_link(
+    row: WbDailyReportParsedRow,
+    mapping: dict[tuple[str, str], list[int]],
+) -> _LinkedEntity:
+    for method, value in (("srid", row.srid), ("shk", row.shk)):
+        if not value:
+            continue
+        ids = sorted(set(mapping.get((method, value), [])))
+        if len(ids) == 1:
+            return _LinkedEntity(id=ids[0], status="matched", method=method)
+        if len(ids) > 1:
+            return _LinkedEntity(
+                id=None,
+                status="ambiguous_match",
+                method=method,
+                reason=f"Неоднозначное сопоставление заказа по {method}",
+            )
+    return _LinkedEntity(
+        id=None,
+        status="order_not_found",
+        reason="Заказ не найден по Srid или ШК",
+    )
+
+
+def _row_status(product_link: _LinkedEntity, order_link: _LinkedEntity) -> str:
+    if "ambiguous_match" in {product_link.status, order_link.status}:
+        return "skipped"
+    if product_link.id is None or order_link.id is None:
+        return "skipped"
+    return "new"
+
+
+def _row_reason(product_link: _LinkedEntity, order_link: _LinkedEntity) -> str | None:
+    reasons = [reason for reason in (product_link.reason, order_link.reason) if reason]
+    return "; ".join(reasons) if reasons else None
+
+
 def _chunked(
     items: Iterable[WbDailyReportParsedRow],
     *,
@@ -595,7 +752,7 @@ def _chunked(
 
 def _apply_row_filters(query: Any, filters: WbDailyReportRowFilters) -> Any:
     if filters.operation_type:
-        query = query.where(WbDailyReportRow.doc_type_name == filters.operation_type)
+        query = query.where(WbDailyReportRow.payment_reason == filters.operation_type)
     if filters.nm_id is not None:
         query = query.where(WbDailyReportRow.nm_id == filters.nm_id)
     if filters.supplier_article:
@@ -629,8 +786,10 @@ def _apply_row_filters(query: Any, filters: WbDailyReportRowFilters) -> Any:
         query = query.where(
             WbDailyReportRow.supplier_article.ilike(pattern)
             | WbDailyReportRow.barcode.ilike(pattern)
+            | WbDailyReportRow.shk.ilike(pattern)
             | WbDailyReportRow.srid.ilike(pattern)
             | WbDailyReportRow.doc_type_name.ilike(pattern)
+            | WbDailyReportRow.payment_reason.ilike(pattern)
         )
     return query
 

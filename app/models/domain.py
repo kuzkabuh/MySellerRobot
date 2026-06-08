@@ -219,6 +219,7 @@ class Product(TimestampMixin, Base):
             name="uq_products_account_marketplace_external",
         ),
         Index("ix_products_user_article", "user_id", "seller_article"),
+        Index("ix_products_barcode", "marketplace_account_id", "barcode"),
         Index("ix_products_wb_chrt", "marketplace_account_id", "chrt_id"),
     )
 
@@ -232,6 +233,7 @@ class Product(TimestampMixin, Base):
     external_product_id: Mapped[str] = mapped_column(String(128))
     seller_article: Mapped[str | None] = mapped_column(String(255), index=True)
     marketplace_article: Mapped[str | None] = mapped_column(String(255), index=True)
+    barcode: Mapped[str | None] = mapped_column(String(64), nullable=True)
     chrt_id: Mapped[str | None] = mapped_column(String(64))
     title: Mapped[str | None] = mapped_column(String(1024))
     brand: Mapped[str | None] = mapped_column(String(255))
@@ -1556,9 +1558,12 @@ class WbDailyReportImport(TimestampMixin, Base):
         nullable=False,
     )
     source_type: Mapped[str] = mapped_column(String(16), nullable=False, default="file")
+    report_type: Mapped[str] = mapped_column(String(16), nullable=False, default="daily")
     original_filename: Mapped[str | None] = mapped_column(String(512))
     report_number: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     report_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    report_period_start: Mapped[date | None] = mapped_column(Date, nullable=True)
+    report_period_end: Mapped[date | None] = mapped_column(Date, nullable=True)
     file_hash: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     rows_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     rows_inserted: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -1579,6 +1584,7 @@ class WbDailyReportRow(TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint(
             "marketplace_account_id",
+            "report_type",
             "report_number",
             "row_hash",
             name="ux_wb_daily_report_row_dedupe",
@@ -1586,9 +1592,13 @@ class WbDailyReportRow(TimestampMixin, Base):
         Index("ix_wb_daily_report_rows_user", "user_id"),
         Index("ix_wb_daily_report_rows_account", "marketplace_account_id"),
         Index("ix_wb_daily_report_rows_import", "import_id"),
+        Index("ix_wb_daily_report_rows_type", "report_type"),
         Index("ix_wb_daily_report_rows_sale_dt", "sale_dt"),
         Index("ix_wb_daily_report_rows_order_dt", "order_dt"),
         Index("ix_wb_daily_report_rows_barcode", "barcode"),
+        Index("ix_wb_daily_report_rows_supplier_article", "supplier_article"),
+        Index("ix_wb_daily_report_rows_shk", "shk"),
+        Index("ix_wb_daily_report_rows_payment_reason", "payment_reason"),
         Index("ix_wb_daily_report_rows_srid", "srid"),
         Index("ix_wb_daily_report_rows_status", "row_status"),
     )
@@ -1607,13 +1617,19 @@ class WbDailyReportRow(TimestampMixin, Base):
         nullable=False,
     )
     report_number: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    report_type: Mapped[str] = mapped_column(String(16), nullable=False, default="daily")
+    report_period_start: Mapped[date | None] = mapped_column(Date, nullable=True)
+    report_period_end: Mapped[date | None] = mapped_column(Date, nullable=True)
     row_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     row_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     sale_dt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     order_dt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     nm_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
     supplier_article: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    product_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    size: Mapped[str | None] = mapped_column(String(128), nullable=True)
     barcode: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    shk: Mapped[str | None] = mapped_column(String(128), nullable=True)
     srid: Mapped[str | None] = mapped_column(String(255), nullable=True)
     linked_order_id: Mapped[int | None] = mapped_column(
         ForeignKey("orders.id", ondelete="SET NULL"), nullable=True
@@ -1622,18 +1638,38 @@ class WbDailyReportRow(TimestampMixin, Base):
         ForeignKey("products.id", ondelete="SET NULL"), nullable=True
     )
     doc_type_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    payment_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     subject_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     brand_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     retail_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     retail_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     for_pay: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    delivery_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    return_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     delivery_rub: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     penalty: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     storage_fee: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     acceptance: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     deduction: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     commission_rub: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    commission_correction_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric(14, 2), nullable=True
+    )
+    reimbursement_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    logistics_penalty_correction_type: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
+    basket_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    sale_method: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    product_match_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    order_match_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    product_match_method: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    order_match_method: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    finance_operation_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="unknown"
+    )
+    finance_category: Mapped[str] = mapped_column(String(64), nullable=False, default="other")
     row_status: Mapped[str] = mapped_column(String(24), nullable=False, default="new")
     skip_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

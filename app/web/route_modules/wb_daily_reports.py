@@ -576,6 +576,7 @@ def _preview_content(
           <div class="kpi">
             <span>Номер отчёта</span><strong>{escape(parsed.report_number)}</strong>
           </div>
+          <div class="kpi"><span>Тип отчёта</span><strong>{escape(_report_type_label(parsed.report_type))}</strong></div>
           <div class="kpi"><span>Дата отчёта</span><strong>{escape(report_date)}</strong></div>
           <div class="kpi"><span>Строк в файле</span><strong>{len(parsed.rows)}</strong></div>
           <div class="kpi"><span>Продаж</span><strong>{sales_count}</strong></div>
@@ -621,12 +622,13 @@ def _summarize_parsed(parsed: WbDailyReportParsed) -> dict[str, object]:
     for row in parsed.rows:
         hash_value = row.compute_hash()
         seen_hashes[hash_value] += 1
-        if row.doc_type_name and "возврат" in row.doc_type_name.lower():
+        operation_text = f"{row.doc_type_name or ''} {row.payment_reason or ''}".lower()
+        if "возврат" in operation_text:
             returns_count += 1
         else:
             sales_count += 1
-        if row.for_pay is not None:
-            sales_total += row.for_pay
+        if row.retail_amount is not None:
+            sales_total += row.retail_amount
         if row.delivery_rub is not None:
             logistics_total += row.delivery_rub
         if row.penalty is not None:
@@ -728,8 +730,9 @@ def _import_detail_content(
             <span>Имя кабинета</span><strong>{escape(account_name)}</strong>
             <span>Дата загрузки</span><strong>{escape(format_datetime_for_user(import_record.created_at, user.timezone))}</strong>
             <span>Файл</span><strong>{escape(import_record.original_filename or "—")}</strong>
+            <span>Тип отчёта</span><strong>{escape(_report_type_label(getattr(import_record, "report_type", "daily")))}</strong>
             <span>Тип файла</span><strong>{escape(_file_type(import_record.original_filename))}</strong>
-            <span>Период отчёта</span><strong>{escape(str(import_record.report_date or "—"))}</strong>
+            <span>Период отчёта</span><strong>{escape(_report_period(import_record))}</strong>
             <span>Номер отчёта</span><strong>{escape(import_record.report_number)}</strong>
             <span>Статус</span><strong>{escape(_status_label(import_record.status))}</strong>
             <span>Всего строк</span><strong>{import_record.rows_total}</strong>
@@ -751,7 +754,7 @@ def _import_detail_content(
             <span>Хранение</span><strong>{_rub(getattr(summary, "storage_amount", 0))}</strong>
             <span>Удержания</span><strong>{_rub(getattr(summary, "deductions_amount", 0))}</strong>
             <span>Штрафы</span><strong>{_rub(getattr(summary, "penalties_amount", 0))}</strong>
-            <span>Доплаты/приёмка</span><strong>{_rub(getattr(summary, "acceptance_amount", 0))}</strong>
+            <span>Платная приемка FBS</span><strong>{_rub(getattr(summary, "acceptance_amount", 0))}</strong>
             <span>Итог к выплате</span><strong>{_rub(getattr(summary, "payout_amount", 0))}</strong>
             <span>Заказов</span><strong>{getattr(summary, "orders_count", 0)}</strong>
             <span>Продаж</span><strong>{getattr(summary, "sales_count", 0)}</strong>
@@ -772,7 +775,7 @@ def _import_detail_content(
           <span>Без заказа: <strong>{getattr(summary, "unlinked_orders", 0)}</strong></span>
           <span>Дубли: <strong>{getattr(summary, "duplicate_rows", 0)}</strong></span>
         </div>
-        <p class="muted">Дедупликация выполняется по ключу: кабинет WB + номер отчёта + хеш нормализованной строки.</p>
+        <p class="muted">Дедупликация выполняется по ключу: кабинет WB + тип отчёта + номер отчёта + хеш нормализованной строки.</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap">{reasons_html}</div>
       </section>
       <section class="band" style="margin-top:14px">
@@ -816,12 +819,12 @@ def _rows_table(rows_page: object, timezone: str) -> str:
         <table class="table">
           <thead>
             <tr>
-              <th>Дата операции</th><th>Тип операции</th><th>nm_id</th>
-              <th>Артикул</th><th>Barcode</th><th>srid</th><th class="num">Кол-во</th>
+              <th>Дата операции</th><th>Обоснование</th><th>Статья</th><th>Тип операции</th><th>nm_id</th>
+              <th>Артикул</th><th>Barcode</th><th>ШК</th><th>srid</th><th class="num">Кол-во</th>
               <th class="num">Цена</th><th class="num">Сумма продажи</th>
               <th class="num">Комиссия</th><th class="num">Логистика</th>
               <th class="num">Хранение</th><th class="num">Штрафы</th>
-              <th class="num">Удержания</th><th class="num">К перечислению</th>
+              <th class="num">Удержания</th><th class="num">Приемка FBS</th><th class="num">К перечислению</th>
               <th>Статус</th><th>Причина</th><th>Заказ/продажа</th><th>Товар</th>
             </tr>
           </thead>
@@ -849,10 +852,13 @@ def _row_html(row: object, timezone: str) -> str:
     return (
         "<tr>"
         f"<td>{escape(format_datetime_for_user(sale_dt, timezone) if sale_dt else '—')}</td>"
-        f"<td>{escape(getattr(row, 'doc_type_name', None) or '—')}</td>"
+        f"<td>{escape(getattr(row, 'payment_reason', None) or '—')}</td>"
+        f"<td>{escape(_finance_category_label(getattr(row, 'finance_category', None)))}</td>"
+        f"<td>{escape(getattr(row, 'finance_operation_type', None) or getattr(row, 'doc_type_name', None) or '—')}</td>"
         f"<td>{escape(str(getattr(row, 'nm_id', '') or '—'))}</td>"
         f"<td>{escape(getattr(row, 'supplier_article', None) or '—')}</td>"
         f"<td>{escape(getattr(row, 'barcode', None) or '—')}</td>"
+        f"<td>{escape(getattr(row, 'shk', None) or '—')}</td>"
         f"<td>{escape(getattr(row, 'srid', None) or '—')}</td>"
         f"<td class='num'>{escape(str(getattr(row, 'quantity', '') or '—'))}</td>"
         f"<td class='num'>{_rub(getattr(row, 'retail_price', None))}</td>"
@@ -862,6 +868,7 @@ def _row_html(row: object, timezone: str) -> str:
         f"<td class='num'>{_rub(getattr(row, 'storage_fee', None))}</td>"
         f"<td class='num'>{_rub(getattr(row, 'penalty', None))}</td>"
         f"<td class='num'>{_rub(getattr(row, 'deduction', None))}</td>"
+        f"<td class='num'>{_rub(getattr(row, 'acceptance', None))}</td>"
         f"<td class='num'>{_rub(getattr(row, 'for_pay', None))}</td>"
         f"<td><span class='badge {_row_status_class(row_status)}'>{escape(_row_status_label(row_status))}</span></td>"
         f"<td>{escape(getattr(row, 'skip_reason', None) or getattr(row, 'error_message', None) or '—')}</td>"
@@ -982,6 +989,33 @@ def _file_type(filename: str | None) -> str:
     if suffix == ".xlsx":
         return "XLSX"
     return "—"
+
+
+def _report_type_label(report_type: str | None) -> str:
+    return {"daily": "Ежедневный", "weekly": "Еженедельный"}.get(report_type or "", report_type or "—")
+
+
+def _report_period(import_record: WbDailyReportImport) -> str:
+    start = getattr(import_record, "report_period_start", None) or import_record.report_date
+    end = getattr(import_record, "report_period_end", None) or import_record.report_date
+    if start and end and start != end:
+        return f"{start} — {end}"
+    return str(start or "—")
+
+
+def _finance_category_label(category: str | None) -> str:
+    return {
+        "revenue": "Выручка",
+        "wb_commission": "Комиссия WB",
+        "logistics": "Логистика",
+        "storage": "Хранение",
+        "penalty": "Штрафы",
+        "deduction": "Удержания",
+        "paid_acceptance": "Платная приемка FBS",
+        "compensation": "Компенсации",
+        "return": "Возврат",
+        "other": "Прочее WB",
+    }.get(category or "other", category or "Прочее WB")
 
 
 def _rub(value: object) -> str:

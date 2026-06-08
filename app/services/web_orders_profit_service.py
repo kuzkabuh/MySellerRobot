@@ -405,9 +405,14 @@ class WebOrdersProfitService:
         if filters.marketplace not in (None, Marketplace.WB):
             return rows
         article_expr = func.coalesce(WbDailyReportRow.supplier_article, literal_column("''"))
-        sales_case = func.lower(func.coalesce(WbDailyReportRow.doc_type_name, "")).not_like(
-            "%возврат%"
+        operation_text = func.lower(
+            func.concat(
+                func.coalesce(WbDailyReportRow.doc_type_name, ""),
+                " ",
+                func.coalesce(WbDailyReportRow.payment_reason, ""),
+            )
         )
+        sales_case = operation_text.not_like("%возврат%")
         query = (
             select(
                 article_expr.label("seller_article"),
@@ -419,6 +424,7 @@ class WebOrdersProfitService:
                 func.coalesce(func.sum(WbDailyReportRow.storage_fee), 0),
                 func.coalesce(func.sum(WbDailyReportRow.penalty), 0),
                 func.coalesce(func.sum(WbDailyReportRow.deduction), 0),
+                func.coalesce(func.sum(WbDailyReportRow.acceptance), 0),
             )
             .where(WbDailyReportRow.user_id == user_id)
             .where(WbDailyReportRow.sale_dt >= filters.date_from)
@@ -439,6 +445,7 @@ class WebOrdersProfitService:
             storage,
             penalty,
             deduction,
+            acceptance,
         ) in result.all():
             article = str(seller_article or "")
             marketplace_costs = sum(
@@ -448,6 +455,7 @@ class WebOrdersProfitService:
                     _decimal(storage),
                     _decimal(penalty),
                     _decimal(deduction),
+                    _decimal(acceptance),
                 ),
                 ZERO,
             )

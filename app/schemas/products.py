@@ -18,6 +18,7 @@ class ProductUpsert(BaseModel):
     external_product_id: str
     seller_article: str | None = None
     marketplace_article: str | None = None
+    barcode: str | None = None
     chrt_id: str | None = None
     title: str | None = None
     brand: str | None = None

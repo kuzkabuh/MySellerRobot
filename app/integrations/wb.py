@@ -1195,6 +1195,7 @@ class WildberriesClient:
         height = decimal_or_none(dimensions.get("height"))
         volume = calculate_volume_liters(length, width, height)
         chrt_id = _first_chrt_id(payload)
+        barcode = _first_barcode(payload)
         photos = payload.get("photos") or []
         image_url = None
         if photos and isinstance(photos[0], dict):
@@ -1206,6 +1207,7 @@ class WildberriesClient:
             external_product_id=nm_id,
             seller_article=payload.get("vendorCode"),
             marketplace_article=nm_id,
+            barcode=barcode,
             chrt_id=chrt_id,
             title=payload.get("title"),
             brand=payload.get("brand"),
@@ -1232,4 +1234,20 @@ def _first_chrt_id(payload: dict[str, Any]) -> str | None:
             return str(size["chrtID"])
         if isinstance(size, dict) and size.get("chrtId"):
             return str(size["chrtId"])
+    return None
+
+
+def _first_barcode(payload: dict[str, Any]) -> str | None:
+    sizes = payload.get("sizes")
+    if not isinstance(sizes, list):
+        return None
+    for size in sizes:
+        if not isinstance(size, dict):
+            continue
+        for key in ("skus", "barcodes", "barcode"):
+            value = size.get(key)
+            if isinstance(value, list) and value:
+                return str(value[0]).strip() or None
+            if isinstance(value, str) and value.strip():
+                return value.strip()
     return None

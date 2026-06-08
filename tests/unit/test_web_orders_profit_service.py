@@ -240,6 +240,7 @@ class _FakeSession:
                     Decimal("20"),
                     Decimal("10"),
                     Decimal("30"),
+                    Decimal("10"),
                 )
             ]
         )
@@ -288,5 +289,5 @@ async def test_profit_merges_wb_daily_report_rows_as_actual_fact() -> None:
 
     assert rows[0].sales == 2
     assert rows[0].revenue == Decimal("4000")
-    assert rows[0].marketplace_costs == Decimal("240")
-    assert rows[0].actual_profit == Decimal("2160")
+    assert rows[0].marketplace_costs == Decimal("250")
+    assert rows[0].actual_profit == Decimal("2150")

@@ -1,6 +1,6 @@
-"""version: 1.0.0
-description: Robust XLSX parser for WB daily realisation reports.
-updated: 2026-06-07
+"""version: 1.1.0
+description: Robust XLSX parser for WB daily and weekly detailed reports.
+updated: 2026-06-08
 """
 from __future__ import annotations
 
@@ -28,7 +28,11 @@ REPORT_NUMBER_PATTERN = re.compile(
 @dataclass(slots=True)
 class WbDailyReportParsed:
     report_number: str
+    report_type: str
     report_date: date | None
+    report_period_start: date | None
+    report_period_end: date | None
+    source_filename: str | None = None
     rows: list[WbDailyReportParsedRow] = field(default_factory=list)
     skipped_rows: int = 0
 
@@ -36,40 +40,57 @@ class WbDailyReportParsed:
 @dataclass(slots=True)
 class WbDailyReportParsedRow:
     row_number: int | None
+    report_type: str
     sale_dt: datetime | None
     order_dt: datetime | None
     nm_id: int | None
     supplier_article: str | None
+    product_name: str | None
+    size: str | None
     barcode: str | None
+    shk: str | None
     srid: str | None
     doc_type_name: str | None
+    payment_reason: str | None
     subject_name: str | None
     brand_name: str | None
     quantity: int | None
     retail_price: Decimal | None
     retail_amount: Decimal | None
     for_pay: Decimal | None
+    delivery_count: int | None
+    return_count: int | None
     delivery_rub: Decimal | None
     penalty: Decimal | None
     storage_fee: Decimal | None
     acceptance: Decimal | None
     deduction: Decimal | None
     commission_rub: Decimal | None
+    commission_correction_amount: Decimal | None
+    reimbursement_amount: Decimal | None
+    logistics_penalty_correction_type: str | None
+    basket_id: str | None
+    sale_method: str | None
+    finance_operation_type: str
+    finance_category: str
     raw: dict[str, object]
 
     def compute_hash(self) -> str:
         payload = {
             "report_number": _stable_string(self.raw.get("report_number")),
+            "report_type": self.report_type,
             "row_number": self.row_number,
             "nm_id": self.nm_id,
             "supplier_article": _stable_string(self.supplier_article),
             "barcode": _stable_string(self.barcode),
+            "shk": _stable_string(self.shk),
             "srid": _stable_string(self.srid),
+            "payment_reason": _stable_string(self.payment_reason),
             "doc_type_name": _stable_string(self.doc_type_name),
             "sale_dt": self.sale_dt.isoformat() if self.sale_dt else None,
-            "order_dt": self.order_dt.isoformat() if self.order_dt else None,
             "quantity": self.quantity,
-            "retail_price": _stable_decimal(self.retail_price),
+            "retail_amount": _stable_decimal(self.retail_amount),
+            "commission_rub": _stable_decimal(self.commission_rub),
             "for_pay": _stable_decimal(self.for_pay),
         }
         encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
@@ -84,35 +105,64 @@ COLUMN_ALIASES: dict[str, str] = {
     "Код номенклатуры": "nm_id",
     "Бренд": "brand_name",
     "Артикул поставщика": "supplier_article",
-    "Название": "subject_name",
+    "Название": "product_name",
     "Размер": "size",
     "Баркод": "barcode",
+    "ШК": "shk",
     "Srid": "srid",
     "SRID": "srid",
     "srid": "srid",
     "Тип документа": "doc_type_name",
-    "Обоснование для оплаты": "doc_type_name",
+    "Обоснование для оплаты": "payment_reason",
     "Дата заказа покупателем": "order_dt",
     "Дата продажи": "sale_dt",
     "Кол-во": "quantity",
     "Цена розничная": "retail_price",
-    "Вайлдберриз реализовал Товар (Пр)": "for_pay",
+    "Вайлдберриз реализовал Товар (Пр)": "retail_amount",
     "Согласованный продуктовый дисконт, %": "agreed_product_discount",
     "Промокод, %": "promo_discount",
     "Итоговая согласованная скидка, %": "final_discount",
-    "Цена розничная с учетом согласованной скидки": "retail_amount",
+    "Цена розничная с учетом согласованной скидки": "retail_price_discounted",
     "Скидка постоянного покупателя, %": "loyalty_discount",
     "Скидка продавца, %": "seller_discount",
     "Комиссия, %": "commission_percent",
     "Размер комиссии": "commission_rub",
+    "Вознаграждение Вайлдберриз (ВВ), без НДС": "commission_rub",
+    "К перечислению Продавцу за реализованный Товар": "for_pay",
+    "Количество доставок": "delivery_count",
+    "Количество возврата": "return_count",
     "Стоимость логистики": "delivery_rub",
+    "Услуги по доставке товара покупателю": "delivery_rub",
     "Стоимость хранения": "storage_fee",
+    "Хранение": "storage_fee",
     "Стоимость приёмки": "acceptance",
+    "Операции на приемке": "acceptance",
     "Удержание": "deduction",
+    "Удержания": "deduction",
     "Штраф": "penalty",
+    "Общая сумма штрафов": "penalty",
+    "Корректировка Вознаграждения Вайлдберриз (ВВ)": "commission_correction_amount",
+    "Виды логистики, штрафов и корректировок ВВ": "logistics_penalty_correction_type",
+    "Возмещение издержек по перевозке/по складским операциям с товаром": "reimbursement_amount",
+    "Id корзины заказа": "basket_id",
+    "Способы продажи и тип товара": "sale_method",
 }
 
 DATE_KEYS = {"order_dt", "sale_dt"}
+REQUIRED_COLUMNS = {
+    "nm_id",
+    "supplier_article",
+    "barcode",
+    "payment_reason",
+    "doc_type_name",
+    "sale_dt",
+    "quantity",
+    "retail_amount",
+    "commission_rub",
+    "for_pay",
+    "shk",
+    "srid",
+}
 
 
 def iter_wb_daily_report_rows(
@@ -120,6 +170,8 @@ def iter_wb_daily_report_rows(
     *,
     max_rows: int = 200_000,
     report_number_hint: str | None = None,
+    report_type: str = "daily",
+    source_filename: str | None = None,
 ) -> WbDailyReportParsed:
     """Parse a WB daily realisation-report XLSX file.
 
@@ -149,9 +201,15 @@ def iter_wb_daily_report_rows(
         raise ValueError("Файл отчёта WB пустой или не содержит заголовки")
 
     mapped_columns = [_resolve_column(header) for header in headers]
+    missing_columns = sorted(REQUIRED_COLUMNS - {column for column in mapped_columns if column})
+    if missing_columns:
+        raise ValueError(
+            "В отчёте WB отсутствуют обязательные колонки: "
+            + ", ".join(_public_column_name(column) for column in missing_columns)
+        )
 
     report_number: str | None = _valid_report_number(report_number_hint)
-    report_date: date | None = None
+    sale_dates: list[date] = []
     parsed_rows: list[WbDailyReportParsedRow] = []
     skipped = 0
     row_index = 0
@@ -172,10 +230,10 @@ def iter_wb_daily_report_rows(
 
         if "report_number" in record and not report_number:
             report_number = _valid_report_number(record.get("report_number"))
-        if "sale_dt" in record and not report_date:
+        if "sale_dt" in record:
             sale_dt = _coerce_datetime(record.get("sale_dt"))
             if sale_dt is not None:
-                report_date = sale_dt.date()
+                sale_dates.append(sale_dt.date())
 
         if report_number is None and row_index == 1:
             match = REPORT_NUMBER_PATTERN.search(_stringify(raw_row[0]) or "")
@@ -190,7 +248,7 @@ def iter_wb_daily_report_rows(
             record["report_number"] = report_number
 
         try:
-            parsed = _build_row(record, row_index + 1)
+            parsed = _build_row(record, row_index + 1, report_type=report_type)
         except Exception:
             logger.exception(
                 "wb_daily_report_row_parse_failed",
@@ -208,7 +266,11 @@ def iter_wb_daily_report_rows(
 
     return WbDailyReportParsed(
         report_number=report_number,
-        report_date=report_date,
+        report_type=report_type,
+        report_date=min(sale_dates) if sale_dates else None,
+        report_period_start=min(sale_dates) if sale_dates else None,
+        report_period_end=max(sale_dates) if sale_dates else None,
+        source_filename=source_filename,
         rows=parsed_rows,
         skipped_rows=skipped,
     )
@@ -245,21 +307,27 @@ def parse_wb_daily_report_upload(
 
     suffix = Path(filename).suffix.lower()
     report_number_hint = _report_number_from_filename(filename)
+    report_type = _report_type_from_filename(filename)
 
     if suffix == ".zip":
         with zipfile.ZipFile(BytesIO(payload)) as archive:
             xlsx_name = _find_xlsx_in_zip(archive)
             with archive.open(xlsx_name) as xlsx_file:
                 xlsx_bytes = xlsx_file.read()
+        report_type = report_type or _report_type_from_filename(xlsx_name)
         return iter_wb_daily_report_rows(
             xlsx_bytes,
             report_number_hint=report_number_hint or _report_number_from_filename(xlsx_name),
+            report_type=report_type or "daily",
+            source_filename=filename,
         )
 
     if suffix == ".xlsx":
         return iter_wb_daily_report_rows(
             payload,
             report_number_hint=report_number_hint,
+            report_type=report_type or "daily",
+            source_filename=filename,
         )
 
     raise ValueError("Поддерживаются только файлы .xlsx или .zip")
@@ -295,6 +363,15 @@ def _valid_report_number(value: object) -> str | None:
     return text
 
 
+def _report_type_from_filename(filename: str) -> str | None:
+    lowered = filename.lower()
+    if "еженедель" in lowered or "weekly" in lowered:
+        return "weekly"
+    if "ежеднев" in lowered or "daily" in lowered:
+        return "daily"
+    return None
+
+
 def _resolve_column(header: str) -> str | None:
     cleaned = header.strip()
     if not cleaned:
@@ -308,35 +385,83 @@ def _resolve_column(header: str) -> str | None:
     return None
 
 
-def _build_row(record: dict[str, object], row_number: int) -> WbDailyReportParsedRow:
+def _build_row(
+    record: dict[str, object],
+    row_number: int,
+    *,
+    report_type: str,
+) -> WbDailyReportParsedRow:
     sale_dt = _coerce_datetime(record.get("sale_dt")) if "sale_dt" in record else None
     order_dt = _coerce_datetime(record.get("order_dt")) if "order_dt" in record else None
     nm_id = _coerce_int(record.get("nm_id")) if "nm_id" in record else None
     quantity = _coerce_int(record.get("quantity")) if "quantity" in record else None
+    payment_reason = _stringify(record.get("payment_reason")) or None
+    finance_operation_type, finance_category = classify_payment_reason(payment_reason)
 
     return WbDailyReportParsedRow(
         row_number=_coerce_int(record.get("row_number"), default=row_number),
+        report_type=report_type,
         sale_dt=sale_dt,
         order_dt=order_dt,
         nm_id=nm_id,
         supplier_article=_stringify(record.get("supplier_article")) or None,
+        product_name=_stringify(record.get("product_name")) or None,
+        size=_stringify(record.get("size")) or None,
         barcode=_stringify(record.get("barcode")) or None,
+        shk=_stringify(record.get("shk")) or None,
         srid=_stringify(record.get("srid")) or None,
         doc_type_name=_stringify(record.get("doc_type_name")) or None,
+        payment_reason=payment_reason,
         subject_name=_stringify(record.get("subject_name")) or None,
         brand_name=_stringify(record.get("brand_name")) or None,
         quantity=quantity,
         retail_price=_coerce_decimal(record.get("retail_price")),
         retail_amount=_coerce_decimal(record.get("retail_amount")),
         for_pay=_coerce_decimal(record.get("for_pay")),
+        delivery_count=_coerce_int(record.get("delivery_count")),
+        return_count=_coerce_int(record.get("return_count")),
         delivery_rub=_coerce_decimal(record.get("delivery_rub")),
         penalty=_coerce_decimal(record.get("penalty")),
         storage_fee=_coerce_decimal(record.get("storage_fee")),
         acceptance=_coerce_decimal(record.get("acceptance")),
         deduction=_coerce_decimal(record.get("deduction")),
         commission_rub=_coerce_decimal(record.get("commission_rub")),
+        commission_correction_amount=_coerce_decimal(record.get("commission_correction_amount")),
+        reimbursement_amount=_coerce_decimal(record.get("reimbursement_amount")),
+        logistics_penalty_correction_type=(
+            _stringify(record.get("logistics_penalty_correction_type")) or None
+        ),
+        basket_id=_stringify(record.get("basket_id")) or None,
+        sale_method=_stringify(record.get("sale_method")) or None,
+        finance_operation_type=finance_operation_type,
+        finance_category=finance_category,
         raw=record,
     )
+
+
+def classify_payment_reason(reason: str | None) -> tuple[str, str]:
+    text = (reason or "").strip().lower()
+    if not text:
+        return "unknown", "other"
+    if "возврат" in text:
+        return "return", "return"
+    if "логист" in text or "достав" in text:
+        return "expense", "logistics"
+    if "хран" in text:
+        return "expense", "storage"
+    if "прием" in text or "приём" in text:
+        return "expense", "paid_acceptance"
+    if "штраф" in text:
+        return "expense", "penalty"
+    if "удерж" in text:
+        return "expense", "deduction"
+    if "компенсац" in text or "возмещ" in text or "доплат" in text:
+        return "income", "compensation"
+    if "коррект" in text and ("вознаграж" in text or "вв" in text):
+        return "correction", "wb_commission"
+    if "продаж" in text or "реализац" in text or "товар" in text:
+        return "income", "revenue"
+    return "unknown", "other"
 
 
 def _coerce_datetime(value: object) -> datetime | None:
@@ -421,3 +546,21 @@ def _stable_decimal(value: Decimal | None) -> str | None:
     if value is None:
         return None
     return format(value, "f")
+
+
+def _public_column_name(column: str) -> str:
+    names = {
+        "nm_id": "Код номенклатуры",
+        "supplier_article": "Артикул поставщика",
+        "barcode": "Баркод",
+        "payment_reason": "Обоснование для оплаты",
+        "doc_type_name": "Тип документа",
+        "sale_dt": "Дата продажи",
+        "quantity": "Кол-во",
+        "retail_amount": "Вайлдберриз реализовал Товар (Пр)",
+        "commission_rub": "Вознаграждение Вайлдберриз (ВВ), без НДС",
+        "for_pay": "К перечислению Продавцу за реализованный Товар",
+        "shk": "ШК",
+        "srid": "Srid",
+    }
+    return names.get(column, column)
