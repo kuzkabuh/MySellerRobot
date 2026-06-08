@@ -5,7 +5,7 @@
 name = "seller-profit-bot"
 version = "1.9.10"
 description = "MP Control service for WB and Ozon sellers with bot, web cabinet, subscriptions, and analytics"
-requires-python = ">=3.14,<3.15"
+requires-python = "3.12"
 dependencies = [
     "aiogram>=3.6,<4",
     "alembic>=1.13,<2",
@@ -50,18 +50,18 @@ namespaces = false
 
 [tool.black]
 line-length = 100
-target-version = ["py314"]
+target-version = ["py312"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py314"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "ASYNC", "C4"]
 ignore = ["UP037", "UP043"]
 
 [tool.mypy]
-python_version = "3.14"
+python_version = "3.12"
 strict = true
 plugins = ["sqlalchemy.ext.mypy.plugin"]
 

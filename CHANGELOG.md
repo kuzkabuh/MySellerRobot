@@ -25,8 +25,8 @@
 
 ### Changed
 
-- Runtime baseline обновлён до Python 3.14: `pyproject.toml`, Docker image,
-  developer tooling и документация теперь согласованы с 3.14.
+- Runtime baseline закреплён на Python 3.12: `pyproject.toml`, Docker image,
+  developer tooling и документация теперь согласованы с 3.12.
 - Корневой FastAPI route отдаёт `public/index.html` как единый источник landing page.
 - Админский ручной запуск sync-задач ставит arq job в очередь вместо прямого
   выполнения worker-функции в web request.
