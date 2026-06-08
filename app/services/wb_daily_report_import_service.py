@@ -146,7 +146,7 @@ class WbDailyReportImportService:
                 "report_number": parsed.report_number,
                 "report_type": parsed.report_type,
                 "rows_total": len(parsed.rows),
-                "filename": original_filename,
+                "source_filename": original_filename,
             },
         )
         import_record = WbDailyReportImport(
