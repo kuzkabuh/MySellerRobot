@@ -13,16 +13,20 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, int_pk
 from app.models.enums import PaymentStatus, SubscriptionStatus
+
+JsonType = JSON().with_variant(JSONB, "postgresql")
 
 if TYPE_CHECKING:
     from app.models.domain import User
@@ -144,3 +148,28 @@ class Payment(TimestampMixin, Base):
     # Relationships
     user: Mapped["User"] = relationship()
     subscription: Mapped["UserSubscription | None"] = relationship(back_populates="payments")
+
+class SubscriptionPlan(TimestampMixin, Base):
+    __tablename__ = "subscription_plans"
+
+    id: Mapped[int_pk]
+    code: Mapped[str] = mapped_column(String(64), unique=True)
+    title: Mapped[str] = mapped_column(String(255))
+    monthly_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    marketplace_limit: Mapped[int] = mapped_column(Integer, default=1)
+    sku_limit: Mapped[int] = mapped_column(Integer, default=100)
+    features: Mapped[dict[str, Any]] = mapped_column(JsonType, default=dict)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+class Subscription(TimestampMixin, Base):
+    __tablename__ = "subscriptions"
+    __table_args__ = (Index("ix_subscriptions_user_status", "user_id", "status"),)
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    plan_id: Mapped[int] = mapped_column(ForeignKey("subscription_plans.id"))
+    status: Mapped[str] = mapped_column(String(64), default="ACTIVE")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    payment_provider: Mapped[str | None] = mapped_column(String(128))
+    external_subscription_id: Mapped[str | None] = mapped_column(String(255))
