@@ -129,12 +129,14 @@ class WbDailyReportImportService:
         original_filename: str | None,
         source_type: str = "file",
     ) -> WbDailyReportImportResult:
+        _account_id = marketplace_account.id
+        _report_number = parsed.report_number
         logger.info(
             "wb_daily_report_import_started",
             extra={
                 "user_id": user_id,
-                "account_id": marketplace_account.id,
-                "report_number": parsed.report_number,
+                "account_id": _account_id,
+                "report_number": _report_number,
                 "report_type": parsed.report_type,
                 "rows_total": len(parsed.rows),
                 "source_filename": original_filename,
@@ -142,7 +144,7 @@ class WbDailyReportImportService:
         )
         import_record = WbDailyReportImport(
             user_id=user_id,
-            marketplace_account_id=marketplace_account.id,
+            marketplace_account_id=_account_id,
             source_type=source_type,
             report_type=parsed.report_type,
             original_filename=original_filename,
@@ -193,8 +195,8 @@ class WbDailyReportImportService:
                 "wb_daily_report_import_failed",
                 extra={
                     "user_id": user_id,
-                    "account_id": marketplace_account.id,
-                    "report_number": parsed.report_number,
+                    "account_id": _account_id,
+                    "report_number": _report_number,
                 },
             )
             raise
@@ -223,7 +225,7 @@ class WbDailyReportImportService:
             extra={
                 "import_id": import_record.id,
                 "user_id": user_id,
-                "account_id": marketplace_account.id,
+                "account_id": _account_id,
                 "rows_total": import_record.rows_total,
                 "rows_inserted": import_record.rows_inserted,
                 "rows_skipped": import_record.rows_skipped,
@@ -481,6 +483,63 @@ class WbDailyReportImportService:
     ) -> dict[str, int]:
         product_map = await self._product_links(user_id=user_id, account_id=account.id, rows=batch)
         order_map = await self._order_links(user_id=user_id, account_id=account.id, rows=batch)
+
+        account_id = account.id
+        row_meta = [
+            (
+                row,
+                row.compute_source_row_hash(),
+                row.compute_stable_business_key(
+                    marketplace_account_id=account_id,
+                    report_number=report_number,
+                ),
+            )
+            for row in batch
+        ]
+
+        stable_keys = [meta[2] for meta in row_meta if meta[2]]
+        existing_by_stable: dict[str, WbDailyReportRow] = {}
+        existing_by_hash: dict[str, WbDailyReportRow] = {}
+        if stable_keys:
+            result = await self.session.execute(
+                select(WbDailyReportRow).where(
+                    WbDailyReportRow.marketplace_account_id == account_id,
+                    WbDailyReportRow.report_type == report_type,
+                    WbDailyReportRow.report_number == report_number,
+                    WbDailyReportRow.stable_business_key.in_(stable_keys),
+                    WbDailyReportRow.deleted_at.is_(None),
+                )
+            )
+            for db_row in result.scalars().all():
+                if db_row.stable_business_key:
+                    existing_by_stable[db_row.stable_business_key] = db_row
+                if db_row.row_hash:
+                    existing_by_hash[db_row.row_hash] = db_row
+
+        missing_hashes = [
+            meta[1] for meta in row_meta
+            if meta[2] not in existing_by_stable and meta[1] not in existing_by_hash
+        ]
+        if missing_hashes:
+            result = await self.session.execute(
+                select(WbDailyReportRow).where(
+                    WbDailyReportRow.marketplace_account_id == account_id,
+                    WbDailyReportRow.report_type == report_type,
+                    WbDailyReportRow.report_number == report_number,
+                    WbDailyReportRow.row_hash.in_(missing_hashes),
+                    WbDailyReportRow.deleted_at.is_(None),
+                )
+            )
+            for db_row in result.scalars().all():
+                existing_by_hash[db_row.row_hash] = db_row
+
+        def _existing_row(stable_key: str, source_hash: str) -> WbDailyReportRow | None:
+            if stable_key and stable_key in existing_by_stable:
+                return existing_by_stable[stable_key]
+            if source_hash and source_hash in existing_by_hash:
+                return existing_by_hash[source_hash]
+            return None
+
         logs: list[WbDailyReportImportRowLog] = []
         counters = {
             "created": 0,
@@ -490,18 +549,13 @@ class WbDailyReportImportService:
             "matched": 0,
             "ambiguous": 0,
         }
-        for row in batch:
-            source_hash = row.compute_source_row_hash()
-            stable_key = row.compute_stable_business_key(
-                marketplace_account_id=account.id,
-                report_number=report_number,
-            )
+        for row, source_hash, stable_key in row_meta:
             product_link = _resolve_product_link(row, product_map)
             order_link = _resolve_order_link(row, order_map)
-            existing = await self._row_by_stable_key(stable_key)
+            existing = _existing_row(stable_key, source_hash)
             values = _row_values(
                 user_id=user_id,
-                account_id=account.id,
+                account_id=account_id,
                 import_id=import_id,
                 report_number=report_number,
                 report_type=report_type,
@@ -570,15 +624,6 @@ class WbDailyReportImportService:
 
         self.session.add_all(logs)
         return counters
-
-    async def _row_by_stable_key(self, stable_key: str) -> WbDailyReportRow | None:
-        result = await self.session.execute(
-            select(WbDailyReportRow).where(
-                WbDailyReportRow.stable_business_key == stable_key,
-                WbDailyReportRow.deleted_at.is_(None),
-            )
-        )
-        return result.scalar_one_or_none()
 
     async def _replace_finance_components(self, row: WbDailyReportRow) -> None:
         now = datetime.now(UTC)
