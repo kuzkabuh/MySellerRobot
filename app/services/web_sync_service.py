@@ -9,6 +9,7 @@ from redis.asyncio import Redis
 
 from app.core.config import get_settings
 from app.core.redis import redis_settings_from_url
+from app.utils.distributed_lock import distributed_lock
 
 
 class WebSyncType(StrEnum):
@@ -70,22 +71,24 @@ class WebSyncService:
 
         redis = self.redis or _redis()
         owns_redis = self.redis is None
+
         try:
-            was_set = await redis.set(f"web-sync:{user_id}:{parsed.value}", "1", ex=120, nx=True)
-            if not was_set:
-                return WebSyncRequestResult(
-                    queued=False,
-                    message="Такая синхронизация уже недавно запускалась. Подождите пару минут.",
-                )
+            lock_key = f"web-sync:{user_id}:{parsed.value}"
+            async with distributed_lock(redis, lock_key, ttl_seconds=120) as acquired:
+                if not acquired:
+                    return WebSyncRequestResult(
+                        queued=False,
+                        message="Такая синхронизация уже недавно запускалась. Подождите пару минут.",
+                    )
+
+                task_name, message = SYNC_TASKS[parsed]
+                queue = await create_pool(_redis_settings())
+                await queue.enqueue_job(task_name)
+                await queue.close()
+                return WebSyncRequestResult(queued=True, message=message)
         finally:
             if owns_redis:
                 await redis.aclose()
-
-        task_name, message = SYNC_TASKS[parsed]
-        queue = await create_pool(_redis_settings())
-        await queue.enqueue_job(task_name)
-        await queue.close()
-        return WebSyncRequestResult(queued=True, message=message)
 
 
 def _redis() -> Redis:

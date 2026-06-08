@@ -351,7 +351,12 @@ class WebCabinetService:
                     wb_report_import_id = imp.id
 
             barcode = product.barcode if product else None
-            nm_id = product.nm_id if product else None
+            nm_id = None
+            if product:
+                if product.marketplace_article and product.marketplace_article.isdigit():
+                    nm_id = int(product.marketplace_article)
+                elif product.external_product_id and product.external_product_id.isdigit():
+                    nm_id = int(product.external_product_id)
             if barcode is None and report_rows_for_order:
                 barcode = report_rows_for_order[0].barcode
 
