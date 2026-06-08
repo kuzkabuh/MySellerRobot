@@ -53,6 +53,7 @@ from app.models.domain import (
     WbPromotion,
     WbPromotionNomenclature,
     WbReportCheckState,
+    WbReportFinanceComponent,
 )
 from app.models.promo_codes import PromoCode, PromoCodePeriod, PromoCodeTariff, PromoCodeUsage
 from app.models.subscriptions import Payment, SubscriptionTier, UserSubscription
@@ -118,4 +119,5 @@ __all__ = [
     "WbPromotion",
     "WbPromotionNomenclature",
     "WbReportCheckState",
+    "WbReportFinanceComponent",
 ]

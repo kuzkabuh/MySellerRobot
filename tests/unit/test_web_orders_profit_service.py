@@ -3,6 +3,7 @@ description: Unit tests for web order filters, profit ROI, order state labels, a
 updated: 2026-05-19
 """
 
+import inspect
 from decimal import Decimal
 
 import pytest
@@ -101,6 +102,12 @@ def test_profit_order_query_reuses_postgresql_safe_group_by_expressions() -> Non
     assert "coalesce(order_items.seller_article, '')" in sql
     assert "param_" not in sql
     assert "GROUP BY coalesce(order_items.title, order_items.seller_article, 'Без названия')" in sql
+
+
+def test_profit_merge_wb_rows_excludes_period_storage_scope() -> None:
+    source = inspect.getsource(WebOrdersProfitService._merge_wb_daily_report_rows)
+
+    assert 'operation_scope.in_(("order", "product"))' in source
 
 
 def test_order_page_result_dataclass_exists() -> None:

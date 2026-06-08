@@ -26,3 +26,29 @@ def test_wb_report_finance_components_split_amounts_by_category() -> None:
     assert by_category["payout"].operation_type == "cashflow"
     assert by_category["paid_acceptance"].original_amount == Decimal("25")
     assert by_category["wb_commission"].original_amount == Decimal("0")
+
+
+def test_storage_component_is_period_expense_without_order_fact() -> None:
+    row = WbDailyReportRow(
+        id=1,
+        import_id=2,
+        user_id=3,
+        marketplace_account_id=4,
+        order_id=5,
+        product_id=6,
+        payment_reason="Хранение",
+        finance_category="storage",
+        operation_scope="period",
+        storage_fee=Decimal("8.22"),
+        is_active=True,
+    )
+
+    components = _finance_components_for_row(row)
+
+    assert len(components) == 1
+    component = components[0]
+    assert component.finance_category == "storage"
+    assert component.operation_scope == "period"
+    assert component.is_order_fact is False
+    assert component.is_product_fact is False
+    assert component.is_global_fact is True

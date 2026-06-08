@@ -74,8 +74,10 @@ class WbDailyReportParsedRow:
     sale_method: str | None
     finance_operation_type: str
     finance_category: str
-    order_required: bool
-    raw: dict[str, object]
+    operation_scope: str = "unknown"
+    order_required: bool = True
+    product_required: bool = False
+    raw: dict[str, object] = field(default_factory=dict)
 
     def compute_hash(self) -> str:
         return self.compute_source_row_hash()
@@ -429,6 +431,10 @@ def _build_row(
     quantity = _coerce_int(record.get("quantity")) if "quantity" in record else None
     payment_reason = _stringify(record.get("payment_reason")) or None
     finance_operation_type, finance_category = classify_payment_reason(payment_reason)
+    operation_scope, order_required, product_required = classify_operation_scope(
+        record,
+        payment_reason,
+    )
     srid = _stringify(record.get("srid")) or None
     srid_normalized = normalize_srid(srid)
 
@@ -471,7 +477,9 @@ def _build_row(
         sale_method=_stringify(record.get("sale_method")) or None,
         finance_operation_type=finance_operation_type,
         finance_category=finance_category,
-        order_required=is_order_required(record, payment_reason),
+        operation_scope=operation_scope,
+        order_required=order_required,
+        product_required=product_required,
         raw=record,
     )
 
@@ -521,28 +529,54 @@ def extract_rid_from_srid(value: str | None) -> str | None:
     return text
 
 
-def is_order_required(record: dict[str, object], payment_reason: str | None) -> bool:
-    for key in ("nm_id", "barcode", "supplier_article", "srid", "shk", "basket_id"):
-        if _stringify(record.get(key)):
-            return True
+def classify_operation_scope(
+    record: dict[str, object],
+    payment_reason: str | None,
+) -> tuple[str, bool, bool]:
     text = (payment_reason or "").lower()
-    markers = (
-        "продаж",
-        "возврат",
-        "логист",
-        "достав",
-        "комисс",
-        "вознаграж",
-        "перечисл",
-        "прием",
-        "приём",
-        "штраф",
-        "удерж",
-        "компенсац",
-        "возмещ",
-        "товар",
+    has_order_identifier = any(
+        _stringify(record.get(key)) for key in ("srid", "shk", "basket_id")
     )
-    return any(marker in text for marker in markers)
+    has_product_identifier = any(
+        _stringify(record.get(key)) for key in ("nm_id", "barcode", "supplier_article")
+    )
+
+    if "хран" in text:
+        return "period", False, False
+
+    if any(marker in text for marker in ("продаж", "возврат", "перечисл")):
+        return "order", True, True
+
+    if any(marker in text for marker in ("логист", "достав")):
+        return ("order", True, True) if has_order_identifier or has_product_identifier else (
+            "period",
+            False,
+            False,
+        )
+
+    if any(marker in text for marker in ("прием", "приём", "штраф", "удерж")):
+        if has_order_identifier:
+            return "order", True, has_product_identifier
+        if has_product_identifier:
+            return "product", False, True
+        return "account", False, False
+
+    if any(marker in text for marker in ("компенсац", "возмещ", "доплат", "коррект")):
+        if has_order_identifier:
+            return "order", True, has_product_identifier
+        if has_product_identifier:
+            return "product", False, True
+        return "account", False, False
+
+    if has_order_identifier:
+        return "order", True, has_product_identifier
+    if has_product_identifier:
+        return "product", False, True
+    return "unknown", False, False
+
+
+def is_order_required(record: dict[str, object], payment_reason: str | None) -> bool:
+    return classify_operation_scope(record, payment_reason)[1]
 
 
 def _coerce_datetime(value: object) -> datetime | None:

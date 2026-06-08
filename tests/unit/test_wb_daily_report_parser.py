@@ -17,6 +17,7 @@ from openpyxl import Workbook
 from app.services.wb_daily_report_parser import (
     COLUMN_ALIASES,
     WbDailyReportParsed,
+    _build_row,
     classify_payment_reason,
     compute_file_hash,
     iter_wb_daily_report_rows,
@@ -381,6 +382,25 @@ def test_payment_reason_mapping_to_finance_category() -> None:
     assert classify_payment_reason("Хранение") == ("expense", "storage")
     assert classify_payment_reason("Операции на приемке") == ("expense", "paid_acceptance")
     assert classify_payment_reason("Продажа") == ("income", "revenue")
+
+
+def test_storage_row_is_period_expense_not_order() -> None:
+    row = _build_row(
+        {
+            "row_number": 197,
+            "payment_reason": "Хранение",
+            "sale_dt": datetime(2026, 6, 7),
+            "srid": "60dc6b1e6141a59cc932c9007f25472271ddc690",
+            "storage_fee": Decimal("8.22"),
+        },
+        197,
+        report_type="daily",
+    )
+
+    assert row.finance_category == "storage"
+    assert row.operation_scope == "period"
+    assert row.order_required is False
+    assert row.product_required is False
 
 
 def test_parse_wb_daily_report_zip_from_local_example() -> None:

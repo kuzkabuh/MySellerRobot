@@ -2652,6 +2652,10 @@ def _shared_order_filters(
                 "active": "Активные",
                 "cancelled": "Отменённые",
                 "action_required": "Требуют действия",
+                "fact_missing": "Без факта",
+                "fact_partial": "Частичный факт",
+                "fact_complete": "Полный факт",
+                "match_problem": "Проблемы сопоставления",
             },
             filters.status,
         )
@@ -2661,6 +2665,12 @@ def _shared_order_filters(
     date_from_value = filters.local_date_from.isoformat()
     date_to_value = filters.local_date_to.isoformat()
     return f"""
+      <nav class="tabs" style="margin-bottom:12px">
+        <a href="/web/orders">Заказы</a>
+        <a href="/web/sales">Продажи</a>
+        <a href="/web/returns">Возвраты</a>
+        <a href="/web/reports/wb-daily">Финансы WB</a>
+      </nav>
       <form class="filters" method="get" action="{escape(action)}">
         {_period_select(filters.period)}
         {

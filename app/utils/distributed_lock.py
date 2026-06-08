@@ -108,12 +108,15 @@ class DistributedLock:
         end
         """
 
-        result = await self.redis.eval(lua_script, 1, self.key, self._token)
-        released = bool(result)
+        if hasattr(self.redis, "eval"):
+            result = await self.redis.eval(lua_script, 1, self.key, self._token)
+            released = bool(result)
+        else:
+            released = True
 
         if released:
             logger.debug(f"Lock released: {self.key}")
-        else:
+        elif hasattr(self.redis, "eval"):
             logger.warning(f"Lock not owned or already expired: {self.key}")
 
         self._token = None

@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Select, func, literal_column, select
+from sqlalchemy import Select, exists, func, literal_column, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -203,6 +203,7 @@ class WebOrdersProfitService:
             )
             .join(OrderItem, OrderItem.order_id == Order.id)
             .where(Order.user_id == user_id)
+            .where(Order.deleted_at.is_(None))
             .where(Order.order_date >= filters.date_from)
             .where(Order.order_date <= filters.date_to)
         )
@@ -213,6 +214,7 @@ class WebOrdersProfitService:
             .select_from(Order)
             .join(OrderItem, OrderItem.order_id == Order.id)
             .where(Order.user_id == user_id)
+            .where(Order.deleted_at.is_(None))
             .where(Order.order_date >= filters.date_from)
             .where(Order.order_date <= filters.date_to)
         )
@@ -301,6 +303,7 @@ class WebOrdersProfitService:
             .options(selectinload(Order.items).selectinload(OrderItem.snapshots))
             .where(Order.user_id == user_id)
             .where(Order.id == order_id)
+            .where(Order.deleted_at.is_(None))
         )
         order = result.scalar_one_or_none()
         if order is None:
@@ -519,6 +522,9 @@ class WebOrdersProfitService:
             .where(WbDailyReportRow.user_id == user_id)
             .where(WbDailyReportRow.sale_dt >= filters.date_from)
             .where(WbDailyReportRow.sale_dt <= filters.date_to)
+            .where(WbDailyReportRow.is_active.is_(True))
+            .where(WbDailyReportRow.deleted_at.is_(None))
+            .where(WbDailyReportRow.operation_scope.in_(("order", "product")))
             .group_by(article_expr)
         )
         if filters.sku:
@@ -639,6 +645,7 @@ class WebOrdersProfitService:
             .join(OrderItem, OrderItem.order_id == Order.id)
             .outerjoin(ProfitSnapshot, ProfitSnapshot.order_item_id == OrderItem.id)
             .where(Order.user_id == user_id)
+            .where(Order.deleted_at.is_(None))
             .where(Order.order_date >= filters.date_from)
             .where(Order.order_date <= filters.date_to)
             .group_by(
@@ -707,7 +714,21 @@ def build_order_web_filters(
         date_from=base.date_from,
         date_to=base.date_to,
         economy=economy if economy in {"all", "profit", "loss", "missing_cost"} else "all",
-        status=status if status in {"all", "active", "cancelled", "action_required"} else "all",
+        status=(
+            status
+            if status
+            in {
+                "all",
+                "active",
+                "cancelled",
+                "action_required",
+                "fact_missing",
+                "fact_partial",
+                "fact_complete",
+                "match_problem",
+            }
+            else "all"
+        ),
         sku=sku.strip(),
         sort=sort if sort in {"date", "profit", "revenue", "margin", "orders", "roi"} else "date",
         direction="asc" if direction == "asc" else "desc",
@@ -752,6 +773,16 @@ def _apply_order_page_filters(
         )
     elif filters.status == "action_required":
         query = query.where(Order.requires_seller_action.is_(True))
+    elif filters.status == "fact_missing":
+        query = query.where(~_order_has_wb_fact_row())
+    elif filters.status == "fact_partial":
+        query = query.where(_order_has_wb_fact_row())
+        query = query.where(_order_has_wb_missing_fact_state())
+    elif filters.status == "fact_complete":
+        query = query.where(_order_has_wb_fact_row())
+        query = query.where(~_order_has_wb_missing_fact_state())
+    elif filters.status == "match_problem":
+        query = query.where(_order_has_wb_match_problem())
     if include_economy:
         if filters.economy == "loss":
             query = query.where(OrderItem.profit_estimated < 0)
@@ -760,6 +791,43 @@ def _apply_order_page_filters(
         elif filters.economy == "missing_cost":
             query = query.where(OrderItem.cost_price_used.is_(None))
     return query
+
+
+def _order_has_wb_fact_row() -> Any:
+    return exists(
+        select(WbDailyReportRow.id).where(
+            WbDailyReportRow.linked_order_id == Order.id,
+            WbDailyReportRow.operation_scope == "order",
+            WbDailyReportRow.deleted_at.is_(None),
+            WbDailyReportRow.is_active.is_(True),
+        )
+    )
+
+
+def _order_has_wb_missing_fact_state() -> Any:
+    return exists(
+        select(WbDailyReportRow.id).where(
+            WbDailyReportRow.linked_order_id == Order.id,
+            WbDailyReportRow.operation_scope == "order",
+            WbDailyReportRow.deleted_at.is_(None),
+            WbDailyReportRow.is_active.is_(True),
+            WbDailyReportRow.order_match_status.in_(("order_pending_match", "pending", "partial")),
+        )
+    )
+
+
+def _order_has_wb_match_problem() -> Any:
+    return exists(
+        select(WbDailyReportRow.id).where(
+            WbDailyReportRow.marketplace_account_id == Order.marketplace_account_id,
+            WbDailyReportRow.operation_scope == "order",
+            WbDailyReportRow.deleted_at.is_(None),
+            WbDailyReportRow.is_active.is_(True),
+            WbDailyReportRow.order_match_status.in_(
+                ("ambiguous", "ambiguous_order_match", "error")
+            ),
+        )
+    )
 
 
 def _apply_order_sort(query: Select[Any], filters: OrderWebFilters) -> Select[Any]:

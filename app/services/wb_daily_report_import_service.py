@@ -875,6 +875,12 @@ def _resolve_product_link(
     row: WbDailyReportParsedRow,
     mapping: dict[tuple[str, str], list[int]],
 ) -> _LinkedEntity:
+    if not row.product_required and row.operation_scope in {"account", "warehouse", "period"}:
+        return _LinkedEntity(
+            id=None,
+            status="not_required",
+            reason="Для строки не требуется товар",
+        )
     for method, value in (
         ("barcode", row.barcode),
         ("nm_id", str(row.nm_id) if row.nm_id is not None else None),
@@ -1042,7 +1048,9 @@ def _row_values(
         "order_match_method": order_link.method,
         "product_match_reason": product_link.reason,
         "order_match_reason": order_link.reason,
+        "operation_scope": row.operation_scope,
         "order_required": row.order_required,
+        "product_required": row.product_required,
         "matched_at": datetime.now(UTC) if order_link.id else None,
         "matched_order_id": order_link.id,
         "finance_operation_type": row.finance_operation_type,
@@ -1104,23 +1112,30 @@ def _finance_components_for_row(row: WbDailyReportRow) -> list[WbReportFinanceCo
         amount = getattr(row, attr, None)
         if amount is None:
             continue
+        order_id = row.order_id or row.linked_order_id
+        product_id = row.product_id or row.linked_product_id
+        if row.operation_scope != "order":
+            order_id = None
+        if row.operation_scope not in {"order", "product"}:
+            product_id = None
         components.append(
             WbReportFinanceComponent(
                 report_import_id=row.import_id,
                 report_row_id=row.id,
                 marketplace_account_id=row.marketplace_account_id,
                 user_id=row.user_id,
-                order_id=row.order_id or row.linked_order_id,
-                product_id=row.product_id or row.linked_product_id,
+                order_id=order_id,
+                product_id=product_id,
+                operation_scope=row.operation_scope,
                 finance_category=category,
                 operation_type=operation_type,
                 original_column_name=original_name,
                 original_amount=amount,
                 normalized_amount=amount,
                 sign_rule="preserve",
-                is_order_fact=bool(row.order_id or row.linked_order_id),
-                is_product_fact=bool(row.product_id or row.linked_product_id),
-                is_global_fact=True,
+                is_order_fact=row.operation_scope == "order" and bool(order_id),
+                is_product_fact=row.operation_scope in {"order", "product"} and bool(product_id),
+                is_global_fact=row.operation_scope in {"account", "warehouse", "period", "unknown"},
                 is_active=row.is_active,
                 deleted_at=row.deleted_at,
             )
