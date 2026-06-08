@@ -45,7 +45,9 @@ def admin_tariff_card(tariff: SubscriptionTier, user_count: int) -> InlineKeyboa
 
     rows: list[list[InlineKeyboardButton]] = [
         [
-            InlineKeyboardButton(text="✏️ Цена/мес", callback_data=f"ap:tariff:{tid}:price:monthly"),
+            InlineKeyboardButton(
+                text="✏️ Цена/мес", callback_data=f"ap:tariff:{tid}:price:monthly"
+            ),
             InlineKeyboardButton(
                 text="✏️ Цена/3мес", callback_data=f"ap:tariff:{tid}:price:3_months"
             ),

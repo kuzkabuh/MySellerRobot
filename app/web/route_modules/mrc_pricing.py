@@ -1088,15 +1088,13 @@ def _auto_promo_prices_content(
 
     parts.append("</div>")
 
-    parts.append(
-        """
+    parts.append("""
     <script>
     document.getElementById('select-all')?.addEventListener('change', function() {
         document.querySelectorAll('.product-checkbox:not([disabled])').forEach(cb => cb.checked = this.checked);
     });
     </script>
-    """
-    )
+    """)
 
     return "\n".join(parts)
 
@@ -3216,8 +3214,7 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
     parts.append("</div>")
 
     # JavaScript for select all and sync button cooldown
-    parts.append(
-        """
+    parts.append("""
     <script>
     document.getElementById('select-all')?.addEventListener('change', function() {
         document.querySelectorAll('.product-checkbox').forEach(cb => cb.checked = this.checked);
@@ -3238,8 +3235,7 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
         });
     })();
     </script>
-    """
-    )
+    """)
 
     parts.append("</div>")
     return "\n".join(parts)
@@ -3771,8 +3767,7 @@ def _mrc_settings_content(
     parts.append("</form></div>")
 
     # Flash message
-    parts.append(
-        """
+    parts.append("""
     <script>
     (function() {
         const params = new URLSearchParams(window.location.search);
@@ -3790,8 +3785,7 @@ def _mrc_settings_content(
         }
     })();
     </script>
-    """
-    )
+    """)
 
     return "\n".join(parts)
 
@@ -4223,8 +4217,7 @@ def _auto_promo_recommendations_content(
     parts.append("</div>")
 
     # Flash messages for generate result
-    parts.append(
-        """
+    parts.append("""
     <script>
     (function() {
         const params = new URLSearchParams(window.location.search);
@@ -4266,11 +4259,9 @@ def _auto_promo_recommendations_content(
         }
     })();
     </script>
-    """
-    )
+    """)
 
-    parts.append(
-        """
+    parts.append("""
     <script>
     document.getElementById('select-all')?.addEventListener('change',
     function() {
@@ -4278,7 +4269,6 @@ def _auto_promo_recommendations_content(
         .forEach(cb => cb.checked = this.checked);
     });
     </script>
-    """
-    )
+    """)
 
     return "\n".join(parts)

@@ -69,9 +69,11 @@ class ApiKeyValidationService:
             return ApiKeyCheckResult(
                 success=len(missing) == 0,
                 status="active" if len(missing) == 0 else "insufficient_permissions",
-                message="Подключение успешно"
-                if len(missing) == 0
-                else f"Недостаточно прав: {', '.join(missing)}",
+                message=(
+                    "Подключение успешно"
+                    if len(missing) == 0
+                    else f"Недостаточно прав: {', '.join(missing)}"
+                ),
                 permissions=permissions,
                 missing_permissions=missing,
             )
@@ -125,9 +127,11 @@ class ApiKeyValidationService:
             return ApiKeyCheckResult(
                 success=len(missing) == 0,
                 status="active" if len(missing) == 0 else "insufficient_permissions",
-                message="Подключение успешно"
-                if len(missing) == 0
-                else f"Недостаточно прав: {', '.join(missing)}",
+                message=(
+                    "Подключение успешно"
+                    if len(missing) == 0
+                    else f"Недостаточно прав: {', '.join(missing)}"
+                ),
                 permissions=permissions,
                 missing_permissions=missing,
             )

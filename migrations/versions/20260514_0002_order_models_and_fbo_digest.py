@@ -68,8 +68,7 @@ def upgrade() -> None:
     op.create_index("ix_orders_processing_deadline", "orders", ["processing_deadline_at"])
     op.create_index("ix_orders_normalized_status", "orders", ["normalized_status"])
 
-    op.execute(
-        """
+    op.execute("""
         UPDATE orders
         SET
             fulfillment_type = COALESCE(sale_model::text, 'FBS'),
@@ -87,8 +86,7 @@ def upgrade() -> None:
                 WHEN sale_model::text IN ('FBS', 'rFBS', 'DBS', 'DBW') THEN true
                 ELSE false
             END
-        """
-    )
+        """)
 
     op.create_table(
         "fbo_digest_queue",

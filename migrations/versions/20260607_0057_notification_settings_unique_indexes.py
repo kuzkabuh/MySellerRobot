@@ -16,8 +16,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
         DELETE FROM notification_settings ns
         USING notification_settings newer
         WHERE ns.user_id = newer.user_id
@@ -28,10 +27,8 @@ def upgrade() -> None:
             newer.updated_at > ns.updated_at
             OR (newer.updated_at = ns.updated_at AND newer.id > ns.id)
           )
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         DELETE FROM notification_settings ns
         USING notification_settings newer
         WHERE ns.user_id = newer.user_id
@@ -42,22 +39,17 @@ def upgrade() -> None:
             newer.updated_at > ns.updated_at
             OR (newer.updated_at = ns.updated_at AND newer.id > ns.id)
           )
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS uq_notification_settings_global
         ON notification_settings (user_id, notification_type)
         WHERE marketplace_account_id IS NULL
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS uq_notification_settings_account
         ON notification_settings (user_id, marketplace_account_id, notification_type)
         WHERE marketplace_account_id IS NOT NULL
-        """
-    )
+        """)
 
 
 def downgrade() -> None:

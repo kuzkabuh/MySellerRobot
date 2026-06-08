@@ -7,6 +7,7 @@ Usage:
     python -m app.scripts.sync_wb_promotion_nomenclatures_once --account-id 2 --limit 10
     python -m app.scripts.sync_wb_promotion_nomenclatures_once --account-id 2 --promotion-id 12345
 """
+
 # ruff: noqa: E402, E501
 
 import argparse

@@ -87,9 +87,7 @@ def upgrade() -> None:
     }
 
     if "business" not in existing_codes:
-        conn.execute(
-            sa.text(
-                """
+        conn.execute(sa.text("""
                 INSERT INTO subscription_tiers
                     (code, name, description, price_monthly, price_3_months, price_6_months,
                      price_yearly, currency, max_marketplace_accounts, max_orders_per_month,
@@ -108,45 +106,29 @@ def upgrade() -> None:
                      true, true, true, true, true,
                      true, true, 25,
                      now(), now())
-                """
-            )
-        )
+                """))
 
-    conn.execute(
-        sa.text(
-            """
+    conn.execute(sa.text("""
             UPDATE subscription_tiers
             SET feature_telegram_notifications = true
             WHERE feature_telegram_notifications IS NULL
                OR feature_telegram_notifications = false
                AND code IN ('basic', 'pro', 'enterprise', 'business')
-            """
-        )
-    )
+            """))
 
-    conn.execute(
-        sa.text(
-            """
+    conn.execute(sa.text("""
             UPDATE subscription_tiers
             SET feature_auto_promotions = true
             WHERE code IN ('pro', 'business', 'enterprise')
-            """
-        )
-    )
+            """))
 
-    conn.execute(
-        sa.text(
-            """
+    conn.execute(sa.text("""
             UPDATE subscription_tiers
             SET is_public = true
             WHERE is_public IS NULL
-            """
-        )
-    )
+            """))
 
-    conn.execute(
-        sa.text(
-            """
+    conn.execute(sa.text("""
             UPDATE subscription_tiers
             SET sync_interval_minutes = CASE code
                 WHEN 'free' THEN 180
@@ -157,13 +139,9 @@ def upgrade() -> None:
                 ELSE 180
             END
             WHERE sync_interval_minutes IS NULL OR sync_interval_minutes = 180
-            """
-        )
-    )
+            """))
 
-    conn.execute(
-        sa.text(
-            """
+    conn.execute(sa.text("""
             UPDATE subscription_tiers
             SET analytics_depth_days = CASE code
                 WHEN 'free' THEN 30
@@ -174,9 +152,7 @@ def upgrade() -> None:
                 ELSE 30
             END
             WHERE analytics_depth_days IS NULL OR analytics_depth_days = 30
-            """
-        )
-    )
+            """))
 
 
 def downgrade() -> None:

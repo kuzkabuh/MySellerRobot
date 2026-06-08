@@ -333,17 +333,13 @@ def _marketplaces_tab(user: User, accounts: list[MarketplaceAccount], timezone: 
             status_cls = (
                 "good"
                 if acc.status.value == "ACTIVE"
-                else "bad"
-                if acc.status.value == "ERROR"
-                else "warn"
+                else "bad" if acc.status.value == "ERROR" else "warn"
             )
             api_status = acc.api_key_status or "unchecked"
             api_cls = (
                 "good"
                 if api_status == "active"
-                else "bad"
-                if api_status in ("auth_error", "expired")
-                else "warn"
+                else "bad" if api_status in ("auth_error", "expired") else "warn"
             )
             api_status_labels = {
                 "active": "Активен",

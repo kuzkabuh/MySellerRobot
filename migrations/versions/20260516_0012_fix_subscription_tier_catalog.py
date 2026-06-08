@@ -16,25 +16,20 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
         UPDATE subscription_tiers
         SET max_products = NULL
         WHERE code IN ('free', 'basic', 'pro')
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         UPDATE subscription_tiers
         SET is_active = true
         WHERE code = 'enterprise'
-        """
-    )
+        """)
 
 
 def downgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
         UPDATE subscription_tiers
         SET max_products = CASE code
             WHEN 'free' THEN 100
@@ -43,12 +38,9 @@ def downgrade() -> None:
             ELSE max_products
         END
         WHERE code IN ('free', 'basic', 'pro')
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         UPDATE subscription_tiers
         SET is_active = false
         WHERE code = 'enterprise'
-        """
-    )
+        """)

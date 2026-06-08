@@ -70,11 +70,7 @@ def _badge(value: str, labels: dict[str, str]) -> str:
     cls = (
         "good"
         if value in {"answered", "closed"}
-        else "bad"
-        if value == "urgent"
-        else "warn"
-        if value in {"new", "high"}
-        else "action"
+        else "bad" if value == "urgent" else "warn" if value in {"new", "high"} else "action"
     )
     return f'<span class="badge {cls}">{_h(labels.get(value, value))}</span>'
 

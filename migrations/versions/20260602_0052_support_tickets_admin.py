@@ -27,8 +27,7 @@ def upgrade() -> None:
         sa.Column("resolved_at", sa.DateTime(timezone=True), nullable=True),
     )
 
-    op.execute(
-        """
+    op.execute("""
         UPDATE support_tickets AS st
         SET telegram_id = u.telegram_id,
             username = u.username,
@@ -36,18 +35,15 @@ def upgrade() -> None:
         FROM users AS u
         WHERE st.user_id = u.id
           AND st.telegram_id IS NULL
-        """
-    )
+        """)
     op.execute("UPDATE support_tickets SET full_name = NULL WHERE full_name = ''")
     op.execute("UPDATE support_tickets SET status = 'new' WHERE status = 'open'")
     op.execute("UPDATE support_tickets SET status = 'answered' WHERE status = 'responded'")
-    op.execute(
-        """
+    op.execute("""
         UPDATE support_tickets
         SET resolved_at = closed_at
         WHERE status = 'closed' AND resolved_at IS NULL
-        """
-    )
+        """)
     op.alter_column(
         "support_tickets",
         "status",

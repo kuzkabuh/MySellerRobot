@@ -212,9 +212,9 @@ def test_auto_promo_condition_model_columns_covered_by_migrations() -> None:
         "updated_at",
     }
 
-    assert expected_columns.issubset(model_columns), (
-        f"Model missing columns: {expected_columns - model_columns}"
-    )
+    assert expected_columns.issubset(
+        model_columns
+    ), f"Model missing columns: {expected_columns - model_columns}"
 
     migration_dir = pathlib.Path("migrations/versions")
     migration_sources = []
@@ -475,9 +475,9 @@ def test_file_import_models_exist() -> None:
         "applied_at",
         "error_text",
     }
-    assert expected_import_cols.issubset(import_cols), (
-        f"File import model missing: {expected_import_cols - import_cols}"
-    )
+    assert expected_import_cols.issubset(
+        import_cols
+    ), f"File import model missing: {expected_import_cols - import_cols}"
 
     row_cols = {col.key for col in WbAutoPromoFileImportRow.__table__.columns}
     expected_row_cols = {
@@ -498,9 +498,9 @@ def test_file_import_models_exist() -> None:
         "message",
         "raw_payload",
     }
-    assert expected_row_cols.issubset(row_cols), (
-        f"File import row model missing: {expected_row_cols - row_cols}"
-    )
+    assert expected_row_cols.issubset(
+        row_cols
+    ), f"File import row model missing: {expected_row_cols - row_cols}"
 
 
 def test_file_import_tables_in_migrations() -> None:
@@ -615,6 +615,6 @@ def test_pricing_routes_all_have_safe_return_types() -> None:
         if return_annotation is inspect.Signature.empty:
             continue
         annotation_str = str(return_annotation)
-        assert "|" not in annotation_str or "None" in annotation_str, (
-            f"Route {route.path} has unsafe union return type: {annotation_str}"
-        )
+        assert (
+            "|" not in annotation_str or "None" in annotation_str
+        ), f"Route {route.path} has unsafe union return type: {annotation_str}"

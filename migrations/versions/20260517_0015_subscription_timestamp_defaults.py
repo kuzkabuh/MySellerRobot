@@ -21,16 +21,12 @@ TABLES = ("subscription_tiers", "user_subscriptions", "payments")
 def upgrade() -> None:
     now_expr = "NOW()" if op.get_bind().dialect.name == "postgresql" else "CURRENT_TIMESTAMP"
     for table in TABLES:
-        op.execute(
-            sa.text(
-                f"""
+        op.execute(sa.text(f"""
                 UPDATE {table}
                 SET created_at = COALESCE(created_at, {now_expr}),
                     updated_at = COALESCE(updated_at, created_at, {now_expr})
                 WHERE created_at IS NULL OR updated_at IS NULL
-                """
-            )
-        )
+                """))
         op.alter_column(
             table,
             "created_at",

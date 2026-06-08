@@ -33,24 +33,16 @@ def ensure_alembic_version_table(connection: Connection) -> None:
     if connection.dialect.name != "postgresql":
         return
 
-    connection.execute(
-        sa.text(
-            """
+    connection.execute(sa.text("""
             CREATE TABLE IF NOT EXISTS alembic_version (
                 version_num VARCHAR(255) NOT NULL,
                 CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
             )
-            """
-        )
-    )
-    connection.execute(
-        sa.text(
-            """
+            """))
+    connection.execute(sa.text("""
             ALTER TABLE alembic_version
             ALTER COLUMN version_num TYPE VARCHAR(255)
-            """
-        )
-    )
+            """))
 
 
 def do_run_migrations(connection: Connection) -> None:

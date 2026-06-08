@@ -18,16 +18,12 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     now_expr = "NOW()" if op.get_bind().dialect.name == "postgresql" else "CURRENT_TIMESTAMP"
-    op.execute(
-        sa.text(
-            f"""
+    op.execute(sa.text(f"""
             UPDATE plan_fact_targets
             SET created_at = COALESCE(created_at, {now_expr}),
                 updated_at = COALESCE(updated_at, created_at, {now_expr})
             WHERE created_at IS NULL OR updated_at IS NULL
-            """
-        )
-    )
+            """))
     op.alter_column(
         "plan_fact_targets",
         "created_at",

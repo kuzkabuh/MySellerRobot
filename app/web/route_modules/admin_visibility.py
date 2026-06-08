@@ -448,12 +448,14 @@ async def admin_update_user(
             "new_profile": _admin_user_profile_snapshot(target),
             "old_tier": old_subscription.tier.code,
             "new_tier": tier_code,
-            "old_expires_at": old_subscription.expires_at.isoformat()
-            if old_subscription.expires_at
-            else None,
-            "new_expires_at": new_subscription.expires_at.isoformat()
-            if new_subscription and new_subscription.expires_at
-            else None,
+            "old_expires_at": (
+                old_subscription.expires_at.isoformat() if old_subscription.expires_at else None
+            ),
+            "new_expires_at": (
+                new_subscription.expires_at.isoformat()
+                if new_subscription and new_subscription.expires_at
+                else None
+            ),
             "subscription_id": new_subscription.id if new_subscription else None,
             "tariff_changed": tariff_changed,
         },
@@ -488,9 +490,9 @@ async def admin_grant_tariff(
         details={
             "old_tier": old_subscription.tier.code,
             "new_tier": tier_code,
-            "old_expires_at": old_subscription.expires_at.isoformat()
-            if old_subscription.expires_at
-            else None,
+            "old_expires_at": (
+                old_subscription.expires_at.isoformat() if old_subscription.expires_at else None
+            ),
             "days": days,
         },
     )

@@ -37,9 +37,9 @@ def test_unbound_local_error_is_fixed():
         if "if has_active_auto_promotions" in stripped and first_usage_idx is None:
             first_usage_idx = idx
 
-    assert first_assignment_idx is not None, (
-        "has_active_auto_promotions must be assigned in the function"
-    )
+    assert (
+        first_assignment_idx is not None
+    ), "has_active_auto_promotions must be assigned in the function"
     assert first_usage_idx is not None, "has_active_auto_promotions must be used in the function"
     assert first_assignment_idx < first_usage_idx, (
         f"has_active_auto_promotions must be assigned (line {first_assignment_idx}) "
@@ -172,6 +172,6 @@ def test_wb_product_price_import_in_auto_promo_service():
     # Verify the import is at module level (top-level), not inside a method
     source = inspect.getsource(WbAutoPromoPriceService)
     # The method should NOT contain a local import of WbProductPrice
-    assert "from app.models.domain import WbProductPrice" not in source, (
-        "WbProductPrice must be imported at module level, not inside a method"
-    )
+    assert (
+        "from app.models.domain import WbProductPrice" not in source
+    ), "WbProductPrice must be imported at module level, not inside a method"

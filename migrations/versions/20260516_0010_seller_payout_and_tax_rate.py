@@ -32,13 +32,11 @@ def upgrade() -> None:
     )
 
     # Backfill seller_payout_estimated from payout_amount_estimated for existing records
-    op.execute(
-        """
+    op.execute("""
         UPDATE order_items
         SET seller_payout_estimated = payout_amount_estimated
         WHERE payout_amount_estimated IS NOT NULL
-    """
-    )
+    """)
 
 
 def downgrade() -> None:

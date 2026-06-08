@@ -114,8 +114,7 @@ def upgrade() -> None:
     op.create_index("ix_payments_status", "payments", ["status"])
 
     # Insert default tiers
-    op.execute(
-        """
+    op.execute("""
         INSERT INTO subscription_tiers (
             code, name, description, price_monthly, price_yearly,
             max_marketplace_accounts, max_orders_per_month, max_products,
@@ -160,8 +159,7 @@ def upgrade() -> None:
             true, true,
             true, 3, NOW()
         )
-    """
-    )
+    """)
 
 
 def downgrade() -> None:

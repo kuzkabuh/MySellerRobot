@@ -48,9 +48,9 @@ def test_app_web_routes_has_all_routers():
     ]
 
     for path in critical_paths:
-        assert any(path in route_path for route_path in route_paths), (
-            f"Critical path {path} not found in router"
-        )
+        assert any(
+            path in route_path for route_path in route_paths
+        ), f"Critical path {path} not found in router"
 
 
 def test_user_settings_module_exists():

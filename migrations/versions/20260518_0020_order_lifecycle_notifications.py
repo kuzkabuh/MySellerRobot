@@ -27,13 +27,11 @@ def upgrade() -> None:
         "returns_events",
         sa.Column("notification_sent_at", sa.DateTime(timezone=True), nullable=True),
     )
-    op.execute(
-        """
+    op.execute("""
         UPDATE orders
         SET cancellation_notified_at = now()
         WHERE lower(coalesce(normalized_status, status)) IN ('cancelled', 'canceled', 'cancel')
-        """
-    )
+        """)
     op.execute("UPDATE returns_events SET notification_sent_at = now()")
 
 

@@ -22,9 +22,7 @@ logger = logging.getLogger(__name__)
 
 async def find_duplicates(session: AsyncSession) -> list[dict[str, Any]]:
     """Find WB duplicate pairs where LIVE_ORDER and STATISTICS_ORDER share the same srid."""
-    result = await session.execute(
-        text(
-            """
+    result = await session.execute(text("""
             SELECT
                 live.id AS live_id,
                 live.order_external_id AS live_external_id,
@@ -47,9 +45,7 @@ async def find_duplicates(session: AsyncSession) -> list[dict[str, Any]]:
               AND live.source_event_type = 'LIVE_ORDER'
               AND stat.source_event_type = 'STATISTICS_ORDER'
             ORDER BY live.marketplace_account_id, live.srid
-        """
-        )
-    )
+        """))
     duplicates: list[dict[str, Any]] = []
     for row in result:
         duplicates.append(
@@ -139,13 +135,11 @@ async def merge_and_delete(
         stat_item_ids = [item.id for item in stat_order.items]
         if stat_item_ids:
             await session.execute(
-                text(
-                    """
+                text("""
                     UPDATE profit_snapshots
                     SET order_item_id = :live_item_id
                     WHERE order_item_id = ANY(:stat_item_ids)
-                """
-                ),
+                """),
                 {
                     "live_item_id": live_order.items[0].id,
                     "stat_item_ids": stat_item_ids,
@@ -155,13 +149,11 @@ async def merge_and_delete(
 
     # Re-link sales events that reference the stat order
     await session.execute(
-        text(
-            """
+        text("""
             UPDATE sales_events
             SET related_order_id = :live_id
             WHERE related_order_id = :stat_id
-        """
-        ),
+        """),
         {"live_id": live_id, "stat_id": stat_id},
     )
     actions["steps"].append("sales_events_relinked")

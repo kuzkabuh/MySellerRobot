@@ -728,15 +728,12 @@ def _auto_promo_preview_page(
         ("F", preview.without_plan_price_count, "Без плановой цены", "Fallback по скидке", "amber"),
         ("N", preview.not_participating_count, "Не участвуют", "Нужна цена", "blue"),
     ]
-    cards = "".join(
-        f"""
+    cards = "".join(f"""
         <article class="pricing-card pricing-kpi pricing-accent-{accent}">
           <div class="pricing-kpi-icon">{escape(icon)}</div>
           <div><strong>{value}</strong><span>{escape(label)}</span><small>{escape(note)}</small></div>
         </article>
-        """
-        for icon, value, label, note, accent in kpis
-    )
+        """ for icon, value, label, note, accent in kpis)
     table_rows = "".join(_auto_promo_preview_row(row) for row in rows)
     promotion_name = preview.promotion_name or ""
     return f"""
@@ -819,10 +816,7 @@ def _kpi_grid(data: PricingViewData) -> str:
         ("!", blocked, "Заблокировано по МРЦ/minPrice", "Требует внимания", "red"),
         ("↻", data.last_sync, "Последняя синхронизация", "Цены или акции", "slate"),
     ]
-    return (
-        '<section class="pricing-kpi-grid">'
-        + "".join(
-            f"""
+    return '<section class="pricing-kpi-grid">' + "".join(f"""
         <article class="pricing-card pricing-kpi pricing-accent-{accent}">
           <div class="pricing-kpi-icon">{escape(str(icon))}</div>
           <div>
@@ -831,11 +825,7 @@ def _kpi_grid(data: PricingViewData) -> str:
             <small>{escape(status)}</small>
           </div>
         </article>
-        """
-            for icon, value, label, status, accent in cards
-        )
-        + "</section>"
-    )
+        """ for icon, value, label, status, accent in cards) + "</section>"
 
 
 def _tabs() -> str:

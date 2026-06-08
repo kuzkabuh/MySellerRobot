@@ -138,9 +138,11 @@ class NotificationSettingsService:
         stmt = select(NotificationSetting).where(
             NotificationSetting.user_id == user_id,
             NotificationSetting.notification_type == notification_type.value,
-            NotificationSetting.marketplace_account_id.is_(marketplace_account_id)
-            if marketplace_account_id is None
-            else NotificationSetting.marketplace_account_id == marketplace_account_id,
+            (
+                NotificationSetting.marketplace_account_id.is_(marketplace_account_id)
+                if marketplace_account_id is None
+                else NotificationSetting.marketplace_account_id == marketplace_account_id
+            ),
         )
         result = await self.session.execute(stmt)
         setting = result.scalar_one_or_none()

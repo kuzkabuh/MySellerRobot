@@ -866,15 +866,19 @@ def _resolve_order_link(
         ("shk", row.shk),
         (
             "barcode_nm_date",
-            f"{row.barcode}|{row.nm_id}|{date_value}"
-            if row.barcode and row.nm_id is not None and date_value
-            else None,
+            (
+                f"{row.barcode}|{row.nm_id}|{date_value}"
+                if row.barcode and row.nm_id is not None and date_value
+                else None
+            ),
         ),
         (
             "barcode_article_date",
-            f"{row.barcode}|{row.supplier_article}|{date_value}"
-            if row.barcode and row.supplier_article and date_value
-            else None,
+            (
+                f"{row.barcode}|{row.supplier_article}|{date_value}"
+                if row.barcode and row.supplier_article and date_value
+                else None
+            ),
         ),
     ]
     for method, value in matchers:

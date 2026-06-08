@@ -146,11 +146,11 @@ class SubscriptionService:
                     "multiple_active_subscriptions_detected",
                     extra={
                         "user_id": subscription.user_id,
-                        "selected_subscription_id": by_user[
-                            subscription.user_id
-                        ].active_subscription.id
-                        if by_user[subscription.user_id].active_subscription
-                        else None,
+                        "selected_subscription_id": (
+                            by_user[subscription.user_id].active_subscription.id
+                            if by_user[subscription.user_id].active_subscription
+                            else None
+                        ),
                         "conflicting_subscription_id": subscription.id,
                     },
                 )
