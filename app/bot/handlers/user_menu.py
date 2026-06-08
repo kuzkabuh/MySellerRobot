@@ -47,8 +47,7 @@ def _dt(dt_value: datetime | None, timezone: str) -> str:
 async def show_user_menu(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     await callback.message.edit_text(
-        "👤 <b>Меню пользователя</b>\n\n"
-        "Выберите раздел:",
+        "👤 <b>Меню пользователя</b>\n\nВыберите раздел:",
         reply_markup=user_menu(),
         parse_mode="HTML",
     )
@@ -102,8 +101,14 @@ async def show_user_tariff(callback: CallbackQuery) -> None:
         tier = await sub_service.get_user_tier(user.id)
         subscription = await sub_service.get_active_subscription(user.id)
 
-        status = "Активна" if subscription and subscription.status.value == "ACTIVE" else "Неактивна"
-        expires = _dt(subscription.expires_at, user.timezone) if subscription and subscription.expires_at else "бессрочно"
+        status = (
+            "Активна" if subscription and subscription.status.value == "ACTIVE" else "Неактивна"
+        )
+        expires = (
+            _dt(subscription.expires_at, user.timezone)
+            if subscription and subscription.expires_at
+            else "бессрочно"
+        )
 
         text = (
             "💳 <b>Ваш тариф</b>\n\n"
@@ -166,7 +171,9 @@ async def show_user_api_keys(callback: CallbackQuery) -> None:
                     "unchecked": "❓ Не проверен",
                     "pending_check": "⏳ Ожидает проверки",
                 }
-                api_status = status_labels.get(acc.api_key_status or "unchecked", acc.api_key_status)
+                api_status = status_labels.get(
+                    acc.api_key_status or "unchecked", acc.api_key_status
+                )
                 lines.append(
                     f"<b>{acc.name}</b> ({mp})\n"
                     f"Статус: {api_status}\n"
@@ -337,6 +344,7 @@ async def show_user_marketplaces(callback: CallbackQuery) -> None:
             text = "".join(lines)
 
         from app.bot.keyboards.main import settings_menu
+
         await callback.message.edit_text(
             text,
             reply_markup=settings_menu(),
@@ -367,9 +375,9 @@ async def show_user_settings(callback: CallbackQuery) -> None:
             return
 
         from app.bot.keyboards.main import settings_menu
+
         await callback.message.edit_text(
-            "⚙️ <b>Настройки</b>\n\n"
-            "Выберите действие:",
+            "⚙️ <b>Настройки</b>\n\nВыберите действие:",
             reply_markup=settings_menu(),
             parse_mode="HTML",
         )
@@ -413,10 +421,7 @@ async def show_support_tickets(callback: CallbackQuery) -> None:
         tickets = await SupportService(session).get_user_tickets(user.id, limit=10)
 
         if not tickets:
-            text = (
-                "🆘 <b>Мои обращения</b>\n\n"
-                "У вас пока нет обращений в поддержку."
-            )
+            text = "🆘 <b>Мои обращения</b>\n\nУ вас пока нет обращений в поддержку."
         else:
             lines = ["🆘 <b>Мои обращения</b>\n\n"]
             for t in tickets:
@@ -450,9 +455,7 @@ async def show_support_tickets(callback: CallbackQuery) -> None:
 async def start_edit_email(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(PaymentStates.waiting_email)
     await callback.message.edit_text(
-        "📧 <b>Изменение email</b>\n\n"
-        "Введите новый email:\n\n"
-        "<i>Отправьте /cancel для отмены</i>",
+        "📧 <b>Изменение email</b>\n\nВведите новый email:\n\n<i>Отправьте /cancel для отмены</i>",
         parse_mode="HTML",
     )
     await callback.answer()
@@ -533,9 +536,7 @@ async def process_support_subject(message: Message, state: FSMContext) -> None:
 
     await state.update_data(support_subject=message.text)
     await state.set_state(PaymentStates.waiting_support_message)
-    await message.answer(
-        "Тема принята. Теперь опишите подробно вашу проблему или вопрос:"
-    )
+    await message.answer("Тема принята. Теперь опишите подробно вашу проблему или вопрос:")
 
 
 @router.message(PaymentStates.waiting_support_message)
@@ -612,7 +613,9 @@ async def _notify_admins_about_ticket(
     )
     sent = await notify_admins(message.bot, text, reply_markup=keyboard)
     if sent == 0:
-        logger.warning("support_ticket_admin_notification_no_recipients", extra={"ticket_id": ticket_id})
+        logger.warning(
+            "support_ticket_admin_notification_no_recipients", extra={"ticket_id": ticket_id}
+        )
 
 
 async def _get_user(session: AsyncSession, telegram_id: int) -> User | None:

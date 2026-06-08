@@ -2,6 +2,7 @@
 description: Unit tests for client IP detection behind reverse proxies.
 updated: 2026-06-07
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace

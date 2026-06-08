@@ -124,11 +124,11 @@ def test_plan_fact_target_model_has_server_default_timestamps() -> None:
     created_at_col = PlanFactTarget.__table__.c.created_at
     updated_at_col = PlanFactTarget.__table__.c.updated_at
 
-    assert (
-        created_at_col.server_default is not None
-    ), "created_at must have server_default to avoid NOT NULL violation"
-    assert (
-        updated_at_col.server_default is not None
-    ), "updated_at must have server_default to avoid NOT NULL violation"
+    assert created_at_col.server_default is not None, (
+        "created_at must have server_default to avoid NOT NULL violation"
+    )
+    assert updated_at_col.server_default is not None, (
+        "updated_at must have server_default to avoid NOT NULL violation"
+    )
     assert created_at_col.nullable is False
     assert updated_at_col.nullable is False

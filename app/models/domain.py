@@ -1578,7 +1578,9 @@ class WbDailyReportImport(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
-    deleted_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    deleted_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
     delete_reason: Mapped[str | None] = mapped_column(Text)
     restored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     restored_by_user_id: Mapped[int | None] = mapped_column(

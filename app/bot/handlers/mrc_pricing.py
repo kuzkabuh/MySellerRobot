@@ -257,9 +257,7 @@ async def mrc_without_mrc_handler(callback: CallbackQuery) -> None:
             nm_id = p.marketplace_article or p.external_product_id or "—"
             article = p.seller_article or "—"
             title = (p.title or "Без названия")[:40]
-            lines.append(
-                f"• <b>{escape(title)}</b>\n" f"  Артикул: {escape(article)} | nmID: {nm_id}"
-            )
+            lines.append(f"• <b>{escape(title)}</b>\n  Артикул: {escape(article)} | nmID: {nm_id}")
 
         text = "\n\n".join(lines)
         await safe_edit_text(
@@ -488,7 +486,7 @@ async def mrc_search_handler(callback: CallbackQuery, state: FSMContext) -> None
         await state.set_state(MrcStates.waiting_for_article)
         await safe_edit_text(
             callback.message,
-            "🔍 <b>Поиск товара</b>\n\n" "Введите артикул продавца или nmID товара WB:",
+            "🔍 <b>Поиск товара</b>\n\nВведите артикул продавца или nmID товара WB:",
             reply_markup=mrc_back_menu(),
             parse_mode="HTML",
         )

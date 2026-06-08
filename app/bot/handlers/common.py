@@ -401,7 +401,7 @@ async def callback_handler(callback: CallbackQuery, state: FSMContext) -> None:
             extra={"callback_data": data, "telegram_id": callback.from_user.id},
         )
         await message.answer(
-            "Действие раздела МРЦ пока не обработано. " "Обновите меню и попробуйте ещё раз."
+            "Действие раздела МРЦ пока не обработано. Обновите меню и попробуйте ещё раз."
         )
     else:
         logger.warning(
@@ -643,7 +643,7 @@ async def _orders_text(user_id: int, mode: str = "orders:last10") -> str:
 
     mode_hint = {
         "orders:today": (
-            f"Показываю 10 последних заказов за сегодня " f"(всего найдено: {total_count})."
+            f"Показываю 10 последних заказов за сегодня (всего найдено: {total_count})."
         ),
         "orders:fbs": (
             f"Показываю 10 последних FBS / rFBS заказов, "
@@ -1307,8 +1307,7 @@ async def admin_reconcile_subscriptions(message: Message) -> None:
                 for old_sub in active_subs[1:]:
                     old_sub.status = SubscriptionStatus.REPLACED
                     fixed.append(
-                        f"  → Subscription {old_sub.id} "
-                        f"(tier {old_sub.tier_id}) marked REPLACED"
+                        f"  → Subscription {old_sub.id} (tier {old_sub.tier_id}) marked REPLACED"
                     )
 
         await session.commit()

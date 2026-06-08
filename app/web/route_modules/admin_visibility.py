@@ -260,7 +260,7 @@ async def admin_user_detail_page(
     block_label = "Разблокировать" if target.status == UserStatus.BLOCKED else "Заблокировать"
 
     content = f"""
-    <div class="page-header"><div><h2>Пользователь #{target.id}</h2><div class="summary-strip"><span>Telegram: <strong>{target.telegram_id}</strong></span><span>Username: <strong>{_h(target.username) or '-'}</strong></span><span>Статус: <strong>{_h(target.status.value)}</strong></span><span>Тариф: <strong>{_h(current_subscription.tier.name)}</strong></span><span>Подписка: <strong>{_h(current_subscription.status)}</strong></span><span>До: <strong>{_dt(current_subscription.expires_at)}</strong></span></div></div><div class="page-actions"><a class="btn" href="/web/admin/users">К списку</a></div></div>
+    <div class="page-header"><div><h2>Пользователь #{target.id}</h2><div class="summary-strip"><span>Telegram: <strong>{target.telegram_id}</strong></span><span>Username: <strong>{_h(target.username) or "-"}</strong></span><span>Статус: <strong>{_h(target.status.value)}</strong></span><span>Тариф: <strong>{_h(current_subscription.tier.name)}</strong></span><span>Подписка: <strong>{_h(current_subscription.status)}</strong></span><span>До: <strong>{_dt(current_subscription.expires_at)}</strong></span></div></div><div class="page-actions"><a class="btn" href="/web/admin/users">К списку</a></div></div>
     <div class="band"><h3>Профиль и тариф</h3>
       <form method="post" action="/web/admin/users/{target.id}/update">
         <div class="filters">
@@ -278,7 +278,7 @@ async def admin_user_detail_page(
           <div><label>Роль</label><select name="role">{role_options}</select></div>
           <div><label>Тариф</label><select name="tier_code">{tier_options}</select></div>
           <div><label>Дата окончания тарифа</label><input name="subscription_expires_at" type="date" value="{_date_value(current_subscription.expires_at)}"></div>
-          <div><label class="status-chip"><input type="checkbox" name="notifications_enabled" {'checked' if target.notifications_enabled else ''}> Telegram-уведомления</label></div>
+          <div><label class="status-chip"><input type="checkbox" name="notifications_enabled" {"checked" if target.notifications_enabled else ""}> Telegram-уведомления</label></div>
         </div>
         <button class="btn btn-primary" type="submit">Сохранить</button>
       </form>
@@ -289,12 +289,12 @@ async def admin_user_detail_page(
       <form method="post" action="/web/admin/users/{target.id}/restart-sync"><button class="btn">Перезапустить синхронизацию</button></form>
     </div><form method="post" action="/web/admin/users/{target.id}/send-message" style="margin-top:10px;"><textarea name="message" rows="2" placeholder="Сообщение пользователю"></textarea><button class="btn">Отправить сообщение</button></form></div>
     {_company_profile_admin_card(company_profile)}
-    {_table('Кабинеты WB/Ozon', ['МП','Название','Статус','Последний sync','Ошибка'], account_rows)}
-    {_table('Последние заказы', ['Дата','МП','Номер','Статус'], order_rows)}
-    {_table('Платежи', ['Дата','Provider ID','Сумма','Статус','Оплачен'], payment_rows)}
-    {_table('Ошибки', ['Дата','Путь','Ошибка'], error_rows)}
-    {_table('Уведомления', ['Дата','Тип','Статус','Ошибка'], notification_rows)}
-    {_table('Аудит действий', ['Дата','Действие','Сущность','Детали'], audit_rows)}
+    {_table("Кабинеты WB/Ozon", ["МП", "Название", "Статус", "Последний sync", "Ошибка"], account_rows)}
+    {_table("Последние заказы", ["Дата", "МП", "Номер", "Статус"], order_rows)}
+    {_table("Платежи", ["Дата", "Provider ID", "Сумма", "Статус", "Оплачен"], payment_rows)}
+    {_table("Ошибки", ["Дата", "Путь", "Ошибка"], error_rows)}
+    {_table("Уведомления", ["Дата", "Тип", "Статус", "Ошибка"], notification_rows)}
+    {_table("Аудит действий", ["Дата", "Действие", "Сущность", "Детали"], audit_rows)}
     """
     return _admin_page(f"Пользователь {target.id}", user, content, "/web/admin/users")
 
@@ -416,9 +416,7 @@ async def admin_update_user(
     target.company_name = _clean_optional(form.get("company_name"), 255)
     target.inn = inn.strip() if inn.strip() else None
     target.ogrn = ogrn.strip() if ogrn.strip() else None
-    target.timezone = (str(form.get("timezone") or target.timezone or "Europe/Moscow").strip())[
-        :64
-    ]
+    target.timezone = (str(form.get("timezone") or target.timezone or "Europe/Moscow").strip())[:64]
     try:
         target.status = UserStatus(str(form.get("status") or UserStatus.ACTIVE.value))
     except ValueError as exc:
@@ -716,7 +714,7 @@ async def admin_sync_status_page(
         f"<form method='post' action='/web/admin/sync-status/run/{task}'><button class='btn'>{label}</button></form>"
         for task, label in _MANUAL_TASKS.items()
     )
-    content = f"<div class='page-header'><div><h2>Статус фоновых задач</h2></div><div class='page-actions'>{buttons}</div></div>{_table('Последние запуски', ['Задача','Статус','Старт','Финиш','мс','records','success','failed','Ошибка'], rows)}"
+    content = f"<div class='page-header'><div><h2>Статус фоновых задач</h2></div><div class='page-actions'>{buttons}</div></div>{_table('Последние запуски', ['Задача', 'Статус', 'Старт', 'Финиш', 'мс', 'records', 'success', 'failed', 'Ошибка'], rows)}"
     return _admin_page("Статус синхронизаций", user, content, "/web/admin/sync-status")
 
 
@@ -825,7 +823,9 @@ async def admin_run_sync_task(
         finally:
             await queue.close()
     except Exception as exc:
-        raise HTTPException(status_code=503, detail="Не удалось поставить задачу в очередь") from exc
+        raise HTTPException(
+            status_code=503, detail="Не удалось поставить задачу в очередь"
+        ) from exc
     await AuditLogService(session).log(
         "sync_started",
         actor_user_id=user.id,
@@ -878,8 +878,8 @@ async def cabinet_health_page(
         for name, run in latest_runs.items()
     )
     content = f"""
-    <div class="page-header"><div><h2>Здоровье кабинетов</h2><div class="summary-strip"><span>WB API: <strong>{'OK' if wb_ok else 'нет активного OK'}</strong></span><span>Ozon API: <strong>{'OK' if ozon_ok else 'нет активного OK'}</strong></span><span>Товары: <strong>{products_count}</strong></span><span>Заказы: <strong>{orders_count}</strong></span><span>Подписка: <strong>{'активна до ' + _dt(active_sub.expires_at) if active_sub else 'нет активной'}</strong></span></div></div></div>
-    {_table('Кабинеты и последние синхронизации', ['МП','Название','API','Заказы','Продажи','Товары','Остатки','Ошибка'], account_rows)}
-    {_table('Фоновые задачи', ['Задача','Статус','Последний запуск','Ошибка'], run_rows)}
+    <div class="page-header"><div><h2>Здоровье кабинетов</h2><div class="summary-strip"><span>WB API: <strong>{"OK" if wb_ok else "нет активного OK"}</strong></span><span>Ozon API: <strong>{"OK" if ozon_ok else "нет активного OK"}</strong></span><span>Товары: <strong>{products_count}</strong></span><span>Заказы: <strong>{orders_count}</strong></span><span>Подписка: <strong>{"активна до " + _dt(active_sub.expires_at) if active_sub else "нет активной"}</strong></span></div></div></div>
+    {_table("Кабинеты и последние синхронизации", ["МП", "Название", "API", "Заказы", "Продажи", "Товары", "Остатки", "Ошибка"], account_rows)}
+    {_table("Фоновые задачи", ["Задача", "Статус", "Последний запуск", "Ошибка"], run_rows)}
     """
     return page("Здоровье кабинетов", _name(user), content, active_path="/web/health")

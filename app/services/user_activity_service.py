@@ -55,9 +55,7 @@ class UserActivityService:
         await self.session.refresh(entry)
         return entry
 
-    async def get_recent_activity(
-        self, user_id: int, limit: int = 50
-    ) -> list[ActivityLogEntry]:
+    async def get_recent_activity(self, user_id: int, limit: int = 50) -> list[ActivityLogEntry]:
         stmt = (
             select(UserActivityLog)
             .where(UserActivityLog.user_id == user_id)

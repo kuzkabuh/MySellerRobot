@@ -124,12 +124,16 @@ class WbAutoPromoParticipationService:
             current_full_price = (
                 condition.current_full_price
                 if condition and condition.current_full_price is not None
-                else current_price.price if current_price else None
+                else current_price.price
+                if current_price
+                else None
             )
             current_discount = (
                 condition.current_discount
                 if condition and condition.current_discount is not None
-                else current_price.discount if current_price else None
+                else current_price.discount
+                if current_price
+                else None
             )
             current_discounted_price = (
                 condition.current_discounted_price

@@ -65,12 +65,7 @@ class ProfileService:
         if user is None:
             raise ProfileValidationError("Пользователь не найден")
 
-        display_name = (
-            user.first_name
-            or user.last_name
-            or user.username
-            or str(user.telegram_id)
-        )
+        display_name = user.first_name or user.last_name or user.username or str(user.telegram_id)
 
         subscription_service = SubscriptionService(self.session)
         subscription = await subscription_service.get_user_current_subscription(user.id)

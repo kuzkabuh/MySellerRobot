@@ -2,6 +2,7 @@
 description: Helpers for stripping Telegram-flavored HTML for safe display in web UI.
 updated: 2026-06-07
 """
+
 from __future__ import annotations
 
 import html

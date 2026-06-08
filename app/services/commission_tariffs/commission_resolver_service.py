@@ -167,8 +167,7 @@ class CommissionResolverService:
                     match_status="special_rule",
                     matched_rate_id=None,
                     diagnostics=(
-                        "Применено специальное условие Ozon для товаров "
-                        f"до 300 ₽: {special_rate}%"
+                        f"Применено специальное условие Ozon для товаров до 300 ₽: {special_rate}%"
                     ),
                     commission_base_price=effective_price,
                     commission_amount=commission_amount,

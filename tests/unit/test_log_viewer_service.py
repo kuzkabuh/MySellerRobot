@@ -21,43 +21,58 @@ def temp_logs_dir(tmp_path):
 
     app_log = logs_dir / "app.log"
     app_log.write_text(
-        json.dumps({
-            "asctime": "2026-06-01T10:00:00",
-            "level": "INFO",
-            "logger": "app.test",
-            "message": "Test info message",
-            "user_id": 123,
-        }) + "\n"
-        + json.dumps({
-            "asctime": "2026-06-01T10:01:00",
-            "level": "ERROR",
-            "logger": "app.test",
-            "message": "Test error message",
-            "exc_info": "Traceback: something failed",
-        }) + "\n"
-        + json.dumps({
-            "asctime": "2026-06-01T10:02:00",
-            "level": "WARNING",
-            "logger": "app.test",
-            "message": "Test warning with api_key=secret123",
-        }) + "\n"
-        + json.dumps({
-            "asctime": "2026-06-01T10:03:00",
-            "level": "DEBUG",
-            "logger": "app.test",
-            "message": "Debug message",
-        }) + "\n",
+        json.dumps(
+            {
+                "asctime": "2026-06-01T10:00:00",
+                "level": "INFO",
+                "logger": "app.test",
+                "message": "Test info message",
+                "user_id": 123,
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "asctime": "2026-06-01T10:01:00",
+                "level": "ERROR",
+                "logger": "app.test",
+                "message": "Test error message",
+                "exc_info": "Traceback: something failed",
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "asctime": "2026-06-01T10:02:00",
+                "level": "WARNING",
+                "logger": "app.test",
+                "message": "Test warning with api_key=secret123",
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "asctime": "2026-06-01T10:03:00",
+                "level": "DEBUG",
+                "logger": "app.test",
+                "message": "Debug message",
+            }
+        )
+        + "\n",
         encoding="utf-8",
     )
 
     errors_log = logs_dir / "errors.log"
     errors_log.write_text(
-        json.dumps({
-            "asctime": "2026-06-01T10:01:00",
-            "level": "ERROR",
-            "logger": "app.test",
-            "message": "Error in errors.log",
-        }) + "\n",
+        json.dumps(
+            {
+                "asctime": "2026-06-01T10:01:00",
+                "level": "ERROR",
+                "logger": "app.test",
+                "message": "Error in errors.log",
+            }
+        )
+        + "\n",
         encoding="utf-8",
     )
 
@@ -66,8 +81,10 @@ def temp_logs_dir(tmp_path):
 
 @pytest.fixture
 def service(temp_logs_dir):
-    with patch("app.services.log_viewer_service.LOGS_DIR", temp_logs_dir), \
-         patch("app.services.log_viewer_service.ARCHIVE_DIR", temp_logs_dir / "archive"):
+    with (
+        patch("app.services.log_viewer_service.LOGS_DIR", temp_logs_dir),
+        patch("app.services.log_viewer_service.ARCHIVE_DIR", temp_logs_dir / "archive"),
+    ):
         svc = LogViewerService()
         yield svc
 
@@ -123,12 +140,14 @@ class TestLogViewerServiceMasking:
 
 class TestLogViewerServiceParsing:
     def test_parse_json_log_line(self, service):
-        line = json.dumps({
-            "asctime": "2026-06-01T10:00:00",
-            "level": "INFO",
-            "logger": "app.test",
-            "message": "Test message",
-        })
+        line = json.dumps(
+            {
+                "asctime": "2026-06-01T10:00:00",
+                "level": "INFO",
+                "logger": "app.test",
+                "message": "Test message",
+            }
+        )
         entry = service._parse_log_line(line)
         assert entry is not None
         assert entry.level == "INFO"

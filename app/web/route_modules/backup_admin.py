@@ -109,7 +109,9 @@ def _render_backups_page(backups: list[BackupFile], message: str | None) -> str:
         if latest_db.created_at < datetime.now(tz=UTC) - timedelta(hours=24):
             notices.append('<div class="notice warning">Последний бэкап БД старше 24 часов.</div>')
         if latest_db.size_bytes <= 1024:
-            notices.append('<div class="notice danger">Последний бэкап БД подозрительно маленький.</div>')
+            notices.append(
+                '<div class="notice danger">Последний бэкап БД подозрительно маленький.</div>'
+            )
     rows = "".join(
         "<tr>"
         f"<td>{_dt(item.created_at)}</td>"
@@ -125,7 +127,7 @@ def _render_backups_page(backups: list[BackupFile], message: str | None) -> str:
     <div class="page-header">
       <div>
         <h2>Бэкапы</h2>
-        <div class="summary-strip"><span>Каталог: <strong>{_h(str(Path(get_settings().backup_dir) / 'daily'))}</strong></span></div>
+        <div class="summary-strip"><span>Каталог: <strong>{_h(str(Path(get_settings().backup_dir) / "daily"))}</strong></span></div>
       </div>
       <div class="page-actions">
         <form method="post" action="/web/admin/backups/run">
@@ -133,7 +135,7 @@ def _render_backups_page(backups: list[BackupFile], message: str | None) -> str:
         </form>
       </div>
     </div>
-    {''.join(notices)}
+    {"".join(notices)}
     <div class="band">
       <h3>Последние бэкапы</h3>
       <div class="table-wrap">

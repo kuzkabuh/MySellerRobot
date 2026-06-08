@@ -545,33 +545,33 @@ def _tariff_form_html(
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:12px;">
                 <div>
                     <label>Код тарифа *</label>
-                    <input type="text" name="code" value="{_val('code')}" required{code_readonly}>
+                    <input type="text" name="code" value="{_val("code")}" required{code_readonly}>
                     {code_warning}
                 </div>
                 <div>
                     <label>Название *</label>
-                    <input type="text" name="name" value="{_val('name')}" required>
+                    <input type="text" name="name" value="{_val("name")}" required>
                 </div>
                 <div>
                     <label>Порядок отображения</label>
-                    <input type="number" name="sort_order" value="{_num_val('sort_order', '0')}">
+                    <input type="number" name="sort_order" value="{_num_val("sort_order", "0")}">
                 </div>
                 <div>
                     <label>Валюта</label>
-                    <input type="text" name="currency" value="{_val('currency', 'RUB')}">
+                    <input type="text" name="currency" value="{_val("currency", "RUB")}">
                 </div>
             </div>
             <div style="margin-top:12px;">
                 <label>Описание</label>
-                <textarea name="description" rows="3">{_val('description')}</textarea>
+                <textarea name="description" rows="3">{_val("description")}</textarea>
             </div>
             <div style="display:flex;gap:16px;margin-top:12px;">
                 <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;font-size:13px;font-weight:500;color:var(--text);letter-spacing:0;">
-                    <input type="checkbox" name="is_active"{_checked('is_active', True)} style="width:auto;height:auto;">
+                    <input type="checkbox" name="is_active"{_checked("is_active", True)} style="width:auto;height:auto;">
                     Активен
                 </label>
                 <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;font-size:13px;font-weight:500;color:var(--text);letter-spacing:0;">
-                    <input type="checkbox" name="is_public"{_checked('is_public', True)} style="width:auto;height:auto;">
+                    <input type="checkbox" name="is_public"{_checked("is_public", True)} style="width:auto;height:auto;">
                     Публичный
                 </label>
             </div>
@@ -582,19 +582,19 @@ def _tariff_form_html(
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:12px;">
                 <div>
                     <label>Цена за месяц *</label>
-                    <input type="number" name="price_monthly" value="{_num_val('price_monthly', '0')}" step="0.01" min="0">
+                    <input type="number" name="price_monthly" value="{_num_val("price_monthly", "0")}" step="0.01" min="0">
                 </div>
                 <div>
                     <label>Цена за 3 месяца</label>
-                    <input type="number" name="price_3_months" value="{_num_val('price_3_months')}" step="0.01" min="0">
+                    <input type="number" name="price_3_months" value="{_num_val("price_3_months")}" step="0.01" min="0">
                 </div>
                 <div>
                     <label>Цена за 6 месяцев</label>
-                    <input type="number" name="price_6_months" value="{_num_val('price_6_months')}" step="0.01" min="0">
+                    <input type="number" name="price_6_months" value="{_num_val("price_6_months")}" step="0.01" min="0">
                 </div>
                 <div>
                     <label>Цена за год</label>
-                    <input type="number" name="price_yearly" value="{_num_val('price_yearly')}" step="0.01" min="0">
+                    <input type="number" name="price_yearly" value="{_num_val("price_yearly")}" step="0.01" min="0">
                 </div>
             </div>
         </div>
@@ -604,27 +604,27 @@ def _tariff_form_html(
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:12px;">
                 <div>
                     <label>Макс. кабинетов МП</label>
-                    <input type="number" name="max_marketplace_accounts" value="{_num_val('max_marketplace_accounts', '1')}" min="1">
+                    <input type="number" name="max_marketplace_accounts" value="{_num_val("max_marketplace_accounts", "1")}" min="1">
                 </div>
                 <div>
                     <label>Макс. заказов/мес</label>
-                    <input type="number" name="max_orders_per_month" value="{_num_val('max_orders_per_month')}" min="0" placeholder="Без лимита">
+                    <input type="number" name="max_orders_per_month" value="{_num_val("max_orders_per_month")}" min="0" placeholder="Без лимита">
                 </div>
                 <div>
                     <label>Макс. товаров</label>
-                    <input type="number" name="max_products" value="{_num_val('max_products')}" min="0" placeholder="Без лимита">
+                    <input type="number" name="max_products" value="{_num_val("max_products")}" min="0" placeholder="Без лимита">
                 </div>
                 <div>
                     <label>Макс. пользователей</label>
-                    <input type="number" name="max_users" value="{_num_val('max_users')}" min="0" placeholder="Без лимита">
+                    <input type="number" name="max_users" value="{_num_val("max_users")}" min="0" placeholder="Без лимита">
                 </div>
                 <div>
                     <label>Интервал синхронизации (мин)</label>
-                    <input type="number" name="sync_interval_minutes" value="{_num_val('sync_interval_minutes', '180')}" min="1">
+                    <input type="number" name="sync_interval_minutes" value="{_num_val("sync_interval_minutes", "180")}" min="1">
                 </div>
                 <div>
                     <label>Глубина аналитики (дней)</label>
-                    <input type="number" name="analytics_depth_days" value="{_num_val('analytics_depth_days', '30')}" min="1">
+                    <input type="number" name="analytics_depth_days" value="{_num_val("analytics_depth_days", "30")}" min="1">
                 </div>
             </div>
         </div>

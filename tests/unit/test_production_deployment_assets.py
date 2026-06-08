@@ -27,7 +27,7 @@ def test_alembic_version_table_uses_varchar_255() -> None:
     assert "CREATE TABLE IF NOT EXISTS alembic_version" in env_py
     assert "VARCHAR(255)" in env_py
     assert "ALTER COLUMN version_num TYPE VARCHAR(255)" in env_py
-    assert "version_table=\"alembic_version\"" in env_py
+    assert 'version_table="alembic_version"' in env_py
 
 
 def test_install_script_prepares_production_prerequisites() -> None:
@@ -80,6 +80,6 @@ def test_backup_and_restore_entrypoints_exist() -> None:
 def test_prod_compose_limits_docker_log_growth() -> None:
     compose = read("docker-compose.prod.yml")
 
-    assert "max-size: \"20m\"" in compose
-    assert "max-file: \"3\"" in compose
+    assert 'max-size: "20m"' in compose
+    assert 'max-file: "3"' in compose
     assert compose.count("logging: *default-logging") >= 5

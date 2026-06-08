@@ -19,9 +19,7 @@ REVISION_PATTERN = re.compile(r'^revision(?::\s*[^=]+)?\s*=\s*["\']([^"\']+)["\'
 DOWN_REVISION_PATTERN = re.compile(
     r'^down_revision(?::\s*[^=]+)?\s*=\s*["\']([^"\']+)["\']', re.MULTILINE
 )
-DOWN_REVISION_NONE_PATTERN = re.compile(
-    r'^down_revision(?::\s*[^=]+)?\s*=\s*None', re.MULTILINE
-)
+DOWN_REVISION_NONE_PATTERN = re.compile(r"^down_revision(?::\s*[^=]+)?\s*=\s*None", re.MULTILINE)
 
 
 def parse_migration(file_path: Path) -> tuple[str | None, str | None]:
@@ -82,9 +80,7 @@ def main() -> int:
             errors.append(f"{revisions[revision].name}: cannot parse down_revision")
             continue
         if down_rev not in revisions:
-            errors.append(
-                f"{revisions[revision].name}: down_revision '{down_rev}' not found"
-            )
+            errors.append(f"{revisions[revision].name}: down_revision '{down_rev}' not found")
 
     heads = set(revisions.keys()) - set(down_revisions.values())
     heads = {h for h in heads if down_revisions.get(h) != "UNKNOWN"}

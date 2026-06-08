@@ -2,6 +2,7 @@
 description: Определяет внешний IP клиента только через доверенные reverse proxy.
 updated: 2026-06-07
 """
+
 from __future__ import annotations
 
 import ipaddress

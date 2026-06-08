@@ -96,9 +96,7 @@ class WebAuthRepository:
     async def get_user_by_web_login(self, web_login: str) -> User | None:
         if not web_login:
             return None
-        result = await self.session.execute(
-            select(User).where(User.web_login == web_login)
-        )
+        result = await self.session.execute(select(User).where(User.web_login == web_login))
         return result.scalar_one_or_none()
 
     async def get_user_by_password_identity(self, identity: str) -> User | None:

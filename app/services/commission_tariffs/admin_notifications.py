@@ -81,7 +81,7 @@ def format_wb_sync_notification(result: dict[str, Any]) -> str:
         )
     error = result.get("error", "Неизвестная ошибка")
     error_type = result.get("error_type", "")
-    return "⚠️ <b>Ошибка синхронизации комиссий WB</b>\n\n" f"Тип: {error_type}\n" f"Ошибка: {error}"
+    return f"⚠️ <b>Ошибка синхронизации комиссий WB</b>\n\nТип: {error_type}\nОшибка: {error}"
 
 
 def format_ozon_monitor_notification(result: dict[str, Any]) -> str | None:

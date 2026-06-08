@@ -2,6 +2,7 @@
 description: Common user display helpers used by web, bot and admin views.
 updated: 2026-06-07
 """
+
 from __future__ import annotations
 
 from html import escape

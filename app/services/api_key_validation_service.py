@@ -69,7 +69,8 @@ class ApiKeyValidationService:
             return ApiKeyCheckResult(
                 success=len(missing) == 0,
                 status="active" if len(missing) == 0 else "insufficient_permissions",
-                message="Подключение успешно" if len(missing) == 0
+                message="Подключение успешно"
+                if len(missing) == 0
                 else f"Недостаточно прав: {', '.join(missing)}",
                 permissions=permissions,
                 missing_permissions=missing,
@@ -94,9 +95,7 @@ class ApiKeyValidationService:
                 message=f"Ошибка подключения: {error_msg[:200]}",
             )
 
-    async def validate_ozon_key(
-        self, api_key: str, client_id: str
-    ) -> ApiKeyCheckResult:
+    async def validate_ozon_key(self, api_key: str, client_id: str) -> ApiKeyCheckResult:
         if not api_key or not client_id:
             return ApiKeyCheckResult(
                 success=False,
@@ -126,7 +125,8 @@ class ApiKeyValidationService:
             return ApiKeyCheckResult(
                 success=len(missing) == 0,
                 status="active" if len(missing) == 0 else "insufficient_permissions",
-                message="Подключение успешно" if len(missing) == 0
+                message="Подключение успешно"
+                if len(missing) == 0
                 else f"Недостаточно прав: {', '.join(missing)}",
                 permissions=permissions,
                 missing_permissions=missing,
@@ -178,6 +178,7 @@ class ApiKeyValidationService:
 
         if result.success:
             from app.models.enums import AccountStatus
+
             account.status = AccountStatus.ACTIVE
 
         await self.session.commit()

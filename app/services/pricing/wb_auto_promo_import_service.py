@@ -322,9 +322,7 @@ class WbAutoPromoImportService:
                 error_count += 1
             elif required_price is None and (fallback_price is None or fallback_price <= 0):
                 status = "error"
-                message = (
-                    "Плановая цена не указана, а загружаемую скидку нельзя " "пересчитать в цену"
-                )
+                message = "Плановая цена не указана, а загружаемую скидку нельзя пересчитать в цену"
                 error_count += 1
             else:
                 product = await self._find_product_by_nm_id(

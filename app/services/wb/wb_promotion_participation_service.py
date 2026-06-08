@@ -433,7 +433,7 @@ class WbPromotionParticipationService:
                 nomenclature=nom,
                 eligibility_status="limited_by_min_price",
                 eligibility_reason=(
-                    "Цена ниже minPrice. Минимум: " f"{mrc_result.final_discounted_price:.0f} ₽"
+                    f"Цена ниже minPrice. Минимум: {mrc_result.final_discounted_price:.0f} ₽"
                 ),
                 calculated_discounted_price=mrc_result.final_discounted_price,
                 calculated_price_before_discount=mrc_result.price_before_discount,

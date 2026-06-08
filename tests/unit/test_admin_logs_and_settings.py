@@ -76,9 +76,9 @@ class TestSettingsRedirect:
         # Should NOT redirect to /web/settings (circular)
         if response.status_code in [301, 302, 303, 307, 308]:
             location = response.headers.get("location", "")
-            assert (
-                "/web/settings" not in location or "/web/login" in location
-            ), f"Circular redirect detected: {location}"
+            assert "/web/settings" not in location or "/web/login" in location, (
+                f"Circular redirect detected: {location}"
+            )
 
     def test_settings_low_margin_post_redirects_correctly(self, client):
         """Test that POST /settings/low-margin redirects to /web/settings."""

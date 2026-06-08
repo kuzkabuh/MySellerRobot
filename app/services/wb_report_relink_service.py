@@ -1,4 +1,5 @@
 """Relink unbound WB report rows to orders after order backfills."""
+
 from __future__ import annotations
 
 import re
@@ -142,9 +143,7 @@ class WbReportRelinkService:
         elif method == "rid":
             stmt = base.where(func.lower(func.trim(Order.srid)).like(f"%{value}%"))
         elif method == "basket_id":
-            stmt = base.where(
-                cast(Order.raw_payload, Text).ilike(f"%{value}%")
-            )
+            stmt = base.where(cast(Order.raw_payload, Text).ilike(f"%{value}%"))
         elif method == "shk":
             stmt = base.where((Order.order_external_id == value) | (Order.posting_number == value))
         else:

@@ -205,4 +205,4 @@ def _sync_message(request: Request) -> str:
         text = "Синхронизация завершилась с ошибкой."
     color = "#065f46" if status in {"new_version", "no_changes"} else "#991b1b"
     background = "#ecfdf5" if status in {"new_version", "no_changes"} else "#fef2f2"
-    return f'<div class="card" style="background:{background};color:{color};">' f"{text}</div>"
+    return f'<div class="card" style="background:{background};color:{color};">{text}</div>'

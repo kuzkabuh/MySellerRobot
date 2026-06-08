@@ -2,6 +2,7 @@
 description: Robust XLSX parser for WB daily and weekly detailed reports.
 updated: 2026-06-08
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -20,9 +21,7 @@ from openpyxl.utils.datetime import from_excel
 
 logger = logging.getLogger(__name__)
 
-REPORT_NUMBER_PATTERN = re.compile(
-    r"(\d{8,})_(?P<supplier>\d+)", re.IGNORECASE
-)
+REPORT_NUMBER_PATTERN = re.compile(r"(\d{8,})_(?P<supplier>\d+)", re.IGNORECASE)
 
 
 @dataclass(slots=True)

@@ -795,7 +795,7 @@ async def manual_upload_preview(
             user,
             f'<div class="band"><h2>Файл невалидный</h2>'
             f"<p>Статус: {escape(validation.status)}</p>"
-            f'<p>{escape(validation.message or "")}</p>'
+            f"<p>{escape(validation.message or '')}</p>"
             f'<a href="/web/admin/commissions/manual-upload" class="button">Назад</a></div>',
         )
 
@@ -894,7 +894,7 @@ async def manual_upload_apply(
             "Ручная загрузка комиссий Ozon",
             user,
             f'<div class="band"><h2>Файл невалидный</h2>'
-            f'<p>{escape(validation.message or "")}</p>'
+            f"<p>{escape(validation.message or '')}</p>"
             f'<a href="/web/admin/commissions" class="button">Назад</a></div>',
         )
 

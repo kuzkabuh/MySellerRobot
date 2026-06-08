@@ -44,9 +44,7 @@ def upgrade() -> None:
         "wb_daily_report_rows",
         sa.Column("row_status", sa.String(24), nullable=False, server_default="new"),
     )
-    op.add_column(
-        "wb_daily_report_rows", sa.Column("skip_reason", sa.String(255), nullable=True)
-    )
+    op.add_column("wb_daily_report_rows", sa.Column("skip_reason", sa.String(255), nullable=True))
     op.add_column("wb_daily_report_rows", sa.Column("error_message", sa.Text(), nullable=True))
     op.create_index("ix_wb_daily_report_rows_barcode", "wb_daily_report_rows", ["barcode"])
     op.create_index("ix_wb_daily_report_rows_srid", "wb_daily_report_rows", ["srid"])

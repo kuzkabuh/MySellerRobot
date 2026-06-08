@@ -25,8 +25,7 @@ logger = logging.getLogger(__name__)
 
 TARIFF_SOURCE = "wb_api"
 WB_LOGISTICS_ERROR_MESSAGE = (
-    "Не удалось обновить тарифы логистики WB. "
-    "Попробуйте позже или проверьте API-ключ."
+    "Не удалось обновить тарифы логистики WB. Попробуйте позже или проверьте API-ключ."
 )
 WB_LOGISTICS_RETRY_ATTEMPTS = 4
 
@@ -115,12 +114,7 @@ def _format_wb_logistics_error(exc: MarketplaceApiError) -> str:
         cause = exc.message
         action = "проверьте API-ключ WB или повторите позже."
 
-    return (
-        "Логистика WB не обновлена\n"
-        f"Причина: {cause}\n"
-        f"Попыток: {attempts}\n"
-        f"Действие: {action}"
-    )
+    return f"Логистика WB не обновлена\nПричина: {cause}\nПопыток: {attempts}\nДействие: {action}"
 
 
 class WbLogisticsTariffSyncService:

@@ -382,7 +382,7 @@ async def handle_promo_code_input(message: Message, state: FSMContext) -> None:
                 ]
             )
             await message.answer(
-                f"❌ {_html(str(e))}\n\n" f"Вы можете продолжить без промокода.",
+                f"❌ {_html(str(e))}\n\nВы можете продолжить без промокода.",
                 reply_markup=keyboard,
             )
             return
@@ -632,7 +632,7 @@ async def handle_payment_email_input(message: Message, state: FSMContext) -> Non
 
     email = (message.text or "").strip()
     if not email or "@" not in email or "." not in email.split("@")[-1]:
-        await message.answer("Пожалуйста, введите корректный e-mail.\n\n" "Пример: example@mail.ru")
+        await message.answer("Пожалуйста, введите корректный e-mail.\n\nПример: example@mail.ru")
         return
 
     data = await state.get_data()

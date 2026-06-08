@@ -2,6 +2,7 @@
 description: Per-type user notification settings service.
 updated: 2026-06-07
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterable

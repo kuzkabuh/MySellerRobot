@@ -774,16 +774,16 @@ def _auto_promo_preview_row(row: Any) -> str:
     row_class = "is-error" if status == "error" else "is-warning" if status == "warning" else ""
     return f"""
     <tr class="{row_class}">
-      <td>{getattr(row, 'row_number', '')}</td>
-      <td>{escape(str(getattr(row, 'title', '') or ''))}</td>
-      <td>{escape(str(getattr(row, 'seller_article', '') or ''))}</td>
-      <td>{getattr(row, 'wb_nm_id', '') or ''}</td>
-      <td>{_money(getattr(row, 'plan_price', None))}</td>
-      <td>{_money(getattr(row, 'current_full_price', None))}</td>
-      <td>{getattr(row, 'current_discount_percent', '') or ''}%</td>
-      <td>{_money(getattr(row, 'current_discounted_price', None))}</td>
-      <td>{getattr(row, 'wb_upload_discount_percent', '') or ''}%</td>
-      <td>{escape(str(getattr(row, 'wb_status', '') or ''))}</td>
+      <td>{getattr(row, "row_number", "")}</td>
+      <td>{escape(str(getattr(row, "title", "") or ""))}</td>
+      <td>{escape(str(getattr(row, "seller_article", "") or ""))}</td>
+      <td>{getattr(row, "wb_nm_id", "") or ""}</td>
+      <td>{_money(getattr(row, "plan_price", None))}</td>
+      <td>{_money(getattr(row, "current_full_price", None))}</td>
+      <td>{getattr(row, "current_discount_percent", "") or ""}%</td>
+      <td>{_money(getattr(row, "current_discounted_price", None))}</td>
+      <td>{getattr(row, "wb_upload_discount_percent", "") or ""}%</td>
+      <td>{escape(str(getattr(row, "wb_status", "") or ""))}</td>
       <td>{escape(str(message))}</td>
     </tr>
     """
@@ -901,7 +901,7 @@ def _overview_section(data: PricingViewData) -> str:
 def _pipeline_step(index: int, title: str, done: bool, action: str) -> str:
     status = "Готово" if done else "Ожидает"
     return f"""
-    <form method="post" action="{escape(action)}" class="pricing-pipeline-step {'is-done' if done else ''}">
+    <form method="post" action="{escape(action)}" class="pricing-pipeline-step {"is-done" if done else ""}">
       <span>{index}</span>
       <div><strong>{escape(title)}</strong><small>{status}</small></div>
       <button type="submit">Запустить</button>
@@ -1010,10 +1010,10 @@ def _promotion_card(promo: WbPromotion, counts: dict[str, int]) -> str:
     return f"""
     <article class="pricing-card pricing-promo-card">
       <div class="pricing-promo-top">
-        <div><h3>{escape(promo.name or 'Акция WB')}</h3><small>{escape(dates)}</small></div>
+        <div><h3>{escape(promo.name or "Акция WB")}</h3><small>{escape(dates)}</small></div>
         {_badge("Автоакция" if is_auto else "Обычная", "violet" if is_auto else "blue")}
       </div>
-      {'<p class="pricing-auto-note">Автоакция — товар попадает после изменения цены</p>' if is_auto else ''}
+      {'<p class="pricing-auto-note">Автоакция — товар попадает после изменения цены</p>' if is_auto else ""}
       <div class="pricing-mini-grid">
         <span><strong>{counts.get("products", 0)}</strong> товаров</span>
         <span><strong>{counts.get("conditions", 0)}</strong> условий</span>
@@ -1055,7 +1055,7 @@ def _condition_row(condition: WbAutoPromotionCondition, product: Product | None)
         warning = '<div class="pricing-warning">WB API не отдал цену входа. Откройте диагностику raw_payload.<br><button type="button">Задать вручную, если цена известна из кабинета WB</button></div>'
     return f"""
     <tr>
-      <td>{escape(condition.promotion_name or '')}</td>
+      <td>{escape(condition.promotion_name or "")}</td>
       <td>{condition.wb_nm_id}</td>
       <td>{_product_title(product)}</td>
       <td>{_money(condition.required_price)}{warning}</td>
@@ -1088,8 +1088,8 @@ def _recommendations_section(data: PricingViewData) -> str:
     filters = f"""
     <div class="pricing-action-bar">
       <input type="search" id="pricing-search" placeholder="Поиск по товару / артикулу / nmID">
-      <select id="pricing-status-filter"><option value="">Все статусы</option>{''.join(f'<option value="{escape(status)}">{escape(_status_label(status))}</option>' for status in sorted({rec.status for rec in data.recommendations}))}</select>
-      <select id="pricing-promo-filter"><option value="">Все акции</option>{''.join(f'<option value="{escape(name)}">{escape(name)}</option>' for name in promotion_options)}</select>
+      <select id="pricing-status-filter"><option value="">Все статусы</option>{"".join(f'<option value="{escape(status)}">{escape(_status_label(status))}</option>' for status in sorted({rec.status for rec in data.recommendations}))}</select>
+      <select id="pricing-promo-filter"><option value="">Все акции</option>{"".join(f'<option value="{escape(name)}">{escape(name)}</option>' for name in promotion_options)}</select>
       <select id="pricing-sort"><option value="status">Сортировка: статус</option><option value="mrc">МРЦ</option><option value="recommended">Рекомендуемая цена</option><option value="updated">Дата обновления</option></select>
       <label><input type="checkbox" id="pricing-only-apply"> только можно применить</label>
       <label><input type="checkbox" id="pricing-only-problems"> только проблемы</label>
@@ -1142,7 +1142,7 @@ def _auto_promo_upload_form(
       <input name="promotion_name" placeholder="Название акции (необязательно)">
       <input type="file" name="file" accept=".xlsx,.xlsm,.csv" required>
       <button class="pricing-button pricing-button-primary" type="submit">Загрузить и проверить</button>
-      {'' if standalone else '<a class="pricing-button" href="/web/pricing/auto-promotions/upload">Открыть мастер</a>'}
+      {"" if standalone else '<a class="pricing-button" href="/web/pricing/auto-promotions/upload">Открыть мастер</a>'}
     </form>
     """
 
@@ -1181,17 +1181,17 @@ def _recommendation_pair(row: WbAutoPromoPriceRecommendation, product: Product |
         else "0"
     )
     return f"""
-    <tr class="pricing-rec-row" data-search="{escape(searchable.lower())}" data-status="{escape(row.status)}" data-promo="{escape(row.promotion_name or '')}" data-can-apply="{'1' if row.status == 'CAN_APPLY' else '0'}" data-problem="{problem}" data-mrc="{row.mrc_price}" data-recommended="{row.recommended_discounted_price or 0}" data-updated="{row.id}">
+    <tr class="pricing-rec-row" data-search="{escape(searchable.lower())}" data-status="{escape(row.status)}" data-promo="{escape(row.promotion_name or "")}" data-can-apply="{"1" if row.status == "CAN_APPLY" else "0"}" data-problem="{problem}" data-mrc="{row.mrc_price}" data-recommended="{row.recommended_discounted_price or 0}" data-updated="{row.id}">
       <td>{checkbox}</td>
       <td>{_product_title(product)}</td>
-      <td>{escape(product.seller_article or '') if product else ''}</td>
+      <td>{escape(product.seller_article or "") if product else ""}</td>
       <td>{row.wb_nm_id}</td>
-      <td>{escape(row.promotion_name or '')}</td>
+      <td>{escape(row.promotion_name or "")}</td>
       <td>{_money(row.candidate_discounted_price or row.max_auto_promo_price or row.required_price)}</td>
       <td>{_money(row.current_full_price)}</td>
-      <td>{row.current_discount or ''}%</td>
+      <td>{row.current_discount or ""}%</td>
       <td>{_money(row.current_discounted_price or row.current_wb_price)}</td>
-      <td>{row.wb_condition_discount_percent or ''}%</td>
+      <td>{row.wb_condition_discount_percent or ""}%</td>
       <td>{_money(row.mrc_price)}</td>
       <td>{_money(row.mrc_lower_bound)}</td>
       <td>{_money(row.recommended_discounted_price or row.recommended_price)}</td>
@@ -1219,11 +1219,11 @@ def _recommendation_details(
     <div class="pricing-details-grid">
       <div>
         <h4>Формула расчёта</h4>
-        <p>МРЦ: {_money(row.mrc_price)}<br>Допустимое снижение: по настройкам МРЦ<br>Минимальная цена: {_money(row.mrc_lower_bound)}<br>Тип условия: {escape(row.condition_type)}<br>Скидка в условии WB: {row.wb_condition_discount_percent or '-'}%<br>Цена условия WB: {_money(row.candidate_discounted_price or row.max_auto_promo_price or row.required_price)}<br>Рекомендуемая цена со скидкой: {_money(row.recommended_discounted_price or row.recommended_price)}<br>Скидка WB: {row.recommended_discount or 75}%<br>{escape(formula)}</p>
+        <p>МРЦ: {_money(row.mrc_price)}<br>Допустимое снижение: по настройкам МРЦ<br>Минимальная цена: {_money(row.mrc_lower_bound)}<br>Тип условия: {escape(row.condition_type)}<br>Скидка в условии WB: {row.wb_condition_discount_percent or "-"}%<br>Цена условия WB: {_money(row.candidate_discounted_price or row.max_auto_promo_price or row.required_price)}<br>Рекомендуемая цена со скидкой: {_money(row.recommended_discounted_price or row.recommended_price)}<br>Скидка WB: {row.recommended_discount or 75}%<br>{escape(formula)}</p>
       </div>
       <div>
         <h4>Решение</h4>
-        <p>{escape(row.reason or '')}</p>
+        <p>{escape(row.reason or "")}</p>
         <p>Источник: {escape(row.source)}. Статус: {escape(row.status)}.</p>
       </div>
       <div>
@@ -1281,8 +1281,8 @@ def _diagnostics_section(data: PricingViewData) -> str:
         "Диагностика WB API",
         f"""
         <div class="pricing-diagnostics">
-          <div class="pricing-mini-grid">{''.join(f'<span><strong>{value}</strong>{escape(label)}</span>' for label, value in stats)}</div>
-          <div class="pricing-card">{'<h3>Ошибки WB API</h3><ul>' + errors + '</ul>' if errors else '<h3>Ошибки WB API</h3><p>Последних ошибок по подключённым WB кабинетам нет.</p>'}</div>
+          <div class="pricing-mini-grid">{"".join(f"<span><strong>{value}</strong>{escape(label)}</span>" for label, value in stats)}</div>
+          <div class="pricing-card">{"<h3>Ошибки WB API</h3><ul>" + errors + "</ul>" if errors else "<h3>Ошибки WB API</h3><p>Последних ошибок по подключённым WB кабинетам нет.</p>"}</div>
           <div class="pricing-raw-list">{raw_blocks or _empty_state("Raw payload по автоакциям пока отсутствует", "Синхронизировать акции", "/web/pricing/sync-promotions")}</div>
         </div>
         """,
@@ -1293,7 +1293,7 @@ def _raw_payload_block(promo: WbPromotion) -> str:
     code_id = f"raw-promo-{promo.wb_promotion_id}"
     return f"""
     <details class="pricing-raw-block">
-      <summary>{escape(promo.name or 'Автоакция WB')} <span>#{promo.wb_promotion_id}</span></summary>
+      <summary>{escape(promo.name or "Автоакция WB")} <span>#{promo.wb_promotion_id}</span></summary>
       <button type="button" class="pricing-copy-button" data-copy-target="{code_id}">Скопировать</button>
       <pre id="{code_id}" class="pricing-code">{escape(_safe_json(promo.raw_payload))}</pre>
     </details>
@@ -1302,7 +1302,7 @@ def _raw_payload_block(promo: WbPromotion) -> str:
 
 def _panel(panel_id: str, title: str, body: str, *, active: bool = False) -> str:
     return f"""
-    <section id="{panel_id}" class="pricing-panel {'is-active' if active else ''}">
+    <section id="{panel_id}" class="pricing-panel {"is-active" if active else ""}">
       <div class="pricing-section-heading"><div><h2>{escape(title)}</h2></div></div>
       {body}
     </section>

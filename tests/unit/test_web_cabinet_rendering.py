@@ -517,9 +517,9 @@ def test_profit_page_uses_render_page_not_shadowed_page() -> None:
         if isinstance(node, ast.AsyncFunctionDef) and node.name == "profit_page":
             for child in ast.walk(node):
                 if isinstance(child, ast.Call) and isinstance(child.func, ast.Name):
-                    assert (
-                        child.func.id != "page"
-                    ), "profit_page must call render_page(), not bare page()"
+                    assert child.func.id != "page", (
+                        "profit_page must call render_page(), not bare page()"
+                    )
 
 
 def test_nav_links_cover_all_required_sections() -> None:
@@ -590,9 +590,9 @@ def test_nav_links_are_real_anchor_tags() -> None:
     html = page("Главная", "Артем", "<main></main>", is_admin=True, user_role="admin")
     for _group_title, items in NAV_GROUPS:
         for _label, href in items:
-            assert (
-                f'<a href="{href}"' in html or f'<a class="active" href="{href}"' in html
-            ), f"Nav item {_label!r} is not a real <a> tag with href={href!r}"
+            assert f'<a href="{href}"' in html or f'<a class="active" href="{href}"' in html, (
+                f"Nav item {_label!r} is not a real <a> tag with href={href!r}"
+            )
 
 
 def test_page_html_contains_no_javascript_click_handlers() -> None:

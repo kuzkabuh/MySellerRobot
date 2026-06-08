@@ -2,6 +2,7 @@
 description: Unit tests for strip_telegram_html helper.
 updated: 2026-06-07
 """
+
 from __future__ import annotations
 
 from app.utils.telegram_html import html_to_lines, strip_telegram_html, telegram_html_to_plain_text

@@ -87,20 +87,14 @@ class SupportService:
     async def get_user_tickets(
         self, user_id: int, status: str | None = None, limit: int = 50
     ) -> list[TicketData]:
-        stmt = (
-            select(SupportTicket)
-            .where(SupportTicket.user_id == user_id)
-        )
+        stmt = select(SupportTicket).where(SupportTicket.user_id == user_id)
         if status:
             stmt = stmt.where(SupportTicket.status == status)
         stmt = stmt.order_by(SupportTicket.created_at.desc()).limit(limit)
 
         result = await self.session.execute(stmt)
         rows = result.scalars().all()
-        return [
-            self._to_data(t)
-            for t in rows
-        ]
+        return [self._to_data(t) for t in rows]
 
     async def get_ticket(self, ticket_id: int, user_id: int | None = None) -> TicketData | None:
         stmt = select(SupportTicket).where(SupportTicket.id == ticket_id)
@@ -142,9 +136,7 @@ class SupportService:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def respond_ticket(
-        self, ticket_id: int, admin_id: int, response: str
-    ) -> bool:
+    async def respond_ticket(self, ticket_id: int, admin_id: int, response: str) -> bool:
         ticket = await self.session.get(SupportTicket, ticket_id)
         if ticket is None:
             return False
@@ -270,10 +262,7 @@ class SupportService:
         )
         result = await self.session.execute(stmt)
         rows = result.scalars().all()
-        return [
-            self._to_data(t)
-            for t in rows
-        ]
+        return [self._to_data(t) for t in rows]
 
     def _add_event(
         self,

@@ -1328,7 +1328,7 @@ async def cb_promo_periods_done(callback: CallbackQuery, state: FSMContext) -> N
     await state.set_state(AdminPanelStates.waiting_for_promo_total_limit)
     if callback.message:
         await callback.message.answer(
-            "Шаг 7/10: Введите общий лимит использований (число).\n" "Введите 0 для безлимита."
+            "Шаг 7/10: Введите общий лимит использований (число).\nВведите 0 для безлимита."
         )
     await callback.answer()
 
@@ -1347,7 +1347,7 @@ async def cb_promo_periods_skip(callback: CallbackQuery, state: FSMContext) -> N
     await state.set_state(AdminPanelStates.waiting_for_promo_total_limit)
     if callback.message:
         await callback.message.answer(
-            "Шаг 7/10: Введите общий лимит использований (число).\n" "Введите 0 для безлимита."
+            "Шаг 7/10: Введите общий лимит использований (число).\nВведите 0 для безлимита."
         )
     await callback.answer()
 

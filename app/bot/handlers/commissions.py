@@ -134,7 +134,7 @@ async def sync_wb_commissions_handler(callback: CallbackQuery) -> None:
     except Exception:
         logger.exception("commission_wb_manual_sync_failed")
         await message.edit_text(
-            "⚠️ Не удалось синхронизировать комиссии WB. " "Ошибка зафиксирована в логах."
+            "⚠️ Не удалось синхронизировать комиссии WB. Ошибка зафиксирована в логах."
         )
 
     await callback.answer()
@@ -162,7 +162,7 @@ async def check_ozon_commissions_handler(callback: CallbackQuery) -> None:
     else:
         period = result.get("period_label", "н/д")
         await message.edit_text(
-            f"✅ Проверка завершена. Изменений нет.\n\n" f"Текущий период: {period}"
+            f"✅ Проверка завершена. Изменений нет.\n\nТекущий период: {period}"
         )
 
     from aiogram import Bot
@@ -205,7 +205,7 @@ async def receive_ozon_file_handler(message: Message, state: FSMContext) -> None
     await state.update_data(file_id=doc.file_id, file_name=doc.file_name)
     await state.set_state(OzonImportStates.waiting_date)
     await message.answer(
-        "Укажите дату начала действия тарифов в формате ДД.ММ.ГГГГ.\n" "Например: 06.04.2026"
+        "Укажите дату начала действия тарифов в формате ДД.ММ.ГГГГ.\nНапример: 06.04.2026"
     )
 
 

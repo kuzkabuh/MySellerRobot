@@ -27,9 +27,7 @@ def test_sales_event_migration_adds_buyout_values() -> None:
 
 
 def test_notification_settings_migration_adds_partial_unique_indexes() -> None:
-    migration = Path(
-        "migrations/versions/20260607_0057_notification_settings_unique_indexes.py"
-    )
+    migration = Path("migrations/versions/20260607_0057_notification_settings_unique_indexes.py")
     text = migration.read_text(encoding="utf-8")
 
     assert "uq_notification_settings_global" in text

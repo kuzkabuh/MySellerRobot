@@ -67,7 +67,15 @@ def _priority_options(selected: str) -> str:
 
 
 def _badge(value: str, labels: dict[str, str]) -> str:
-    cls = "good" if value in {"answered", "closed"} else "bad" if value == "urgent" else "warn" if value in {"new", "high"} else "action"
+    cls = (
+        "good"
+        if value in {"answered", "closed"}
+        else "bad"
+        if value == "urgent"
+        else "warn"
+        if value in {"new", "high"}
+        else "action"
+    )
     return f'<span class="badge {cls}">{_h(labels.get(value, value))}</span>'
 
 
@@ -192,9 +200,7 @@ async def admin_support_reply(
         try:
             await bot.send_message(
                 telegram_id,
-                f"📩 <b>Ответ по обращению #{ticket.id}</b>\n\n"
-                "Текст ответа:\n"
-                f"{escape(text)}",
+                f"📩 <b>Ответ по обращению #{ticket.id}</b>\n\nТекст ответа:\n{escape(text)}",
                 parse_mode="HTML",
             )
         finally:
@@ -246,18 +252,18 @@ async def _render_ticket_detail(
     <div class="page-header"><div><h2>Обращение #{ticket.id}</h2><div class="summary-strip"><span>Статус: <strong>{_h(TICKET_STATUS_LABELS.get(ticket.status, ticket.status))}</strong></span><span>Приоритет: <strong>{_h(priority_labels.get(ticket.priority, ticket.priority))}</strong></span><span>Создано: <strong>{_dt(ticket.created_at)}</strong></span></div></div><div class="page-actions"><a class="btn" href="/web/admin/support">К списку</a></div></div>
     {alert_html}
     <div class="detail-grid">
-      <div class="band"><h3>Пользователь</h3><div class="kv"><span>Имя</span><strong>{_h(ticket.full_name or 'н/д')}</strong><span>Telegram ID</span><strong>{ticket.telegram_id or '-'}</strong><span>Username</span><strong>{_h('@' + ticket.username if ticket.username else 'н/д')}</strong><span>User ID</span><strong>{ticket.user_id}</strong></div></div>
+      <div class="band"><h3>Пользователь</h3><div class="kv"><span>Имя</span><strong>{_h(ticket.full_name or "н/д")}</strong><span>Telegram ID</span><strong>{ticket.telegram_id or "-"}</strong><span>Username</span><strong>{_h("@" + ticket.username if ticket.username else "н/д")}</strong><span>User ID</span><strong>{ticket.user_id}</strong></div></div>
       <div class="band"><h3>Состояние</h3><div class="kv"><span>Статус</span><strong>{_badge(ticket.status, TICKET_STATUS_LABELS)}</strong><span>Приоритет</span><strong>{_badge(ticket.priority, priority_labels)}</strong><span>Обновлено</span><strong>{_dt(ticket.updated_at)}</strong><span>Решено</span><strong>{_dt(ticket.resolved_at)}</strong></div></div>
     </div>
     <div class="band"><h3>{_h(ticket.subject)}</h3><div class="mono">{_h(ticket.message)}</div></div>
     <div class="band"><h3>Управление</h3><form method="post" action="/web/admin/support/{ticket.id}/update" class="filters">
       <div><label>Статус</label><select name="status">{_status_options(ticket.status)}</select></div>
       <div><label>Приоритет</label><select name="priority">{_priority_options(ticket.priority)}</select></div>
-      <div><label>Ответственный admin ID</label><input name="assigned_admin_id" value="{_h(ticket.assigned_admin_id or '')}"></div>
-      <div class="wide"><label>Внутренний комментарий</label><textarea name="admin_comment" rows="4">{_h(ticket.admin_comment or '')}</textarea></div>
+      <div><label>Ответственный admin ID</label><input name="assigned_admin_id" value="{_h(ticket.assigned_admin_id or "")}"></div>
+      <div class="wide"><label>Внутренний комментарий</label><textarea name="admin_comment" rows="4">{_h(ticket.admin_comment or "")}</textarea></div>
       <button class="btn btn-primary">Сохранить</button>
     </form></div>
-    <div class="band"><h3>Ответ пользователю</h3><form method="post" action="/web/admin/support/{ticket.id}/reply"><textarea name="response_text" rows="6" placeholder="Текст ответа пользователю">{_h(draft_response or ticket.admin_response or '')}</textarea><div style="display:flex;gap:8px;margin-top:10px;"><button class="btn btn-primary">Отправить в Telegram</button></div></form><form method="post" action="/web/admin/support/{ticket.id}/close" style="margin-top:8px;"><button class="btn">Закрыть обращение</button></form></div>
+    <div class="band"><h3>Ответ пользователю</h3><form method="post" action="/web/admin/support/{ticket.id}/reply"><textarea name="response_text" rows="6" placeholder="Текст ответа пользователю">{_h(draft_response or ticket.admin_response or "")}</textarea><div style="display:flex;gap:8px;margin-top:10px;"><button class="btn btn-primary">Отправить в Telegram</button></div></form><form method="post" action="/web/admin/support/{ticket.id}/close" style="margin-top:8px;"><button class="btn">Закрыть обращение</button></form></div>
     <div class="band"><h3>История действий</h3><div class="table-wrap"><table class="table"><thead><tr><th>Дата</th><th>Actor</th><th>Actor ID</th><th>Действие</th><th>Было</th><th>Стало</th><th>Комментарий</th></tr></thead><tbody>{event_rows or '<tr><td colspan="7"><div class="empty-state">История пока пуста</div></td></tr>'}</tbody></table></div></div>
     """
     return _admin_page(f"Обращение #{ticket.id}", user, content, "/web/admin/support")

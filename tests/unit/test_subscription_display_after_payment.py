@@ -71,12 +71,8 @@ def _make_tier(code: str, sort_order: int) -> SubscriptionTier:
         code=code,
         name=normalized.upper(),
         description=None,
-        price_monthly=Decimal(
-            {"free": 0, "basic": 490, "pro": 1490, "enterprise": 0}[normalized]
-        ),
-        price_yearly=Decimal(
-            {"free": 0, "basic": 4900, "pro": 14900, "enterprise": 0}[normalized]
-        ),
+        price_monthly=Decimal({"free": 0, "basic": 490, "pro": 1490, "enterprise": 0}[normalized]),
+        price_yearly=Decimal({"free": 0, "basic": 4900, "pro": 14900, "enterprise": 0}[normalized]),
         max_marketplace_accounts=2,
         max_orders_per_month=1000,
         max_products=1000,

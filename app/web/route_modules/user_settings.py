@@ -98,6 +98,7 @@ def _profile_tab(user: User, subscription_data: object | None = None) -> str:
         tier_name = getattr(tier, "name", "Free") if tier else "Free"
         active_sub = getattr(subscription_data, "active_subscription", None)
         from app.services.web_cabinet_service import subscription_status
+
         raw_status = subscription_status(active_sub)
         status_label = _subscription_status_russian(raw_status)
         expires_at = getattr(active_sub, "expires_at", None) if active_sub else None
@@ -307,7 +308,10 @@ def _company_kv_rows(company: object) -> str:
         ("ОКВЭД", getattr(company, "okved", None)),
         ("ОКВЭД название", getattr(company, "okved_name", None)),
         ("Руководитель", getattr(company, "director_name", None)),
-        ("Дата регистрации", _dt(registration_date, "Europe/Moscow") if registration_date else None),
+        (
+            "Дата регистрации",
+            _dt(registration_date, "Europe/Moscow") if registration_date else None,
+        ),
         ("Источник данных", source),
         ("Дата последнего обновления", _dt(updated_at, "Europe/Moscow") if updated_at else None),
     ]
@@ -326,9 +330,21 @@ def _marketplaces_tab(user: User, accounts: list[MarketplaceAccount], timezone: 
             mp_label = "Wildberries" if acc.marketplace == Marketplace.WB else "Ozon"
             mp_cls = "wb" if acc.marketplace == Marketplace.WB else "ozon"
             status_label = acc.status.value
-            status_cls = "good" if acc.status.value == "ACTIVE" else "bad" if acc.status.value == "ERROR" else "warn"
+            status_cls = (
+                "good"
+                if acc.status.value == "ACTIVE"
+                else "bad"
+                if acc.status.value == "ERROR"
+                else "warn"
+            )
             api_status = acc.api_key_status or "unchecked"
-            api_cls = "good" if api_status == "active" else "bad" if api_status in ("auth_error", "expired") else "warn"
+            api_cls = (
+                "good"
+                if api_status == "active"
+                else "bad"
+                if api_status in ("auth_error", "expired")
+                else "warn"
+            )
             api_status_labels = {
                 "active": "Активен",
                 "auth_error": "Ошибка авторизации",
@@ -345,7 +361,7 @@ def _marketplaces_tab(user: User, accounts: list[MarketplaceAccount], timezone: 
                 f'<td><span class="badge {status_cls}">{status_label}</span></td>'
                 f'<td><span class="badge {api_cls}">{api_label}</span>'
                 f'<div class="muted">Проверен: {_dt(acc.api_key_checked_at, timezone)}</div></td>'
-                f'<td>{_dt(acc.last_success_sync_at, timezone)}</td>'
+                f"<td>{_dt(acc.last_success_sync_at, timezone)}</td>"
                 f'<td>{_dt(acc.last_error_at, timezone)}<div class="muted">{escape(acc.last_error_message or "")}</div></td>'
                 f'<td><form method="post" action="/web/settings/marketplaces/{acc.id}/verify" style="margin:0">'
                 f'<button class="btn" type="submit">Проверить API-ключ</button></form></td>'
@@ -402,7 +418,7 @@ def _notifications_tab(user: User, type_settings: dict[NotificationType, bool]) 
         "<tr>"
         f'<td><label class="status-chip">'
         f'<input type="checkbox" name="enabled_types" value="{t.value}"'
-        f'{" checked" if type_settings.get(t, False) else ""}>'
+        f"{' checked' if type_settings.get(t, False) else ''}>"
         f" {escape(TYPE_LABELS[t])}</label></td>"
         f"<td>{escape(TYPE_DESCRIPTIONS.get(t, ''))}</td>"
         "<td>Telegram</td>"
@@ -443,7 +459,9 @@ def _sync_tab(sync_statuses: list, timezone: str) -> str:
         row_parts = []
         for s in sync_statuses:
             status_label = SYNC_STATUS_LABELS.get(s.status, s.status)
-            status_cls = "good" if s.status == "success" else "bad" if s.status == "error" else "warn"
+            status_cls = (
+                "good" if s.status == "success" else "bad" if s.status == "error" else "warn"
+            )
             row_parts.append(
                 "<tr>"
                 f"<td>{escape(s.sync_type_label)}</td>"
@@ -539,7 +557,7 @@ def _security_tab(user: User, activity_logs: list, timezone: str) -> str:
           </div>
           <button class="btn btn-primary" type="submit">Сохранить</button>
         </form>
-        {'<form method="post" action="/web/settings/password-login/disable" style="margin-top:10px"><button class="btn btn-danger" type="submit">Отключить вход по паролю</button></form>' if password_enabled else ''}
+        {'<form method="post" action="/web/settings/password-login/disable" style="margin-top:10px"><button class="btn btn-danger" type="submit">Отключить вход по паролю</button></form>' if password_enabled else ""}
       </section>
       <section class="band" style="margin-top:14px">
         <h2>История действий</h2>
@@ -562,8 +580,8 @@ def _support_tab(tickets: list, timezone: str) -> str:
             f"<td>{_dt(t.created_at, timezone)}</td>"
             f"<td>{escape(t.subject)}</td>"
             f'<td><span class="badge {"good" if t.status == "closed" else "warn" if t.status == "responded" else "action"}">{TICKET_STATUS_LABELS.get(t.status, t.status)}</span></td>'
-            f"<td>{escape(t.category or "—")}</td>"
-            f'<td>{escape((t.admin_response or "—")[:100])}</td>'
+            f"<td>{escape(t.category or '—')}</td>"
+            f"<td>{escape((t.admin_response or '—')[:100])}</td>"
             "</tr>"
             for t in tickets
         )
@@ -842,7 +860,8 @@ async def save_notifications(
         )
         await session.commit()
         await UserActivityService(session).log_activity(
-            user.id, "notification_settings_update",
+            user.id,
+            "notification_settings_update",
             ip_address=get_client_ip(request),
         )
     return RedirectResponse(url="/web/settings?tab=notifications&saved=1", status_code=303)
@@ -1059,7 +1078,8 @@ async def create_support_ticket(
         category=category,
     )
     await UserActivityService(session).log_activity(
-        user.id, "support_ticket_created",
+        user.id,
+        "support_ticket_created",
         details={"subject": subject},
         ip_address=get_client_ip(request),
     )

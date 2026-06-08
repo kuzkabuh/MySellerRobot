@@ -2,6 +2,7 @@
 description: Web routes for WB daily realisation report XLSX/ZIP import.
 updated: 2026-06-07
 """
+
 # ruff: noqa: E501
 from __future__ import annotations
 
@@ -62,9 +63,7 @@ def _name(user: User) -> str:
     return user.first_name or user.username or str(user.telegram_id)
 
 
-async def _load_user_accounts(
-    session: AsyncSession, user_id: int
-) -> list[MarketplaceAccount]:
+async def _load_user_accounts(session: AsyncSession, user_id: int) -> list[MarketplaceAccount]:
     result = await session.execute(
         select(MarketplaceAccount)
         .where(
@@ -321,10 +320,7 @@ async def wb_daily_reports_apply(
     await session.commit()
 
     if result.is_duplicate:
-        message = (
-            f"Файл уже загружался ранее. Новых строк: 0, "
-            f"пропущено: {result.rows_skipped}."
-        )
+        message = f"Файл уже загружался ранее. Новых строк: 0, пропущено: {result.rows_skipped}."
     elif result.rows_inserted == 0:
         message = "Все строки файла уже были в аналитике. Ничего нового не добавлено."
     else:
@@ -614,9 +610,7 @@ async def wb_daily_report_import_restore(
     )
 
 
-async def _load_account(
-    session: AsyncSession, user_id: int, account_id: int
-) -> MarketplaceAccount:
+async def _load_account(session: AsyncSession, user_id: int, account_id: int) -> MarketplaceAccount:
     result = await session.execute(
         select(MarketplaceAccount).where(
             MarketplaceAccount.id == account_id,
@@ -755,15 +749,9 @@ def _summarize_parsed(parsed: WbDailyReportParsed) -> dict[str, object]:
     }
 
 
-def _render_imports_rows(
-    imports: list[WbDailyReportImport], timezone: str
-) -> str:
+def _render_imports_rows(imports: list[WbDailyReportImport], timezone: str) -> str:
     if not imports:
-        return (
-            '<tr><td colspan="9">'
-            '<div class="empty-state">Импортов пока не было.</div>'
-            "</td></tr>"
-        )
+        return '<tr><td colspan="9"><div class="empty-state">Импортов пока не было.</div></td></tr>'
     rows: list[str] = []
     for item in imports:
         status_label = _status_label(item.status)
@@ -775,7 +763,7 @@ def _render_imports_rows(
             f"<td>#{item.marketplace_account_id}</td>"
             f"<td>{escape(item.report_number)}"
             f'<div class="muted">'
-            f'{escape(str(item.report_date) if item.report_date else "—")}'
+            f"{escape(str(item.report_date) if item.report_date else '—')}"
             f"</div></td>"
             f"<td>{item.rows_total}</td>"
             f"<td>{item.rows_inserted}</td>"
@@ -803,11 +791,11 @@ def _import_detail_content(
     is_admin: bool,
     message: str | None = None,
 ) -> str:
-    account_name = account.name if account is not None else f"#{import_record.marketplace_account_id}"
+    account_name = (
+        account.name if account is not None else f"#{import_record.marketplace_account_id}"
+    )
     user_line = (
-        f"<span>Пользователь</span><strong>#{import_record.user_id}</strong>"
-        if is_admin
-        else ""
+        f"<span>Пользователь</span><strong>#{import_record.user_id}</strong>" if is_admin else ""
     )
     reasons = getattr(summary, "skip_reasons", [])
     reasons_html = (
@@ -818,7 +806,7 @@ def _import_detail_content(
         or '<span class="badge good">Причин пропуска нет</span>'
     )
     return f"""
-      {f'<div class="notice success">{escape(message)}</div>' if message else ''}
+      {f'<div class="notice success">{escape(message)}</div>' if message else ""}
       <section class="page-header">
         <div>
           <h2>Импорт WB #{import_record.id}</h2>
@@ -900,7 +888,7 @@ def _import_detail_content(
             <input name="reason" placeholder="Причина удаления" value="">
             <button class="btn btn-danger" type="submit">Удалить отчёт</button>
           </form>
-          {f'<form method="post" action="{_settings_path()}/imports/{import_record.id}/restore"><button class="btn" type="submit">Восстановить отчёт</button></form>' if is_admin else ''}
+          {f'<form method="post" action="{_settings_path()}/imports/{import_record.id}/restore"><button class="btn" type="submit">Восстановить отчёт</button></form>' if is_admin else ""}
         </div>
       </section>
       <section class="band" style="margin-top:14px">
@@ -917,15 +905,15 @@ def _row_filters(import_id: int, filters: WbDailyReportRowFilters) -> str:
       <form class="filters" method="get" action="{_settings_path()}/imports/{import_id}">
         <div><label>Поиск</label><input name="search" value="{escape(filters.search)}"></div>
         <div><label>Тип операции</label><input name="operation_type" value="{escape(filters.operation_type)}"></div>
-        <div><label>nm_id</label><input name="nm_id" value="{filters.nm_id or ''}"></div>
+        <div><label>nm_id</label><input name="nm_id" value="{filters.nm_id or ""}"></div>
         <div><label>Артикул продавца</label><input name="supplier_article" value="{escape(filters.supplier_article)}"></div>
         <div><label>Barcode</label><input name="barcode" value="{escape(filters.barcode)}"></div>
         <div><label>srid</label><input name="srid" value="{escape(filters.srid)}"></div>
         <div><label>Статус</label>{_select_status(filters.status)}</div>
         <div><label>Дата от</label><input type="date" name="date_from" value="{escape(filters.date_from)}"></div>
         <div><label>Дата до</label><input type="date" name="date_to" value="{escape(filters.date_to)}"></div>
-        <div><label>Сумма от</label><input name="amount_from" value="{filters.amount_from or ''}"></div>
-        <div><label>Сумма до</label><input name="amount_to" value="{filters.amount_to or ''}"></div>
+        <div><label>Сумма от</label><input name="amount_from" value="{filters.amount_from or ""}"></div>
+        <div><label>Сумма до</label><input name="amount_to" value="{filters.amount_to or ""}"></div>
         <div><label>Заказ</label>{_yes_no_select("linked_order", filters.linked_order)}</div>
         <div><label>Товар</label>{_yes_no_select("linked_product", filters.linked_product)}</div>
         <button class="btn btn-primary" type="submit">Показать</button>
@@ -1039,20 +1027,28 @@ def _select_status(selected: str) -> str:
         "error": "Ошибка",
         "skipped": "Пропущена",
     }
-    return "<select name='status'>" + "".join(
-        f'<option value="{escape(value)}" {"selected" if value == selected else ""}>'
-        f"{escape(label)}</option>"
-        for value, label in options.items()
-    ) + "</select>"
+    return (
+        "<select name='status'>"
+        + "".join(
+            f'<option value="{escape(value)}" {"selected" if value == selected else ""}>'
+            f"{escape(label)}</option>"
+            for value, label in options.items()
+        )
+        + "</select>"
+    )
 
 
 def _yes_no_select(name: str, selected: str) -> str:
     options = {"": "Все", "yes": "Да", "no": "Нет"}
-    return f"<select name='{escape(name)}'>" + "".join(
-        f'<option value="{escape(value)}" {"selected" if value == selected else ""}>'
-        f"{escape(label)}</option>"
-        for value, label in options.items()
-    ) + "</select>"
+    return (
+        f"<select name='{escape(name)}'>"
+        + "".join(
+            f'<option value="{escape(value)}" {"selected" if value == selected else ""}>'
+            f"{escape(label)}</option>"
+            for value, label in options.items()
+        )
+        + "</select>"
+    )
 
 
 def _pagination(import_id: int, rows_page: object, filters: WbDailyReportRowFilters) -> str:
@@ -1073,7 +1069,11 @@ def _pagination(import_id: int, rows_page: object, filters: WbDailyReportRowFilt
     items.append(f'<span class="btn btn-primary" style="cursor:default">{page_number}</span>')
     if page_number < total_pages:
         items.append(f'<a class="btn" href="{url(page_number + 1)}">Далее</a>')
-    return '<div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">' + "".join(items) + "</div>"
+    return (
+        '<div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">'
+        + "".join(items)
+        + "</div>"
+    )
 
 
 def _filter_params(filters: WbDailyReportRowFilters) -> dict[str, str]:
@@ -1125,7 +1125,9 @@ def _file_type(filename: str | None) -> str:
 
 
 def _report_type_label(report_type: str | None) -> str:
-    return {"daily": "Ежедневный", "weekly": "Еженедельный"}.get(report_type or "", report_type or "—")
+    return {"daily": "Ежедневный", "weekly": "Еженедельный"}.get(
+        report_type or "", report_type or "—"
+    )
 
 
 def _report_period(import_record: WbDailyReportImport) -> str:

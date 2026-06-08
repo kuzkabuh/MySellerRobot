@@ -2407,7 +2407,7 @@ def _render_sync_freshness(last_poll_info: dict[str, object], timezone: str) -> 
     return (
         '<div style="margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
         f'<span class="badge {badge_class}">{escape(label)}</span>'
-        f'{"<span class=\"muted\" style=\"font-size:12px\">" + escape(hint_text) + "</span>" if hint_text else ""}'
+        f"{'<span class="muted" style="font-size:12px">' + escape(hint_text) + '</span>' if hint_text else ''}"
         "</div>"
     )
 

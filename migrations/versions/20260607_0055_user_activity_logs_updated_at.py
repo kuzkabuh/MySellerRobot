@@ -25,11 +25,7 @@ def upgrade() -> None:
 
     if "updated_at" not in cols:
         op.add_column(table, sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True))
-        op.execute(
-            "UPDATE user_activity_logs "
-            "SET updated_at = created_at "
-            "WHERE updated_at IS NULL"
-        )
+        op.execute("UPDATE user_activity_logs SET updated_at = created_at WHERE updated_at IS NULL")
         op.alter_column(
             table,
             "updated_at",
@@ -40,11 +36,7 @@ def upgrade() -> None:
         return
 
     if cols["updated_at"].get("nullable", True):
-        op.execute(
-            "UPDATE user_activity_logs "
-            "SET updated_at = created_at "
-            "WHERE updated_at IS NULL"
-        )
+        op.execute("UPDATE user_activity_logs SET updated_at = created_at WHERE updated_at IS NULL")
         op.alter_column(
             table,
             "updated_at",

@@ -670,10 +670,10 @@ class WbPriceUpdateService:
             return False, f"Цена {new_price} ниже minPrice ({rec.min_price})"
 
         if rec.mrc_lower_bound and new_price < rec.mrc_lower_bound:
-            return False, (f"Цена {new_price} ниже нижней границы МРЦ " f"({rec.mrc_lower_bound})")
+            return False, (f"Цена {new_price} ниже нижней границы МРЦ ({rec.mrc_lower_bound})")
 
         if rec.mrc_upper_bound and new_price > rec.mrc_upper_bound:
-            return False, (f"Цена {new_price} выше верхней границы МРЦ " f"({rec.mrc_upper_bound})")
+            return False, (f"Цена {new_price} выше верхней границы МРЦ ({rec.mrc_upper_bound})")
 
         last_change = await self._get_last_price_change(
             product.marketplace_account_id,

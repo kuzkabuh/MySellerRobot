@@ -1300,9 +1300,9 @@ async def test_legacy_double_web_orders_passes_page_number_correctly() -> None:
     assert "page_number" in captured_kwargs, "Must use page_number parameter"
     assert captured_kwargs["page_number"] == 3
     assert captured_kwargs["per_page"] == 20
-    assert (
-        "page" not in captured_kwargs or "page_number" in captured_kwargs
-    ), "Must not pass bare 'page' kwarg that could shadow render helper"
+    assert "page" not in captured_kwargs or "page_number" in captured_kwargs, (
+        "Must not pass bare 'page' kwarg that could shadow render helper"
+    )
 
 
 @pytest.mark.asyncio
@@ -1575,12 +1575,12 @@ def test_web_logout_deletes_all_cookie_paths() -> None:
             elif "Path=/web" in header:
                 cookie_paths.append("/web")
     assert "/" in cookie_paths, f"Logout must delete cookie with path=/, got: {set_cookie_headers}"
-    assert (
-        "/web" in cookie_paths
-    ), f"Logout must delete cookie with path=/web, got: {set_cookie_headers}"
-    assert (
-        "/web/" in cookie_paths
-    ), f"Logout must delete cookie with path=/web/, got: {set_cookie_headers}"
+    assert "/web" in cookie_paths, (
+        f"Logout must delete cookie with path=/web, got: {set_cookie_headers}"
+    )
+    assert "/web/" in cookie_paths, (
+        f"Logout must delete cookie with path=/web/, got: {set_cookie_headers}"
+    )
 
 
 def test_web_responses_have_no_cache_headers(
@@ -1632,9 +1632,9 @@ def test_web_responses_have_no_cache_headers(
                 f"{path} must have Cache-Control: no-store, got: "
                 f"{response.headers.get('cache-control')}"
             )
-            assert (
-                response.headers.get("pragma") == "no-cache"
-            ), f"GET {path} must have Pragma: no-cache"
+            assert response.headers.get("pragma") == "no-cache", (
+                f"GET {path} must have Pragma: no-cache"
+            )
 
     app.dependency_overrides.clear()
 

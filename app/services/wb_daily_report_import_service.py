@@ -2,6 +2,7 @@
 description: Service for importing parsed WB daily realisation reports into the database.
 updated: 2026-06-07
 """
+
 from __future__ import annotations
 
 import logging
@@ -253,16 +254,12 @@ class WbDailyReportImportService:
         limit: int = 50,
     ) -> list[WbDailyReportImport]:
         stmt = (
-            select(WbDailyReportImport)
-            .order_by(WbDailyReportImport.created_at.desc())
-            .limit(limit)
+            select(WbDailyReportImport).order_by(WbDailyReportImport.created_at.desc()).limit(limit)
         )
         if user_id is not None:
             stmt = stmt.where(WbDailyReportImport.user_id == user_id)
         if marketplace_account_id is not None:
-            stmt = stmt.where(
-                WbDailyReportImport.marketplace_account_id == marketplace_account_id
-            )
+            stmt = stmt.where(WbDailyReportImport.marketplace_account_id == marketplace_account_id)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
@@ -310,9 +307,15 @@ class WbDailyReportImportService:
                 ),
                 func.count(WbDailyReportRow.id).filter(row_status.in_(("new", "partial"))),
                 func.count(WbDailyReportRow.id).filter(row_status.in_(("error", "skipped"))),
-                func.count(WbDailyReportRow.id).filter(WbDailyReportRow.linked_product_id.is_not(None)),
-                func.count(WbDailyReportRow.id).filter(WbDailyReportRow.linked_product_id.is_(None)),
-                func.count(WbDailyReportRow.id).filter(WbDailyReportRow.linked_order_id.is_not(None)),
+                func.count(WbDailyReportRow.id).filter(
+                    WbDailyReportRow.linked_product_id.is_not(None)
+                ),
+                func.count(WbDailyReportRow.id).filter(
+                    WbDailyReportRow.linked_product_id.is_(None)
+                ),
+                func.count(WbDailyReportRow.id).filter(
+                    WbDailyReportRow.linked_order_id.is_not(None)
+                ),
                 func.count(WbDailyReportRow.id).filter(WbDailyReportRow.linked_order_id.is_(None)),
             ).where(
                 WbDailyReportRow.import_id == import_id,

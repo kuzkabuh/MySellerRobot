@@ -82,9 +82,7 @@ class Settings(BaseSettings):
     web_base_url: str = "http://localhost:8000"
     web_app_base_url: str | None = None
     web_trusted_origins: str = (
-        "https://app.mpcontrol.online,"
-        "https://mpcontrol.online,"
-        "https://www.mpcontrol.online"
+        "https://app.mpcontrol.online,https://mpcontrol.online,https://www.mpcontrol.online"
     )
     webhook_allow_insecure_dev: bool = False
     trusted_proxy_networks: str = "127.0.0.1/32,172.16.0.0/12,10.0.0.0/8"
@@ -206,9 +204,7 @@ class Settings(BaseSettings):
     @property
     def trusted_web_origins(self) -> set[str]:
         origins = {
-            item.strip().rstrip("/")
-            for item in self.web_trusted_origins.split(",")
-            if item.strip()
+            item.strip().rstrip("/") for item in self.web_trusted_origins.split(",") if item.strip()
         }
         base_url = self.web_base_url.rstrip("/")
         if base_url:

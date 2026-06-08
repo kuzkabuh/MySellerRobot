@@ -1209,7 +1209,7 @@ async def auto_promo_import_template(
         return FileResponse(
             path=str(file_path),
             filename=file_path.name,
-            media_type=("application/vnd.openxmlformats-officedocument" ".spreadsheetml.sheet"),
+            media_type=("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
         )
     except Exception:
         logger.exception(
@@ -2911,7 +2911,7 @@ def _mrc_pricing_content(data: MrcPageData, timezone: str = "Europe/Moscow") -> 
 
     # Products table
     if not data.rows:
-        parts.append('<div class="empty-state">' "<p>Товары Wildberries не найдены.</p>" "</div>")
+        parts.append('<div class="empty-state"><p>Товары Wildberries не найдены.</p></div>')
     else:
         parts.append('<div class="table-wrap">')
         parts.append("<table>")
@@ -3516,7 +3516,7 @@ def _wb_promotion_detail_content(data: PromoDetailData, timezone: str = "Europe/
     )
 
     parts.append(
-        f'<h2>🎯 {escape(promo.name or "Без названия")}</h2>'
+        f"<h2>🎯 {escape(promo.name or 'Без названия')}</h2>"
         f'<p style="margin-bottom:16px">'
         f"ID: {promo.wb_promotion_id} | Тип: {promo_type}<br>"
         f"Период: {start_str} — {end_str}<br>"
@@ -3544,7 +3544,7 @@ def _wb_promotion_detail_content(data: PromoDetailData, timezone: str = "Europe/
 
     # Products table
     if not data.rows:
-        parts.append('<div class="empty-state">' "<p>Товары не найдены.</p>" "</div>")
+        parts.append('<div class="empty-state"><p>Товары не найдены.</p></div>')
     else:
         parts.append('<div class="table-wrap">')
         parts.append("<table>")
@@ -3721,7 +3721,7 @@ def _mrc_settings_content(
     parts.append(
         '<label style="display:flex;align-items:center;gap:8px">'
         f'<input type="checkbox" name="auto_promo_check_enabled" '
-        f'{"checked" if settings.auto_promo_check_enabled else ""}>'
+        f"{'checked' if settings.auto_promo_check_enabled else ''}>"
         " Автоматически проверять участие в акциях WB"
         "</label>"
     )
@@ -3732,7 +3732,7 @@ def _mrc_settings_content(
     parts.append(
         '<label style="display:flex;align-items:center;gap:8px">'
         f'<input type="checkbox" name="auto_add_to_promotions" '
-        f'{"checked" if settings.auto_add_to_promotions else ""}>'
+        f"{'checked' if settings.auto_add_to_promotions else ''}>"
         " Автоматически добавлять товары в подходящие акции WB"
         "</label>"
     )
@@ -3750,7 +3750,7 @@ def _mrc_settings_content(
     parts.append(
         '<label style="display:flex;align-items:center;gap:8px">'
         f'<input type="checkbox" name="auto_price_for_auto_promotions" '
-        f'{"checked" if settings.auto_price_for_auto_promotions else ""}>'
+        f"{'checked' if settings.auto_price_for_auto_promotions else ''}>"
         " <b>Автоматически менять цену для входа в автоакции WB</b>"
         "</label>"
     )
@@ -3812,17 +3812,14 @@ def _auto_promo_import_content(
     )
 
     if not accounts:
-        parts.append('<div class="empty-state">' "<p>Нет активных аккаунтов WB.</p>" "</div></div>")
+        parts.append('<div class="empty-state"><p>Нет активных аккаунтов WB.</p></div></div>')
         return "\n".join(parts)
 
     parts.append(
-        '<form method="post" action="/web/auto-promo-import/preview" '
-        'enctype="multipart/form-data">'
+        '<form method="post" action="/web/auto-promo-import/preview" enctype="multipart/form-data">'
     )
     parts.append('<div style="margin-bottom:16px">')
-    parts.append(
-        '<label style="display:block;font-weight:600;margin-bottom:4px">' "Аккаунт</label>"
-    )
+    parts.append('<label style="display:block;font-weight:600;margin-bottom:4px">Аккаунт</label>')
     parts.append(
         '<select name="marketplace_account_id" style="padding:6px 10px;'
         'border:1px solid var(--color-border);border-radius:6px">'
@@ -3830,9 +3827,7 @@ def _auto_promo_import_content(
     for acct_id, acct_name in accounts:
         sel = "selected" if acct_id == selected_account_id else ""
         parts.append(
-            f'<option value="{acct_id}" {sel}>'
-            f"{escape(acct_name or f'Аккаунт {acct_id}')}"
-            f"</option>"
+            f'<option value="{acct_id}" {sel}>{escape(acct_name or f"Аккаунт {acct_id}")}</option>'
         )
     parts.append("</select></div>")
 
@@ -3849,7 +3844,7 @@ def _auto_promo_import_content(
     parts.append("</div>")
 
     parts.append('<div style="margin-bottom:16px">')
-    parts.append('<label style="display:block;font-weight:600;margin-bottom:4px">' "Файл</label>")
+    parts.append('<label style="display:block;font-weight:600;margin-bottom:4px">Файл</label>')
     parts.append(
         '<input type="file" name="file" accept=".xlsx" '
         'style="padding:6px;border:1px solid var(--color-border);'
@@ -3875,7 +3870,7 @@ def _auto_promo_import_preview_content(
     parts.append('<div class="card">')
     parts.append("<h2>Предпросмотр импорта</h2>")
 
-    parts.append('<div style="display:flex;gap:12px;flex-wrap:wrap;' 'margin-bottom:16px">')
+    parts.append('<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">')
     parts.append(
         f'<div class="kpi-card"><div class="kpi-value">'
         f"{preview.total_rows}</div>"
@@ -3932,7 +3927,7 @@ def _auto_promo_import_preview_content(
         parts.append(f"<td>{cp:.0f} ₽</td>" if cp else "<td>—</td>")
         msg = escape(row.get("message") or row["status"])
         parts.append(
-            f'<td><span class="badge" style="background:{bg};' f'color:{tc}">{msg}</span></td>'
+            f'<td><span class="badge" style="background:{bg};color:{tc}">{msg}</span></td>'
         )
         parts.append("</tr>")
 
@@ -3945,9 +3940,7 @@ def _auto_promo_import_preview_content(
         )
     parts.append("</form>")
     parts.append(
-        '<p style="margin-top:12px">'
-        '<a href="/web/auto-promo-import" class="button">← Назад</a>'
-        "</p>"
+        '<p style="margin-top:12px"><a href="/web/auto-promo-import" class="button">← Назад</a></p>'
     )
     parts.append("</div>")
 
@@ -3975,7 +3968,7 @@ def _auto_promo_recommendations_content(
     )
 
     if not accounts:
-        parts.append('<div class="empty-state">' "<p>Нет активных аккаунтов WB.</p></div></div>")
+        parts.append('<div class="empty-state"><p>Нет активных аккаунтов WB.</p></div></div>')
         return "\n".join(parts)
 
     parts.append(
@@ -3989,9 +3982,7 @@ def _auto_promo_recommendations_content(
     for acct_id, acct_name in accounts:
         sel = "selected" if acct_id == selected_account_id else ""
         parts.append(
-            f'<option value="{acct_id}" {sel}>'
-            f"{escape(acct_name or f'Аккаунт {acct_id}')}"
-            f"</option>"
+            f'<option value="{acct_id}" {sel}>{escape(acct_name or f"Аккаунт {acct_id}")}</option>'
         )
     parts.append("</select>")
 
@@ -4012,7 +4003,7 @@ def _auto_promo_recommendations_content(
         parts.append(f'<option value="{val}" {sel}>{label}</option>')
     parts.append("</select>")
 
-    parts.append('<button type="submit" class="button">' "Фильтр</button>")
+    parts.append('<button type="submit" class="button">Фильтр</button>')
     parts.append("</form>")
 
     parts.append(
@@ -4020,10 +4011,10 @@ def _auto_promo_recommendations_content(
         'recommendations/build" style="margin-bottom:16px">'
     )
     parts.append(
-        f'<input type="hidden" name="marketplace_account_id" ' f'value="{selected_account_id}">'
+        f'<input type="hidden" name="marketplace_account_id" value="{selected_account_id}">'
     )
     parts.append(
-        '<button type="submit" class="button primary">' "🔄 Сформировать рекомендации</button>"
+        '<button type="submit" class="button primary">🔄 Сформировать рекомендации</button>'
     )
     parts.append("</form>")
 
@@ -4035,8 +4026,7 @@ def _auto_promo_recommendations_content(
                 "<p>Укажите цену входа для товаров или загрузите файл условий.</p>"
             )
             parts.append(
-                '<p><a href="/web/mrc-pricing" '
-                'class="button primary">📥 Указать цену входа</a></p>'
+                '<p><a href="/web/mrc-pricing" class="button primary">📥 Указать цену входа</a></p>'
             )
             parts.append(
                 '<p><a href="/web/auto-promo-import" '
@@ -4048,7 +4038,7 @@ def _auto_promo_recommendations_content(
                 "Нажмите «Сформировать рекомендации» для расчёта.</p>"
             )
         parts.append(
-            '<p><a href="/web/mrc-pricing" class="button">' "← Назад к МРЦ</a></p></div></div>"
+            '<p><a href="/web/mrc-pricing" class="button">← Назад к МРЦ</a></p></div></div>'
         )
         return "\n".join(parts)
 
@@ -4072,7 +4062,7 @@ def _auto_promo_recommendations_content(
         1 for p in preview if not p.get("can_change") and "6ч" in (p.get("skip_reason") or "")
     )
 
-    parts.append('<div style="display:flex;gap:12px;flex-wrap:wrap;' 'margin-bottom:16px">')
+    parts.append('<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">')
     parts.append(
         f'<div class="kpi-card"><div class="kpi-value">'
         f"{total}</div>"
@@ -4143,7 +4133,7 @@ def _auto_promo_recommendations_content(
         f'value="{selected_account_id}">'
     )
 
-    parts.append('<div style="display:flex;gap:8px;flex-wrap:wrap;' 'margin-bottom:16px">')
+    parts.append('<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">')
     parts.append(
         '<button type="submit" name="dry_run" value="on" '
         'class="button primary">🔍 Подготовить</button>'
@@ -4164,7 +4154,7 @@ def _auto_promo_recommendations_content(
     parts.append('<div class="table-wrap">')
     parts.append("<table>")
     parts.append("<thead><tr>")
-    parts.append("<th style='width:30px'>" "<input type='checkbox' id='select-all'></th>")
+    parts.append("<th style='width:30px'><input type='checkbox' id='select-all'></th>")
     for th in [
         "Товар",
         "nmID",
@@ -4197,7 +4187,7 @@ def _auto_promo_recommendations_content(
         parts.append(f"<td><small>{promo_name}</small></td>")
         parts.append(f"<td>{p['mrc_price']:.0f} ₽</td>")
         parts.append(
-            f"<td><small>{p['mrc_lower_bound']:.0f} — " f"{p['mrc_upper_bound']:.0f} ₽</small></td>"
+            f"<td><small>{p['mrc_lower_bound']:.0f} — {p['mrc_upper_bound']:.0f} ₽</small></td>"
         )
         mp = p.get("min_price")
         parts.append(f"<td>{mp:.0f} ₽</td>" if mp else "<td>—</td>")

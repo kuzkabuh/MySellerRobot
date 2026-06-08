@@ -55,17 +55,13 @@ def upgrade() -> None:
             server_default=sa.func.now(),
         ),
     )
-    op.create_index(
-        "ix_wb_daily_report_imports_user", "wb_daily_report_imports", ["user_id"]
-    )
+    op.create_index("ix_wb_daily_report_imports_user", "wb_daily_report_imports", ["user_id"])
     op.create_index(
         "ix_wb_daily_report_imports_account",
         "wb_daily_report_imports",
         ["marketplace_account_id"],
     )
-    op.create_index(
-        "ix_wb_daily_report_imports_created", "wb_daily_report_imports", ["created_at"]
-    )
+    op.create_index("ix_wb_daily_report_imports_created", "wb_daily_report_imports", ["created_at"])
     op.create_index(
         "ix_wb_daily_report_imports_report_number",
         "wb_daily_report_imports",
@@ -161,9 +157,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index("ix_wb_daily_report_rows_nm_id", table_name="wb_daily_report_rows")
     op.drop_index("ix_wb_daily_report_rows_row_hash", table_name="wb_daily_report_rows")
-    op.drop_index(
-        "ix_wb_daily_report_rows_report_number", table_name="wb_daily_report_rows"
-    )
+    op.drop_index("ix_wb_daily_report_rows_report_number", table_name="wb_daily_report_rows")
     op.drop_index("ix_wb_daily_report_rows_order_dt", table_name="wb_daily_report_rows")
     op.drop_index("ix_wb_daily_report_rows_sale_dt", table_name="wb_daily_report_rows")
     op.drop_index("ix_wb_daily_report_rows_import", table_name="wb_daily_report_rows")
@@ -171,17 +165,9 @@ def downgrade() -> None:
     op.drop_index("ix_wb_daily_report_rows_user", table_name="wb_daily_report_rows")
     op.drop_table("wb_daily_report_rows")
 
-    op.drop_index(
-        "ix_wb_daily_report_imports_file_hash", table_name="wb_daily_report_imports"
-    )
-    op.drop_index(
-        "ix_wb_daily_report_imports_report_number", table_name="wb_daily_report_imports"
-    )
-    op.drop_index(
-        "ix_wb_daily_report_imports_created", table_name="wb_daily_report_imports"
-    )
-    op.drop_index(
-        "ix_wb_daily_report_imports_account", table_name="wb_daily_report_imports"
-    )
+    op.drop_index("ix_wb_daily_report_imports_file_hash", table_name="wb_daily_report_imports")
+    op.drop_index("ix_wb_daily_report_imports_report_number", table_name="wb_daily_report_imports")
+    op.drop_index("ix_wb_daily_report_imports_created", table_name="wb_daily_report_imports")
+    op.drop_index("ix_wb_daily_report_imports_account", table_name="wb_daily_report_imports")
     op.drop_index("ix_wb_daily_report_imports_user", table_name="wb_daily_report_imports")
     op.drop_table("wb_daily_report_imports")

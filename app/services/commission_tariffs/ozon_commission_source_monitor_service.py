@@ -26,7 +26,7 @@ BROWSER_HEADERS = {
         "Chrome/146.0.0.0 YaBrowser/26.4.0.0 Safari/537.36"
     ),
     "Accept": (
-        "text/html,application/xhtml+xml,application/xml;q=0.9," "image/avif,image/webp,*/*;q=0.8"
+        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
     ),
     "Accept-Language": "ru,en;q=0.9",
     "Accept-Encoding": "gzip, deflate, br",
@@ -283,7 +283,7 @@ class OzonCommissionSourceMonitorService:
                     url=url,
                     html_content=None,
                     change_type="source_blocked",
-                    error=("Ozon заблокировал проверку даже через " "браузер (HTTP 403)."),
+                    error=("Ozon заблокировал проверку даже через браузер (HTTP 403)."),
                     fetch_method="browser",
                 )
             return browser_result
@@ -293,8 +293,7 @@ class OzonCommissionSourceMonitorService:
             html_content=None,
             change_type="source_blocked",
             error=(
-                "Ozon заблокировал автоматическую проверку (HTTP 403). "
-                "Browser fallback отключён."
+                "Ozon заблокировал автоматическую проверку (HTTP 403). Browser fallback отключён."
             ),
             fetch_method="http",
         )

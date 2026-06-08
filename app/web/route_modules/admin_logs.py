@@ -90,26 +90,25 @@ async def admin_logs_page(
             )
         except FileNotFoundError:
             stats_cards.append(
-                f'<div class="kpi warn">'
-                f"<span>{_h(fname)}</span>"
-                f"<strong>не найден</strong>"
-                f"</div>"
+                f'<div class="kpi warn"><span>{_h(fname)}</span><strong>не найден</strong></div>'
             )
 
     try:
         app_stats = service.get_stats("app.log")
         error_count = app_stats.level_counts.get("ERROR", 0)
         critical_count = app_stats.level_counts.get("CRITICAL", 0)
-        stats_cards.extend([
-            f'<div class="kpi bad">'
-            f"<span>ERROR за всё время</span>"
-            f"<strong>{error_count}</strong>"
-            f"</div>",
-            f'<div class="kpi bad">'
-            f"<span>CRITICAL за всё время</span>"
-            f"<strong>{critical_count}</strong>"
-            f"</div>",
-        ])
+        stats_cards.extend(
+            [
+                f'<div class="kpi bad">'
+                f"<span>ERROR за всё время</span>"
+                f"<strong>{error_count}</strong>"
+                f"</div>",
+                f'<div class="kpi bad">'
+                f"<span>CRITICAL за всё время</span>"
+                f"<strong>{critical_count}</strong>"
+                f"</div>",
+            ]
+        )
     except FileNotFoundError:
         pass
 
@@ -423,22 +422,24 @@ async def admin_logs_data(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Недопустимое имя лог-файла") from exc
 
-    return JSONResponse({
-        "entries": [
-            {
-                "timestamp": e.timestamp.isoformat() if e.timestamp else None,
-                "level": e.level,
-                "logger_name": e.logger_name,
-                "message": e.message,
-                "raw_line": e.raw_line,
-                "user_id": e.user_id,
-                "telegram_id": e.telegram_id,
-                "traceback": e.traceback,
-            }
-            for e in entries
-        ],
-        "count": len(entries),
-    })
+    return JSONResponse(
+        {
+            "entries": [
+                {
+                    "timestamp": e.timestamp.isoformat() if e.timestamp else None,
+                    "level": e.level,
+                    "logger_name": e.logger_name,
+                    "message": e.message,
+                    "raw_line": e.raw_line,
+                    "user_id": e.user_id,
+                    "telegram_id": e.telegram_id,
+                    "traceback": e.traceback,
+                }
+                for e in entries
+            ],
+            "count": len(entries),
+        }
+    )
 
 
 @router.get("/admin/logs/download/{log_name}")
@@ -474,11 +475,13 @@ async def admin_logs_archive(
     service = LogViewerService()
     try:
         archive_path = service.archive_log(log_name)
-        return JSONResponse({
-            "success": True,
-            "archive_name": archive_path.name,
-            "message": f"Лог {log_name} архивирован в {archive_path.name}",
-        })
+        return JSONResponse(
+            {
+                "success": True,
+                "archive_name": archive_path.name,
+                "message": f"Лог {log_name} архивирован в {archive_path.name}",
+            }
+        )
     except (ValueError, FileNotFoundError) as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=400)
 
@@ -493,9 +496,11 @@ async def admin_logs_clear(
     service = LogViewerService()
     try:
         service.clear_log(log_name)
-        return JSONResponse({
-            "success": True,
-            "message": f"Лог {log_name} очищен",
-        })
+        return JSONResponse(
+            {
+                "success": True,
+                "message": f"Лог {log_name} очищен",
+            }
+        )
     except (ValueError, FileNotFoundError) as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=400)

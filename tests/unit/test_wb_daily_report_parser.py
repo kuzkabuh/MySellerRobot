@@ -2,6 +2,7 @@
 description: Unit tests for WB daily realisation report XLSX parser.
 updated: 2026-06-07
 """
+
 from __future__ import annotations
 
 import io

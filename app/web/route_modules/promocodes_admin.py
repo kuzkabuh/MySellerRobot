@@ -389,7 +389,7 @@ async def promo_usages_page(
 
         rows += f"""
         <tr>
-            <td>{u.used_at.strftime('%d.%m.%Y %H:%M') if u.used_at else '—'}</td>
+            <td>{u.used_at.strftime("%d.%m.%Y %H:%M") if u.used_at else "—"}</td>
             <td>{u.user_id}</td>
             <td>{_h(u.period)}</td>
             <td class="num">{_rub(u.original_amount)}</td>
@@ -403,8 +403,8 @@ async def promo_usages_page(
         <div>
             <h2>Использования: <code>{_h(promo.code)}</code></h2>
             <div class="summary-strip">
-                <span>Применён: <strong>{stats['total_uses']}</strong> раз</span>
-                <span>Общая скидка: <strong>{_rub(stats['total_discount'])}</strong></span>
+                <span>Применён: <strong>{stats["total_uses"]}</strong> раз</span>
+                <span>Общая скидка: <strong>{_rub(stats["total_discount"])}</strong></span>
             </div>
         </div>
         <div class="page-actions">
@@ -501,28 +501,28 @@ def _promo_form_html(
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:12px;">
                 <div>
                     <label>Код промокода *</label>
-                    <input type="text" name="code" value="{_val('code')}" required placeholder="START10">
+                    <input type="text" name="code" value="{_val("code")}" required placeholder="START10">
                 </div>
                 <div>
                     <label>Название *</label>
-                    <input type="text" name="name" value="{_val('name')}" required placeholder="Стартовая скидка">
+                    <input type="text" name="name" value="{_val("name")}" required placeholder="Стартовая скидка">
                 </div>
                 <div>
                     <label>Тип промокода *</label>
                     <select name="promo_type">
-                        <option value="percent_discount"{_selected_type('percent_discount')}>Скидка в процентах</option>
-                        <option value="fixed_discount"{_selected_type('fixed_discount')}>Фиксированная скидка</option>
-                        <option value="free_days"{_selected_type('free_days')}>Бесплатные дни</option>
+                        <option value="percent_discount"{_selected_type("percent_discount")}>Скидка в процентах</option>
+                        <option value="fixed_discount"{_selected_type("fixed_discount")}>Фиксированная скидка</option>
+                        <option value="free_days"{_selected_type("free_days")}>Бесплатные дни</option>
                     </select>
                 </div>
             </div>
             <div style="margin-top:12px;">
                 <label>Описание</label>
-                <textarea name="description" rows="2">{_val('description')}</textarea>
+                <textarea name="description" rows="2">{_val("description")}</textarea>
             </div>
             <div style="margin-top:12px;">
                 <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;font-size:13px;font-weight:500;color:var(--text);letter-spacing:0;">
-                    <input type="checkbox" name="is_active"{_checked('is_active', True)} style="width:auto;height:auto;">
+                    <input type="checkbox" name="is_active"{_checked("is_active", True)} style="width:auto;height:auto;">
                     Активен
                 </label>
             </div>
@@ -533,15 +533,15 @@ def _promo_form_html(
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:12px;">
                 <div>
                     <label>Процент скидки (1-100)</label>
-                    <input type="number" name="discount_percent" value="{_val('discount_percent')}" min="1" max="100">
+                    <input type="number" name="discount_percent" value="{_val("discount_percent")}" min="1" max="100">
                 </div>
                 <div>
                     <label>Фиксированная скидка (₽)</label>
-                    <input type="number" name="discount_amount" value="{_val('discount_amount')}" step="0.01" min="0">
+                    <input type="number" name="discount_amount" value="{_val("discount_amount")}" step="0.01" min="0">
                 </div>
                 <div>
                     <label>Бесплатные дни</label>
-                    <input type="number" name="free_days" value="{_val('free_days')}" min="1">
+                    <input type="number" name="free_days" value="{_val("free_days")}" min="1">
                 </div>
             </div>
         </div>
@@ -551,28 +551,28 @@ def _promo_form_html(
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:12px;">
                 <div>
                     <label>Дата начала</label>
-                    <input type="datetime-local" name="starts_at" value="{_val('starts_at')}">
+                    <input type="datetime-local" name="starts_at" value="{_val("starts_at")}">
                 </div>
                 <div>
                     <label>Дата окончания</label>
-                    <input type="datetime-local" name="expires_at" value="{_val('expires_at')}">
+                    <input type="datetime-local" name="expires_at" value="{_val("expires_at")}">
                 </div>
                 <div>
                     <label>Макс. использований (всего)</label>
-                    <input type="number" name="max_uses_total" value="{_val('max_uses_total')}" min="1" placeholder="Без лимита">
+                    <input type="number" name="max_uses_total" value="{_val("max_uses_total")}" min="1" placeholder="Без лимита">
                 </div>
                 <div>
                     <label>Макс. на пользователя</label>
-                    <input type="number" name="max_uses_per_user" value="{_val('max_uses_per_user', '1')}" min="1">
+                    <input type="number" name="max_uses_per_user" value="{_val("max_uses_per_user", "1")}" min="1">
                 </div>
                 <div>
                     <label>Мин. сумма заказа (₽)</label>
-                    <input type="number" name="min_order_amount" value="{_val('min_order_amount')}" step="0.01" min="0">
+                    <input type="number" name="min_order_amount" value="{_val("min_order_amount")}" step="0.01" min="0">
                 </div>
             </div>
             <div style="margin-top:12px;">
                 <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;font-size:13px;font-weight:500;color:var(--text);letter-spacing:0;">
-                    <input type="checkbox" name="only_for_new_users"{_checked('only_for_new_users')} style="width:auto;height:auto;">
+                    <input type="checkbox" name="only_for_new_users"{_checked("only_for_new_users")} style="width:auto;height:auto;">
                     Только для новых пользователей
                 </label>
             </div>

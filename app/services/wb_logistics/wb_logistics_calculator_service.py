@@ -216,8 +216,7 @@ class WbLogisticsCalculatorService:
                 confidence=EconomyConfidence.NOT_AVAILABLE,
                 source=ExpenseSource.FALLBACK_DEFAULT,
                 diagnostics=(
-                    f"Тариф логистики WB для склада '{warehouse_name}' "
-                    f"({sales_model}) не найден"
+                    f"Тариф логистики WB для склада '{warehouse_name}' ({sales_model}) не найден"
                 ),
             )
 
