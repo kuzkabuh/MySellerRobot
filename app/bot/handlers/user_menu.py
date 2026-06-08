@@ -43,10 +43,21 @@ def _dt(dt_value: datetime | None, timezone: str) -> str:
     return format_datetime_for_user(dt_value, timezone, "%d.%m.%Y %H:%M")
 
 
+def _callback_message(callback: CallbackQuery) -> Message | None:
+    message = callback.message
+    if isinstance(message, Message):
+        return message
+    return None
+
+
 @router.callback_query(F.data == "user:menu")
 async def show_user_menu(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    await callback.message.edit_text(
+    message = _callback_message(callback)
+    if message is None:
+        await callback.answer("Сообщение недоступно", show_alert=True)
+        return
+    await message.edit_text(
         "👤 <b>Меню пользователя</b>\n\nВыберите раздел:",
         reply_markup=user_menu(),
         parse_mode="HTML",
@@ -80,7 +91,11 @@ async def show_user_profile(callback: CallbackQuery) -> None:
             f"<b>Последняя активность:</b> {_dt(user.last_activity_at, user.timezone)}\n"
         )
 
-        await callback.message.edit_text(
+        message = _callback_message(callback)
+        if message is None:
+            await callback.answer("Сообщение недоступно", show_alert=True)
+            return
+        await message.edit_text(
             text,
             reply_markup=user_profile_menu(),
             parse_mode="HTML",
@@ -129,7 +144,11 @@ async def show_user_tariff(callback: CallbackQuery) -> None:
             f"{'✅' if tier.feature_alerts else '❌'} Алерты\n"
         )
 
-        await callback.message.edit_text(
+        message = _callback_message(callback)
+        if message is None:
+            await callback.answer("Сообщение недоступно", show_alert=True)
+            return
+        await message.edit_text(
             text,
             reply_markup=user_tariff_menu(tier.code),
             parse_mode="HTML",
@@ -181,7 +200,11 @@ async def show_user_api_keys(callback: CallbackQuery) -> None:
                 )
             text = "".join(lines)
 
-        await callback.message.edit_text(
+        message = _callback_message(callback)
+        if message is None:
+            await callback.answer("Сообщение недоступно", show_alert=True)
+            return
+        await message.edit_text(
             text,
             reply_markup=user_api_keys_menu(),
             parse_mode="HTML",
@@ -226,7 +249,11 @@ async def check_wb_key(callback: CallbackQuery) -> None:
             details={"marketplace": "WB", "result": check_result.status},
         )
 
-        await callback.message.edit_text(
+        message = _callback_message(callback)
+        if message is None:
+            await callback.answer("Сообщение недоступно", show_alert=True)
+            return
+        await message.edit_text(
             f"🔑 <b>Проверка WB ключа</b>\n\n"
             f"<b>Результат:</b> {check_result.message}\n"
             f"<b>Статус:</b> {check_result.status}\n"
@@ -274,7 +301,11 @@ async def check_ozon_key(callback: CallbackQuery) -> None:
             details={"marketplace": "OZON", "result": check_result.status},
         )
 
-        await callback.message.edit_text(
+        message = _callback_message(callback)
+        if message is None:
+            await callback.answer("Сообщение недоступно", show_alert=True)
+            return
+        await message.edit_text(
             f"🔑 <b>Проверка Ozon ключа</b>\n\n"
             f"<b>Результат:</b> {check_result.message}\n"
             f"<b>Статус:</b> {check_result.status}\n"
@@ -302,7 +333,11 @@ async def show_user_notifications(callback: CallbackQuery) -> None:
             "а также настроить типы уведомлений."
         )
 
-        await callback.message.edit_text(
+        message = _callback_message(callback)
+        if message is None:
+            await callback.answer("Сообщение недоступно", show_alert=True)
+            return
+        await message.edit_text(
             text,
             reply_markup=user_notifications_menu(user.notifications_enabled),
             parse_mode="HTML",
@@ -345,7 +380,11 @@ async def show_user_marketplaces(callback: CallbackQuery) -> None:
 
         from app.bot.keyboards.main import settings_menu
 
-        await callback.message.edit_text(
+        message = _callback_message(callback)
+        if message is None:
+            await callback.answer("Сообщение недоступно", show_alert=True)
+            return
+        await message.edit_text(
             text,
             reply_markup=settings_menu(),
             parse_mode="HTML",
@@ -357,7 +396,11 @@ async def show_user_marketplaces(callback: CallbackQuery) -> None:
 @router.callback_query(F.data == "user:promo")
 async def show_promo_input(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(PaymentStates.waiting_promo_code)
-    await callback.message.edit_text(
+    message = _callback_message(callback)
+    if message is None:
+        await callback.answer("Сообщение недоступно", show_alert=True)
+        return
+    await message.edit_text(
         "🎁 <b>Промокод</b>\n\n"
         "Введите промокод для получения скидки:\n\n"
         "<i>Отправьте /cancel для отмены</i>",
@@ -376,7 +419,11 @@ async def show_user_settings(callback: CallbackQuery) -> None:
 
         from app.bot.keyboards.main import settings_menu
 
-        await callback.message.edit_text(
+        message = _callback_message(callback)
+        if message is None:
+            await callback.answer("Сообщение недоступно", show_alert=True)
+            return
+        await message.edit_text(
             "⚙️ <b>Настройки</b>\n\nВыберите действие:",
             reply_markup=settings_menu(),
             parse_mode="HTML",
@@ -387,7 +434,11 @@ async def show_user_settings(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "user:support")
 async def show_user_support(callback: CallbackQuery) -> None:
-    await callback.message.edit_text(
+    message = _callback_message(callback)
+    if message is None:
+        await callback.answer("Сообщение недоступно", show_alert=True)
+        return
+    await message.edit_text(
         "🆘 <b>Поддержка</b>\n\n"
         "Если у вас возникли вопросы или проблемы,\n"
         "напишите в поддержку через web-кабинет\n"
@@ -401,7 +452,11 @@ async def show_user_support(callback: CallbackQuery) -> None:
 @router.callback_query(F.data == "user:support_new")
 async def start_support_ticket(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(PaymentStates.waiting_support_message)
-    await callback.message.edit_text(
+    message = _callback_message(callback)
+    if message is None:
+        await callback.answer("Сообщение недоступно", show_alert=True)
+        return
+    await message.edit_text(
         "🆘 <b>Новое обращение</b>\n\n"
         "Напишите текст обращения одним сообщением:\n\n"
         "<i>Отправьте /cancel для отмены</i>",
@@ -442,7 +497,11 @@ async def show_support_tickets(callback: CallbackQuery) -> None:
                 )
             text = "".join(lines)
 
-        await callback.message.edit_text(
+        message = _callback_message(callback)
+        if message is None:
+            await callback.answer("Сообщение недоступно", show_alert=True)
+            return
+        await message.edit_text(
             text,
             reply_markup=user_support_menu(),
             parse_mode="HTML",
@@ -454,7 +513,11 @@ async def show_support_tickets(callback: CallbackQuery) -> None:
 @router.callback_query(F.data == "user:edit_email")
 async def start_edit_email(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(PaymentStates.waiting_email)
-    await callback.message.edit_text(
+    message = _callback_message(callback)
+    if message is None:
+        await callback.answer("Сообщение недоступно", show_alert=True)
+        return
+    await message.edit_text(
         "📧 <b>Изменение email</b>\n\nВведите новый email:\n\n<i>Отправьте /cancel для отмены</i>",
         parse_mode="HTML",
     )
@@ -464,7 +527,11 @@ async def start_edit_email(callback: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(F.data == "user:edit_phone")
 async def start_edit_phone(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(PaymentStates.waiting_phone)
-    await callback.message.edit_text(
+    message = _callback_message(callback)
+    if message is None:
+        await callback.answer("Сообщение недоступно", show_alert=True)
+        return
+    await message.edit_text(
         "📱 <b>Изменение телефона</b>\n\n"
         "Введите новый телефон (например, +7 900 123-45-67):\n\n"
         "<i>Отправьте /cancel для отмены</i>",
@@ -552,6 +619,9 @@ async def process_support_message(message: Message, state: FSMContext) -> None:
 
     async for session in get_session():
         try:
+            if message.from_user is None:
+                await message.answer("Пользователь не найден.")
+                return
             user = await _get_user(session, message.from_user.id)
             if user is None:
                 await message.answer("Пользователь не найден.")
@@ -611,6 +681,11 @@ async def _notify_admins_about_ticket(
             [InlineKeyboardButton(text="👁 Открыть в админке", url=admin_url)],
         ]
     )
+    if message.bot is None:
+        logger.warning(
+            "support_ticket_admin_notification_bot_missing", extra={"ticket_id": ticket_id}
+        )
+        return
     sent = await notify_admins(message.bot, text, reply_markup=keyboard)
     if sent == 0:
         logger.warning(

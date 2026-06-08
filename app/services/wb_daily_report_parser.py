@@ -554,9 +554,12 @@ def _coerce_datetime(value: object) -> datetime | None:
         return datetime.combine(value, datetime.min.time())
     if isinstance(value, (int, float)):
         try:
-            return from_excel(value)
+            parsed_at = from_excel(value)
         except Exception:
             return None
+        if isinstance(parsed_at, datetime):
+            return parsed_at
+        return None
     text = str(value).strip()
     if not text:
         return None

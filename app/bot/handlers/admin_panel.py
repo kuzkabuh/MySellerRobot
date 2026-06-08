@@ -8,6 +8,7 @@ import math
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from html import escape as html_escape
+from typing import Any
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -76,6 +77,17 @@ def _h(value: object) -> str:
     if value is None:
         return "—"
     return html_escape(str(value), quote=False)
+
+
+def _callback_message(callback: CallbackQuery) -> Message | None:
+    message = callback.message
+    if isinstance(message, Message):
+        return message
+    return None
+
+
+def _callback_parts(callback: CallbackQuery) -> list[str]:
+    return _callback_parts(callback) if callback.data else []
 
 
 def _rub(value: Decimal | None) -> str:
@@ -147,16 +159,17 @@ async def cb_tariffs_list(callback: CallbackQuery) -> None:
         service = TariffService(session)
         tariffs = await service.get_all_tariffs_with_user_counts()
     text = _tariffs_list_text(tariffs)
-    if callback.message:
+    message = _callback_message(callback)
+    if message:
         try:
-            await callback.message.edit_text(text, reply_markup=admin_tariffs_list(tariffs))
+            await message.edit_text(text, reply_markup=admin_tariffs_list(tariffs))
         except Exception:
-            await callback.message.answer(text, reply_markup=admin_tariffs_list(tariffs))
+            await message.answer(text, reply_markup=admin_tariffs_list(tariffs))
     await callback.answer()
     logger.info("admin_opened_tariffs", extra={"admin_telegram_id": callback.from_user.id})
 
 
-def _tariffs_list_text(tariffs: list) -> str:
+def _tariffs_list_text(tariffs: list[Any]) -> str:
     lines = ["📦 <b>Тарифы</b>\n"]
     for tariff, count in tariffs:
         status = "✅" if tariff.is_active else "❌"
@@ -186,7 +199,7 @@ async def cb_tariff_card(callback: CallbackQuery) -> None:
     if not _is_admin(callback.from_user.id):
         await callback.answer(_deny_text(), show_alert=True)
         return
-    parts = callback.data.split(":")
+    parts = _callback_parts(callback)
     if len(parts) != 3:
         await callback.answer()
         return
@@ -199,13 +212,12 @@ async def cb_tariff_card(callback: CallbackQuery) -> None:
             return
         user_count = await service.get_tariff_user_count(tariff_id)
     text = _tariff_card_text(tariff, user_count)
-    if callback.message:
+    message = _callback_message(callback)
+    if message:
         try:
-            await callback.message.edit_text(
-                text, reply_markup=admin_tariff_card(tariff, user_count)
-            )
+            await message.edit_text(text, reply_markup=admin_tariff_card(tariff, user_count))
         except Exception:
-            await callback.message.answer(text, reply_markup=admin_tariff_card(tariff, user_count))
+            await message.answer(text, reply_markup=admin_tariff_card(tariff, user_count))
     await callback.answer()
     logger.info(
         "admin_opened_tariff_card",
@@ -213,7 +225,7 @@ async def cb_tariff_card(callback: CallbackQuery) -> None:
     )
 
 
-def _tariff_card_text(tariff, user_count: int) -> str:
+def _tariff_card_text(tariff: Any, user_count: int) -> str:
     status = "✅ Активен" if tariff.is_active else "❌ Отключён"
     pub = "👁 Публичный" if tariff.is_public else "🙈 Скрытый"
     features = admin_promo_features_text(tariff)
@@ -260,7 +272,7 @@ async def cb_tariff_price_prompt(callback: CallbackQuery, state: FSMContext) -> 
     if not _is_admin(callback.from_user.id):
         await callback.answer(_deny_text(), show_alert=True)
         return
-    parts = callback.data.split(":")
+    parts = _callback_parts(callback)
     tariff_id = int(parts[2])
     period = parts[4]
     period_label = _PERIOD_LABELS.get(period, period)
@@ -272,8 +284,9 @@ async def cb_tariff_price_prompt(callback: CallbackQuery, state: FSMContext) -> 
     )
     await state.set_state(AdminPanelStates.waiting_for_tariff_price)
 
-    if callback.message:
-        await callback.message.answer(
+    message = _callback_message(callback)
+    if message:
+        await message.answer(
             f"Введите новую цену за <b>{_h(period_label)}</b> (число, ₽).\n"
             f"Для бесплатного тарифа введите 0.\n\n"
             f"Для отмены: /cancel"
@@ -337,7 +350,7 @@ async def cb_tariff_save(callback: CallbackQuery) -> None:
     if not _is_admin(callback.from_user.id):
         await callback.answer(_deny_text(), show_alert=True)
         return
-    parts = callback.data.split(":")
+    parts = _callback_parts(callback)
     tariff_id = int(parts[2])
     field = parts[4]
     value_str = parts[5]
@@ -369,13 +382,12 @@ async def cb_tariff_save(callback: CallbackQuery) -> None:
     )
 
     text = "✅ Цена обновлена.\n\n" + _tariff_card_text(tariff, user_count)
-    if callback.message:
+    message = _callback_message(callback)
+    if message:
         try:
-            await callback.message.edit_text(
-                text, reply_markup=admin_tariff_card(tariff, user_count)
-            )
+            await message.edit_text(text, reply_markup=admin_tariff_card(tariff, user_count))
         except Exception:
-            await callback.message.answer(text, reply_markup=admin_tariff_card(tariff, user_count))
+            await message.answer(text, reply_markup=admin_tariff_card(tariff, user_count))
     await callback.answer("Сохранено")
 
 
@@ -389,7 +401,7 @@ async def cb_tariff_limits_menu(callback: CallbackQuery) -> None:
     if not _is_admin(callback.from_user.id):
         await callback.answer(_deny_text(), show_alert=True)
         return
-    parts = callback.data.split(":")
+    parts = _callback_parts(callback)
     tariff_id = int(parts[2])
     async with AsyncSessionFactory() as session:
         service = TariffService(session)
@@ -403,15 +415,14 @@ async def cb_tariff_limits_menu(callback: CallbackQuery) -> None:
         val = limits.get(key)
         display = val if val is not None else "∞"
         lines.append(f"• {label}: <b>{display}</b>")
-    if callback.message:
+    message = _callback_message(callback)
+    if message:
         try:
-            await callback.message.edit_text(
+            await message.edit_text(
                 "\n".join(lines), reply_markup=admin_tariff_limits_menu(tariff_id)
             )
         except Exception:
-            await callback.message.answer(
-                "\n".join(lines), reply_markup=admin_tariff_limits_menu(tariff_id)
-            )
+            await message.answer("\n".join(lines), reply_markup=admin_tariff_limits_menu(tariff_id))
     await callback.answer()
 
 
@@ -420,7 +431,7 @@ async def cb_tariff_limit_prompt(callback: CallbackQuery, state: FSMContext) -> 
     if not _is_admin(callback.from_user.id):
         await callback.answer(_deny_text(), show_alert=True)
         return
-    parts = callback.data.split(":")
+    parts = _callback_parts(callback)
     tariff_id = int(parts[2])
     limit_field = parts[4]
     label = _LIMIT_LABELS.get(limit_field, limit_field)
@@ -428,8 +439,9 @@ async def cb_tariff_limit_prompt(callback: CallbackQuery, state: FSMContext) -> 
     await state.update_data(tariff_id=tariff_id, field=limit_field)
     await state.set_state(AdminPanelStates.waiting_for_tariff_limit)
 
-    if callback.message:
-        await callback.message.answer(
+    message = _callback_message(callback)
+    if message:
+        await message.answer(
             f"Введите новое значение для <b>{_h(label)}</b>.\n"
             f"Оставьте пустым или введите 0 для безлимита.\n\n"
             f"Для отмены: /cancel"
@@ -475,7 +487,7 @@ async def msg_tariff_limit_input(message: Message, state: FSMContext) -> None:
     logger.info(
         "admin_changed_tariff_limits",
         extra={
-            "admin_telegram_id": message.from_user.id,
+            "admin_telegram_id": message.from_user.id if message.from_user else None,
             "tariff_id": tariff_id,
             "field": field,
             "new_value": str(db_value),
@@ -507,7 +519,7 @@ async def cb_tariff_toggle(callback: CallbackQuery) -> None:
     if not _is_admin(callback.from_user.id):
         await callback.answer(_deny_text(), show_alert=True)
         return
-    parts = callback.data.split(":")
+    parts = _callback_parts(callback)
     tariff_id = int(parts[2])
 
     async with AsyncSessionFactory() as session:
@@ -526,13 +538,12 @@ async def cb_tariff_toggle(callback: CallbackQuery) -> None:
     )
 
     text = _tariff_card_text(tariff, user_count)
-    if callback.message:
+    message = _callback_message(callback)
+    if message:
         try:
-            await callback.message.edit_text(
-                text, reply_markup=admin_tariff_card(tariff, user_count)
-            )
+            await message.edit_text(text, reply_markup=admin_tariff_card(tariff, user_count))
         except Exception:
-            await callback.message.answer(text, reply_markup=admin_tariff_card(tariff, user_count))
+            await message.answer(text, reply_markup=admin_tariff_card(tariff, user_count))
     status = "включён" if tariff.is_active else "отключён"
     await callback.answer(f"Тариф {status}")
 
@@ -542,7 +553,7 @@ async def cb_tariff_public(callback: CallbackQuery) -> None:
     if not _is_admin(callback.from_user.id):
         await callback.answer(_deny_text(), show_alert=True)
         return
-    parts = callback.data.split(":")
+    parts = _callback_parts(callback)
     tariff_id = int(parts[2])
 
     async with AsyncSessionFactory() as session:
@@ -568,15 +579,12 @@ async def cb_tariff_public(callback: CallbackQuery) -> None:
 
     if tariff:
         text = _tariff_card_text(tariff, user_count)
-        if callback.message:
+        message = _callback_message(callback)
+        if message:
             try:
-                await callback.message.edit_text(
-                    text, reply_markup=admin_tariff_card(tariff, user_count)
-                )
+                await message.edit_text(text, reply_markup=admin_tariff_card(tariff, user_count))
             except Exception:
-                await callback.message.answer(
-                    text, reply_markup=admin_tariff_card(tariff, user_count)
-                )
+                await message.answer(text, reply_markup=admin_tariff_card(tariff, user_count))
     visibility = "публичный" if new_public else "скрытый"
     await callback.answer(f"Тариф {visibility}")
 
@@ -595,16 +603,17 @@ async def cb_promos_list(callback: CallbackQuery) -> None:
         service = PromoCodeService(session)
         promos = await service.get_all()
     text = _promos_list_text(promos)
-    if callback.message:
+    message = _callback_message(callback)
+    if message:
         try:
-            await callback.message.edit_text(text, reply_markup=admin_promos_list(promos))
+            await message.edit_text(text, reply_markup=admin_promos_list(promos))
         except Exception:
-            await callback.message.answer(text, reply_markup=admin_promos_list(promos))
+            await message.answer(text, reply_markup=admin_promos_list(promos))
     await callback.answer()
     logger.info("admin_opened_promocodes", extra={"admin_telegram_id": callback.from_user.id})
 
 
-def _promos_list_text(promos: list) -> str:
+def _promos_list_text(promos: list[Any]) -> str:
     lines = ["🎟 <b>Промокоды</b>\n"]
     if not promos:
         lines.append("Промокоды не найдены.")
@@ -652,7 +661,7 @@ async def cb_promo_card(callback: CallbackQuery) -> None:
     if not _is_admin(callback.from_user.id):
         await callback.answer(_deny_text(), show_alert=True)
         return
-    parts = callback.data.split(":")
+    parts = _callback_parts(callback)
     if len(parts) != 3:
         await callback.answer()
         return
@@ -669,11 +678,12 @@ async def cb_promo_card(callback: CallbackQuery) -> None:
             await callback.answer("Промокод не найден", show_alert=True)
             return
     text = _promo_card_text(promo)
-    if callback.message:
+    message = _callback_message(callback)
+    if message:
         try:
-            await callback.message.edit_text(text, reply_markup=admin_promo_card(promo))
+            await message.edit_text(text, reply_markup=admin_promo_card(promo))
         except Exception:
-            await callback.message.answer(text, reply_markup=admin_promo_card(promo))
+            await message.answer(text, reply_markup=admin_promo_card(promo))
     await callback.answer()
     logger.info(
         "admin_opened_promocode_card",
@@ -683,7 +693,11 @@ async def cb_promo_card(callback: CallbackQuery) -> None:
 
 def _promo_card_text(promo: PromoCode) -> str:
     status = "✅ Активен" if promo.is_active else "❌ Отключён"
-    type_label = _PROMO_TYPE_LABELS.get(promo.promo_type, promo.promo_type)
+    type_label = (
+        _PROMO_TYPE_LABELS.get(promo.promo_type, promo.promo_type.value)
+        if isinstance(promo.promo_type, PromoType)
+        else str(promo.promo_type)
+    )
 
     if promo.promo_type == PromoType.PERCENT_DISCOUNT:
         discount_info = f"Скидка: {promo.discount_percent}%"
@@ -742,7 +756,7 @@ async def cb_promo_toggle(callback: CallbackQuery) -> None:
     if not _is_admin(callback.from_user.id):
         await callback.answer(_deny_text(), show_alert=True)
         return
-    parts = callback.data.split(":")
+    parts = _callback_parts(callback)
     promo_id = int(parts[2])
 
     async with AsyncSessionFactory() as session:
@@ -760,11 +774,12 @@ async def cb_promo_toggle(callback: CallbackQuery) -> None:
     )
 
     text = _promo_card_text(promo)
-    if callback.message:
+    message = _callback_message(callback)
+    if message:
         try:
-            await callback.message.edit_text(text, reply_markup=admin_promo_card(promo))
+            await message.edit_text(text, reply_markup=admin_promo_card(promo))
         except Exception:
-            await callback.message.answer(text, reply_markup=admin_promo_card(promo))
+            await message.answer(text, reply_markup=admin_promo_card(promo))
     status = "включён" if promo.is_active else "отключён"
     await callback.answer(f"Промокод {status}")
 
@@ -779,7 +794,7 @@ async def cb_promo_stats(callback: CallbackQuery) -> None:
     if not _is_admin(callback.from_user.id):
         await callback.answer(_deny_text(), show_alert=True)
         return
-    parts = callback.data.split(":")
+    parts = _callback_parts(callback)
     promo_id = int(parts[2])
 
     async with AsyncSessionFactory() as session:
@@ -822,11 +837,12 @@ async def cb_promo_stats(callback: CallbackQuery) -> None:
             [InlineKeyboardButton(text="🔙 К промокоду", callback_data=f"ap:promo:{promo_id}")]
         ]
     )
-    if callback.message:
+    message = _callback_message(callback)
+    if message:
         try:
-            await callback.message.edit_text("\n".join(lines), reply_markup=back_kb)
+            await message.edit_text("\n".join(lines), reply_markup=back_kb)
         except Exception:
-            await callback.message.answer("\n".join(lines), reply_markup=back_kb)
+            await message.answer("\n".join(lines), reply_markup=back_kb)
     await callback.answer()
 
 
@@ -842,7 +858,7 @@ async def cb_promo_usages(callback: CallbackQuery) -> None:
     if not _is_admin(callback.from_user.id):
         await callback.answer(_deny_text(), show_alert=True)
         return
-    parts = callback.data.split(":")
+    parts = _callback_parts(callback)
     promo_id = int(parts[2])
     page = int(parts[4]) if len(parts) > 4 else 0
 
@@ -875,11 +891,12 @@ async def cb_promo_usages(callback: CallbackQuery) -> None:
     )
 
     kb = admin_promo_usages_nav(promo_id, page, total_pages)
-    if callback.message:
+    message = _callback_message(callback)
+    if message:
         try:
-            await callback.message.edit_text("\n".join(lines), reply_markup=kb)
+            await message.edit_text("\n".join(lines), reply_markup=kb)
         except Exception:
-            await callback.message.answer("\n".join(lines), reply_markup=kb)
+            await message.answer("\n".join(lines), reply_markup=kb)
     await callback.answer()
 
 
@@ -893,12 +910,13 @@ async def cb_promo_edit_limit(callback: CallbackQuery, state: FSMContext) -> Non
     if not _is_admin(callback.from_user.id):
         await callback.answer(_deny_text(), show_alert=True)
         return
-    parts = callback.data.split(":")
+    parts = _callback_parts(callback)
     promo_id = int(parts[2])
     await state.update_data(promo_id=promo_id)
     await state.set_state(AdminPanelStates.waiting_for_promo_limit_edit)
-    if callback.message:
-        await callback.message.answer(
+    message = _callback_message(callback)
+    if message:
+        await message.answer(
             "Введите новый общий лимит использований (число).\n"
             "Введите 0 для безлимита.\n\nДля отмены: /cancel"
         )
@@ -938,7 +956,7 @@ async def msg_promo_limit_edit(message: Message, state: FSMContext) -> None:
     logger.info(
         "admin_changed_promocode_limit",
         extra={
-            "admin_telegram_id": message.from_user.id,
+            "admin_telegram_id": message.from_user.id if message.from_user else None,
             "promo_id": promo_id,
             "new_limit": new_limit,
         },
@@ -956,12 +974,13 @@ async def cb_promo_edit_expires(callback: CallbackQuery, state: FSMContext) -> N
     if not _is_admin(callback.from_user.id):
         await callback.answer(_deny_text(), show_alert=True)
         return
-    parts = callback.data.split(":")
+    parts = _callback_parts(callback)
     promo_id = int(parts[2])
     await state.update_data(promo_id=promo_id)
     await state.set_state(AdminPanelStates.waiting_for_promo_expires_edit)
-    if callback.message:
-        await callback.message.answer(
+    message = _callback_message(callback)
+    if message:
+        await message.answer(
             "Введите новую дату окончания в формате ДД.ММ.ГГГГ.\n"
             "Введите 'без срока' для бессрочного промокода.\n\nДля отмены: /cancel"
         )
@@ -1003,7 +1022,7 @@ async def msg_promo_expires_edit(message: Message, state: FSMContext) -> None:
     logger.info(
         "admin_changed_promocode_expiration",
         extra={
-            "admin_telegram_id": message.from_user.id,
+            "admin_telegram_id": message.from_user.id if message.from_user else None,
             "promo_id": promo_id,
             "expires_at": str(new_expires),
         },
@@ -1027,8 +1046,9 @@ async def cb_promo_search_prompt(callback: CallbackQuery, state: FSMContext) -> 
         await callback.answer(_deny_text(), show_alert=True)
         return
     await state.set_state(AdminPanelStates.waiting_for_promo_search)
-    if callback.message:
-        await callback.message.answer("Введите код промокода для поиска.\n\nДля отмены: /cancel")
+    message = _callback_message(callback)
+    if message:
+        await message.answer("Введите код промокода для поиска.\n\nДля отмены: /cancel")
     await callback.answer()
 
 
@@ -1074,8 +1094,9 @@ async def cb_promo_create_start(callback: CallbackQuery, state: FSMContext) -> N
         selected_tariffs=[],
         selected_periods=[],
     )
-    if callback.message:
-        await callback.message.answer(
+    message = _callback_message(callback)
+    if message:
+        await message.answer(
             "➕ <b>Создание промокода</b>\n\n"
             "Шаг 1/10: Введите код промокода.\n"
             "Только латинские буквы, цифры, дефис, подчёркивание.\n"
@@ -1147,7 +1168,7 @@ async def cb_promo_create_type(callback: CallbackQuery, state: FSMContext) -> No
     if not _is_admin(callback.from_user.id):
         await callback.answer(_deny_text(), show_alert=True)
         return
-    promo_type = callback.data.split(":")[3]
+    promo_type = _callback_parts(callback)[3]
     data = await state.get_data()
     promo_data = data.get("promo_data", {})
     promo_data["promo_type"] = promo_type
@@ -1161,8 +1182,9 @@ async def cb_promo_create_type(callback: CallbackQuery, state: FSMContext) -> No
     else:
         prompt = "Шаг 4/10: Введите количество бесплатных дней (≥ 1)."
 
-    if callback.message:
-        await callback.message.answer(prompt)
+    message = _callback_message(callback)
+    if message:
+        await message.answer(prompt)
     await callback.answer()
 
 
@@ -1224,7 +1246,7 @@ async def cb_promo_toggle_tariff(callback: CallbackQuery, state: FSMContext) -> 
     if not _is_admin(callback.from_user.id):
         await callback.answer(_deny_text(), show_alert=True)
         return
-    tariff_id = int(callback.data.split(":")[3])
+    tariff_id = int(_callback_parts(callback)[3])
     data = await state.get_data()
     selected = set(data.get("selected_tariffs", []))
     if tariff_id in selected:
@@ -1237,9 +1259,10 @@ async def cb_promo_toggle_tariff(callback: CallbackQuery, state: FSMContext) -> 
         service = TariffService(session)
         tariffs = await service.get_all_tariffs()
 
-    if callback.message:
+    message = _callback_message(callback)
+    if message:
         try:
-            await callback.message.edit_reply_markup(
+            await message.edit_reply_markup(
                 reply_markup=admin_promo_tariffs_select(tariffs, selected)
             )
         except Exception:
@@ -1260,8 +1283,9 @@ async def cb_promo_tariffs_done(callback: CallbackQuery, state: FSMContext) -> N
     promo_data["tariff_ids"] = selected if selected else None
     await state.update_data(promo_data=promo_data)
     await state.set_state(AdminPanelStates.waiting_for_promo_periods)
-    if callback.message:
-        await callback.message.answer(
+    message = _callback_message(callback)
+    if message:
+        await message.answer(
             "Шаг 6/10: Выберите периоды (или пропустите для всех).",
             reply_markup=admin_promo_periods_select(set()),
         )
@@ -1280,8 +1304,9 @@ async def cb_promo_tariffs_skip(callback: CallbackQuery, state: FSMContext) -> N
     promo_data["tariff_ids"] = None
     await state.update_data(promo_data=promo_data, selected_tariffs=[])
     await state.set_state(AdminPanelStates.waiting_for_promo_periods)
-    if callback.message:
-        await callback.message.answer(
+    message = _callback_message(callback)
+    if message:
+        await message.answer(
             "Шаг 6/10: Выберите периоды (или пропустите для всех).",
             reply_markup=admin_promo_periods_select(set()),
         )
@@ -1295,7 +1320,7 @@ async def cb_promo_toggle_period(callback: CallbackQuery, state: FSMContext) -> 
     if not _is_admin(callback.from_user.id):
         await callback.answer(_deny_text(), show_alert=True)
         return
-    period = callback.data.split(":")[3]
+    period = _callback_parts(callback)[3]
     data = await state.get_data()
     selected = set(data.get("selected_periods", []))
     if period in selected:
@@ -1303,11 +1328,10 @@ async def cb_promo_toggle_period(callback: CallbackQuery, state: FSMContext) -> 
     else:
         selected.add(period)
     await state.update_data(selected_periods=list(selected))
-    if callback.message:
+    message = _callback_message(callback)
+    if message:
         try:
-            await callback.message.edit_reply_markup(
-                reply_markup=admin_promo_periods_select(selected)
-            )
+            await message.edit_reply_markup(reply_markup=admin_promo_periods_select(selected))
         except Exception:
             pass
     await callback.answer()
@@ -1326,8 +1350,9 @@ async def cb_promo_periods_done(callback: CallbackQuery, state: FSMContext) -> N
     promo_data["periods"] = selected if selected else None
     await state.update_data(promo_data=promo_data)
     await state.set_state(AdminPanelStates.waiting_for_promo_total_limit)
-    if callback.message:
-        await callback.message.answer(
+    message = _callback_message(callback)
+    if message:
+        await message.answer(
             "Шаг 7/10: Введите общий лимит использований (число).\nВведите 0 для безлимита."
         )
     await callback.answer()
@@ -1345,8 +1370,9 @@ async def cb_promo_periods_skip(callback: CallbackQuery, state: FSMContext) -> N
     promo_data["periods"] = None
     await state.update_data(promo_data=promo_data, selected_periods=[])
     await state.set_state(AdminPanelStates.waiting_for_promo_total_limit)
-    if callback.message:
-        await callback.message.answer(
+    message = _callback_message(callback)
+    if message:
+        await message.answer(
             "Шаг 7/10: Введите общий лимит использований (число).\nВведите 0 для безлимита."
         )
     await callback.answer()
@@ -1450,7 +1476,7 @@ async def cb_promo_create_new_users(callback: CallbackQuery, state: FSMContext) 
     if not _is_admin(callback.from_user.id):
         await callback.answer(_deny_text(), show_alert=True)
         return
-    only_new = callback.data.split(":")[3] == "yes"
+    only_new = _callback_parts(callback)[3] == "yes"
     data = await state.get_data()
     promo_data = data.get("promo_data", {})
     promo_data["only_for_new_users"] = only_new
@@ -1458,12 +1484,13 @@ async def cb_promo_create_new_users(callback: CallbackQuery, state: FSMContext) 
     await state.set_state(AdminPanelStates.waiting_for_promo_confirm)
 
     text = _promo_confirm_text(promo_data)
-    if callback.message:
-        await callback.message.answer(text, reply_markup=admin_promo_confirm_cancel())
+    message = _callback_message(callback)
+    if message:
+        await message.answer(text, reply_markup=admin_promo_confirm_cancel())
     await callback.answer()
 
 
-def _promo_confirm_text(pd: dict) -> str:
+def _promo_confirm_text(pd: dict[str, Any]) -> str:
     promo_type = pd.get("promo_type", "")
     type_label = _PROMO_TYPE_LABELS.get(promo_type, promo_type)
 
@@ -1551,18 +1578,21 @@ async def cb_promo_confirm_create(callback: CallbackQuery, state: FSMContext) ->
             },
         )
 
-        if callback.message:
-            await callback.message.answer(
+        message = _callback_message(callback)
+        if message:
+            await message.answer(
                 f"✅ Промокод <code>{_h(promo.code)}</code> создан!",
                 reply_markup=admin_promo_card(promo),
             )
     except PromoValidationError as e:
-        if callback.message:
-            await callback.message.answer(f"❌ Ошибка: {_h(str(e))}")
+        message = _callback_message(callback)
+        if message:
+            await message.answer(f"❌ Ошибка: {_h(str(e))}")
     except Exception:
         logger.exception("admin_promo_create_failed")
-        if callback.message:
-            await callback.message.answer("❌ Не удалось создать промокод.")
+        message = _callback_message(callback)
+        if message:
+            await message.answer("❌ Не удалось создать промокод.")
 
     await state.clear()
     await callback.answer()

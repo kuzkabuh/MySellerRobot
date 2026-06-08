@@ -660,7 +660,7 @@ async def _read_upload(file: UploadFile) -> bytes:
 def _preview_content(
     account: MarketplaceAccount,
     parsed: WbDailyReportParsed,
-    counters: dict[str, int],
+    counters: dict[str, object],
     file_hash: str,
     filename: str,
 ) -> str:
@@ -1170,6 +1170,8 @@ def _q(value: str) -> str:
 
 
 def _to_int(value: object) -> int | None:
+    if not isinstance(value, (str, int, float)):
+        return None
     try:
         return int(value) if value not in (None, "") else None
     except (TypeError, ValueError):

@@ -5,6 +5,7 @@
 import logging
 from datetime import datetime
 from html import escape
+from typing import Any
 
 from fastapi import APIRouter, Form, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -170,7 +171,7 @@ async def admin_support_reply(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
     response_text: str = Form(""),
-):
+) -> Any:
     _require_admin(user)
     service = SupportService(session)
     ticket = await service.get_ticket_model(ticket_id)

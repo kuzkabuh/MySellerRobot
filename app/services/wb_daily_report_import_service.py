@@ -758,7 +758,8 @@ class WbDailyReportImportService:
                 and (raw_barcode, seller_text, date_key) in article_date_keys
             ):
                 mapping.setdefault(
-                    ("barcode_article_date", f"{raw_barcode}|{seller_text}|{date_key}")
+                    ("barcode_article_date", f"{raw_barcode}|{seller_text}|{date_key}"),
+                    [],
                 ).append(int(order_id))
         return mapping
 

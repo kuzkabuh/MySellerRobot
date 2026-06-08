@@ -11,6 +11,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.models.domain import MarketplaceAccount, User
 from app.models.enums import SubscriptionStatus
@@ -142,14 +143,13 @@ class SubscriptionService:
         by_user: dict[int, CurrentSubscription] = {}
         for subscription in result.scalars().all():
             if subscription.user_id in by_user:
+                selected_subscription = by_user[subscription.user_id].active_subscription
                 logger.warning(
                     "multiple_active_subscriptions_detected",
                     extra={
                         "user_id": subscription.user_id,
                         "selected_subscription_id": (
-                            by_user[subscription.user_id].active_subscription.id
-                            if by_user[subscription.user_id].active_subscription
-                            else None
+                            selected_subscription.id if selected_subscription else None
                         ),
                         "conflicting_subscription_id": subscription.id,
                     },
@@ -663,5 +663,5 @@ def _normalize_tier_code(code: str) -> str:
     return code.strip().lower()
 
 
-def _tier_code_is(code: str):
+def _tier_code_is(code: str) -> ColumnElement[bool]:
     return func.lower(SubscriptionTier.code) == _normalize_tier_code(code)

@@ -135,7 +135,15 @@ class OzonCommissionPageParser:
                     }
                 )
 
-        blocks.sort(key=lambda b: b["sort_key"], reverse=True)
+        def block_sort_key(
+            block: dict[str, tuple[int, int, int] | str | None],
+        ) -> tuple[int, int, int]:
+            sort_key = block.get("sort_key")
+            if isinstance(sort_key, tuple):
+                return sort_key
+            return (0, 0, 0)
+
+        blocks.sort(key=block_sort_key, reverse=True)
         return blocks
 
     def _find_download_url_in_block(self, block: str, base_url: str) -> str | None:

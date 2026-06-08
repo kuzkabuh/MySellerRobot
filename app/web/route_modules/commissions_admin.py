@@ -970,7 +970,7 @@ def _render_preview(
     effective_from: date,
     version_label: str,
     rates_count: int,
-    diff_summary: dict,
+    diff_summary: dict[str, object],
     sheet_names: list[str] | None = None,
 ) -> str:
     diff_parts = []

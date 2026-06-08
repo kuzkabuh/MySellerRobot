@@ -3,6 +3,8 @@ description: Log sanitizer for sensitive HTTP headers and cookie values.
 updated: 2026-05-31
 """
 
+from typing import Any
+
 SENSITIVE_HEADERS = frozenset(
     {
         "cookie",
@@ -59,10 +61,10 @@ def _sanitize_cookie_value(cookie_string: str) -> str:
     return f"cookies_present=True; cookies_count={len(parts)}; " + "; ".join(sanitized[:3]) + "..."
 
 
-def sanitize_log_extra(extra: dict | None) -> dict:
+def sanitize_log_extra(extra: dict[str, Any] | None) -> dict[str, Any]:
     if not extra:
         return {}
-    result = dict(extra)
+    result: dict[str, Any] = dict(extra)
     for key in ("headers", "request_headers", "response_headers"):
         if key in result and isinstance(result[key], dict):
             result[key] = sanitize_headers(result[key])

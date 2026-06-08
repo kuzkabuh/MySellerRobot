@@ -15,7 +15,9 @@ import asyncio
 import logging
 import sys
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from typing import Any
 
 # Add project root to path
 project_root = Path(__file__).resolve().parent.parent.parent
@@ -43,7 +45,7 @@ async def sync_nomenclatures_once(
     promotion_id: int | None = None,
     limit: int = 100,
     all_promo: bool = True,
-) -> dict:
+) -> dict[str, Any]:
     """Sync nomenclatures for a specific account."""
     get_settings()
     cipher = TokenCipher()
@@ -69,19 +71,21 @@ async def sync_nomenclatures_once(
         if all_promo and promotion_id is None:
             logger.info(f"Using full sync service with allPromo={all_promo}")
             service = WbPromotionsSyncService(session, cipher)
-            stats = await service.sync_all_accounts(all_promo=True)
+            service_stats = await service.sync_all_accounts(all_promo=True)
             await session.commit()
 
             return {
-                "promotions_fetched": stats.promotions_fetched,
-                "regular_promotions": stats.promotions_upserted - stats.promotions_skipped_auto,
-                "auto_promotions": stats.promotions_skipped_auto,
-                "nomenclatures_fetched": stats.nomenclatures_fetched,
-                "nomenclatures_upserted": stats.nomenclatures_upserted,
-                "products_matched": stats.products_matched,
-                "errors_count": len(stats.errors),
-                "all_promo": stats.all_promo_mode,
-                "errors": stats.errors,
+                "promotions_fetched": service_stats.promotions_fetched,
+                "regular_promotions": (
+                    service_stats.promotions_upserted - service_stats.promotions_skipped_auto
+                ),
+                "auto_promotions": service_stats.promotions_skipped_auto,
+                "nomenclatures_fetched": service_stats.nomenclatures_fetched,
+                "nomenclatures_upserted": service_stats.nomenclatures_upserted,
+                "products_matched": service_stats.products_matched,
+                "errors_count": len(service_stats.errors),
+                "all_promo": service_stats.all_promo_mode,
+                "errors": service_stats.errors,
             }
 
         # Otherwise, use the legacy per-promotion approach
@@ -125,7 +129,7 @@ async def sync_nomenclatures_once(
             promotions = list(result.scalars().all())
             logger.info(f"Found {len(promotions)} active regular promotions")
 
-        stats = {
+        stats: dict[str, Any] = {
             "account_id": account_id,
             "active_promotions": len(promotions),
             "regular_promotions_processed": 0,
@@ -204,7 +208,7 @@ async def sync_nomenclatures_once(
                                 continue
 
                             # Upsert
-                            result = await session.execute(
+                            nomenclature_result = await session.execute(
                                 select(WbPromotionNomenclature).where(
                                     WbPromotionNomenclature.marketplace_account_id == account_id,
                                     WbPromotionNomenclature.wb_promotion_id
@@ -213,7 +217,7 @@ async def sync_nomenclatures_once(
                                     WbPromotionNomenclature.in_action == in_action,
                                 )
                             )
-                            nomenclature = result.scalar_one_or_none()
+                            nomenclature = nomenclature_result.scalar_one_or_none()
 
                             if nomenclature is None:
                                 nomenclature = WbPromotionNomenclature(
@@ -228,10 +232,7 @@ async def sync_nomenclatures_once(
                             else:
                                 stats["rows_saved"] += 1
 
-                            # Parse values
-                            from decimal import Decimal, InvalidOperation
-
-                            def _money(val):
+                            def _money(val: object) -> Decimal | None:
                                 if val in (None, "", "null"):
                                     return None
                                 try:
@@ -241,7 +242,7 @@ async def sync_nomenclatures_once(
                                 except (InvalidOperation, ValueError, TypeError):
                                     return None
 
-                            def _decimal_optional(val):
+                            def _decimal_optional(val: object) -> Decimal | None:
                                 if val in (None, "", "null"):
                                     return None
                                 try:
@@ -281,7 +282,7 @@ async def sync_nomenclatures_once(
         return stats
 
 
-async def main():
+async def main() -> None:
     parser = argparse.ArgumentParser(description="Sync WB promotion nomenclatures once")
     parser.add_argument("--account-id", type=int, required=True, help="Marketplace account ID")
     parser.add_argument(

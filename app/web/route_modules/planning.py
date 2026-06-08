@@ -3,6 +3,7 @@
 import logging
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -181,7 +182,7 @@ async def break_even_page(
     )
 
 
-def _feature_locked_html(access) -> str:
+def _feature_locked_html(access: Any) -> str:
     from html import escape as _esc
 
     reason = _esc(access.reason or "") if access.reason else ""

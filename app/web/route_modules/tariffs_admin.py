@@ -8,6 +8,7 @@ updated: 2026-05-31
 import logging
 from decimal import Decimal, InvalidOperation
 from html import escape
+from typing import Any
 
 from fastapi import APIRouter, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -175,7 +176,7 @@ async def tariff_create(
     feature_mrc_pricing: str = Form(""),
     feature_auto_promotions: str = Form(""),
     feature_telegram_notifications: str = Form(""),
-):
+) -> Any:
     _require_admin(user)
 
     errors = _validate_tariff_form(
@@ -300,7 +301,7 @@ async def tariff_update(
     feature_mrc_pricing: str = Form(""),
     feature_auto_promotions: str = Form(""),
     feature_telegram_notifications: str = Form(""),
-):
+) -> Any:
     _require_admin(user)
 
     service = TariffService(session)
@@ -453,7 +454,7 @@ def _parse_int(value: str, default: int | None = None) -> int | None:
         return default
 
 
-def _parse_tariff_form(**kwargs: str) -> dict:
+def _parse_tariff_form(**kwargs: str) -> dict[str, Any]:
     return {
         "code": kwargs["code"].strip(),
         "name": kwargs["name"].strip(),
@@ -490,7 +491,7 @@ def _tariff_form_html(
     *,
     action_url: str,
     title: str,
-    tariff=None,
+    tariff: Any = None,
     user_count: int = 0,
 ) -> str:
     def _val(field: str, default: str = "") -> str:

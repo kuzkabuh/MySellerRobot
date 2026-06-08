@@ -10,6 +10,7 @@ import logging
 from decimal import Decimal, InvalidOperation
 from html import escape
 from pathlib import Path
+from typing import Any
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
@@ -45,9 +46,9 @@ settings = get_settings()
 
 
 async def safe_edit_text(
-    message,
+    message: Any,
     text: str,
-    reply_markup=None,
+    reply_markup: Any = None,
     parse_mode: str | None = "HTML",
 ) -> None:
     """Edit message text, ignoring 'message is not modified' and 'MESSAGE_TOO_LONG' errors."""
@@ -70,6 +71,8 @@ async def safe_edit_text(
 
 
 async def _get_user_id_from_message(message: Message) -> int | None:
+    if message.from_user is None:
+        return None
     async with AsyncSessionFactory() as session:
         repo = UserRepository(session)
         user = await repo.get_or_create(
@@ -119,7 +122,11 @@ async def mrc_menu_handler(callback: CallbackQuery) -> None:
 
         allowed, error_msg = await _check_mrc_access(user_id)
         if not allowed:
-            await safe_edit_text(callback.message, error_msg, reply_markup=mrc_back_menu())
+            await safe_edit_text(
+                callback.message,
+                error_msg or "Раздел недоступен.",
+                reply_markup=mrc_back_menu(),
+            )
             await callback.answer()
             return
 
@@ -388,9 +395,12 @@ async def mrc_promos_today_handler(callback: CallbackQuery) -> None:
                         parse_mode="HTML",
                     )
                 else:
+                    message = callback.message
+                    if not isinstance(message, Message):
+                        continue
                     async with bot_session() as bot:
                         await bot.send_message(
-                            chat_id=callback.message.chat.id,
+                            chat_id=message.chat.id,
                             text=chunk,
                             reply_markup=mrc_back_menu() if idx == len(chunks) - 1 else None,
                             parse_mode="HTML",
@@ -528,7 +538,7 @@ async def mrc_set_handler(callback: CallbackQuery, state: FSMContext) -> None:
 @router.message(MrcStates.waiting_for_article)
 async def mrc_article_handler(message: Message, state: FSMContext) -> None:
     """Обработка ввода артикула/nmID."""
-    query = message.text.strip()
+    query = (message.text or "").strip()
     if not query:
         await message.answer("Введите артикул или nmID:", reply_markup=mrc_back_menu())
         return
@@ -588,7 +598,7 @@ async def mrc_article_handler(message: Message, state: FSMContext) -> None:
 @router.message(MrcStates.waiting_for_mrc_price)
 async def mrc_price_handler(message: Message, state: FSMContext) -> None:
     """Обработка ввода новой МРЦ."""
-    raw_value = message.text.strip().replace(",", ".")
+    raw_value = (message.text or "").strip().replace(",", ".")
 
     try:
         mrc_decimal = Decimal(raw_value)
@@ -695,7 +705,7 @@ async def mrc_price_handler(message: Message, state: FSMContext) -> None:
 async def mrc_edit_handler(callback: CallbackQuery, state: FSMContext) -> None:
     """Изменить МРЦ конкретного товара по ID."""
     try:
-        product_id = int(callback.data.split(":")[2])
+        product_id = int((callback.data or "").split(":")[2])
         user_id = await _get_user_id_from_callback(callback)
         if user_id is None:
             return
@@ -770,6 +780,9 @@ async def mrc_limits_report_handler(callback: CallbackQuery) -> None:
             no_promo = []
 
             for p in products:
+                mrc_price = p.mrc_price
+                if mrc_price is None:
+                    continue
                 wb_nm_id = _extract_nm_id(p)
                 promo_nomenclature = None
                 if wb_nm_id:
@@ -784,7 +797,7 @@ async def mrc_limits_report_handler(callback: CallbackQuery) -> None:
                     else None
                 )
                 calc_result = mrc_service.calculate(
-                    mrc_price=p.mrc_price,
+                    mrc_price=mrc_price,
                     promo_required_price=promo_required_price,
                 )
 
@@ -847,7 +860,7 @@ async def mrc_limits_report_handler(callback: CallbackQuery) -> None:
 async def mrc_recalc_handler(callback: CallbackQuery) -> None:
     """Пересчитать цену для товара."""
     try:
-        product_id = int(callback.data.split(":")[2])
+        product_id = int((callback.data or "").split(":")[2])
         user_id = await _get_user_id_from_callback(callback)
         if user_id is None:
             return
@@ -952,7 +965,12 @@ async def mrc_template_download_handler(callback: CallbackQuery) -> None:
             return
 
         input_file = FSInputFile(path=file_path, filename=file_path.name)
-        await callback.message.answer_document(
+        message = callback.message
+        if not isinstance(message, Message):
+            await callback.answer("Не удалось отправить файл.", show_alert=True)
+            return
+
+        await message.answer_document(
             document=input_file,
             caption=(
                 "📥 <b>Файл-шаблон МРЦ готов</b>\n\n"
@@ -1021,6 +1039,13 @@ async def mrc_import_file_handler(message: Message, state: FSMContext) -> None:
     user_id = None
     try:
         doc = message.document
+        if doc is None:
+            await message.answer(
+                "❌ Загрузите Excel-файл <b>.xlsx</b>.",
+                reply_markup=mrc_back_menu(),
+                parse_mode="HTML",
+            )
+            return
         if not doc.file_name or not doc.file_name.endswith(".xlsx"):
             await message.answer(
                 "❌ Неверный формат файла. Загрузите файл <b>.xlsx</b>.",
@@ -1042,12 +1067,23 @@ async def mrc_import_file_handler(message: Message, state: FSMContext) -> None:
         user_id = await _get_user_id_from_message(message)
         if user_id is None:
             return
+        if message.bot is None or message.from_user is None:
+            return
 
         await message.answer("⏳ <b>Проверяю файл...</b>", parse_mode="HTML")
 
-        file_info = await message.bot.get_file(doc.file_id)
-        tmp_path = Path(f"/tmp/mrc_import_{message.from_user.id}_{doc.file_name}")
-        await message.bot.download_file(file_info.file_path, tmp_path)
+        bot = message.bot
+        from_user = message.from_user
+        file_info = await bot.get_file(doc.file_id)
+        if file_info.file_path is None:
+            await message.answer(
+                "❌ Не удалось получить файл из Telegram. Попробуйте загрузить его ещё раз.",
+                reply_markup=mrc_back_menu(),
+                parse_mode="HTML",
+            )
+            return
+        tmp_path = Path(f"/tmp/mrc_import_{from_user.id}_{doc.file_name}")
+        await bot.download_file(file_info.file_path, tmp_path)
 
         async with AsyncSessionFactory() as session:
             service = MrcImportService(session)
@@ -1090,7 +1126,10 @@ async def mrc_import_file_handler(message: Message, state: FSMContext) -> None:
     except ValueError as exc:
         logger.warning(
             "mrc_import_file_validation_error",
-            extra={"user_id": user_id or message.from_user.id, "error": str(exc)},
+            extra={
+                "user_id": user_id or (message.from_user.id if message.from_user else None),
+                "error": str(exc),
+            },
         )
         await message.answer(
             f"❌ {str(exc)}",
@@ -1099,7 +1138,8 @@ async def mrc_import_file_handler(message: Message, state: FSMContext) -> None:
         )
     except Exception:
         logger.exception(
-            "mrc_import_file_handler_failed", extra={"user_id": user_id or message.from_user.id}
+            "mrc_import_file_handler_failed",
+            extra={"user_id": user_id or (message.from_user.id if message.from_user else None)},
         )
         await message.answer(
             "❌ Не удалось прочитать Excel-файл. Скачайте новый шаблон "
@@ -1335,7 +1375,7 @@ async def mrc_settings_deviation_handler(callback: CallbackQuery, state: FSMCont
 @router.message(MrcStates.waiting_for_discount_percent)
 async def mrc_settings_discount_input_handler(message: Message, state: FSMContext) -> None:
     """Handle discount percent input."""
-    raw_value = message.text.strip().replace(",", ".")
+    raw_value = (message.text or "").strip().replace(",", ".")
     try:
         value = Decimal(raw_value)
     except (InvalidOperation, ValueError):
@@ -1375,7 +1415,7 @@ async def mrc_settings_discount_input_handler(message: Message, state: FSMContex
 @router.message(MrcStates.waiting_for_price_multiplier)
 async def mrc_settings_multiplier_input_handler(message: Message, state: FSMContext) -> None:
     """Handle price multiplier input."""
-    raw_value = message.text.strip().replace(",", ".")
+    raw_value = (message.text or "").strip().replace(",", ".")
     try:
         value = Decimal(raw_value)
     except (InvalidOperation, ValueError):
@@ -1415,7 +1455,7 @@ async def mrc_settings_multiplier_input_handler(message: Message, state: FSMCont
 @router.message(MrcStates.waiting_for_deviation_percent)
 async def mrc_settings_deviation_input_handler(message: Message, state: FSMContext) -> None:
     """Handle deviation percent input."""
-    raw_value = message.text.strip().replace(",", ".")
+    raw_value = (message.text or "").strip().replace(",", ".")
     try:
         value = Decimal(raw_value)
     except (InvalidOperation, ValueError):

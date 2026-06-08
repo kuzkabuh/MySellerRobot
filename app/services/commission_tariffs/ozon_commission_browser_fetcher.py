@@ -9,6 +9,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
+from typing import Any, TypedDict
 
 from app.core.config import get_settings
 from app.services.commission_tariffs.xlsx_validator import validate_xlsx_file
@@ -39,6 +40,11 @@ MONTHS = {
     "ноября": 11,
     "декабря": 12,
 }
+
+
+class _PeriodInfo(TypedDict):
+    period_label: str | None
+    active_from: date | None
 
 
 @dataclass
@@ -251,12 +257,12 @@ async def fetch_ozon_commissions_via_browser(
         )
 
 
-def _extract_latest_period(html: str) -> dict:
+def _extract_latest_period(html: str) -> _PeriodInfo:
     matches = list(PERIOD_BLOCK_PATTERN.finditer(html))
     if not matches:
         return {"period_label": None, "active_from": None}
 
-    best = None
+    best: _PeriodInfo | None = None
     best_sort_key = (0, 0, 0)
 
     for match in matches:
@@ -281,7 +287,7 @@ def _extract_latest_period(html: str) -> dict:
     return best or {"period_label": None, "active_from": None}
 
 
-async def _find_download_link(page) -> None:
+async def _find_download_link(page: Any) -> Any | None:
     try:
         selectors = [
             'a:has-text("Скачать таблицу категорий")',
@@ -303,8 +309,8 @@ async def _find_download_link(page) -> None:
 
 
 async def _download_file_via_context(
-    context, page, link_element, download_dir: Path, timeout_ms: int
-) -> dict:
+    context: Any, page: Any, link_element: Any, download_dir: Path, timeout_ms: int
+) -> dict[str, Any]:
     try:
         href = await link_element.get_attribute("href")
         if href:

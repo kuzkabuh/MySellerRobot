@@ -6,6 +6,7 @@ description: User settings web routes with tabs.
 import logging
 from datetime import datetime
 from html import escape
+from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
@@ -43,6 +44,11 @@ from app.web.rendering import page
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _form_str(form: Any, key: str) -> str | None:
+    value = form.get(key)
+    return value if isinstance(value, str) else None
 
 
 def _dt(dt_value: datetime | None, timezone: str) -> str:
@@ -448,7 +454,7 @@ def _notifications_tab(user: User, type_settings: dict[NotificationType, bool]) 
     """
 
 
-def _sync_tab(sync_statuses: list, timezone: str) -> str:
+def _sync_tab(sync_statuses: list[Any], timezone: str) -> str:
     if not sync_statuses:
         rows = '<tr><td colspan="5"><div class="empty-state">Синхронизации ещё не запускались.</div></td></tr>'
     else:
@@ -486,7 +492,7 @@ def _sync_tab(sync_statuses: list, timezone: str) -> str:
     """
 
 
-def _security_tab(user: User, activity_logs: list, timezone: str) -> str:
+def _security_tab(user: User, activity_logs: list[Any], timezone: str) -> str:
     if not activity_logs:
         log_rows = '<tr><td colspan="4"><div class="empty-state">Действий пока не зафиксировано.</div></td></tr>'
     else:
@@ -567,7 +573,7 @@ def _security_tab(user: User, activity_logs: list, timezone: str) -> str:
     """
 
 
-def _support_tab(tickets: list, timezone: str) -> str:
+def _support_tab(tickets: list[Any], timezone: str) -> str:
     if not tickets:
         ticket_rows = '<tr><td colspan="5"><div class="empty-state">Обращений в поддержку пока нет.</div></td></tr>'
     else:
@@ -761,14 +767,14 @@ async def save_profile(
         await ProfileService(session).update_profile(
             user.id,
             ProfileUpdateData(
-                first_name=form.get("first_name"),
-                last_name=form.get("last_name"),
-                phone=form.get("phone"),
-                email=form.get("email"),
-                company_name=form.get("company_name"),
-                inn=form.get("inn"),
-                ogrn=form.get("ogrn"),
-                timezone=form.get("timezone"),
+                first_name=_form_str(form, "first_name"),
+                last_name=_form_str(form, "last_name"),
+                phone=_form_str(form, "phone"),
+                email=_form_str(form, "email"),
+                company_name=_form_str(form, "company_name"),
+                inn=_form_str(form, "inn"),
+                ogrn=_form_str(form, "ogrn"),
+                timezone=_form_str(form, "timezone"),
             ),
         )
         await UserActivityService(session).log_activity(
@@ -847,6 +853,8 @@ async def save_notifications(
         enabled_values = form.getlist("enabled_types")
         enabled_types: list[NotificationType] = []
         for raw in enabled_values:
+            if not isinstance(raw, str):
+                continue
             try:
                 enabled_types.append(NotificationType(raw))
             except ValueError:
@@ -1062,9 +1070,9 @@ async def create_support_ticket(
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
     form = await request.form()
-    subject = (form.get("subject") or "").strip()
-    message = (form.get("message") or "").strip()
-    category = form.get("category")
+    subject = (_form_str(form, "subject") or "").strip()
+    message = (_form_str(form, "message") or "").strip()
+    category = _form_str(form, "category")
     if not subject or not message:
         raise HTTPException(status_code=400, detail="Заполните тему и сообщение")
     await SupportService(session).create_ticket(

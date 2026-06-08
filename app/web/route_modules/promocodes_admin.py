@@ -9,6 +9,7 @@ import logging
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from html import escape
+from typing import Any
 
 from fastapi import APIRouter, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -119,7 +120,11 @@ async def promo_list_page(
             if promo.is_active
             else '<span class="badge bad">Отключён</span>'
         )
-        type_label = _PROMO_TYPE_LABELS.get(promo.promo_type, promo.promo_type)
+        type_label = (
+            _PROMO_TYPE_LABELS.get(promo.promo_type, promo.promo_type.value)
+            if isinstance(promo.promo_type, PromoType)
+            else str(promo.promo_type)
+        )
         discount_info = ""
         if promo.promo_type == PromoType.PERCENT_DISCOUNT:
             discount_info = f"{promo.discount_percent}%"
@@ -218,7 +223,7 @@ async def promo_create(
     is_active: str = Form("on"),
     tariff_ids: list[str] = Form(default_factory=list),  # noqa: B008
     periods: list[str] = Form(default_factory=list),  # noqa: B008
-):
+) -> Any:
     _require_admin(user)
     service = PromoCodeService(session)
 
@@ -309,7 +314,7 @@ async def promo_update(
     is_active: str = Form("on"),
     tariff_ids: list[str] = Form(default_factory=list),  # noqa: B008
     periods: list[str] = Form(default_factory=list),  # noqa: B008
-):
+) -> Any:
     _require_admin(user)
     service = PromoCodeService(session)
 
@@ -381,11 +386,14 @@ async def promo_usages_page(
 
     rows = ""
     for u in usages:
-        status_badge = {
-            PromoUsageStatus.APPLIED: '<span class="badge good">Применён</span>',
-            PromoUsageStatus.RESERVED: '<span class="badge warn">Резерв</span>',
-            PromoUsageStatus.CANCELLED: '<span class="badge bad">Отменён</span>',
-        }.get(u.status, f'<span class="badge">{_h(u.status)}</span>')
+        if u.status == PromoUsageStatus.APPLIED:
+            status_badge = '<span class="badge good">Применён</span>'
+        elif u.status == PromoUsageStatus.RESERVED:
+            status_badge = '<span class="badge warn">Резерв</span>'
+        elif u.status == PromoUsageStatus.CANCELLED:
+            status_badge = '<span class="badge bad">Отменён</span>'
+        else:
+            status_badge = f'<span class="badge">{_h(u.status.value if isinstance(u.status, PromoUsageStatus) else u.status)}</span>'
 
         rows += f"""
         <tr>
@@ -437,8 +445,8 @@ def _promo_form_html(
     *,
     action_url: str,
     title: str,
-    promo=None,
-    tariffs=None,
+    promo: Any = None,
+    tariffs: Any = None,
 ) -> str:
     def _val(field: str, default: str = "") -> str:
         if promo is None:

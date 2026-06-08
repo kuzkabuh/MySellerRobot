@@ -176,7 +176,7 @@ class WbLogisticsTariffSyncService:
             }
 
         if not raw_tariffs:
-            exc = MarketplaceApiError(
+            empty_response_error = MarketplaceApiError(
                 "Wildberries вернул пустой ответ",
                 marketplace="Wildberries",
                 details={
@@ -189,7 +189,7 @@ class WbLogisticsTariffSyncService:
                 "status": "error",
                 "version_id": None,
                 "rows_count": 0,
-                "message": _format_wb_logistics_error(exc),
+                "message": _format_wb_logistics_error(empty_response_error),
             }
 
         payload_hash = _compute_version_hash(raw_tariffs)

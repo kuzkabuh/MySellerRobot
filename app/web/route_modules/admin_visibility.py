@@ -375,7 +375,7 @@ def _tariff_changed(
         return True
     if current_expires_at is None or expires_at is None:
         return current_expires_at is not expires_at
-    return current_expires_at.date() != expires_at.date()
+    return bool(current_expires_at.date() != expires_at.date())
 
 
 @router.post("/admin/users/{target_user_id}/update")

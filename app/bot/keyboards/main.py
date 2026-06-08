@@ -3,11 +3,13 @@ description: Main Telegram inline keyboards and control settings menus.
 updated: 2026-05-15
 """
 
+from collections.abc import Sequence
 from decimal import Decimal
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.models.domain import MarketplaceAccount
+from app.models.subscriptions import SubscriptionTier
 
 TIMEZONE_OPTIONS: tuple[tuple[str, str], ...] = (
     ("Калининград UTC+2", "Europe/Kaliningrad"),
@@ -635,7 +637,7 @@ def _format_kb_price(value: Decimal | None) -> str:
     return f"{int_part:,}".replace(",", " ") + " ₽"
 
 
-def _build_pay_buttons_from_tier(tier) -> list[list[InlineKeyboardButton]]:
+def _build_pay_buttons_from_tier(tier: SubscriptionTier) -> list[list[InlineKeyboardButton]]:
     buttons: list[list[InlineKeyboardButton]] = []
     periods = [
         ("monthly", tier.price_monthly),
@@ -797,7 +799,7 @@ def subscription_tier_detail_menu_v2(
     tier_code: str,
     current_tier_code: str,
     has_payment: bool = True,
-    tier=None,
+    tier: SubscriptionTier | None = None,
 ) -> InlineKeyboardMarkup:
     """Unified tier detail menu with payment buttons."""
     buttons: list[list[InlineKeyboardButton]] = []
@@ -857,7 +859,9 @@ def subscription_tier_detail_menu_v2(
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def subscription_pricing_menu_v2(tiers=None) -> InlineKeyboardMarkup:
+def subscription_pricing_menu_v2(
+    tiers: Sequence[SubscriptionTier] | None = None,
+) -> InlineKeyboardMarkup:
     """Unified pricing menu with all tiers."""
     _TIER_EMOJI = {"free": "🆓", "basic": "⭐️", "pro": "💎", "enterprise": "🏢", "business": "🏢"}
 

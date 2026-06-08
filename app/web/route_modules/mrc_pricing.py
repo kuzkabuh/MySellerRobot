@@ -20,13 +20,20 @@ from decimal import Decimal, InvalidOperation
 from html import escape
 from pathlib import Path
 from typing import Any
+from typing import cast as type_cast
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from sqlalchemy import Integer, String, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.domain import MarketplaceAccount, Product, WbPromotion, WbPromotionNomenclature
+from app.models.domain import (
+    MarketplaceAccount,
+    Product,
+    User,
+    WbPromotion,
+    WbPromotionNomenclature,
+)
 from app.models.enums import Marketplace, SubscriptionStatus
 from app.services.feature_access_service import FeatureAccessService, FeatureCode
 from app.services.pricing.mrc_import_service import MrcImportService
@@ -54,6 +61,11 @@ router = APIRouter()
 PAGE_SIZE = 50
 AUTO_PROMO_ACCOUNT_ID_FORM = Form(...)
 AUTO_PROMO_FILE_FORM = Form(...)
+
+
+def _form_data_str(form: Any, key: str, default: str = "") -> str:
+    value = form.get(key, default)
+    return value if isinstance(value, str) else default
 
 
 @dataclass(slots=True)
@@ -134,7 +146,7 @@ class PromoDetailData:
 
 @router.get("/mrc-pricing", response_class=HTMLResponse)
 async def mrc_pricing_page(
-    user=CURRENT_WEB_USER_DEPENDENCY,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
     page_number: int = Query(1, ge=1),
     filter_type: str = Query("all"),
@@ -229,7 +241,7 @@ async def _ensure_mrc_access(session: AsyncSession, user_id: int) -> None:
 async def save_mrc_price(
     product_id: int,
     request: Request,
-    user=CURRENT_WEB_USER_DEPENDENCY,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
     """Save MRC price for a product."""
@@ -294,7 +306,7 @@ async def save_mrc_price(
 async def clear_mrc_price(
     product_id: int,
     request: Request,
-    user=CURRENT_WEB_USER_DEPENDENCY,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
     """Clear MRC price for a product."""
@@ -324,7 +336,7 @@ async def clear_mrc_price(
 @router.post("/mrc-pricing/bulk-update")
 async def bulk_update_mrc(
     request: Request,
-    user=CURRENT_WEB_USER_DEPENDENCY,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
     """Bulk update MRC for selected products."""
@@ -375,7 +387,7 @@ async def bulk_update_mrc(
 
 @router.post("/mrc-pricing/sync-promotions")
 async def trigger_promotions_sync(
-    user=CURRENT_WEB_USER_DEPENDENCY,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
     """Manually trigger WB promotions sync (allPromo=true)."""
@@ -418,7 +430,7 @@ async def trigger_promotions_sync(
 
 @router.post("/mrc-pricing/sync-promotions-all")
 async def trigger_promotions_sync_limited(
-    user=CURRENT_WEB_USER_DEPENDENCY,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
     """Manually trigger WB promotions sync (allPromo=false — only joinable promos)."""
@@ -461,7 +473,7 @@ async def trigger_promotions_sync_limited(
 
 @router.post("/mrc-pricing/sync-wb-prices")
 async def trigger_wb_prices_sync(
-    user=CURRENT_WEB_USER_DEPENDENCY,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
     """Manually trigger WB current prices sync."""
@@ -490,7 +502,7 @@ async def trigger_wb_prices_sync(
 
 @router.get("/mrc-pricing/settings", response_class=HTMLResponse)
 async def mrc_settings_page(
-    user=CURRENT_WEB_USER_DEPENDENCY,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> str:
     """MRC settings page."""
@@ -530,9 +542,9 @@ async def mrc_settings_page(
 @router.post("/mrc-pricing/settings", response_class=HTMLResponse)
 async def save_mrc_settings(
     request: Request,
-    user=CURRENT_WEB_USER_DEPENDENCY,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
-) -> str:
+) -> Any:
     """Save MRC settings."""
     try:
         access = await FeatureAccessService(session).can_use_feature(
@@ -549,14 +561,14 @@ async def save_mrc_settings(
         form = await request.form()
 
         def _decimal_form(key: str, default: str) -> Decimal:
-            val = form.get(key, default).strip().replace(",", ".")
+            val = _form_data_str(form, key, default).strip().replace(",", ".")
             try:
                 return Decimal(val)
             except Exception:
                 return Decimal(default)
 
         def _bool_form(key: str) -> bool:
-            return form.get(key, "off") == "on"
+            return _form_data_str(form, key, "off") == "on"
 
         default_discount = _decimal_form("default_discount_percent", "75")
         full_price_multiplier = _decimal_form("full_price_multiplier", "4")
@@ -600,9 +612,9 @@ async def save_mrc_settings(
 
 @router.get("/mrc-pricing/export-template", response_model=None)
 async def export_mrc_template(
-    user=CURRENT_WEB_USER_DEPENDENCY,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
-):
+) -> Any:
     """Download Excel template for MRC bulk import."""
     try:
         from fastapi.responses import FileResponse
@@ -643,7 +655,7 @@ async def export_mrc_template(
 @router.post("/mrc-pricing/import", response_class=HTMLResponse)
 async def import_mrc_file(
     file: UploadFile,
-    user=CURRENT_WEB_USER_DEPENDENCY,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> str:
     """Upload Excel file and show preview."""
@@ -723,7 +735,7 @@ async def import_mrc_file(
 @router.post("/mrc-pricing/import/confirm")
 async def confirm_mrc_import(
     request: Request,
-    user=CURRENT_WEB_USER_DEPENDENCY,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
     """Confirm and apply MRC import."""
@@ -733,7 +745,7 @@ async def confirm_mrc_import(
         from app.services.pricing.mrc_import_service import MrcImportService
 
         form_data = await request.form()
-        import_id = form_data.get("import_id", "")
+        import_id = _form_data_str(form_data, "import_id")
 
         service = MrcImportService(session)
         result = await service.apply_mrc_import(int(import_id), user_id, source="web")
@@ -759,7 +771,7 @@ async def confirm_mrc_import(
 @router.post("/mrc-pricing/import/cancel")
 async def cancel_mrc_import(
     request: Request,
-    user=CURRENT_WEB_USER_DEPENDENCY,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
     """Cancel MRC import."""
@@ -769,7 +781,7 @@ async def cancel_mrc_import(
         from app.services.pricing.mrc_import_service import MrcImportService
 
         form_data = await request.form()
-        import_id = form_data.get("import_id", "")
+        import_id = _form_data_str(form_data, "import_id")
 
         service = MrcImportService(session)
         await service.cancel_import(int(import_id), user_id)
@@ -781,7 +793,7 @@ async def cancel_mrc_import(
 
 @router.get("/auto-promo-prices", response_class=HTMLResponse)
 async def auto_promo_prices_page(
-    user=CURRENT_WEB_USER_DEPENDENCY,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
     marketplace_account_id: int | None = Query(None),
 ) -> str:
@@ -851,9 +863,9 @@ async def auto_promo_prices_page(
 @router.post("/auto-promo-prices/apply", response_class=HTMLResponse)
 async def auto_promo_prices_apply(
     request: Request,
-    user=CURRENT_WEB_USER_DEPENDENCY,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
-) -> str:
+) -> Any:
     """Apply selected auto promo price changes."""
     try:
         access = await FeatureAccessService(session).can_use_feature(
@@ -868,13 +880,13 @@ async def auto_promo_prices_apply(
             )
 
         form = await request.form()
-        marketplace_account_id = int(form.get("marketplace_account_id", "0"))
-        dry_run = form.get("dry_run", "on") == "on"
+        marketplace_account_id = int(_form_data_str(form, "marketplace_account_id", "0"))
+        dry_run = _form_data_str(form, "dry_run", "on") == "on"
 
         selected_ids = form.getlist("product_ids")
-        product_ids = [int(x) for x in selected_ids] if selected_ids else None
+        product_ids = [int(x) for x in selected_ids if isinstance(x, str)] if selected_ids else None
 
-        wb_api_key = form.get("wb_api_key", "").strip()
+        wb_api_key = _form_data_str(form, "wb_api_key").strip()
         if not wb_api_key and not dry_run:
             return RedirectResponse(url="/web/auto-promo-prices?error=no_api_key", status_code=303)
 
@@ -942,8 +954,8 @@ async def auto_promo_prices_apply(
 
 
 def _auto_promo_prices_content(
-    preview: list[dict],
-    accounts: list,
+    preview: list[dict[str, Any]],
+    accounts: list[Any],
     selected_account_id: int | None,
 ) -> str:
     """Render auto promo prices page content."""
@@ -1104,7 +1116,7 @@ def _auto_promo_prices_content(
     response_class=HTMLResponse,
 )
 async def auto_promo_conditions_page(
-    user=CURRENT_WEB_USER_DEPENDENCY,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
     marketplace_account_id: int | None = Query(None),
 ) -> str:
@@ -1118,7 +1130,7 @@ async def auto_promo_conditions_page(
 
 @router.get("/auto-promo-import", response_class=HTMLResponse)
 async def auto_promo_import_page(
-    user=CURRENT_WEB_USER_DEPENDENCY,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
     marketplace_account_id: int | None = Query(None),
 ) -> str:
@@ -1179,9 +1191,9 @@ async def auto_promo_import_page(
 
 @router.get("/auto-promo-import/template")
 async def auto_promo_import_template(
-    user=CURRENT_WEB_USER_DEPENDENCY,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
-):
+) -> Any:
     """Download Excel template for auto promotion conditions."""
     try:
         access = await FeatureAccessService(session).can_use_feature(
@@ -1223,17 +1235,17 @@ async def auto_promo_import_template(
 @router.post("/mrc-pricing/auto-promotions/conditions/manual")
 async def auto_promo_condition_manual(
     request: Request,
-    user=CURRENT_WEB_USER_DEPENDENCY,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> RedirectResponse:
     """Manually set required_price for an auto promotion condition."""
     await _ensure_mrc_access(session, user.id)
     try:
         form = await request.form()
-        wb_nm_id = form.get("wb_nm_id", "").strip()
-        promotion_name = form.get("promotion_name", "").strip()
-        required_price_str = form.get("required_price", "").strip()
-        marketplace_account_id = int(form.get("marketplace_account_id", "0"))
+        wb_nm_id = _form_data_str(form, "wb_nm_id").strip()
+        promotion_name = _form_data_str(form, "promotion_name").strip()
+        required_price_str = _form_data_str(form, "required_price").strip()
+        marketplace_account_id = int(_form_data_str(form, "marketplace_account_id", "0"))
 
         if not wb_nm_id or not required_price_str or not marketplace_account_id:
             return RedirectResponse(
@@ -1335,11 +1347,11 @@ async def auto_promo_condition_manual(
 @router.post("/auto-promo-import/preview", response_class=HTMLResponse)
 async def auto_promo_import_preview(
     request: Request,
-    user=CURRENT_WEB_USER_DEPENDENCY,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
     marketplace_account_id: int = AUTO_PROMO_ACCOUNT_ID_FORM,
     file: UploadFile = AUTO_PROMO_FILE_FORM,
-) -> str:
+) -> Any:
     """Preview auto promotion conditions import."""
     try:
         access = await FeatureAccessService(session).can_use_feature(
@@ -1407,10 +1419,10 @@ async def auto_promo_import_preview(
 @router.post("/auto-promo-import/apply", response_class=HTMLResponse)
 async def auto_promo_import_apply(
     request: Request,
-    user=CURRENT_WEB_USER_DEPENDENCY,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
     marketplace_account_id: int = Form(...),
-) -> str:
+) -> Any:
     """Apply auto promotion conditions import."""
     try:
         access = await FeatureAccessService(session).can_use_feature(
@@ -1429,7 +1441,7 @@ async def auto_promo_import_apply(
         )
 
         form = await request.form()
-        preview_rows_json = form.get("preview_rows", "[]")
+        preview_rows_json = _form_data_str(form, "preview_rows", "[]")
         import json
 
         preview_rows = json.loads(preview_rows_json)
@@ -1458,7 +1470,7 @@ async def auto_promo_import_apply(
     response_class=HTMLResponse,
 )
 async def auto_promo_recommendations_page(
-    user=CURRENT_WEB_USER_DEPENDENCY,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
     marketplace_account_id: int | None = Query(None),
     status_filter: str = Query("all"),
@@ -1539,7 +1551,7 @@ async def auto_promo_recommendations_page(
                         mrc_lower_bound=db_rec.mrc_lower_bound,
                         mrc_upper_bound=db_rec.mrc_upper_bound,
                         status=db_rec.status,
-                        reason=db_rec.reason,
+                        reason=db_rec.reason or "",
                     )
                 )
 
@@ -1596,10 +1608,10 @@ async def auto_promo_recommendations_page(
 )
 async def auto_promo_recommendations_build(
     request: Request,
-    user=CURRENT_WEB_USER_DEPENDENCY,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
     marketplace_account_id: int = Form(...),
-) -> str:
+) -> Any:
     """Generate recommendations for auto promotion conditions."""
     try:
         access = await FeatureAccessService(session).can_use_feature(
@@ -1665,10 +1677,10 @@ async def auto_promo_recommendations_build(
     response_model=None,
 )
 async def auto_promo_recommendations_export(
-    user=CURRENT_WEB_USER_DEPENDENCY,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
     marketplace_account_id: int | None = Query(None),
-):
+) -> Any:
     """Export auto promotion recommendations to Excel."""
     try:
         access = await FeatureAccessService(session).can_use_feature(
@@ -1730,6 +1742,8 @@ async def auto_promo_recommendations_export(
 
         wb = Workbook()
         ws = wb.active
+        if ws is None:
+            raise RuntimeError("Workbook has no active worksheet")
         ws.title = "Рекомендации"
 
         headers = [
@@ -1793,7 +1807,7 @@ async def auto_promo_recommendations_export(
 
 @router.get("/wb-promotions", response_class=HTMLResponse)
 async def wb_promotions_page(
-    user=CURRENT_WEB_USER_DEPENDENCY,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> str:
     """List of WB promotions for today."""
@@ -1818,7 +1832,7 @@ async def wb_promotions_page(
 @router.get("/wb-promotions/{promotion_id}", response_class=HTMLResponse)
 async def wb_promotion_detail_page(
     promotion_id: int,
-    user=CURRENT_WEB_USER_DEPENDENCY,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
     page_number: int = Query(1, ge=1),
     filter_type: str = Query("all"),
@@ -2053,7 +2067,7 @@ async def _load_mrc_page_data(
                 WbPromotion.end_datetime >= now_utc,
             )
         )
-        for promo in auto_promos_result.scalars().all():
+        for promo in type_cast(list[WbPromotion], auto_promos_result.scalars().all()):
             accounts_with_auto.setdefault(promo.marketplace_account_id, []).append(promo)
 
     for product, account_name in product_rows:
@@ -2649,7 +2663,7 @@ async def _find_auto_promo_required_price(
     return None
 
 
-def _feature_locked_content(access) -> str:
+def _feature_locked_content(access: Any) -> str:
     """Render feature locked message."""
     return f"""
     <div class="card">
@@ -3333,7 +3347,7 @@ def _flash_messages() -> str:
     """
 
 
-def _import_preview_content(preview, rows, timezone: str = "Europe/Moscow") -> str:
+def _import_preview_content(preview: Any, rows: list[Any], timezone: str = "Europe/Moscow") -> str:
     """Render MRC import preview page."""
 
     parts = []
@@ -3409,7 +3423,7 @@ def _import_preview_content(preview, rows, timezone: str = "Europe/Moscow") -> s
     return "\n".join(parts)
 
 
-def _wb_promotions_content(data: dict, timezone: str = "Europe/Moscow") -> str:
+def _wb_promotions_content(data: dict[str, Any], timezone: str = "Europe/Moscow") -> str:
     """Render WB promotions list page."""
     parts = []
     parts.append('<div class="card">')
@@ -3637,7 +3651,7 @@ def _form_value(form: dict[str, list[str]], key: str, default: str) -> str:
 
 
 def _mrc_settings_content(
-    settings,
+    settings: Any,
     errors: list[str] | None = None,
 ) -> str:
     """Render MRC settings page."""
@@ -3791,7 +3805,7 @@ def _mrc_settings_content(
 
 
 def _auto_promo_import_content(
-    accounts: list,
+    accounts: list[Any],
     selected_account_id: int | None,
 ) -> str:
     """Render auto promotion import page."""
@@ -3853,8 +3867,8 @@ def _auto_promo_import_content(
 
 
 def _auto_promo_import_preview_content(
-    preview,
-    preview_rows: list[dict],
+    preview: Any,
+    preview_rows: list[dict[str, Any]],
     marketplace_account_id: int,
 ) -> str:
     """Render import preview."""
@@ -3942,9 +3956,9 @@ def _auto_promo_import_preview_content(
 
 
 def _auto_promo_recommendations_content(
-    recommendations: list,
-    preview: list[dict],
-    accounts: list,
+    recommendations: list[Any],
+    preview: list[dict[str, Any]],
+    accounts: list[Any],
     selected_account_id: int | None,
     status_filter: str = "all",
     conditions_count: int = 0,

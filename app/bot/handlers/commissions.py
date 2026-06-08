@@ -5,11 +5,12 @@ updated: 2026-05-20
 
 import logging
 from datetime import date
+from typing import Any
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 from app.bot.handlers.common import _is_admin_telegram
 from app.core.config import get_settings
@@ -47,7 +48,7 @@ def _commission_admin_menu() -> str:
     )
 
 
-def _commission_admin_keyboard():
+def _commission_admin_keyboard() -> InlineKeyboardMarkup:
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
     return InlineKeyboardMarkup(
@@ -77,13 +78,18 @@ def _commission_admin_keyboard():
     )
 
 
+def _editable_callback_message(callback: CallbackQuery) -> Any | None:
+    message = callback.message
+    return message if message is not None and hasattr(message, "edit_text") else None
+
+
 @router.callback_query(F.data == "admin:commissions")
 async def commission_admin_menu_handler(callback: CallbackQuery) -> None:
     if not _is_admin_telegram(callback.from_user.id):
         await callback.answer("Доступно только администраторам.", show_alert=True)
         return
     message = callback.message
-    if message:
+    if isinstance(message, Message):
         await message.edit_text(_commission_admin_menu(), reply_markup=_commission_admin_keyboard())
     await callback.answer()
 
@@ -93,9 +99,9 @@ async def sync_wb_commissions_handler(callback: CallbackQuery) -> None:
     if not _is_admin_telegram(callback.from_user.id):
         await callback.answer("Доступно только администраторам.", show_alert=True)
         return
-    message = callback.message
-    if not message:
-        await callback.answer()
+    message = _editable_callback_message(callback)
+    if message is None:
+        await callback.answer("Сообщение недоступно", show_alert=True)
         return
 
     await message.edit_text("⏳ Синхронизация комиссий WB...")
@@ -146,8 +152,8 @@ async def check_ozon_commissions_handler(callback: CallbackQuery) -> None:
         await callback.answer("Доступно только администраторам.", show_alert=True)
         return
     message = callback.message
-    if not message:
-        await callback.answer()
+    if not isinstance(message, Message):
+        await callback.answer("Сообщение недоступно", show_alert=True)
         return
 
     await message.edit_text("⏳ Проверка страницы комиссий Ozon...")
@@ -182,7 +188,7 @@ async def start_ozon_import_handler(callback: CallbackQuery, state: FSMContext) 
         await callback.answer("Доступно только администраторам.", show_alert=True)
         return
     message = callback.message
-    if message:
+    if isinstance(message, Message):
         await message.edit_text(
             "📥 <b>Загрузка таблицы комиссий Ozon</b>\n\n"
             "Отправьте XLSX-файл с таблицей комиссий.\n"
@@ -198,6 +204,9 @@ async def receive_ozon_file_handler(message: Message, state: FSMContext) -> None
         return
 
     doc = message.document
+    if doc is None:
+        await message.answer("Пожалуйста, отправьте файл в формате .xlsx")
+        return
     if not doc.file_name or not doc.file_name.lower().endswith((".xlsx", ".xls")):
         await message.answer("Пожалуйста, отправьте файл в формате .xlsx")
         return
@@ -225,6 +234,10 @@ async def receive_ozon_date_handler(message: Message, state: FSMContext) -> None
     data = await state.get_data()
     file_id = data.get("file_id")
     file_name = data.get("file_name", "unknown.xlsx")
+    if not isinstance(file_id, str) or not isinstance(file_name, str):
+        await message.answer("Данные файла не найдены. Повторите загрузку.")
+        await state.clear()
+        return
 
     await message.answer(f"⏳ Загрузка и импорт файла {file_name}...")
 
@@ -235,8 +248,18 @@ async def receive_ozon_date_handler(message: Message, state: FSMContext) -> None
 
     try:
         file_info = await bot.get_file(file_id)
+        if file_info.file_path is None:
+            await message.answer("Не удалось получить путь к файлу.")
+            await state.clear()
+            await bot.session.close()
+            return
         file_bytes = await bot.download_file(file_info.file_path)
-        file_content = file_bytes.read() if hasattr(file_bytes, "read") else file_bytes
+        if file_bytes is None:
+            await message.answer("Не удалось скачать файл.")
+            await state.clear()
+            await bot.session.close()
+            return
+        file_content = file_bytes.read()
     except Exception as exc:
         await message.answer(f"Не удалось скачать файл: {exc}")
         await state.clear()
@@ -272,8 +295,8 @@ async def show_versions_handler(callback: CallbackQuery) -> None:
         await callback.answer("Доступно только администраторам.", show_alert=True)
         return
     message = callback.message
-    if not message:
-        await callback.answer()
+    if not isinstance(message, Message):
+        await callback.answer("Сообщение недоступно", show_alert=True)
         return
 
     from sqlalchemy import select

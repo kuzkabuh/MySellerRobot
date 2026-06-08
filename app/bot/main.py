@@ -124,7 +124,7 @@ async def delete_webhook() -> None:
     logger.info("telegram_webhook_deleted")
 
 
-async def get_webhook_info() -> dict:
+async def get_webhook_info() -> dict[str, object]:
     """Get current Telegram webhook info."""
     bot = create_bot()
     try:
