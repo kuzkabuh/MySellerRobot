@@ -233,6 +233,7 @@ def test_orders_content_links_are_canonical() -> None:
         requires_action=False,
         missing_cost=False,
         economy_confidence="CONFIRMED",
+        reconciliation_status="FACT_MATCHED",
         source_event_type="new_order",
     )
     filters = OrderWebFilters(
@@ -260,6 +261,7 @@ def test_orders_content_links_are_canonical() -> None:
     html = routes._orders_content(page_result, "Europe/Moscow")
 
     assert 'href="/web/orders/42"' in html
+    assert "FACT_MATCHED" in html
     assert 'href="/web/web/' not in html
 
 

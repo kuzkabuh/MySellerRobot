@@ -12,8 +12,21 @@ from sqlalchemy import Select, exists, func, literal_column, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.domain import Order, OrderItem, ProfitSnapshot, SalesEvent, WbDailyReportRow
-from app.models.enums import CalculationType, EconomyConfidence, Marketplace, SaleModel
+from app.models.domain import (
+    Order,
+    OrderItem,
+    ProfitSnapshot,
+    SalesEvent,
+    WbDailyReportRow,
+    WbReportFinanceComponent,
+)
+from app.models.enums import (
+    CalculationType,
+    EconomyConfidence,
+    Marketplace,
+    ReconciliationStatus,
+    SaleModel,
+)
 from app.services.marketplace_presentation import order_status_label
 from app.services.web_dashboard_service import (
     build_dashboard_filters,
@@ -60,6 +73,7 @@ class OrderRow:
     requires_action: bool
     missing_cost: bool
     economy_confidence: str
+    reconciliation_status: ReconciliationStatus
 
 
 @dataclass(slots=True)
@@ -79,7 +93,7 @@ class WbFactArticleState:
 
 @dataclass(slots=True)
 class WbOrderFact:
-    status: str
+    status: ReconciliationStatus
     article_states: list[WbFactArticleState]
     linked_rows: list[WbDailyReportRow]
     unlinked_product_rows: list[WbDailyReportRow]
@@ -92,6 +106,7 @@ class OrderDetail:
     estimated_profit: Decimal
     actual_profit: Decimal | None
     deviation: Decimal | None
+    reconciliation_status: ReconciliationStatus
     wb_fact: WbOrderFact | None = None
 
 
@@ -115,6 +130,7 @@ class ProfitSkuRow:
     roi_percent: Decimal | None
     missing_cost_items: int
     preliminary_items: int
+    actual_snapshot_items: int
 
 
 @dataclass(slots=True)
@@ -203,6 +219,9 @@ class WebOrdersProfitService:
                 Order.requires_seller_action,
                 OrderItem.cost_price_used,
                 OrderItem.economy_confidence,
+                _order_has_wb_fact_row().label("has_wb_fact"),
+                _order_has_wb_missing_fact_state().label("has_wb_missing_fact"),
+                _order_has_wb_match_problem().label("has_wb_match_problem"),
             )
             .join(OrderItem, OrderItem.order_id == Order.id)
             .where(Order.user_id == user_id)
@@ -259,7 +278,11 @@ class WebOrdersProfitService:
                 requires_action,
                 cost_price_used,
                 economy_confidence,
+                has_wb_fact,
+                has_wb_missing_fact,
+                has_wb_match_problem,
             ) = row
+            missing_cost = cost_price_used is None
             rows.append(
                 OrderRow(
                     order_id=int(order_id),
@@ -285,9 +308,16 @@ class WebOrdersProfitService:
                         source_event_type.value if source_event_type is not None else "н/д"
                     ),
                     requires_action=bool(requires_action),
-                    missing_cost=cost_price_used is None,
+                    missing_cost=missing_cost,
                     economy_confidence=str(
                         economy_confidence or EconomyConfidence.PRELIMINARY.value
+                    ),
+                    reconciliation_status=_reconciliation_status(
+                        marketplace=marketplace_value,
+                        missing_cost=missing_cost,
+                        has_wb_fact=bool(has_wb_fact),
+                        has_wb_missing_fact=bool(has_wb_missing_fact),
+                        has_wb_match_problem=bool(has_wb_match_problem),
                     ),
                 )
             )
@@ -335,12 +365,21 @@ class WebOrdersProfitService:
         actual_profit = actual_total if has_actual else None
         deviation = actual_total - estimated_total if has_actual else None
         wb_fact = await self._wb_order_fact(order) if order.marketplace == Marketplace.WB else None
+        missing_cost = any(item.cost_price_used is None for item in order.items)
+        reconciliation_status = (
+            ReconciliationStatus.MANUAL_REVIEW
+            if missing_cost
+            else wb_fact.status
+            if wb_fact is not None
+            else ReconciliationStatus.PRELIMINARY
+        )
         return OrderDetail(
             order=order,
             items=items,
             estimated_profit=estimated_total,
             actual_profit=actual_profit,
             deviation=deviation,
+            reconciliation_status=reconciliation_status,
             wb_fact=wb_fact,
         )
 
@@ -355,16 +394,21 @@ class WebOrdersProfitService:
             unlinked_rows=unlinked_rows,
             has_report_near_order=has_report_near_order,
         )
-        if linked_rows and all(state.state == "present" for state in article_states):
-            status = "full"
+        if any(
+            row.order_match_status in {"ambiguous", "ambiguous_order_match", "error"}
+            for row in linked_rows + unlinked_rows
+        ):
+            status = ReconciliationStatus.FACT_AMBIGUOUS
+        elif linked_rows and all(state.state == "present" for state in article_states):
+            status = ReconciliationStatus.FACT_MATCHED
         elif linked_rows:
-            status = "partial"
+            status = ReconciliationStatus.FACT_PARTIAL
         elif unlinked_rows:
-            status = "product_linked_order_not_found"
+            status = ReconciliationStatus.FACT_UNMATCHED
         elif has_report_near_order:
-            status = "not_found"
+            status = ReconciliationStatus.FACT_UNMATCHED
         else:
-            status = "report_not_loaded"
+            status = ReconciliationStatus.PRELIMINARY
         return WbOrderFact(
             status=status,
             article_states=article_states,
@@ -378,6 +422,8 @@ class WebOrdersProfitService:
             .where(WbDailyReportRow.user_id == order.user_id)
             .where(WbDailyReportRow.marketplace_account_id == order.marketplace_account_id)
             .where(WbDailyReportRow.linked_order_id == order.id)
+            .where(WbDailyReportRow.is_active.is_(True))
+            .where(WbDailyReportRow.deleted_at.is_(None))
             .order_by(WbDailyReportRow.sale_dt.desc().nullslast(), WbDailyReportRow.id.desc())
             .limit(200)
         )
@@ -397,6 +443,8 @@ class WebOrdersProfitService:
             .where(WbDailyReportRow.linked_order_id.is_(None))
             .where(WbDailyReportRow.sale_dt >= date_from)
             .where(WbDailyReportRow.sale_dt <= date_to)
+            .where(WbDailyReportRow.is_active.is_(True))
+            .where(WbDailyReportRow.deleted_at.is_(None))
             .order_by(WbDailyReportRow.sale_dt.desc().nullslast(), WbDailyReportRow.id.desc())
             .limit(200)
         )
@@ -411,6 +459,8 @@ class WebOrdersProfitService:
             .where(WbDailyReportRow.marketplace_account_id == order.marketplace_account_id)
             .where(WbDailyReportRow.sale_dt >= date_from)
             .where(WbDailyReportRow.sale_dt <= date_to)
+            .where(WbDailyReportRow.is_active.is_(True))
+            .where(WbDailyReportRow.deleted_at.is_(None))
             .limit(1)
         )
         return result.scalar_one_or_none() is not None
@@ -463,6 +513,7 @@ class WebOrdersProfitService:
                 margin,
                 missing_cost_items,
                 preliminary_items,
+                actual_snapshot_items,
             ) = row
             key = (marketplace_value, seller_article or "")
             sales = sales_map.get(key, 0)
@@ -488,6 +539,7 @@ class WebOrdersProfitService:
                     roi_percent=roi_percent(profit, total_cost),
                     missing_cost_items=int(missing_cost_items or 0),
                     preliminary_items=int(preliminary_items or 0),
+                    actual_snapshot_items=int(actual_snapshot_items or 0),
                 )
             )
         rows = _filter_profit_rows(rows, filters.economy)
@@ -512,18 +564,10 @@ class WebOrdersProfitService:
             )
         )
         sales_case = operation_text.not_like("%возврат%")
-        query = (
+        rows_query = (
             select(
                 article_expr.label("seller_article"),
                 func.coalesce(func.sum(WbDailyReportRow.quantity).filter(sales_case), 0),
-                func.coalesce(func.sum(WbDailyReportRow.retail_amount), 0),
-                func.coalesce(func.sum(WbDailyReportRow.for_pay), 0),
-                func.coalesce(func.sum(WbDailyReportRow.commission_rub), 0),
-                func.coalesce(func.sum(WbDailyReportRow.delivery_rub), 0),
-                func.coalesce(func.sum(WbDailyReportRow.storage_fee), 0),
-                func.coalesce(func.sum(WbDailyReportRow.penalty), 0),
-                func.coalesce(func.sum(WbDailyReportRow.deduction), 0),
-                func.coalesce(func.sum(WbDailyReportRow.acceptance), 0),
             )
             .where(WbDailyReportRow.user_id == user_id)
             .where(WbDailyReportRow.sale_dt >= filters.date_from)
@@ -534,42 +578,85 @@ class WebOrdersProfitService:
             .group_by(article_expr)
         )
         if filters.sku:
+            rows_query = rows_query.where(
+                WbDailyReportRow.supplier_article.ilike(f"%{filters.sku}%")
+            )
+        rows_result = await self.session.execute(rows_query)
+        sales_by_article = {
+            str(seller_article or ""): int(sales or 0)
+            for seller_article, sales in rows_result.all()
+        }
+
+        component_article_expr = func.coalesce(
+            WbDailyReportRow.supplier_article,
+            literal_column("''"),
+        )
+        query = (
+            select(
+                component_article_expr.label("seller_article"),
+                func.coalesce(
+                    func.sum(WbReportFinanceComponent.normalized_amount).filter(
+                        WbReportFinanceComponent.finance_category.in_(("sale", "return"))
+                    ),
+                    0,
+                ),
+                func.coalesce(
+                    func.sum(WbReportFinanceComponent.normalized_amount).filter(
+                        WbReportFinanceComponent.finance_category == "payout"
+                    ),
+                    0,
+                ),
+                func.coalesce(
+                    func.sum(WbReportFinanceComponent.normalized_amount).filter(
+                        WbReportFinanceComponent.finance_category.in_(
+                            (
+                                "commission",
+                                "logistics",
+                                "storage",
+                                "penalty",
+                                "deduction",
+                                "acceptance",
+                            )
+                        )
+                    ),
+                    0,
+                ),
+            )
+            .join(
+                WbDailyReportRow,
+                WbDailyReportRow.id == WbReportFinanceComponent.report_row_id,
+            )
+            .where(WbDailyReportRow.user_id == user_id)
+            .where(WbDailyReportRow.sale_dt >= filters.date_from)
+            .where(WbDailyReportRow.sale_dt <= filters.date_to)
+            .where(WbDailyReportRow.is_active.is_(True))
+            .where(WbDailyReportRow.deleted_at.is_(None))
+            .where(WbReportFinanceComponent.is_active.is_(True))
+            .where(WbReportFinanceComponent.deleted_at.is_(None))
+            .where(WbReportFinanceComponent.operation_scope.in_(("order", "product")))
+            .group_by(component_article_expr)
+        )
+        if filters.sku:
             query = query.where(WbDailyReportRow.supplier_article.ilike(f"%{filters.sku}%"))
         result = await self.session.execute(query)
         by_key = {(row.marketplace, row.seller_article): row for row in rows}
         for (
             seller_article,
-            sales,
             revenue,
             payout,
-            commission,
-            logistics,
-            storage,
-            penalty,
-            deduction,
-            acceptance,
+            marketplace_costs,
         ) in result.all():
             article = str(seller_article or "")
-            marketplace_costs = sum(
-                (
-                    _decimal(commission),
-                    _decimal(logistics),
-                    _decimal(storage),
-                    _decimal(penalty),
-                    _decimal(deduction),
-                    _decimal(acceptance),
-                ),
-                ZERO,
-            )
             actual_profit = _decimal(payout)
             key = (Marketplace.WB, article)
             existing = by_key.get(key)
             if existing is not None:
-                existing.sales += int(sales or 0)
+                existing.sales += sales_by_article.get(article, 0)
                 existing.actual_revenue += _decimal(revenue)
                 existing.payout += _decimal(payout)
-                existing.marketplace_costs += marketplace_costs
-                existing.actual_profit += actual_profit
+                existing.marketplace_costs += _decimal(marketplace_costs)
+                if existing.actual_snapshot_items == 0:
+                    existing.actual_profit += actual_profit - existing.cost
                 continue
             rows.append(
                 ProfitSkuRow(
@@ -578,19 +665,20 @@ class WebOrdersProfitService:
                     marketplace=Marketplace.WB,
                     sale_model=None,
                     orders=0,
-                    sales=int(sales or 0),
+                    sales=sales_by_article.get(article, 0),
                     revenue=ZERO,
                     estimated_revenue=ZERO,
                     actual_revenue=_decimal(revenue),
                     payout=_decimal(payout),
                     cost=ZERO,
-                    marketplace_costs=marketplace_costs,
+                    marketplace_costs=_decimal(marketplace_costs),
                     estimated_profit=ZERO,
                     actual_profit=actual_profit,
                     margin_percent=ZERO,
                     roi_percent=None,
                     missing_cost_items=0,
                     preliminary_items=0,
+                    actual_snapshot_items=0,
                 )
             )
         return rows
@@ -642,6 +730,7 @@ class WebOrdersProfitService:
                             + func.coalesce(OrderItem.package_cost_used, 0)
                         )
                         * OrderItem.quantity
+                        + func.coalesce(OrderItem.tax_amount_estimated, 0)
                     ),
                     0,
                 ),
@@ -660,6 +749,7 @@ class WebOrdersProfitService:
                 func.count(OrderItem.id).filter(
                     OrderItem.economy_confidence == EconomyConfidence.PRELIMINARY.value
                 ),
+                func.count(latest_actual.c.profit),
             )
             .join(OrderItem, OrderItem.order_id == Order.id)
             .outerjoin(
@@ -850,6 +940,27 @@ def _order_has_wb_match_problem() -> Any:
             ),
         )
     )
+
+
+def _reconciliation_status(
+    *,
+    marketplace: Marketplace,
+    missing_cost: bool,
+    has_wb_fact: bool,
+    has_wb_missing_fact: bool,
+    has_wb_match_problem: bool,
+) -> ReconciliationStatus:
+    if missing_cost:
+        return ReconciliationStatus.MANUAL_REVIEW
+    if marketplace != Marketplace.WB:
+        return ReconciliationStatus.PRELIMINARY
+    if has_wb_match_problem:
+        return ReconciliationStatus.FACT_AMBIGUOUS
+    if has_wb_fact and has_wb_missing_fact:
+        return ReconciliationStatus.FACT_PARTIAL
+    if has_wb_fact:
+        return ReconciliationStatus.FACT_MATCHED
+    return ReconciliationStatus.PRELIMINARY
 
 
 def _apply_order_sort(query: Select[Any], filters: OrderWebFilters) -> Select[Any]:

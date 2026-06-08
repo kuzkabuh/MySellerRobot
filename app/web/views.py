@@ -240,7 +240,9 @@ def _orders_content(
             f'<td class="num">{_rub(row.revenue)}</td>'
             f"{profit_cell}"
             f'<td class="num">{_percent_optional(row.margin_percent)}</td>'
-            f"<td>{_order_status_badge(row.status, row.requires_action)}<div>{confidence_badge}</div></td>"
+            f"<td>{_order_status_badge(row.status, row.requires_action)}"
+            f"<div>{_reconciliation_badge(getattr(row, 'reconciliation_status', None))}</div>"
+            f"<div>{confidence_badge}</div></td>"
             f"<td>{escape(source_event_label(row.source_event_type))}</td>"
             "</tr>"
         )
@@ -352,6 +354,7 @@ def _order_detail_content(detail: OrderDetail, timezone: str) -> str:
             <span>Плановая прибыль</span><strong>{_rub(detail.estimated_profit)}</strong>
             <span>Фактическая прибыль</span><strong>{_rub_optional(detail.actual_profit)}</strong>
             <span>Отклонение</span><strong>{_rub_optional(detail.deviation)}</strong>
+            <span>Статус сверки</span><strong>{_reconciliation_badge(getattr(detail, "reconciliation_status", None))}</strong>
           </div>
           <p class="muted">
             Если фактическая прибыль отсутствует, финансовые отчёты маркетплейса
@@ -387,13 +390,16 @@ def _order_detail_content(detail: OrderDetail, timezone: str) -> str:
 def _wb_order_fact_html(wb_fact: Any, timezone: str) -> str:
     if wb_fact is None:
         return ""
+    status_value = getattr(getattr(wb_fact, "status", ""), "value", getattr(wb_fact, "status", ""))
     status_label = {
-        "full": "Факт полный",
-        "partial": "Факт частичный",
-        "product_linked_order_not_found": "Товар найден, заказ не связан",
-        "not_found": "Не найдено в отчётах",
-        "report_not_loaded": "Только план",
-    }.get(getattr(wb_fact, "status", ""), "Только план")
+        "FACT_MATCHED": "Факт полный",
+        "FACT_PARTIAL": "Факт частичный",
+        "FACT_UNMATCHED": "Факт не привязан",
+        "FACT_AMBIGUOUS": "Неоднозначная сверка",
+        "FACT_CONFLICT": "Конфликт сумм",
+        "MANUAL_REVIEW": "Нужна проверка",
+        "PRELIMINARY": "Только план",
+    }.get(status_value, "Только план")
     states = "".join(
         "<tr>"
         f"<td>{escape(state.label)}</td>"
@@ -508,6 +514,28 @@ def _wb_fact_state_text(state: str) -> str:
         "missing": "не найдено в отчёте",
         "report_not_loaded": "отчёт WB ещё не загружен",
     }.get(state, "нет данных")
+
+
+def _reconciliation_badge(status: Any) -> str:
+    value = getattr(status, "value", status) or "PRELIMINARY"
+    label = {
+        "PRELIMINARY": "PRELIMINARY",
+        "FACT_MATCHED": "FACT_MATCHED",
+        "FACT_PARTIAL": "FACT_PARTIAL",
+        "FACT_UNMATCHED": "FACT_UNMATCHED",
+        "FACT_AMBIGUOUS": "FACT_AMBIGUOUS",
+        "FACT_CONFLICT": "FACT_CONFLICT",
+        "MANUAL_REVIEW": "MANUAL_REVIEW",
+    }.get(str(value), str(value))
+    tone = {
+        "FACT_MATCHED": "good",
+        "FACT_PARTIAL": "warn",
+        "FACT_UNMATCHED": "warn",
+        "FACT_AMBIGUOUS": "warn",
+        "FACT_CONFLICT": "bad",
+        "MANUAL_REVIEW": "bad",
+    }.get(str(value), "")
+    return f'<span class="badge {tone}">{escape(label)}</span>'
 
 
 def _wb_link_status_text(row: Any) -> str:

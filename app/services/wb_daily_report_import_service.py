@@ -1112,6 +1112,7 @@ def _finance_components_for_row(row: WbDailyReportRow) -> list[WbReportFinanceCo
         amount = getattr(row, attr, None)
         if amount is None:
             continue
+        component_category = _component_finance_category(row, attr, category)
         order_id = row.order_id or row.linked_order_id
         product_id = row.product_id or row.linked_product_id
         operation_scope = _normalized_operation_scope(row.operation_scope)
@@ -1128,7 +1129,7 @@ def _finance_components_for_row(row: WbDailyReportRow) -> list[WbReportFinanceCo
                 order_id=order_id,
                 product_id=product_id,
                 operation_scope=operation_scope,
-                finance_category=category,
+                finance_category=component_category,
                 operation_type=operation_type,
                 original_column_name=original_name,
                 original_amount=amount,
@@ -1142,6 +1143,26 @@ def _finance_components_for_row(row: WbDailyReportRow) -> list[WbReportFinanceCo
             )
         )
     return components
+
+
+def _component_finance_category(row: WbDailyReportRow, attr: str, default: str) -> str:
+    if attr == "retail_amount" and row.finance_category == "return":
+        return "return"
+    if default in {
+        "sale",
+        "payout",
+        "commission",
+        "logistics",
+        "storage",
+        "penalty",
+        "deduction",
+        "acceptance",
+        "reimbursement",
+        "return",
+        "other",
+    }:
+        return default
+    return "other"
 
 
 def _normalized_operation_scope(scope: str | None) -> str:

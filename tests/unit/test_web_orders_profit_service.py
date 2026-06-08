@@ -13,6 +13,7 @@ from app.models.enums import Marketplace, SaleModel
 from app.services.web_orders_profit_service import (
     ProfitSkuRow,
     WebOrdersProfitService,
+    _reconciliation_status,
     build_order_web_filters,
     order_state_label,
     roi_percent,
@@ -131,7 +132,62 @@ def test_profit_order_query_uses_latest_actual_snapshot_subquery() -> None:
 def test_profit_merge_wb_rows_excludes_period_storage_scope() -> None:
     source = inspect.getsource(WebOrdersProfitService._merge_wb_daily_report_rows)
 
-    assert 'operation_scope.in_(("order", "product"))' in source
+    assert "WbReportFinanceComponent.operation_scope.in_" in source
+    assert "WbReportFinanceComponent.is_active.is_(True)" in source
+    assert "WbReportFinanceComponent.deleted_at.is_(None)" in source
+
+
+def test_reconciliation_status_maps_wb_fact_states() -> None:
+    assert (
+        _reconciliation_status(
+            marketplace=Marketplace.WB,
+            missing_cost=False,
+            has_wb_fact=False,
+            has_wb_missing_fact=False,
+            has_wb_match_problem=False,
+        ).value
+        == "PRELIMINARY"
+    )
+    assert (
+        _reconciliation_status(
+            marketplace=Marketplace.WB,
+            missing_cost=False,
+            has_wb_fact=True,
+            has_wb_missing_fact=False,
+            has_wb_match_problem=False,
+        ).value
+        == "FACT_MATCHED"
+    )
+    assert (
+        _reconciliation_status(
+            marketplace=Marketplace.WB,
+            missing_cost=False,
+            has_wb_fact=True,
+            has_wb_missing_fact=True,
+            has_wb_match_problem=False,
+        ).value
+        == "FACT_PARTIAL"
+    )
+    assert (
+        _reconciliation_status(
+            marketplace=Marketplace.WB,
+            missing_cost=False,
+            has_wb_fact=True,
+            has_wb_missing_fact=False,
+            has_wb_match_problem=True,
+        ).value
+        == "FACT_AMBIGUOUS"
+    )
+    assert (
+        _reconciliation_status(
+            marketplace=Marketplace.WB,
+            missing_cost=True,
+            has_wb_fact=True,
+            has_wb_missing_fact=False,
+            has_wb_match_problem=False,
+        ).value
+        == "MANUAL_REVIEW"
+    )
 
 
 def test_order_page_result_dataclass_exists() -> None:
@@ -258,20 +314,20 @@ class _FakeResult:
 
 
 class _FakeSession:
+    def __init__(self) -> None:
+        self.calls = 0
+
     async def execute(self, query: object) -> _FakeResult:
+        self.calls += 1
+        if self.calls == 1:
+            return _FakeResult([("ART-001", 2)])
         return _FakeResult(
             [
                 (
                     "ART-001",
-                    2,
                     Decimal("3000"),
                     Decimal("2400"),
-                    Decimal("100"),
-                    Decimal("80"),
-                    Decimal("20"),
-                    Decimal("10"),
-                    Decimal("30"),
-                    Decimal("10"),
+                    Decimal("250"),
                 )
             ]
         )
@@ -312,6 +368,7 @@ async def test_profit_merges_wb_daily_report_rows_as_actual_fact() -> None:
             roi_percent=None,
             missing_cost_items=0,
             preliminary_items=0,
+            actual_snapshot_items=0,
         )
     ]
 
@@ -328,3 +385,52 @@ async def test_profit_merges_wb_daily_report_rows_as_actual_fact() -> None:
     assert rows[0].payout == Decimal("2400")
     assert rows[0].marketplace_costs == Decimal("250")
     assert rows[0].actual_profit == Decimal("2400")
+
+
+@pytest.mark.asyncio
+async def test_profit_merge_does_not_double_count_actual_snapshot_profit() -> None:
+    filters = build_order_web_filters(
+        timezone="Europe/Moscow",
+        period="7d",
+        marketplace="WB",
+        sale_model="all",
+        date_from=None,
+        date_to=None,
+        economy="all",
+        status="all",
+        sku="",
+        sort="profit",
+        direction="desc",
+    )
+    existing = [
+        ProfitSkuRow(
+            title="Товар",
+            seller_article="ART-001",
+            marketplace=Marketplace.WB,
+            sale_model=None,
+            orders=1,
+            sales=0,
+            revenue=Decimal("1000"),
+            estimated_revenue=Decimal("1000"),
+            actual_revenue=Decimal("0"),
+            payout=Decimal("0"),
+            cost=Decimal("425"),
+            marketplace_costs=Decimal("0"),
+            estimated_profit=Decimal("0"),
+            actual_profit=Decimal("575"),
+            margin_percent=Decimal("0"),
+            roi_percent=None,
+            missing_cost_items=0,
+            preliminary_items=0,
+            actual_snapshot_items=1,
+        )
+    ]
+
+    rows = await WebOrdersProfitService(_FakeSession())._merge_wb_daily_report_rows(
+        1,
+        filters,
+        existing,
+    )
+
+    assert rows[0].payout == Decimal("2400")
+    assert rows[0].actual_profit == Decimal("575")

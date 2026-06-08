@@ -52,3 +52,24 @@ def test_storage_component_is_period_expense_without_order_fact() -> None:
     assert component.is_order_fact is False
     assert component.is_product_fact is False
     assert component.is_global_fact is True
+
+
+def test_return_row_creates_return_component() -> None:
+    row = WbDailyReportRow(
+        id=1,
+        import_id=2,
+        user_id=3,
+        marketplace_account_id=4,
+        order_id=5,
+        product_id=6,
+        retail_amount=Decimal("-1000"),
+        finance_category="return",
+        operation_scope="order",
+        is_active=True,
+    )
+
+    components = _finance_components_for_row(row)
+
+    assert len(components) == 1
+    assert components[0].finance_category == "return"
+    assert components[0].normalized_amount == Decimal("-1000")
