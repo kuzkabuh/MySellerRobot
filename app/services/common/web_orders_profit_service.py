@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.domain import (
+    FinancialReportRow,
     Order,
     OrderItem,
     ProfitSnapshot,
