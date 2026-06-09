@@ -403,6 +403,7 @@ class HistoryBackfillService:
             marketplace=Marketplace.WB,
             external_row_id=external_row_id,
             operation_type=operation_type,
+            operation_category=operation_category,
             operation_date=operation_date,
             amount=amount,
             order_external_id=str(row.get("srid") or "") or None,

@@ -88,6 +88,7 @@ class FinancialReportRow(TimestampMixin, Base):
     order_external_id: Mapped[str | None] = mapped_column(String(255), index=True)
     product_external_id: Mapped[str | None] = mapped_column(String(255), index=True)
     operation_type: Mapped[str] = mapped_column(String(255), index=True)
+    operation_category: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     operation_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
     currency: Mapped[str] = mapped_column(String(16), default="RUB")

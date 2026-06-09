@@ -181,7 +181,7 @@ def _orders_content(
       </section>
     """
 
-def _order_detail_content(detail: OrderDetail, timezone: str) -> str:
+def _order_detail_content(detail: OrderDetail, timezone: str, is_admin: bool = False) -> str:
     order = detail.order
     item_rows = []
     for item_detail in detail.items:
@@ -283,12 +283,7 @@ def _order_detail_content(detail: OrderDetail, timezone: str) -> str:
         </div>
       </section>
       {wb_fact_html}
-      <section class="band" style="margin-top:14px">
-        <details>
-          <summary style="cursor:pointer"><h2 style="display:inline">Технические данные</h2></summary>
-          <pre class="mono">{raw_payload}</pre>
-        </details>
-      </section>
+      {'<section class="band" style="margin-top:14px"><details><summary style="cursor:pointer"><h2 style="display:inline">Технические данные</h2></summary><pre class="mono">' + raw_payload + '</pre></details></section>' if is_admin else ''}
     """
 
 def _wb_order_fact_html(wb_fact: Any, timezone: str) -> str:

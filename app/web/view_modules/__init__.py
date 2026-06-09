@@ -16,6 +16,7 @@ from app.web.view_modules import orders as orders
 from app.web.view_modules import planning as planning
 from app.web.view_modules import pricing as pricing
 from app.web.view_modules import profit as profit
+from app.web.view_modules import finance_unmatched as finance_unmatched
 from app.web.view_modules import reports as reports
 from app.web.view_modules import settings as settings
 

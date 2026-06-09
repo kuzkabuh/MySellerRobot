@@ -16,6 +16,7 @@ from app.web.route_modules import (
     catalog,
     commissions_admin,
     compatibility,
+    finance_unmatched,
     finances,
     mrc_pricing,
     operations,
@@ -132,6 +133,7 @@ for module_router in (
     wb_logistics_admin.router,
     wb_daily_reports.router,
     finances.router,
+    finance_unmatched.router,
     compatibility.router,
 ):
     router.include_router(module_router)

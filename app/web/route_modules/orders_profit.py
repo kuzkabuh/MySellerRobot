@@ -32,6 +32,7 @@ from app.web.dependencies import (
     WEB_DASHBOARD_PATH,
     WEB_LOGIN_REQUIRED_PATH,
     WEB_SESSION_COOKIE_PATH,
+    is_admin_user,
 )
 from app.web.rendering import page as render_page
 from app.web.views import *
@@ -112,7 +113,8 @@ async def order_detail_page(
     detail = await WebOrdersProfitService(session).order_detail(user_id=user.id, order_id=order_id)
     if detail is None:
         raise HTTPException(status_code=404, detail="Заказ не найден")
-    content = _order_detail_content(detail, user.timezone)
+    is_admin = is_admin_user(user)
+    content = _order_detail_content(detail, user.timezone, is_admin=is_admin)
     return render_page(
         "Карточка заказа",
         user.first_name or user.username or str(user.telegram_id),

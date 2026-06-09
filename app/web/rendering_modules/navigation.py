@@ -74,7 +74,7 @@ SECTION_PREFIXES: dict[str, list[str]] = {
     "Главная": ["/web/?"],
     "Заказы и продажи": ["/web/orders", "/web/sales", "/web/returns"],
     "Товары": ["/web/products", "/web/stocks", "/web/costs", "/web/product-matching", "/web/data-quality", "/web/alerts"],
-    "Финансы": ["/web/profit", "/web/plan-fact", "/web/break-even", "/web/finances"],
+    "Финансы": ["/web/profit", "/web/plan-fact", "/web/break-even", "/web/finances", "/web/finances/unmatched"],
     "Цены и акции": ["/web/pricing", "/web/mrc-pricing", "/web/auto-promo"],
     "Отчёты": ["/web/reports", "/web/wb-daily-reports"],
     "Мониторинг": ["/web/control", "/web/operations"],
