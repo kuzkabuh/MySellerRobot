@@ -83,7 +83,7 @@ def page(
           <a class="btn btn-ghost btn-sm" href="/web/logout">Выйти</a>
         </div>
       </header>
-      <main>
+      <main class="page-fade-in">
         {content}
       </main>
     </div>

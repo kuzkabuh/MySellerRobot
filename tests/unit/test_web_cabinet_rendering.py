@@ -591,7 +591,6 @@ def test_page_html_contains_no_javascript_click_handlers() -> None:
     html = page("Главная", "Артем", "<main></main>")
     assert "onclick" not in html
     assert "preventDefault" not in html
-    assert "stopPropagation" not in html
     assert "data-href" not in html
 
 

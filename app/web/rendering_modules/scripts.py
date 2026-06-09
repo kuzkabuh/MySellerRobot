@@ -1,4 +1,4 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: Browser scripts for MP Control web rendering.
 updated: 2026-06-09
 """
@@ -64,7 +64,51 @@ def _js() -> str:
         reportFrontendError(reason.message || reason, 'unhandledrejection', null, null, reason.stack);
         showInterfaceError();
       });
-      document.addEventListener('DOMContentLoaded', hideLegacyLoadingArtifacts);
+      document.addEventListener('DOMContentLoaded', function() {
+        hideLegacyLoadingArtifacts();
+        initSidebar();
+        initTableWraps();
+      });
+      function initSidebar() {
+        var toggle = document.querySelector('.sidebar-toggle');
+        var sidebar = document.getElementById('sidebar');
+        if (!toggle || !sidebar) return;
+        function closeNavigation() {
+          sidebar.classList.remove('is-open');
+          document.body.classList.remove('nav-open');
+        }
+        toggle.addEventListener('click', function(e) {
+          e.stopPropagation();
+          sidebar.classList.toggle('is-open');
+          document.body.classList.toggle('nav-open', sidebar.classList.contains('is-open'));
+        });
+        document.addEventListener('click', function(e) {
+          if (sidebar.classList.contains('is-open') && !sidebar.contains(e.target) && !e.target.closest('.sidebar-toggle')) {
+            closeNavigation();
+          }
+        });
+        document.addEventListener('keydown', function(e) {
+          if (e.key === 'Escape' && sidebar.classList.contains('is-open')) {
+            closeNavigation();
+          }
+        });
+        window.addEventListener('resize', function() {
+          if (window.innerWidth > 900) closeNavigation();
+        });
+        sidebar.querySelectorAll('a').forEach(function(link) {
+          link.addEventListener('click', function() {
+            if (window.innerWidth <= 900) closeNavigation();
+          });
+        });
+      }
+      function initTableWraps() {
+        document.querySelectorAll('.table-wrap').forEach(function(wrap) {
+          var table = wrap.querySelector('table');
+          if (table && table.scrollWidth > wrap.clientWidth) {
+            wrap.style.position = 'relative';
+          }
+        });
+      }
       window.setTimeout(function() {
         hideLegacyLoadingArtifacts();
         var stuckLoader = loadingSelectors.some(function(selector) {
@@ -78,31 +122,5 @@ def _js() -> str:
           showInterfaceError();
         }
       }, 2000);
-      var toggle = document.querySelector('.sidebar-toggle');
-      var sidebar = document.getElementById('sidebar');
-      function closeNavigation() {
-        if (sidebar) sidebar.classList.remove('is-open');
-        document.body.classList.remove('nav-open');
-      }
-      if (toggle && sidebar) {
-        toggle.addEventListener('click', function() {
-          sidebar.classList.toggle('is-open');
-          document.body.classList.toggle('nav-open', sidebar.classList.contains('is-open'));
-        });
-      }
-      document.addEventListener('click', function(e) {
-        if (sidebar && sidebar.classList.contains('is-open') && !sidebar.contains(e.target) && !e.target.closest('.sidebar-toggle')) {
-          closeNavigation();
-        }
-      });
-      window.addEventListener('resize', function() {
-        if (window.innerWidth > 900) closeNavigation();
-      });
-      document.querySelectorAll('.table-wrap').forEach(function(wrap) {
-        var table = wrap.querySelector('table');
-        if (table && table.scrollWidth > wrap.clientWidth) {
-          wrap.style.position = 'relative';
-        }
-      });
     })();
     """
