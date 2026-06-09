@@ -4,7 +4,7 @@ updated: 2026-06-08
 """
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -160,6 +160,71 @@ class ControlPageData:
     preliminary_orders: int
     missing_cost_products: int
     low_stock_products: int
+
+
+@dataclass(slots=True)
+class SyncCenterAccountData:
+    account: MarketplaceAccount
+    products_count: int
+    orders_30d: int
+    balance: AccountBalanceSnapshot | None = None
+
+    @property
+    def sync_freshness_orders(self) -> str:
+        return self._freshness(self.account.last_order_poll_at, 30)
+
+    @property
+    def sync_freshness_sales(self) -> str:
+        return self._freshness(self.account.last_sales_sync_at, 60)
+
+    @property
+    def sync_freshness_stocks(self) -> str:
+        return self._freshness(self.account.last_stocks_sync_at, 24 * 60)
+
+    @property
+    def sync_freshness_products(self) -> str:
+        return self._freshness(self.account.last_products_sync_at, 48 * 60)
+
+    @property
+    def sync_freshness_profile(self) -> str:
+        return self._freshness(self.account.last_profile_sync_at, 48 * 60)
+
+    @property
+    def sync_freshness_wb_reports(self) -> str:
+        return self._freshness(self.account.last_wb_reports_sync_at, 24 * 60)
+
+    @property
+    def total_syncs_today(self) -> int:
+        count = 0
+        for attr in ("last_order_poll_at", "last_sales_sync_at", "last_stocks_sync_at",
+                     "last_products_sync_at", "last_profile_sync_at", "last_wb_reports_sync_at"):
+            val = getattr(self.account, attr, None)
+            if val and val.date() == datetime.now(val.tzinfo or UTC).date():
+                count += 1
+        return count
+
+    @staticmethod
+    def _freshness(dt: datetime | None, threshold_minutes: int) -> str:
+        if dt is None:
+            return "none"
+        ago = (datetime.now(UTC) - dt).total_seconds() / 60
+        if ago <= threshold_minutes:
+            return "good"
+        if ago <= threshold_minutes * 3:
+            return "warn"
+        return "bad"
+
+
+@dataclass(slots=True)
+class SyncCenterPageData:
+    accounts: list[SyncCenterAccountData]
+    total_accounts: int
+    healthy_accounts: int
+    error_accounts_count: int
+    stale_accounts: int
+    total_products: int
+    total_orders_30d: int
+    data_quality_score: int | None
 
 
 class WebCabinetService:
@@ -514,6 +579,58 @@ class WebCabinetService:
             tier=tier,
             active_accounts=sum(1 for row in rows if row.account.is_active),
             rows=rows,
+        )
+
+    async def sync_center_page(
+        self, user_id: int, timezone: str = "Europe/Moscow"
+    ) -> SyncCenterPageData:
+        result = await self.session.execute(
+            select(MarketplaceAccount)
+            .where(MarketplaceAccount.user_id == user_id)
+            .order_by(MarketplaceAccount.is_active.desc(), MarketplaceAccount.marketplace)
+        )
+        accounts_raw = result.scalars().all()
+        account_data_list: list[SyncCenterAccountData] = []
+        total_products = 0
+        total_orders = 0
+        error_count = 0
+        stale_count = 0
+        for account in accounts_raw:
+            products = await self._count(Product.id, Product.marketplace_account_id == account.id)
+            orders = await self._count_recent_orders(account.id, timezone)
+            balance_result = await self.session.execute(
+                select(AccountBalanceSnapshot)
+                .where(AccountBalanceSnapshot.marketplace_account_id == account.id)
+                .order_by(AccountBalanceSnapshot.fetched_at.desc())
+                .limit(1)
+            )
+            acc_data = SyncCenterAccountData(
+                account=account,
+                products_count=products,
+                orders_30d=orders,
+                balance=balance_result.scalar_one_or_none(),
+            )
+            account_data_list.append(acc_data)
+            total_products += products
+            total_orders += orders
+            if account.status.value == "ERROR" or (
+                account.last_error_message
+                and not _is_resolved_greenlet_error(account.last_error_message)
+            ):
+                error_count += 1
+            if acc_data.sync_freshness_orders == "bad" or acc_data.sync_freshness_orders == "none":
+                stale_count += 1
+        dq_report = await DataQualityService(self.session).report(user_id=user_id)
+        healthy = len(accounts_raw) - error_count
+        return SyncCenterPageData(
+            accounts=account_data_list,
+            total_accounts=len(accounts_raw),
+            healthy_accounts=healthy,
+            error_accounts_count=error_count,
+            stale_accounts=stale_count,
+            total_products=total_products,
+            total_orders_30d=total_orders,
+            data_quality_score=dq_report.score,
         )
 
     async def costs_page(self, user_id: int) -> CostsPageData:
