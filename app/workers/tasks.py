@@ -22,7 +22,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
 from app.core.db import AsyncSessionFactory
-from app.models.domain import AlertEvent, MarketplaceAccount, User
+from app.models.domain import AlertEvent, MarketplaceAccount, Order, OrderItem, User
 from app.models.enums import Marketplace, SaleModel
 from app.repositories.orders import OrderRepository
 from app.repositories.sync_jobs import SyncJobRepository
@@ -45,6 +45,9 @@ from app.services.common.sales_event_sync_service import (
 from app.services.common.stock_service import StockService
 from app.services.ozon.api.ozon_catalog_enrichment_service import OzonCatalogEnrichmentService
 from app.services.ozon.finance.ozon_balance_service import OzonBalanceService
+from app.services.ozon.finance.ozon_finance_aggregation_service import (
+    OzonFinanceAggregationService,
+)
 from app.services.wb_daily_financial_detail_service import WbDailyFinancialDetailService
 from app.services.wb_report_relink_service import WbReportRelinkService
 from app.services.wb_report_service import WbFinancialReportService
@@ -949,6 +952,85 @@ async def sync_ozon_balances(ctx: dict[str, Any]) -> None:
         )
 
 
+async def reconcile_ozon_finance(ctx: dict[str, Any]) -> None:
+    """Reconcile Ozon orders against FinancialReportRow entries.
+
+    Creates ACTUAL profit snapshots for Ozon orders that have financial data
+    but no actual snapshots yet.
+    """
+    async with AsyncSessionFactory() as session:
+        account_refs = await _load_account_refs_ozon(session)
+        reconciled = 0
+        failed = 0
+        for ref in account_refs:
+            try:
+                account = await _load_account_by_id(session, ref.id)
+                if account is None:
+                    continue
+                service = OzonFinanceAggregationService(session)
+                orders = await _load_ozon_orders_without_actual(session, account.id)
+                for order in orders:
+                    try:
+                        created = await service.aggregate_order_finance(order)
+                        if created > 0:
+                            await service.reconcile_ozon_order(order)
+                            reconciled += 1
+                    except Exception:
+                        logger.exception(
+                            "ozon_finance_reconcile_order_failed",
+                            extra={"order_id": order.id, "account_id": ref.id},
+                        )
+                        failed += 1
+                await session.commit()
+            except Exception:
+                failed += 1
+                logger.exception(
+                    "ozon_finance_reconcile_account_failed",
+                    extra={"account_id": ref.id},
+                )
+                try:
+                    await session.rollback()
+                except Exception:
+                    pass
+        logger.info(
+            "ozon_finance_reconciliation_completed",
+            extra={
+                "accounts_processed": len(account_refs),
+                "reconciled": reconciled,
+                "failed": failed,
+            },
+        )
+
+
+async def _load_ozon_orders_without_actual(
+    session: AsyncSession,
+    account_id: int,
+    limit: int = 500,
+) -> list[Order]:
+    """Load Ozon orders that have estimated but no actual profit snapshots."""
+    from app.models.finance import ProfitSnapshot
+    from app.models.enums import CalculationType
+
+    subq = (
+        select(ProfitSnapshot.order_item_id)
+        .where(ProfitSnapshot.calculation_type == CalculationType.ACTUAL)
+        .join(OrderItem, OrderItem.id == ProfitSnapshot.order_item_id)
+    )
+    result = await session.execute(
+        select(Order)
+        .outerjoin(OrderItem, OrderItem.order_id == Order.id)
+        .where(
+            Order.marketplace_account_id == account_id,
+            Order.marketplace == Marketplace.OZON,
+            OrderItem.id.isnot(None),
+            OrderItem.commission_estimated.isnot(None),
+            ~OrderItem.id.in_(subq),
+        )
+        .limit(limit)
+    )
+    return list(result.scalars().unique().all())
+
+
 async def sync_products(ctx: dict[str, Any]) -> None:
     account_refs = await _load_account_refs(AsyncSessionFactory)
     total = 0
@@ -1661,6 +1743,7 @@ for _task_name in (
     "sync_wb_daily_sales_reports",
     "sync_ozon_catalog_enrichment",
     "sync_ozon_balances",
+    "reconcile_ozon_finance",
     "sync_wb_account_profiles",
     "check_wb_financial_reports",
     "sync_wb_daily_financial_details",

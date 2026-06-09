@@ -1,6 +1,7 @@
-"""version: 1.7.2
-description: Order ingestion with resilient poll windows and retryable FBS notifications.
-updated: 2026-05-17
+"""version: 1.8.0
+description: Order ingestion with resilient poll windows, retryable FBS notifications,
+    and Ozon finance aggregation for immediate actual profit snapshots.
+updated: 2026-06-10
 """
 
 import logging
@@ -16,6 +17,9 @@ from app.integrations.ozon import OzonClient
 from app.integrations.wb import WildberriesClient
 from app.models.domain import ApiRequestLog, MarketplaceAccount, Order
 from app.models.enums import FboNotificationMode, Marketplace, SaleModel
+from app.services.ozon.finance.ozon_finance_aggregation_service import (
+    OzonFinanceAggregationService,
+)
 from app.repositories.orders import FboDigestQueueRepository, OrderRepository
 from app.schemas.orders import NormalizedOrder
 from app.services.unit_economics.order_card_service import OrderCardService
@@ -221,6 +225,21 @@ class OrderProcessingService:
                             )
 
                         await self.profits.calculate_estimated_profit(account, order, normalized)
+
+                        if order.marketplace == Marketplace.OZON:
+                            try:
+                                ozon_finance = OzonFinanceAggregationService(self.session)
+                                created = await ozon_finance.aggregate_order_finance(order)
+                                if created > 0:
+                                    await ozon_finance.reconcile_ozon_order(order)
+                            except Exception:
+                                logger.warning(
+                                    "ozon_finance_aggregation_failed",
+                                    extra={
+                                        "order_id": order.id,
+                                        "order_external_id": order.order_external_id,
+                                    },
+                                )
 
                         if policy.should_queue_fbo_digest(normalized.sale_model):
                             await self._queue_fbo_digest(account, order, policy.fbo_mode)

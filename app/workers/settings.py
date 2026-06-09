@@ -10,6 +10,7 @@ from app.core.config import get_settings
 from app.core.redis import redis_settings_from_url
 from app.workers.tasks import (
     backfill_wb_daily_financial_details,
+    reconcile_ozon_finance,
     check_auto_promo_prices,
     check_fbs_deadlines,
     check_low_stocks,
@@ -63,6 +64,7 @@ class WorkerSettings:
         sync_wb_daily_sales_reports,
         sync_ozon_catalog_enrichment,
         sync_ozon_balances,
+        reconcile_ozon_finance,
         sync_wb_account_profiles,
         check_wb_financial_reports,
         sync_wb_daily_financial_details,
@@ -92,6 +94,7 @@ class WorkerSettings:
         cron(sync_wb_daily_sales_reports, hour=2, minute=0),
         cron(sync_ozon_catalog_enrichment, hour=3, minute=20),
         cron(sync_ozon_balances, hour={8, 14, 20}, minute=25),
+        cron(reconcile_ozon_finance, hour={8, 14, 20}, minute=35),
         cron(sync_wb_account_profiles, hour={7, 19}, minute=40),
         cron(check_wb_financial_reports, hour=4, minute=10),
         cron(sync_wb_daily_financial_details, hour=5, minute=0),

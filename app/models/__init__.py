@@ -68,8 +68,6 @@ from app.models.settings import (
 )
 from app.models.subscriptions import (
     Payment,
-    Subscription,
-    SubscriptionPlan,
     SubscriptionTier,
     UserSubscription,
 )
@@ -143,8 +141,6 @@ __all__ = [
     "ReturnsEvent",
     "SalesEvent",
     "StockSnapshot",
-    "Subscription",
-    "SubscriptionPlan",
     "SubscriptionTier",
     "SupportTicket",
     "SupportTicketEvent",

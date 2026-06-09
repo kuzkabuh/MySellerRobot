@@ -56,10 +56,6 @@ from app.models.reports import (
 from app.models.settings import (
     MrcPricingSettings,
 )
-from app.models.subscriptions import (
-    Subscription,
-    SubscriptionPlan,
-)
 from app.models.users import (
     OneTimeLoginToken,
     SupportTicket,
@@ -142,6 +138,4 @@ __all__ = [
     "ApiKeyAuditLog",
     "UserActivityLog",
     "MrcPricingSettings",
-    "SubscriptionPlan",
-    "Subscription",
 ]
