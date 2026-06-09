@@ -1,5 +1,8 @@
-"""Centralised order profit reconciliation: match financial rows to orders
-and create/update actual ProfitSnapshot records."""
+"""version: 1.2.0
+description: Centralised order profit reconciliation: match financial rows to orders
+    and create/update actual ProfitSnapshot records. Idempotent by design.
+updated: 2026-06-09
+"""
 
 import logging
 from dataclasses import dataclass, field
@@ -91,16 +94,35 @@ class OrderProfitReconciliationService:
         all_rows = financial_rows + report_rows
 
         if not all_rows:
+            # Check if order has any estimated snapshot → PRELIMINARY
+            has_estimated = any(
+                s.calculation_type == CalculationType.ESTIMATED
+                for item in getattr(order, "items", [])
+                for s in getattr(item, "snapshots", [])
+            )
+            if has_estimated:
+                return OrderReconciliationResult(
+                    order_id=order.id,
+                    order_external_id=order.order_external_id,
+                    reconciliation_status=ReconciliationStatus.PRELIMINARY,
+                    rows_matched=0,
+                    rows_unmatched=0,
+                    snapshot_created=False,
+                    snapshot_updated=False,
+                    profit=None,
+                    messages=["Нет финансового отчёта, только предварительная оценка"],
+                )
+
             return OrderReconciliationResult(
                 order_id=order.id,
                 order_external_id=order.order_external_id,
-                reconciliation_status=ReconciliationStatus.FACT_UNMATCHED,
+                reconciliation_status=ReconciliationStatus.MISSING_REPORT,
                 rows_matched=0,
                 rows_unmatched=0,
                 snapshot_created=False,
                 snapshot_updated=False,
                 profit=None,
-                messages=["Нет финансовых строк, связанных с заказом"],
+                messages=["Нет финансовых строк, связанных с заказом — отчёт не загружен"],
             )
 
         ambiguous_statuses = {"ambiguous", "ambiguous_order_match", "error"}
@@ -130,6 +152,13 @@ class OrderProfitReconciliationService:
                 messages=messages,
             )
 
+        # Check if any row has manual_review indicator
+        has_manual_review = any(
+            getattr(r, "order_match_status", None) in {"manual_review", "low_confidence"}
+            or getattr(r, "match_confidence", 1.0) < 0.5
+            for r in all_rows
+        )
+
         has_missing_cost = any(
             item.cost_price_used is None or item.cost_price_used == ZERO
             for item in order.items
@@ -141,7 +170,9 @@ class OrderProfitReconciliationService:
             self._has_actual_snapshot(item) for item in order.items
         )
 
-        if has_missing_cost:
+        if has_manual_review:
+            status = ReconciliationStatus.MANUAL_REVIEW
+        elif has_missing_cost:
             status = ReconciliationStatus.MISSING_COST
         elif all_items_have_actual:
             status = ReconciliationStatus.FACT_MATCHED
@@ -471,7 +502,11 @@ class OrderProfitReconciliationService:
         limit: int = 100,
         days_back: int = 30,
     ) -> BatchReconciliationResult:
-        """Reconcile all orders in a date range that don't have actual snapshots."""
+        """Reconcile all orders in a date range that don't have actual snapshots.
+
+        Idempotent: re-running the same account with the same parameters
+        will update existing snapshots instead of creating duplicates.
+        """
         from datetime import timedelta
 
         cutoff = datetime.now(tz=UTC) - timedelta(days=days_back)

@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.core.exceptions import AuthenticationError
 from app.integrations.wildberries.finance_client import WbFinanceApiClient
 from app.models.domain import (
     FinancialReportRow,
@@ -260,12 +261,15 @@ class TestPagination:
         mock_client.get_sales_reports_detailed = mock_get_report
         service._finance_client = mock_client
 
-        with patch.object(service, "_upsert_report_rows", new_callable=AsyncMock):
-            with patch.object(service, "_reconcile_and_calculate", new_callable=AsyncMock):
-                counters = await service.sync_account_for_date(
-                    account,
-                    date(2026, 3, 17),
-                )
+        with (
+            patch.object(service, "_has_running_task", new_callable=AsyncMock, return_value=None),
+            patch.object(service, "_upsert_report_rows", new_callable=AsyncMock),
+            patch.object(service, "_reconcile_and_calculate", new_callable=AsyncMock),
+        ):
+            counters = await service.sync_account_for_date(
+                account,
+                date(2026, 3, 17),
+            )
 
         assert call_count >= 2
         assert counters.pages_fetched >= 2
@@ -692,3 +696,188 @@ class TestDetailedReportFields:
         assert "deliveryAmount" in DETAILED_REPORT_FIELDS
         assert "penalty" in DETAILED_REPORT_FIELDS
         assert "paidStorage" in DETAILED_REPORT_FIELDS
+
+
+class TestSyncStatusIntegration:
+    @pytest.mark.asyncio
+    async def test_creates_sync_task_run_on_start(self) -> None:
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.flush = AsyncMock()
+        mock_session.add = MagicMock()
+
+        service = WbDailyFinancialDetailService(mock_session)
+        account = _make_account()
+
+        with (
+            patch.object(service, "_get_finance_client") as mock_client,
+            patch.object(service, "_upsert_report_rows", new_callable=AsyncMock),
+            patch.object(service, "_reconcile_and_calculate", new_callable=AsyncMock),
+        ):
+            mock_client.return_value = MagicMock()
+            mock_client.return_value.get_sales_reports_detailed = AsyncMock(return_value=[])
+
+            counters = await service.sync_account_for_date(
+                account,
+                date(2026, 3, 17),
+            )
+
+        assert counters.total_rows_fetched == 0
+        # SyncStatusService.start() was called — session.add was called
+        assert mock_session.add.called
+
+    @pytest.mark.asyncio
+    async def test_parallel_run_skipped_when_already_running(self) -> None:
+        mock_session = AsyncMock()
+        mock_session.flush = AsyncMock()
+        mock_session.add = MagicMock()
+
+        service = WbDailyFinancialDetailService(mock_session)
+        account = _make_account()
+
+        # Simulate existing running task
+        existing_run = MagicMock()
+        existing_run.id = 42
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = existing_run
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        counters = await service.sync_account_for_date(
+            account,
+            date(2026, 3, 17),
+        )
+
+        # Should skip without fetching anything
+        assert counters.total_rows_fetched == 0
+        assert any("already running" in e for e in counters.errors)
+
+    @pytest.mark.asyncio
+    async def test_mark_failed_on_api_error(self) -> None:
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.flush = AsyncMock()
+        mock_session.add = MagicMock()
+
+        service = WbDailyFinancialDetailService(mock_session)
+        account = _make_account()
+
+        with patch.object(service, "_get_finance_client") as mock_client:
+            mock_client.return_value = MagicMock()
+            mock_client.return_value.get_sales_reports_detailed = AsyncMock(
+                side_effect=AuthenticationError(marketplace="Wildberries")
+            )
+
+            counters = await service.sync_account_for_date(
+                account,
+                date(2026, 3, 17),
+            )
+
+        assert counters.pages_fetched == 0
+        assert any("API error" in e for e in counters.errors)
+
+
+class TestDedupFinancialReportRow:
+    @pytest.mark.asyncio
+    async def test_repeated_api_row_same_rrdid_updates_no_duplicate(self) -> None:
+        """Повторная загрузка с тем же rrdId обновляет, а не создаёт дубль."""
+        mock_session = AsyncMock()
+        existing_row = FinancialReportRow(
+            id=1,
+            user_id=10,
+            marketplace_account_id=1,
+            marketplace=Marketplace.WB,
+            external_row_id="42",
+            operation_type="Продажа",
+            operation_category="sale",
+            operation_date=datetime(2026, 3, 17, tzinfo=UTC),
+            amount=Decimal("1000"),
+            currency="RUB",
+            raw_payload={"rrdId": 42, "old": True},
+        )
+
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = existing_row
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.flush = AsyncMock()
+
+        service = WbDailyFinancialDetailService(mock_session)
+        account = _make_account()
+        account.marketplace = Marketplace.WB
+
+        # Simulate an upsert with updated data, same rrdId
+        api_row = {
+            "rrdId": 42,
+            "orderId": "5075047440",
+            "nmId": 12345678,
+            "docTypeName": "Продажа",
+            "retailAmount": 1500,
+            "forPay": 1200,
+            "orderDt": "2026-03-17T10:00:00Z",
+        }
+
+        await service._upsert_single_row(account, api_row, "2026-03-17")
+
+        # Should have found existing row by external_row_id="42"
+        assert existing_row.amount == Decimal("1500")
+        assert existing_row.raw_payload["rrdId"] == 42
+        # No new row created — only one row in play
+        assert mock_session.add.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_upsert_composite_key_when_rrdid_missing(self) -> None:
+        """Когда rrdId отсутствует, формируется composite ключ из доступных полей."""
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.flush = AsyncMock()
+
+        service = WbDailyFinancialDetailService(mock_session)
+        account = _make_account()
+        account.marketplace = Marketplace.WB
+
+        api_row = {
+            "nmId": "12345678",
+            "orderId": "ORD-001",
+            "srid": "SRID-ABC",
+            "docTypeName": "Продажа",
+            "retailAmount": 1500,
+            "forPay": 1200,
+        }
+        # Not setting rrdId at all
+        await service._upsert_single_row(account, api_row, "2026-03-17")
+
+        # Verify a composite key was used
+        added = mock_session.add.call_args[0][0]
+        assert added.external_row_id.startswith("composite-")
+        assert "12345678" in added.external_row_id
+        assert "ORD-001" in added.external_row_id
+
+    @pytest.mark.asyncio
+    async def test_same_reportid_as_fallback_dedup(self) -> None:
+        """Когда rrdId нет, но есть reportId — используем его как уникальный ключ."""
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.flush = AsyncMock()
+
+        service = WbDailyFinancialDetailService(mock_session)
+        account = _make_account()
+        account.marketplace = Marketplace.WB
+
+        api_row = {
+            "reportId": "REP-2026-001",
+            "nmId": "12345678",
+            "orderId": "ORD-001",
+            "docTypeName": "Продажа",
+            "retailAmount": 1500,
+        }
+        await service._upsert_single_row(account, api_row, "2026-03-17")
+
+        added = mock_session.add.call_args[0][0]
+        assert added.external_row_id == "REP-2026-001"

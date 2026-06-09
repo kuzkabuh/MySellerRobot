@@ -19,10 +19,12 @@ from app.models.domain import (
     Order,
     OrderItem,
     ProfitSnapshot,
+    SyncTaskRun,
 )
 from app.models.enums import CalculationType, Marketplace
 from app.repositories.orders import OrderRepository
 from app.schemas.profit import CostInput, ProfitInput, ProfitResult
+from app.services.common.sync_status_service import SyncStatusService
 from app.services.unit_economics.cost_service import CostService
 from app.services.unit_economics.profit_calculator import ProfitCalculator
 
@@ -117,6 +119,7 @@ class WbDailyFinancialDetailService:
         self.calculator = ProfitCalculator()
         self.cost_service = CostService(session)
         self.order_repo = OrderRepository(session)
+        self.sync_status = SyncStatusService(session)
         self._finance_client: WbFinanceApiClient | None = None
 
     def _get_finance_client(self, account: MarketplaceAccount) -> WbFinanceApiClient:
@@ -133,6 +136,33 @@ class WbDailyFinancialDetailService:
         if account.marketplace != Marketplace.WB:
             return SyncCounters()
 
+        # Prevent parallel runs for the same account+date
+        task_name = f"wb_financial_detail_{account.id}"
+        existing_run = await self._has_running_task(task_name)
+        if existing_run:
+            logger.warning(
+                "wb_financial_detail_parallel_skip",
+                extra={
+                    "account_id": account.id,
+                    "report_date": report_date.isoformat(),
+                    "existing_run_id": existing_run.id,
+                },
+            )
+            counters = SyncCounters()
+            counters.errors.append(
+                f"Sync already running (run #{existing_run.id}), skipped"
+            )
+            return counters
+
+        sync_run = await self.sync_status.start(
+            task_name=task_name,
+            metadata={
+                "account_id": account.id,
+                "user_id": account.user_id,
+                "report_date": report_date.isoformat(),
+            },
+        )
+
         settings = get_settings()
         client = self._get_finance_client(account)
         limit = settings.wb_report_detailed_limit
@@ -144,6 +174,7 @@ class WbDailyFinancialDetailService:
                 "account_id": account.id,
                 "user_id": account.user_id,
                 "report_date": date_str,
+                "sync_run_id": sync_run.id,
             },
         )
 
@@ -216,6 +247,13 @@ class WbDailyFinancialDetailService:
                     "error": error_msg,
                 },
             )
+            await self.sync_status.mark_failed(
+                sync_run,
+                error=error_msg,
+                records_processed=counters.total_rows_fetched,
+                success_count=counters.rows_upserted,
+                failed_count=counters.failed_rows,
+            )
             return counters
 
         if not all_rows:
@@ -235,12 +273,20 @@ class WbDailyFinancialDetailService:
         account.last_wb_financial_detail_sync_at = datetime.now(tz=UTC)
         account.last_success_sync_at = datetime.now(tz=UTC)
 
+        await self.sync_status.mark_success(
+            sync_run,
+            records_processed=counters.total_rows_fetched,
+            success_count=counters.rows_upserted,
+            failed_count=counters.failed_rows,
+        )
+
         logger.info(
             "wb_daily_financial_detail_sync_completed",
             extra={
                 "account_id": account.id,
                 "user_id": account.user_id,
                 "report_date": date_str,
+                "sync_run_id": sync_run.id,
                 "pages_fetched": counters.pages_fetched,
                 "total_rows_fetched": counters.total_rows_fetched,
                 "rows_upserted": counters.rows_upserted,
@@ -253,6 +299,18 @@ class WbDailyFinancialDetailService:
         )
 
         return counters
+
+    async def _has_running_task(self, task_name: str) -> SyncTaskRun | None:
+        result = await self.session.execute(
+            select(SyncTaskRun)
+            .where(
+                SyncTaskRun.task_name == task_name,
+                SyncTaskRun.status == "started",
+            )
+            .order_by(SyncTaskRun.started_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
 
     @staticmethod
     def _get_last_rrd_id(rows: list[dict[str, Any]]) -> int | None:
@@ -298,12 +356,22 @@ class WbDailyFinancialDetailService:
         if rrd_id is None:
             rrd_id = row.get("reportId")
         if rrd_id is None:
-            rrd_id = f"fallback-{report_date}-{row.get('nmId', '')}-{row.get('orderId', '')}"
+            # Build stable composite key from available identifiers
+            parts = [
+                report_date,
+                str(row.get("nmId", "")),
+                str(row.get("orderId", "")),
+                str(row.get("srid", "")),
+                str(row.get("orderUid", "")),
+                str(row.get("docTypeName", "")),
+            ]
+            rrd_id = f"composite-{'-'.join(filter(None, parts))}"
             logger.warning(
                 "wb_financial_row_missing_rrd_id",
                 extra={
                     "account_id": account.id,
                     "report_date": report_date,
+                    "composite_key": rrd_id,
                     "row_keys": list(row.keys())[:10],
                 },
             )

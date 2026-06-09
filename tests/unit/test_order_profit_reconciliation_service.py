@@ -127,7 +127,7 @@ class TestSafeDecimal:
 
 class TestReconcileOrder:
     @pytest.mark.asyncio
-    async def test_no_financial_rows_returns_unmatched(self) -> None:
+    async def test_no_financial_rows_returns_missing_report(self) -> None:
         mock_session = AsyncMock()
         mock_all = MagicMock(all=MagicMock(return_value=[]))
         mock_session.execute = AsyncMock(
@@ -136,9 +136,12 @@ class TestReconcileOrder:
         service = OrderProfitReconciliationService(mock_session)
 
         order = _make_order()
+        item = _make_order_item()
+        item.snapshots = []
+        order.items = [item]
         result = await service.reconcile_order(order)
 
-        assert result.reconciliation_status == ReconciliationStatus.FACT_UNMATCHED
+        assert result.reconciliation_status == ReconciliationStatus.MISSING_REPORT
         assert result.rows_matched == 0
         assert result.profit is None
 
@@ -164,13 +167,15 @@ class TestReconcileOrder:
             assert result.profit is None
 
     @pytest.mark.asyncio
-    async def test_missing_cost_returns_missing_cost_status(self) -> None:
+    async def test_missing_cost_missing_report(self) -> None:
+        """Без финансовых строк и без себестоимости — MISSING_REPORT."""
         mock_session = AsyncMock()
         service = OrderProfitReconciliationService(mock_session)
 
         order = _make_order()
         item = _make_order_item(product_id=1)
         item.cost_price_used = None
+        item.snapshots = []
 
         mock_rows = MagicMock()
         mock_rows.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=[])))
@@ -183,7 +188,7 @@ class TestReconcileOrder:
 
             result = await service.reconcile_order(order)
 
-            assert result.reconciliation_status == ReconciliationStatus.FACT_UNMATCHED
+            assert result.reconciliation_status == ReconciliationStatus.MISSING_REPORT
 
 
 class TestAggregateFinancialRows:
@@ -286,6 +291,72 @@ class TestAggregateFinancialRows:
         assert result["expected_payout"] == Decimal("1100")
 
 
+class TestPreliminaryStatus:
+    @pytest.mark.asyncio
+    async def test_order_with_estimated_snapshot_returns_preliminary(self) -> None:
+        """Заказ без финансового отчёта, но с предварительной оценкой — PRELIMINARY."""
+        mock_session = AsyncMock()
+        mock_all = MagicMock(all=MagicMock(return_value=[]))
+        mock_session.execute = AsyncMock(
+            return_value=MagicMock(scalars=MagicMock(return_value=mock_all)),
+        )
+        service = OrderProfitReconciliationService(mock_session)
+
+        order = _make_order()
+        item = _make_order_item()
+        item.snapshots = [
+            ProfitSnapshot(
+                id=1,
+                order_item_id=1,
+                calculation_type=CalculationType.ESTIMATED,
+                profit=Decimal("500"),
+                gross_revenue=Decimal("0"),
+                marketplace_commission=Decimal("0"),
+                logistics_cost=Decimal("0"),
+                acquiring_cost=Decimal("0"),
+                storage_cost=Decimal("0"),
+                return_cost=Decimal("0"),
+                other_marketplace_costs=Decimal("0"),
+                cost_price=Decimal("0"),
+                package_cost=Decimal("0"),
+                additional_seller_cost=Decimal("0"),
+                tax_amount=Decimal("0"),
+                margin_percent=Decimal("0"),
+                calculated_at=datetime.now(tz=UTC),
+                calculation_source="test",
+            )
+        ]
+        order.items = [item]
+
+        result = await service.reconcile_order(order)
+
+        assert result.reconciliation_status == ReconciliationStatus.PRELIMINARY
+        assert result.profit is None
+        assert any("предварительн" in m for m in result.messages)
+
+
+class TestMissingReport:
+    @pytest.mark.asyncio
+    async def test_order_without_report_returns_missing_report(self) -> None:
+        """Совсем без отчёта и без предварительной оценки — MISSING_REPORT."""
+        mock_session = AsyncMock()
+        mock_all = MagicMock(all=MagicMock(return_value=[]))
+        mock_session.execute = AsyncMock(
+            return_value=MagicMock(scalars=MagicMock(return_value=mock_all)),
+        )
+        service = OrderProfitReconciliationService(mock_session)
+
+        order = _make_order()
+        item = _make_order_item()
+        item.snapshots = []
+        order.items = [item]
+
+        result = await service.reconcile_order(order)
+
+        assert result.reconciliation_status == ReconciliationStatus.MISSING_REPORT
+        assert "отчёт не загружен" in result.messages[0]
+
+
 class TestProfitCalculationWithForPay:
     """Verify that forPay-based profit doesn't double-count fees."""
 
@@ -309,9 +380,81 @@ class TestProfitCalculationWithForPay:
         )
 
         # forPay(1200) - cost_price(500) - package(25) - tax(72) = 603
+        # Комиссия (200) и логистика (50) НЕ вычитаются повторно, т.к. forPay уже учитывает их
         assert result.expected_payout == Decimal("1200")
         assert result.profit == Decimal("603")
         assert result.profit < result.expected_payout
+        assert result.profit == result.expected_payout - Decimal("597")
+
+    def test_commission_not_double_subtracted_from_forpay(self) -> None:
+        """При наличии forPay комиссия и логистика не вычитаются второй раз."""
+        from app.schemas.profit import CostInput, ProfitInput
+        from app.services.unit_economics.profit_calculator import ProfitCalculator
+
+        calculator = ProfitCalculator()
+
+        # Вариант A: forPay = 1200, комиссия 200, логистика 50
+        result_a = calculator.calculate(
+            ProfitInput(
+                gross_revenue=Decimal("1490"),
+                expected_payout=Decimal("1200"),
+                marketplace_commission=Decimal("200"),
+                logistics_cost=Decimal("50"),
+                cost=CostInput(
+                    cost_price=Decimal("500"),
+                    package_cost=Decimal("25"),
+                    tax_rate=Decimal("0.06"),
+                ),
+            )
+        )
+
+        # Вариант B: forPay = 1200, без комиссии и логистики (уже учтены в forPay)
+        result_b = calculator.calculate(
+            ProfitInput(
+                gross_revenue=Decimal("1490"),
+                expected_payout=Decimal("1200"),
+                marketplace_commission=Decimal("0"),
+                logistics_cost=Decimal("0"),
+                cost=CostInput(
+                    cost_price=Decimal("500"),
+                    package_cost=Decimal("25"),
+                    tax_rate=Decimal("0.06"),
+                ),
+            )
+        )
+
+        # Оба варианта должны дать одинаковую прибыль, т.к. forPay одинаковый
+        assert result_a.profit == result_b.profit == Decimal("603")
+
+
+class TestReturnImpact:
+    def test_return_reduces_gross_revenue(self) -> None:
+        """Возврат корректно уменьшает выручку."""
+        mock_session = AsyncMock()
+        service = OrderProfitReconciliationService(mock_session)
+        item = _make_order_item()
+
+        sale_row = _make_financial_row(
+            id=1,
+            external_row_id="1",
+            operation_type="Продажа",
+            operation_category="sale",
+            amount=Decimal("1490"),
+            for_pay=Decimal("1200"),
+        )
+        return_row = _make_financial_row(
+            id=2,
+            external_row_id="2",
+            operation_type="Возврат",
+            operation_category="return",
+            amount=Decimal("-1490"),
+            for_pay=Decimal("0"),
+        )
+
+        result = service._aggregate_financial_rows(item, [sale_row, return_row], [])
+
+        assert result["gross_revenue"] == Decimal("0")
+        assert result["return_cost"] == Decimal("1490")
 
 
 class TestSnapshotUpsert:
