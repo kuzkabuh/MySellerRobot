@@ -150,7 +150,7 @@ def _orders_filters(filters: OrderWebFilters) -> str:
     return _shared_order_filters(filters, "/web/orders", include_status=True)
 
 def _profit_filters(filters: OrderWebFilters) -> str:
-    return _shared_order_filters(filters, "/web/profit", include_status=False)
+    return _shared_order_filters(filters, "/web/profit", include_status=True)
 
 def _plan_fact_filters(data: PlanFactPageData) -> str:
     filters = data.filters

@@ -1,5 +1,5 @@
-"""version: 1.2.0
-description: Web cabinet order list, order detail, and PostgreSQL-safe SKU profit queries.
+"""version: 1.3.0
+description: Web cabinet order list, order detail, and SKU profit queries with reconciliation status, commission/logistics breakdown, actual margin.
 updated: 2026-06-09
 """
 
@@ -129,10 +129,14 @@ class ProfitSkuRow:
     estimated_profit: Decimal
     actual_profit: Decimal
     margin_percent: Decimal
-    roi_percent: Decimal | None
     missing_cost_items: int
     preliminary_items: int
     actual_snapshot_items: int
+    roi_percent: Decimal | None = None
+    actual_margin: Decimal | None = None
+    avg_commission: Decimal = ZERO
+    avg_logistics: Decimal = ZERO
+    reconciliation_status: ReconciliationStatus = ReconciliationStatus.PRELIMINARY
 
 
 @dataclass(slots=True)
@@ -485,6 +489,7 @@ class WebOrdersProfitService:
         date_from: str | None,
         date_to: str | None,
         economy: str = "all",
+        status: str = "all",
         sku: str = "",
         sort: str = "profit",
         direction: str = "desc",
@@ -498,7 +503,7 @@ class WebOrdersProfitService:
             date_from=date_from,
             date_to=date_to,
             economy=economy,
-            status="all",
+            status=status,
             sku=sku,
             sort=sort,
             direction=direction,
@@ -520,6 +525,8 @@ class WebOrdersProfitService:
                 estimated_profit,
                 actual_profit,
                 margin,
+                avg_commission,
+                avg_logistics,
                 missing_cost_items,
                 preliminary_items,
                 actual_snapshot_items,
@@ -528,6 +535,18 @@ class WebOrdersProfitService:
             sales = sales_map.get(key, 0)
             profit = _decimal(estimated_profit)
             total_cost = _decimal(cost)
+            actual_profit_val = _decimal(actual_profit)
+            missing = int(missing_cost_items or 0)
+            has_actual = int(actual_snapshot_items or 0)
+            has_preliminary = int(preliminary_items or 0)
+            if missing > 0:
+                reconcil_status = ReconciliationStatus.MANUAL_REVIEW
+            elif has_actual > 0 and has_preliminary == 0:
+                reconcil_status = ReconciliationStatus.FACT_MATCHED
+            elif has_actual > 0:
+                reconcil_status = ReconciliationStatus.FACT_PARTIAL
+            else:
+                reconcil_status = ReconciliationStatus.PRELIMINARY
             rows.append(
                 ProfitSkuRow(
                     title=title or seller_article or "Без названия",
@@ -543,16 +562,25 @@ class WebOrdersProfitService:
                     cost=total_cost,
                     marketplace_costs=_decimal(marketplace_costs),
                     estimated_profit=profit,
-                    actual_profit=_decimal(actual_profit),
+                    actual_profit=actual_profit_val,
                     margin_percent=_decimal(margin),
+                    actual_margin=None,
+                    avg_commission=_decimal(avg_commission),
+                    avg_logistics=_decimal(avg_logistics),
                     roi_percent=roi_percent(profit, total_cost),
-                    missing_cost_items=int(missing_cost_items or 0),
-                    preliminary_items=int(preliminary_items or 0),
-                    actual_snapshot_items=int(actual_snapshot_items or 0),
+                    missing_cost_items=missing,
+                    preliminary_items=has_preliminary,
+                    actual_snapshot_items=has_actual,
+                    reconciliation_status=reconcil_status,
                 )
             )
         rows = _filter_profit_rows(rows, filters.economy)
         rows = await self._merge_wb_daily_report_rows(user_id, filters, rows)
+        for r in rows:
+            if r.actual_revenue and r.actual_revenue > ZERO and r.actual_profit is not None:
+                r.actual_margin = (
+                    (r.actual_profit / r.actual_revenue * Decimal("100")).quantize(Decimal("0.1"))
+                )
         rows = _sort_profit_rows(rows, filters.sort, filters.direction)[:limit]
         return ProfitPageData(filters=filters, summary=_profit_summary(rows), rows=rows)
 
@@ -666,7 +694,16 @@ class WebOrdersProfitService:
                 existing.marketplace_costs += _decimal(marketplace_costs)
                 if existing.actual_snapshot_items == 0:
                     existing.actual_profit += actual_profit - existing.cost
+                if (
+                    existing.reconciliation_status == ReconciliationStatus.PRELIMINARY
+                    and sales_by_article.get(article, 0)
+                ):
+                    existing.reconciliation_status = ReconciliationStatus.FACT_MATCHED
                 continue
+            wb_payout = _decimal(payout)
+            wb_revenue = _decimal(revenue)
+            wb_costs = _decimal(marketplace_costs)
+            wb_profit = wb_payout
             rows.append(
                 ProfitSkuRow(
                     title=article or "WB daily report",
@@ -677,17 +714,21 @@ class WebOrdersProfitService:
                     sales=sales_by_article.get(article, 0),
                     revenue=ZERO,
                     estimated_revenue=ZERO,
-                    actual_revenue=_decimal(revenue),
-                    payout=_decimal(payout),
+                    actual_revenue=wb_revenue,
+                    payout=wb_payout,
                     cost=ZERO,
-                    marketplace_costs=_decimal(marketplace_costs),
+                    marketplace_costs=wb_costs,
                     estimated_profit=ZERO,
-                    actual_profit=actual_profit,
+                    actual_profit=wb_profit,
                     margin_percent=ZERO,
+                    actual_margin=None,
+                    avg_commission=ZERO,
+                    avg_logistics=ZERO,
                     roi_percent=None,
                     missing_cost_items=0,
                     preliminary_items=0,
                     actual_snapshot_items=0,
+                    reconciliation_status=ReconciliationStatus.FACT_MATCHED,
                 )
             )
         return rows
@@ -754,6 +795,8 @@ class WebOrdersProfitService:
                 func.coalesce(func.sum(OrderItem.profit_estimated), 0),
                 func.coalesce(func.sum(latest_actual.c.profit), 0),
                 func.avg(OrderItem.margin_percent_estimated),
+                func.avg(OrderItem.commission_estimated),
+                func.avg(OrderItem.logistics_estimated),
                 func.count(OrderItem.id).filter(OrderItem.cost_price_used.is_(None)),
                 func.count(OrderItem.id).filter(
                     OrderItem.economy_confidence == EconomyConfidence.PRELIMINARY.value
@@ -851,7 +894,9 @@ def build_order_web_filters(
             else "all"
         ),
         sku=sku.strip(),
-        sort=sort if sort in {"date", "profit", "revenue", "margin", "orders", "roi"} else "date",
+        sort=sort if sort in {
+            "date", "profit", "actual_profit", "revenue", "margin", "orders", "sales", "roi"
+        } else "date",
         direction="asc" if direction == "asc" else "desc",
     )
 
@@ -1026,9 +1071,11 @@ def _sort_profit_rows(
     reverse = direction != "asc"
     key_map = {
         "profit": lambda row: row.estimated_profit,
+        "actual_profit": lambda row: row.actual_profit or Decimal("-999999"),
         "revenue": lambda row: row.revenue,
         "margin": lambda row: row.margin_percent,
         "orders": lambda row: Decimal(row.orders),
+        "sales": lambda row: Decimal(row.sales),
         "roi": lambda row: row.roi_percent or Decimal("-999999"),
     }
     key = key_map.get(sort, key_map["profit"])
