@@ -4,7 +4,7 @@ description: User settings web routes with tabs.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, time as datetime_time
 from html import escape
 from typing import Any
 from urllib.parse import quote
@@ -414,7 +414,12 @@ def _marketplaces_tab(user: User, accounts: list[MarketplaceAccount], timezone: 
     """
 
 
-def _notifications_tab(user: User, type_settings: dict[NotificationType, bool]) -> str:
+def _notifications_tab(
+    user: User,
+    type_settings: dict[NotificationType, bool],
+    quiet_from: datetime_time | None = None,
+    quiet_to: datetime_time | None = None,
+) -> str:
     checked_global = " checked" if user.notifications_enabled else ""
     rows = "".join(
         "<tr>"
@@ -427,6 +432,8 @@ def _notifications_tab(user: User, type_settings: dict[NotificationType, bool]) 
         "</tr>"
         for t in NotificationType
     )
+    quiet_from_val = quiet_from.strftime("%H:%M") if quiet_from else ""
+    quiet_to_val = quiet_to.strftime("%H:%M") if quiet_to else ""
     return f"""
       {_settings_tabs("notifications")}
       <section class="band">
@@ -438,6 +445,18 @@ def _notifications_tab(user: User, type_settings: dict[NotificationType, bool]) 
                 <input type="checkbox" name="notifications_enabled"{checked_global}>
                 Telegram-уведомления
               </label>
+            </div>
+          </div>
+          <h3 style="margin-top:18px">Тихие часы</h3>
+          <p class="muted">В указанный период уведомления отправляться не будут.</p>
+          <div class="filters">
+            <div>
+              <label for="quiet_from">Не беспокоить с</label>
+              <input id="quiet_from" name="quiet_from" type="time" value="{quiet_from_val}">
+            </div>
+            <div>
+              <label for="quiet_to">до</label>
+              <input id="quiet_to" name="quiet_to" type="time" value="{quiet_to_val}">
             </div>
           </div>
           <h3 style="margin-top:18px">Типы событий</h3>
@@ -657,11 +676,13 @@ async def settings_profile_page(
         content = _settings_tabs("subscription") + _subscription_content(data, tiers, user.timezone)
         return page("Настройки — Тариф", display_name, content, active_path=active_path)
     if active_tab == "notifications":
-        type_settings = await NotificationSettingsService(session).get_user_settings(user.id)
+        nss = NotificationSettingsService(session)
+        type_settings = await nss.get_user_settings(user.id)
+        quiet_from, quiet_to = await nss.get_quiet_hours(user.id)
         return page(
             "Настройки — Уведомления",
             display_name,
-            _notifications_tab(user, type_settings),
+            _notifications_tab(user, type_settings, quiet_from, quiet_to),
             active_path=active_path,
         )
     if active_tab == "sync":
@@ -840,6 +861,16 @@ async def settings_notifications_page(
     return RedirectResponse(url="/web/settings?tab=notifications", status_code=302)
 
 
+def _parse_time(value: str | None) -> datetime_time | None:
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        parts = value.strip().split(":")
+        return datetime_time(int(parts[0]), int(parts[1]))
+    except (ValueError, IndexError):
+        return None
+
+
 @router.post("/settings/notifications")
 async def save_notifications(
     request: Request,
@@ -859,9 +890,11 @@ async def save_notifications(
                 enabled_types.append(NotificationType(raw))
             except ValueError:
                 logger.warning("Unknown notification_type skipped: %s", raw)
-        await NotificationSettingsService(session).update_user_settings(
-            user.id, enabled_types=enabled_types
-        )
+        nss = NotificationSettingsService(session)
+        await nss.update_user_settings(user.id, enabled_types=enabled_types)
+        quiet_from = _parse_time(form.get("quiet_from"))
+        quiet_to = _parse_time(form.get("quiet_to"))
+        await nss.save_quiet_hours(user.id, quiet_from, quiet_to)
         await session.commit()
         await UserActivityService(session).log_activity(
             user.id,

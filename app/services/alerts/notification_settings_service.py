@@ -1,11 +1,12 @@
-"""version: 1.0.0
-description: Per-type user notification settings service.
-updated: 2026-06-07
+"""version: 1.1.0
+description: Per-type user notification settings service with quiet hours support.
+updated: 2026-06-09
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import time as datetime_time
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -108,6 +109,29 @@ class NotificationSettingsService:
                 marketplace_account_id=None,
             )
             setting.is_enabled = notification_type in enabled_set
+        await self.session.commit()
+
+    async def get_quiet_hours(
+        self, user_id: int
+    ) -> tuple[datetime_time | None, datetime_time | None]:
+        """Return the user's global quiet hours (from/to) from any global setting row."""
+        rows = await self._load_settings_rows(user_id, marketplace_account_id=None)
+        for row in rows:
+            if row.quiet_from is not None or row.quiet_to is not None:
+                return row.quiet_from, row.quiet_to
+        return None, None
+
+    async def save_quiet_hours(
+        self,
+        user_id: int,
+        quiet_from: datetime_time | None,
+        quiet_to: datetime_time | None,
+    ) -> None:
+        """Persist quiet hours on all global (account=None) setting rows."""
+        rows = await self._load_settings_rows(user_id, marketplace_account_id=None)
+        for row in rows:
+            row.quiet_from = quiet_from
+            row.quiet_to = quiet_to
         await self.session.commit()
 
     async def get_or_create_for_account(
