@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import User
-from app.services.tariff_service import TARIFF_FEATURE_FIELDS, TariffService
+from app.services.subscriptions.tariff_service import TARIFF_FEATURE_FIELDS, TariffService
 from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY, is_admin_user
 from app.web.rendering import page
 

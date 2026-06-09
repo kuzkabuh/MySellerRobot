@@ -17,9 +17,9 @@ from app.bot.main import create_dispatcher
 from app.core.config import Settings
 from app.core.db import get_session
 from app.models.enums import Marketplace, UserStatus
-from app.services.web_auth_service import WEB_SESSION_COOKIE
-from app.services.web_dashboard_service import DashboardData, build_dashboard_filters
-from app.services.web_orders_profit_service import (
+from app.services.account.web_auth_service import WEB_SESSION_COOKIE
+from app.services.common.web_dashboard_service import DashboardData, build_dashboard_filters
+from app.services.common.web_orders_profit_service import (
     ProfitPageData,
     ProfitSummary,
     build_order_web_filters,
@@ -1018,7 +1018,7 @@ def test_web_plan_fact_page_renders_without_double_web_prefix(
     async def fake_current_web_user():  # type: ignore[no-untyped-def]
         return user
 
-    from app.services.web_orders_profit_service import OrderWebFilters
+    from app.services.common.web_orders_profit_service import OrderWebFilters
 
     async def fake_compare(self, **kw):  # type: ignore[no-untyped-def]
         return SimpleNamespace(
@@ -1054,7 +1054,7 @@ def test_web_plan_fact_page_renders_without_double_web_prefix(
         fake_compare,
     )
 
-    from app.services.feature_access_service import FeatureAccessResult
+    from app.services.subscriptions.feature_access_service import FeatureAccessResult
 
     async def fake_can_use_feature(self, user_id, feature):  # type: ignore[no-untyped-def]
         return FeatureAccessResult(allowed=True)

@@ -29,10 +29,10 @@ from app.models.domain import (
     ProfitSnapshot,
 )
 from app.models.enums import CalculationType, Marketplace
-from app.services.marketplace_estimates import (
+from app.services.unit_economics.marketplace_estimates import (
     calculate_planned_economics,
 )
-from app.services.product_sync_service import (
+from app.services.common.product_sync_service import (
     WbTariffRow,
     _decimal_percent,
 )

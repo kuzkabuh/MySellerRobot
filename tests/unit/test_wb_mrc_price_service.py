@@ -5,7 +5,7 @@ from decimal import Decimal
 import pytest
 
 from app.core.exceptions import ValidationError
-from app.services.pricing.wb_mrc_price_service import WbMrcPriceService
+from app.services.wb.pricing.wb_mrc_price_service import WbMrcPriceService
 
 
 @pytest.fixture()

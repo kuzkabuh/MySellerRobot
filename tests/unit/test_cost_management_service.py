@@ -7,7 +7,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.services.cost_management_service import CostManagementError, parse_manual_cost_line
+from app.services.unit_economics.cost_management_service import CostManagementError, parse_manual_cost_line
 
 
 def test_parse_manual_cost_line() -> None:

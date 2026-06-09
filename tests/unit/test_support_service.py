@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.services.support_service import (
+from app.services.admin.support_service import (
     TICKET_CATEGORIES,
     TICKET_STATUS_LABELS,
     SupportService,

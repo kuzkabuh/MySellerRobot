@@ -32,11 +32,11 @@ from app.core.security import TokenCipher
 from app.models.domain import MarketplaceAccount, Product, WbPromotion
 from app.models.enums import Marketplace
 from app.repositories.users import UserRepository
-from app.services.feature_access_service import FeatureAccessService, FeatureCode
-from app.services.pricing.mrc_import_service import MrcImportService
-from app.services.pricing.mrc_pricing_settings_service import MrcPricingSettingsService
-from app.services.pricing.wb_mrc_price_service import WbMrcPriceService
-from app.services.wb.wb_promotions_sync_service import WbPromotionsSyncService
+from app.services.subscriptions.feature_access_service import FeatureAccessService, FeatureCode
+from app.services.wb.pricing.mrc_import_service import MrcImportService
+from app.services.wb.pricing.mrc_pricing_settings_service import MrcPricingSettingsService
+from app.services.wb.pricing.wb_mrc_price_service import WbMrcPriceService
+from app.services.wb.promotions.wb_promotions_sync_service import WbPromotionsSyncService
 from app.utils.datetime import format_datetime_for_user
 
 logger = logging.getLogger(__name__)

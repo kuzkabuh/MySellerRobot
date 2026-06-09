@@ -8,8 +8,8 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import User
-from app.services.web_cabinet_service import WebCabinetService
-from app.services.web_dashboard_service import WebDashboardService
+from app.services.account.web_cabinet_service import WebCabinetService
+from app.services.common.web_dashboard_service import WebDashboardService
 from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY
 from app.web.rendering import page
 from app.web.views import _dashboard_content, _dashboard_welcome, _user_display_name

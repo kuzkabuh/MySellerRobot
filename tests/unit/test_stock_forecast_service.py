@@ -5,7 +5,7 @@ updated: 2026-05-15
 
 from decimal import Decimal
 
-from app.services.stock_forecast_service import (
+from app.services.unit_economics.stock_forecast_service import (
     calculate_days_until_stockout,
     classify_stock_risk,
     estimate_lost_revenue,

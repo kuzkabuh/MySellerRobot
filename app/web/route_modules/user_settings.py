@@ -16,8 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import MarketplaceAccount, User
 from app.models.enums import Marketplace, NotificationType
-from app.services.api_key_validation_service import ApiKeyValidationService
-from app.services.company_lookup_service import (
+from app.services.account.api_key_validation_service import ApiKeyValidationService
+from app.services.account.company_lookup_service import (
     INN_ERROR_MESSAGE,
     LOOKUP_UNAVAILABLE_MESSAGE,
     CompanyLookupError,
@@ -25,18 +25,18 @@ from app.services.company_lookup_service import (
     CompanyProfileDTO,
     normalize_inn,
 )
-from app.services.notification_settings_service import (
+from app.services.alerts.notification_settings_service import (
     TYPE_DESCRIPTIONS,
     TYPE_LABELS,
     NotificationSettingsService,
 )
-from app.services.profile_service import ProfileService, ProfileUpdateData, ProfileValidationError
-from app.services.subscription_service import SubscriptionService
-from app.services.support_service import TICKET_CATEGORIES, TICKET_STATUS_LABELS, SupportService
-from app.services.user_activity_service import UserActivityService, action_label
-from app.services.user_sync_status_service import SYNC_STATUS_LABELS, UserSyncStatusService
-from app.services.web_cabinet_service import WebCabinetService
-from app.services.web_password_auth_service import WebPasswordAuthError, WebPasswordAuthService
+from app.services.account.profile_service import ProfileService, ProfileUpdateData, ProfileValidationError
+from app.services.subscriptions.subscription_service import SubscriptionService
+from app.services.admin.support_service import TICKET_CATEGORIES, TICKET_STATUS_LABELS, SupportService
+from app.services.admin.user_activity_service import UserActivityService, action_label
+from app.services.common.user_sync_status_service import SYNC_STATUS_LABELS, UserSyncStatusService
+from app.services.account.web_cabinet_service import WebCabinetService
+from app.services.account.web_password_auth_service import WebPasswordAuthError, WebPasswordAuthService
 from app.utils.client_ip import get_client_ip
 from app.utils.datetime import format_datetime_for_user
 from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY
@@ -103,7 +103,7 @@ def _profile_tab(user: User, subscription_data: object | None = None) -> str:
         tier = getattr(subscription_data, "tier", None)
         tier_name = getattr(tier, "name", "Free") if tier else "Free"
         active_sub = getattr(subscription_data, "active_subscription", None)
-        from app.services.web_cabinet_service import subscription_status
+        from app.services.account.web_cabinet_service import subscription_status
 
         raw_status = subscription_status(active_sub)
         status_label = _subscription_status_russian(raw_status)

@@ -30,9 +30,9 @@ from app.models.domain import (
     WbDailyReportImportRowLog,
 )
 from app.models.enums import Marketplace
-from app.services.api_key_validation_service import ApiKeyValidationService
-from app.services.audit_log_service import AuditLogService
-from app.services.history_backfill_service import HistoryBackfillService
+from app.services.account.api_key_validation_service import ApiKeyValidationService
+from app.services.admin.audit_log_service import AuditLogService
+from app.services.common.history_backfill_service import HistoryBackfillService
 from app.services.wb_daily_report_import_service import (
     WbDailyReportImportService,
     WbDailyReportRowFilters,

@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.services.pricing.wb_auto_promo_price_service import (
+from app.services.wb.pricing.wb_auto_promo_price_service import (
     STATUS_AUTO_MIN_PRICE_VIOLATION,
     STATUS_AUTO_PRICE_OK,
     STATUS_AUTO_PRICE_VIOLATION,
@@ -22,7 +22,7 @@ from app.services.pricing.wb_auto_promo_price_service import (
     STATUS_AUTO_SET_PRICE,
     WbAutoPromoPriceService,
 )
-from app.services.pricing.wb_price_update_service import (
+from app.services.wb.pricing.wb_price_update_service import (
     STATUS_APPLIED,
     STATUS_DRY_RUN,
     WbPriceUpdateService,
@@ -112,7 +112,7 @@ async def test_preview_price_changes_only_set_price():
         return_value=mock_settings_svc,
     ):
         # Test the payload calculation directly
-        from app.services.pricing.wb_price_update_service import (
+        from app.services.wb.pricing.wb_price_update_service import (
             calculate_wb_price_payload_for_target,
         )
 
@@ -186,7 +186,7 @@ async def test_apply_price_changes_confirm_sends_to_wb():
     )
 
     # Test the payload calculation directly
-    from app.services.pricing.wb_price_update_service import calculate_wb_price_payload_for_target
+    from app.services.wb.pricing.wb_price_update_service import calculate_wb_price_payload_for_target
 
     payload = calculate_wb_price_payload_for_target(
         target_discounted_price=Decimal("846"),

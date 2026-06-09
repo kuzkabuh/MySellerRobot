@@ -10,7 +10,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from app.models.enums import PromoType
 from app.models.promo_codes import PromoCode
 from app.models.subscriptions import SubscriptionTier
-from app.services.tariff_service import TARIFF_FEATURE_FIELDS
+from app.services.subscriptions.tariff_service import TARIFF_FEATURE_FIELDS
 
 _PERIOD_LABELS = {
     "monthly": "Месяц",

@@ -5,7 +5,7 @@ updated: 2026-05-14
 
 from pathlib import Path
 
-from app.services.excel_cost_import import ExcelCostImportService
+from app.services.unit_economics.excel_cost_import import ExcelCostImportService
 
 
 def test_create_and_parse_template(tmp_path: Path) -> None:

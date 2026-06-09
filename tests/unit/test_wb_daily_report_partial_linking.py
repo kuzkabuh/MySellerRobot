@@ -11,7 +11,7 @@ from app.services.wb_daily_report_import_service import (
     _row_status,
 )
 from app.services.wb_daily_report_parser import WbDailyReportParsedRow, classify_payment_reason
-from app.services.web_orders_profit_service import _wb_fact_article_states
+from app.services.common.web_orders_profit_service import _wb_fact_article_states
 
 
 def _report_row(

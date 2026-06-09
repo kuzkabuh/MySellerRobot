@@ -7,13 +7,13 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from app.models.enums import Marketplace
-from app.services.plan_fact_service import (
+from app.services.unit_economics.plan_fact_service import (
     PlanFactPageData,
     PlanFactRow,
     PlanFactSummary,
     classify_deviation,
 )
-from app.services.web_orders_profit_service import build_order_web_filters
+from app.services.common.web_orders_profit_service import build_order_web_filters
 from app.web.routes import _plan_fact_content
 
 

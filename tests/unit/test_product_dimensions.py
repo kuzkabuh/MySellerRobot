@@ -5,7 +5,7 @@ updated: 2026-05-17
 
 from decimal import Decimal
 
-from app.services.product_dimensions import calculate_volume_liters, decimal_or_none
+from app.services.common.product_dimensions import calculate_volume_liters, decimal_or_none
 
 
 def test_calculate_volume_liters_from_centimeters() -> None:

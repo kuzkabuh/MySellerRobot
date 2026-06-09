@@ -4,7 +4,7 @@ updated: 2026-05-17
 """
 
 from app.models.enums import Marketplace
-from app.services.account_service import _SellerInfo
+from app.services.account.account_service import _SellerInfo
 
 
 def test_ozon_seller_info_normalization() -> None:

@@ -5,7 +5,7 @@ updated: 2026-05-17
 
 from decimal import Decimal
 
-from app.services.ozon_catalog_enrichment_service import _extract_rows, _money, _next_cursor
+from app.services.ozon.api.ozon_catalog_enrichment_service import _extract_rows, _money, _next_cursor
 
 
 def test_extract_rows_from_nested_result_items() -> None:

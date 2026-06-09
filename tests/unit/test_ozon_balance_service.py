@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from app.models.domain import AccountBalanceSnapshot, MarketplaceAccount
 from app.models.enums import Marketplace
-from app.services.ozon_balance_service import (
+from app.services.ozon.finance.ozon_balance_service import (
     OzonBalanceService,
     _decimal_or_none,
     _error_snapshot,

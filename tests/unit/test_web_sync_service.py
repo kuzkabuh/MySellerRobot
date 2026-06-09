@@ -2,7 +2,7 @@
 
 from app.core.redis import redis_settings_from_url
 from app.services import web_sync_service
-from app.services.web_sync_service import WebSyncService
+from app.services.common.web_sync_service import WebSyncService
 
 
 class _RedisStub:

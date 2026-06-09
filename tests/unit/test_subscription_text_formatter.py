@@ -3,7 +3,7 @@
 from decimal import Decimal
 
 from app.models.subscriptions import SubscriptionTier
-from app.services.subscription_text_formatter import (
+from app.services.subscriptions.subscription_text_formatter import (
     TIER_FEATURE_NAMES,
     build_tier_card,
     format_current_subscription,

@@ -10,8 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.repositories.web_auth import WebAuthRepository
-from app.services.web_auth_service import WEB_SESSION_COOKIE, WebAuthService
-from app.services.web_password_auth_service import WebPasswordAuthService
+from app.services.account.web_auth_service import WEB_SESSION_COOKIE, WebAuthService
+from app.services.account.web_password_auth_service import WebPasswordAuthService
 from app.utils.client_ip import get_client_ip
 from app.web.dependencies import (
     SESSION_DEPENDENCY,

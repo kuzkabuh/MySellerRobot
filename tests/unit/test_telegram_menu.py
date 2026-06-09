@@ -29,7 +29,7 @@ from app.bot.keyboards.main import (
     web_cabinet_link,
 )
 from app.bot.main import BOT_COMMANDS
-from app.services.notification_service import NotificationService
+from app.services.alerts.notification_service import NotificationService
 
 
 def test_main_menu_contains_web_and_no_admin_for_regular_user() -> None:

@@ -7,7 +7,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.models.enums import FeatureCode
-from app.services.feature_access_service import FeatureAccessResult
+from app.services.subscriptions.feature_access_service import FeatureAccessResult
 from app.web.route_modules import mrc_pricing, planning
 
 

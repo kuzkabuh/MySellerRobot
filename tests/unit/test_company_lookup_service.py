@@ -7,8 +7,8 @@ import pytest
 from pydantic import SecretStr
 
 from app.models.domain import UserCompanyProfile
-from app.services import company_lookup_service as service_module
-from app.services.company_lookup_service import (
+from app.services.account import company_lookup_service as service_module
+from app.services.account.company_lookup_service import (
     LOOKUP_UNAVAILABLE_MESSAGE,
     CompanyLookupError,
     CompanyLookupService,

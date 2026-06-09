@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.services.pricing.wb_price_update_service import (
+from app.services.wb.pricing.wb_price_update_service import (
     STATUS_APPLIED,
     WbPriceUpdateService,
 )

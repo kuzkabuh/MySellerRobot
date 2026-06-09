@@ -25,12 +25,12 @@ from app.models.commission_tariffs import (
 )
 from app.models.domain import User
 from app.models.enums import Marketplace
-from app.services.commission_tariffs.ozon_commission_source_monitor_service import (
+from app.services.ozon.commissions.ozon_commission_source_monitor_service import (
     OzonCommissionSourceMonitorService,
 )
-from app.services.commission_tariffs.ozon_commission_xlsx_importer import OzonCommissionXlsxImporter
-from app.services.commission_tariffs.wb_commission_sync_service import WbCommissionSyncService
-from app.services.commission_tariffs.xlsx_validator import validate_xlsx_file
+from app.services.ozon.commissions.ozon_commission_xlsx_importer import OzonCommissionXlsxImporter
+from app.services.wb.commissions.wb_commission_sync_service import WbCommissionSyncService
+from app.services.commissions.xlsx_validator import validate_xlsx_file
 from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY, is_admin_user
 from app.web.rendering import page
 

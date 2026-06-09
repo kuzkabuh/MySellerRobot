@@ -12,7 +12,7 @@ from aiogram import Bot
 
 from app.core.config import get_settings
 from app.schemas.deployment import DeploymentStatus
-from app.services.deployment_service import DeploymentService
+from app.services.admin.deployment_service import DeploymentService
 
 
 async def _send(status_file: Path | None) -> None:

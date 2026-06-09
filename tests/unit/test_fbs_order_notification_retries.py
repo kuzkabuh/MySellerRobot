@@ -13,9 +13,9 @@ from app.integrations.wb import WildberriesClient
 from app.models.domain import MarketplaceAccount, Order, OrderItem, User
 from app.models.enums import Marketplace, SaleModel
 from app.schemas.orders import NormalizedOrder, NormalizedOrderItem
-from app.services.order_card_service import VisualNotification
-from app.services.order_notification_policy import OrderNotificationPolicy
-from app.services.order_processing_service import OrderProcessingService
+from app.services.unit_economics.order_card_service import VisualNotification
+from app.services.alerts.order_notification_policy import OrderNotificationPolicy
+from app.services.common.order_processing_service import OrderProcessingService
 
 
 class FakeSession:

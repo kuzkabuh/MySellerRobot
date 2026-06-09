@@ -3,7 +3,7 @@ description: Unit tests for data quality recommendation helpers.
 updated: 2026-05-15
 """
 
-from app.services.data_quality_service import DataQualityMetric, _recommendations
+from app.services.common.data_quality_service import DataQualityMetric, _recommendations
 
 
 def test_data_quality_recommendations_skip_ok_metrics() -> None:

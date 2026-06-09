@@ -11,19 +11,19 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.models.enums import Marketplace, SaleModel
-from app.services.marketplace_presentation import (
+from app.services.common.marketplace_presentation import (
     marketplace_marker,
 )
-from app.services.marketplace_presentation import (
+from app.services.common.marketplace_presentation import (
     marketplace_title as presentation_marketplace_title,
 )
-from app.services.marketplace_presentation import (
+from app.services.common.marketplace_presentation import (
     order_status_label as presentation_order_status_label,
 )
-from app.services.marketplace_presentation import (
+from app.services.common.marketplace_presentation import (
     sale_model_title as presentation_sale_model_title,
 )
-from app.services.message_formatter import rub
+from app.services.common.message_formatter import rub
 
 
 def html(value: object | None, fallback: str = "н/д") -> str:

@@ -212,7 +212,7 @@ def test_page_shell_logout_link_is_canonical() -> None:
 
 def test_orders_content_links_are_canonical() -> None:
     from app.models.enums import Marketplace as MPEnum
-    from app.services.web_orders_profit_service import OrderPageResult, OrderWebFilters
+    from app.services.common.web_orders_profit_service import OrderPageResult, OrderWebFilters
 
     row = SimpleNamespace(
         order_id=42,
@@ -304,7 +304,7 @@ def test_stocks_content_has_canonical_filter_form_action() -> None:
 
 
 def test_sales_content_has_canonical_filter_form_action() -> None:
-    from app.services.web_dashboard_service import DashboardFilters
+    from app.services.common.web_dashboard_service import DashboardFilters
 
     filters = DashboardFilters(
         period="30d",
@@ -338,8 +338,8 @@ def test_sales_content_has_canonical_filter_form_action() -> None:
 
 def test_plan_fact_content_has_canonical_form_actions() -> None:
     from app.models.enums import Marketplace as MPEnum
-    from app.services.plan_fact_service import PlanFactSummary
-    from app.services.web_orders_profit_service import OrderWebFilters
+    from app.services.unit_economics.plan_fact_service import PlanFactSummary
+    from app.services.common.web_orders_profit_service import OrderWebFilters
 
     plan = SimpleNamespace(
         id=1,
@@ -390,8 +390,8 @@ def test_plan_fact_content_has_canonical_form_actions() -> None:
 
 def test_plan_fact_content_without_plan_has_canonical_form_action() -> None:
     """When no plan exists, the save form must still use canonical action."""
-    from app.services.plan_fact_service import PlanFactSummary
-    from app.services.web_orders_profit_service import OrderWebFilters
+    from app.services.unit_economics.plan_fact_service import PlanFactSummary
+    from app.services.common.web_orders_profit_service import OrderWebFilters
 
     summary = PlanFactSummary(
         orders=0,

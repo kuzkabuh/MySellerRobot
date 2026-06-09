@@ -5,8 +5,8 @@ from decimal import Decimal
 
 from app.models.domain import MarketplaceAccount
 from app.models.enums import Marketplace
-from app.services.account_profile_service import _apply_wb_seller_info, _decimal_or_none
-from app.services.wb_report_service import _date_or_none, _extract_report_rows
+from app.services.account.account_profile_service import _apply_wb_seller_info, _decimal_or_none
+from app.services.wb.reports.report_service import _date_or_none, _extract_report_rows
 
 
 def test_wb_seller_info_updates_account_profile() -> None:

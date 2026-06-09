@@ -11,8 +11,8 @@ import pytest
 from app.integrations.wb import WildberriesClient
 from app.models.domain import MarketplaceAccount, Order, OrderItem, ReturnsEvent, SalesEvent
 from app.models.enums import Marketplace, NotificationType, SaleEventType, SaleModel
-from app.services.order_card_service import OrderCardService
-from app.services.sales_event_sync_service import SalesEventSyncService
+from app.services.unit_economics.order_card_service import OrderCardService
+from app.services.common.sales_event_sync_service import SalesEventSyncService
 
 
 def test_wb_buyout_notification_text() -> None:
@@ -454,7 +454,7 @@ async def test_sync_does_not_crash_on_rollback_recovery(
 
 def test_web_sales_page_filters_today_period() -> None:
     """Verify that the web sales page correctly builds filters for today period."""
-    from app.services.web_dashboard_service import build_dashboard_filters
+    from app.services.common.web_dashboard_service import build_dashboard_filters
 
     filters = build_dashboard_filters(
         timezone="Europe/Moscow",

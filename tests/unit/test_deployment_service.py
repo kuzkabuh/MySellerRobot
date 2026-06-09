@@ -10,7 +10,7 @@ import pytest
 from pydantic import SecretStr
 
 from app.core.config import Settings
-from app.services.deployment_service import DeploymentService
+from app.services.admin.deployment_service import DeploymentService
 
 
 def _settings(tmp_path: Path) -> Settings:

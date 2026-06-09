@@ -31,7 +31,7 @@ from app.core.security import TokenCipher
 from app.integrations.wb import WildberriesClient
 from app.models.domain import MarketplaceAccount, WbPromotion, WbPromotionNomenclature
 from app.models.enums import Marketplace
-from app.services.wb.wb_promotions_sync_service import WbPromotionsSyncService
+from app.services.wb.promotions.wb_promotions_sync_service import WbPromotionsSyncService
 
 logging.basicConfig(
     level=logging.INFO,

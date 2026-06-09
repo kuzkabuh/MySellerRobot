@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.services.pricing.wb_auto_promo_price_service import (
+from app.services.wb.pricing.wb_auto_promo_price_service import (
     STATUS_AUTO_MIN_PRICE_VIOLATION,
     STATUS_AUTO_PRICE_OK,
     STATUS_AUTO_PRICE_VIOLATION,
@@ -21,11 +21,11 @@ from app.services.pricing.wb_auto_promo_price_service import (
     STATUS_AUTO_SET_PRICE,
     WbAutoPromoPriceService,
 )
-from app.services.pricing.wb_price_update_service import (
+from app.services.wb.pricing.wb_price_update_service import (
     calculate_wb_price_payload_for_target,
     is_quarantine_risk,
 )
-from app.services.wb.wb_current_prices_sync_service import WbCurrentPricesSyncService
+from app.services.wb.pricing.wb_current_prices_sync_service import WbCurrentPricesSyncService
 
 
 def _make_product(
@@ -328,7 +328,7 @@ class TestExtractAutoPromoRequiredPrices:
 
     def test_extract_from_nomenclatures_with_plan_price(self):
         """Should extract required_price from planPrice in nomenclatures list."""
-        from app.services.wb.wb_promotions_sync_service import (
+        from app.services.wb.promotions.wb_promotions_sync_service import (
             extract_auto_promo_required_prices,
         )
 
@@ -358,7 +358,7 @@ class TestExtractAutoPromoRequiredPrices:
 
     def test_extract_from_products_with_required_price(self):
         """Should extract from products list with requiredPrice field."""
-        from app.services.wb.wb_promotions_sync_service import (
+        from app.services.wb.promotions.wb_promotions_sync_service import (
             extract_auto_promo_required_prices,
         )
 
@@ -380,7 +380,7 @@ class TestExtractAutoPromoRequiredPrices:
 
     def test_extract_from_data_nomenclatures(self):
         """Should extract from data.nomenclatures nested structure."""
-        from app.services.wb.wb_promotions_sync_service import (
+        from app.services.wb.promotions.wb_promotions_sync_service import (
             extract_auto_promo_required_prices,
         )
 
@@ -403,7 +403,7 @@ class TestExtractAutoPromoRequiredPrices:
 
     def test_extract_uses_plan_price_over_max_price(self):
         """planPrice should take priority over maxPrice."""
-        from app.services.wb.wb_promotions_sync_service import (
+        from app.services.wb.promotions.wb_promotions_sync_service import (
             extract_auto_promo_required_prices,
         )
 
@@ -423,7 +423,7 @@ class TestExtractAutoPromoRequiredPrices:
 
     def test_extract_multiple_products(self):
         """Should extract conditions for all products in the list."""
-        from app.services.wb.wb_promotions_sync_service import (
+        from app.services.wb.promotions.wb_promotions_sync_service import (
             extract_auto_promo_required_prices,
         )
 
@@ -444,7 +444,7 @@ class TestExtractAutoPromoRequiredPrices:
 
     def test_extract_skips_items_without_price(self):
         """Items without any price field should still be extracted but with None required_price."""
-        from app.services.wb.wb_promotions_sync_service import (
+        from app.services.wb.promotions.wb_promotions_sync_service import (
             extract_auto_promo_required_prices,
         )
 
@@ -463,7 +463,7 @@ class TestExtractAutoPromoRequiredPrices:
 
     def test_extract_from_items_list(self):
         """Should extract from items list as fallback."""
-        from app.services.wb.wb_promotions_sync_service import (
+        from app.services.wb.promotions.wb_promotions_sync_service import (
             extract_auto_promo_required_prices,
         )
 
@@ -477,7 +477,7 @@ class TestExtractAutoPromoRequiredPrices:
 
     def test_extract_from_data_products(self):
         """Should extract from data.products nested structure."""
-        from app.services.wb.wb_promotions_sync_service import (
+        from app.services.wb.promotions.wb_promotions_sync_service import (
             extract_auto_promo_required_prices,
         )
 

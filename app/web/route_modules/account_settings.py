@@ -14,18 +14,18 @@ from app.models.enums import Marketplace
 from app.models.subscriptions import SubscriptionTier
 from app.repositories.products import ProductCostRepository
 from app.schemas.products import CostUpdate
-from app.services.cost_management_service import CostManagementError
-from app.services.data_quality_service import DataQualityService
-from app.services.master_product_service import MasterProductService
-from app.services.plan_fact_service import PlanFactService
-from app.services.stock_forecast_service import StockForecastService
-from app.services.subscription_service import SubscriptionService
-from app.services.unit_economics_service import UnitEconomicsService
-from app.services.web_auth_service import WEB_SESSION_COOKIE, WebAuthService
-from app.services.web_cabinet_service import WebCabinetService
-from app.services.web_dashboard_service import WebDashboardService
-from app.services.web_orders_profit_service import WebOrdersProfitService
-from app.services.web_sync_service import WebSyncService
+from app.services.unit_economics.cost_management_service import CostManagementError
+from app.services.common.data_quality_service import DataQualityService
+from app.services.unit_economics.master_product_service import MasterProductService
+from app.services.unit_economics.plan_fact_service import PlanFactService
+from app.services.unit_economics.stock_forecast_service import StockForecastService
+from app.services.subscriptions.subscription_service import SubscriptionService
+from app.services.unit_economics.unit_economics_service import UnitEconomicsService
+from app.services.account.web_auth_service import WEB_SESSION_COOKIE, WebAuthService
+from app.services.account.web_cabinet_service import WebCabinetService
+from app.services.common.web_dashboard_service import WebDashboardService
+from app.services.common.web_orders_profit_service import WebOrdersProfitService
+from app.services.common.web_sync_service import WebSyncService
 from app.web.dependencies import (
     CURRENT_WEB_USER_DEPENDENCY,
     SESSION_DEPENDENCY,

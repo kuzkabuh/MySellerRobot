@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from app.models.domain import WbDailyReportRow
-from app.services.wb_daily_report_import_service import _finance_components_for_row
+from app.services.wb.reports.import_service import _finance_components_for_row
 
 
 def test_wb_report_finance_components_split_amounts_by_category() -> None:

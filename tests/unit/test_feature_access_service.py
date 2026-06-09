@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy.dialects import postgresql
 
 from app.models.enums import FeatureCode, SubscriptionStatus
-from app.services.feature_access_service import FeatureAccessService
+from app.services.subscriptions.feature_access_service import FeatureAccessService
 
 
 class FakeScalars:

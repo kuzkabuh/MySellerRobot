@@ -18,30 +18,30 @@ from fastapi import HTTPException, Request
 from app.models.domain import AlertEvent, MarketplaceAccount, User
 from app.models.enums import Marketplace
 from app.models.subscriptions import SubscriptionTier
-from app.services.data_quality_service import DataQualityReport
-from app.services.marketplace_presentation import (
+from app.services.common.data_quality_service import DataQualityReport
+from app.services.common.marketplace_presentation import (
     marketplace_css_class,
     marketplace_title,
     order_status_tone,
     sale_model_title,
     source_event_label,
 )
-from app.services.marketplace_presentation import (
+from app.services.common.marketplace_presentation import (
     order_status_label as presentation_order_status_label,
 )
-from app.services.master_product_service import (
+from app.services.unit_economics.master_product_service import (
     MasterProductAnalyticsRow,
     MasterProductDetail,
     ProductMatchingCandidate,
 )
-from app.services.plan_fact_service import PlanFactPageData
-from app.services.stock_forecast_service import (
+from app.services.unit_economics.plan_fact_service import PlanFactPageData
+from app.services.unit_economics.stock_forecast_service import (
     StockForecastRow,
     stock_status_label,
     stock_status_tone,
 )
-from app.services.unit_economics_service import BreakEvenRow
-from app.services.web_cabinet_service import (
+from app.services.unit_economics.unit_economics_service import BreakEvenRow
+from app.services.account.web_cabinet_service import (
     AccountsPageData,
     ControlPageData,
     CostsPageData,
@@ -51,14 +51,14 @@ from app.services.web_cabinet_service import (
     SubscriptionPageData,
     subscription_status,
 )
-from app.services.web_dashboard_service import (
+from app.services.common.web_dashboard_service import (
     DailyPoint,
     DashboardData,
     DashboardEvent,
     DashboardFilters,
     KpiMetric,
 )
-from app.services.web_orders_profit_service import (
+from app.services.common.web_orders_profit_service import (
     OrderDetail,
     OrderRow,
     OrderWebFilters,
@@ -93,7 +93,7 @@ __all__ = [
 def _orders_content(
     result: Any, timezone: str, *, last_poll_info: dict[str, object] | None = None
 ) -> str:
-    from app.services.web_orders_profit_service import OrderPageResult
+    from app.services.common.web_orders_profit_service import OrderPageResult
 
     if isinstance(result, OrderPageResult):
         page_result = result

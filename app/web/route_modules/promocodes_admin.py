@@ -17,8 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import User
 from app.models.enums import PromoType, PromoUsageStatus
-from app.services.promo_code_service import PromoCodeService, PromoValidationError
-from app.services.tariff_service import TariffService
+from app.services.subscriptions.promo_code_service import PromoCodeService, PromoValidationError
+from app.services.subscriptions.tariff_service import TariffService
 from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY, is_admin_user
 from app.web.rendering import page
 

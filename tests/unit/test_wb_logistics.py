@@ -12,8 +12,8 @@ import pytest
 from app.core.exceptions import MarketplaceApiError
 from app.integrations.wb import WildberriesClient
 from app.models.enums import EconomyConfidence
-from app.services.product_dimensions import calculate_volume_liters, decimal_or_none
-from app.services.wb_logistics.wb_logistics_calculator_service import (
+from app.services.common.product_dimensions import calculate_volume_liters, decimal_or_none
+from app.services.wb.logistics.wb_logistics_calculator_service import (
     WbLogisticsCalculatorService,
     _calculate_base_volume_tariff,
     _calculate_kgt_logistics,
@@ -22,7 +22,7 @@ from app.services.wb_logistics.wb_logistics_calculator_service import (
     _classify_volume_category,
     _safe_decimal,
 )
-from app.services.wb_logistics.wb_logistics_tariff_sync_service import (
+from app.services.wb.logistics.wb_logistics_tariff_sync_service import (
     WbLogisticsTariffSyncService,
     _compute_version_hash,
     _normalize_tariff_entry,

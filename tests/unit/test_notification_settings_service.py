@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.models.enums import NotificationType
-from app.services.notification_settings_service import NotificationSettingsService
+from app.services.alerts.notification_settings_service import NotificationSettingsService
 
 
 class _Result:

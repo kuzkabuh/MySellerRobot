@@ -9,7 +9,7 @@ from decimal import Decimal
 from app.models.enums import Marketplace, SaleModel, SourceEventType, UrgencyType
 from app.schemas.orders import NormalizedOrder, NormalizedOrderItem
 from app.schemas.profit import ProfitResult
-from app.services.message_formatter import MessageFormatter
+from app.services.common.message_formatter import MessageFormatter
 
 
 def test_new_order_card_contains_profit_and_missing_cost_warning() -> None:

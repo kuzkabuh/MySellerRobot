@@ -25,12 +25,12 @@ from app.models.domain import (
 )
 from app.models.enums import PaymentStatus, UserStatus
 from app.models.subscriptions import Payment, SubscriptionTier
-from app.services.audit_log_service import AuditLogService
-from app.services.notification_event_service import NotificationEventService
-from app.services.payment_service import PaymentService
-from app.services.profile_service import ProfileService, ProfileValidationError
-from app.services.subscription_service import SubscriptionService
-from app.services.sync_status_service import SyncStatusService
+from app.services.admin.audit_log_service import AuditLogService
+from app.services.alerts.notification_event_service import NotificationEventService
+from app.services.payments.payment_service import PaymentService
+from app.services.account.profile_service import ProfileService, ProfileValidationError
+from app.services.subscriptions.subscription_service import SubscriptionService
+from app.services.common.sync_status_service import SyncStatusService
 from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY, is_admin_user
 from app.web.rendering import page
 

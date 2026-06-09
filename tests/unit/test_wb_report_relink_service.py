@@ -1,4 +1,4 @@
-from app.services.wb_report_relink_service import normalize_report_srid
+from app.services.wb.reports.relink_service import normalize_report_srid
 
 
 def test_relink_normalizes_srid_for_matching() -> None:

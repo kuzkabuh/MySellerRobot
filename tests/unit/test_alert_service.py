@@ -7,7 +7,7 @@ from decimal import Decimal
 
 from app.models.enums import AlertType
 from app.schemas.profit import ProfitResult
-from app.services.alert_service import AlertService
+from app.services.alerts.alert_service import AlertService
 
 
 def test_profit_alerts_detect_loss_low_margin_and_missing_cost() -> None:

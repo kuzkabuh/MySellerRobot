@@ -4,13 +4,13 @@ from decimal import Decimal
 
 
 def test_import_wb_promotions_sync_service_does_not_fail() -> None:
-    from app.services.wb.wb_promotions_sync_service import WbPromotionsSyncService
+    from app.services.wb.promotions.wb_promotions_sync_service import WbPromotionsSyncService
 
     assert WbPromotionsSyncService is not None
 
 
 def test_auto_promo_condition_required_price_from_direct_fields() -> None:
-    from app.services.pricing.wb_auto_promo_condition_resolver import (
+    from app.services.wb.pricing.wb_auto_promo_condition_resolver import (
         WbAutoPromoConditionResolver,
     )
 
@@ -25,7 +25,7 @@ def test_auto_promo_condition_required_price_from_direct_fields() -> None:
 
 
 def test_auto_promo_condition_required_price_from_max_price() -> None:
-    from app.services.pricing.wb_auto_promo_condition_resolver import (
+    from app.services.wb.pricing.wb_auto_promo_condition_resolver import (
         WbAutoPromoConditionResolver,
     )
 
@@ -37,7 +37,7 @@ def test_auto_promo_condition_required_price_from_max_price() -> None:
 
 
 def test_auto_promo_condition_required_price_from_nested_price_info() -> None:
-    from app.services.pricing.wb_auto_promo_condition_resolver import (
+    from app.services.wb.pricing.wb_auto_promo_condition_resolver import (
         WbAutoPromoConditionResolver,
     )
 
@@ -49,7 +49,7 @@ def test_auto_promo_condition_required_price_from_nested_price_info() -> None:
 
 
 def test_auto_promo_condition_required_price_from_discount_and_full_price() -> None:
-    from app.services.pricing.wb_auto_promo_condition_resolver import (
+    from app.services.wb.pricing.wb_auto_promo_condition_resolver import (
         WbAutoPromoConditionResolver,
     )
 
@@ -62,7 +62,7 @@ def test_auto_promo_condition_required_price_from_discount_and_full_price() -> N
 
 
 def test_auto_promo_condition_finds_any_nested_product_list() -> None:
-    from app.services.pricing.wb_auto_promo_condition_resolver import (
+    from app.services.wb.pricing.wb_auto_promo_condition_resolver import (
         WbAutoPromoConditionResolver,
     )
 
@@ -75,7 +75,7 @@ def test_auto_promo_condition_finds_any_nested_product_list() -> None:
 
 
 def test_recommendation_mrc_1000_required_950_is_can_apply() -> None:
-    from app.services.pricing.wb_price_recommendation_service import (
+    from app.services.wb.pricing.wb_price_recommendation_service import (
         STATUS_CAN_APPLY,
         WbPriceRecommendationService,
     )
@@ -96,7 +96,7 @@ def test_recommendation_mrc_1000_required_950_is_can_apply() -> None:
 
 
 def test_recommendation_required_850_is_blocked_by_mrc() -> None:
-    from app.services.pricing.wb_price_recommendation_service import (
+    from app.services.wb.pricing.wb_price_recommendation_service import (
         STATUS_BLOCKED_BY_MRC,
         WbPriceRecommendationService,
     )
@@ -112,7 +112,7 @@ def test_recommendation_required_850_is_blocked_by_mrc() -> None:
 
 
 def test_recommendation_current_940_required_950_is_already_ok() -> None:
-    from app.services.pricing.wb_price_recommendation_service import (
+    from app.services.wb.pricing.wb_price_recommendation_service import (
         STATUS_ALREADY_OK,
         WbPriceRecommendationService,
     )
@@ -128,7 +128,7 @@ def test_recommendation_current_940_required_950_is_already_ok() -> None:
 
 
 def test_price_apply_payload_950_discount_75() -> None:
-    from app.services.pricing.wb_price_apply_service import WbPriceApplyService
+    from app.services.wb.pricing.wb_price_apply_service import WbPriceApplyService
 
     payload = WbPriceApplyService.build_payload(
         nm_id=123,
@@ -143,7 +143,7 @@ def test_price_apply_payload_950_discount_75() -> None:
 def test_price_apply_blocks_below_min_price() -> None:
     import pytest
 
-    from app.services.pricing.wb_price_apply_service import WbPriceApplyService
+    from app.services.wb.pricing.wb_price_apply_service import WbPriceApplyService
 
     with pytest.raises(ValueError):
         WbPriceApplyService.build_payload(
@@ -155,7 +155,7 @@ def test_price_apply_blocks_below_min_price() -> None:
 
 
 def test_no_required_price_creates_no_required_price_status() -> None:
-    from app.services.pricing.wb_price_recommendation_service import (
+    from app.services.wb.pricing.wb_price_recommendation_service import (
         STATUS_NO_REQUIRED_PRICE,
         WbPriceRecommendationService,
     )
@@ -246,7 +246,7 @@ def test_auto_promo_mrc_1000_promo_950_is_can_apply() -> None:
 
     Since 950 >= 900 (lower bound), the system should recommend price 950.
     """
-    from app.services.pricing.wb_auto_promo_participation_service import (
+    from app.services.wb.pricing.wb_auto_promo_participation_service import (
         STATUS_CAN_APPLY,
         WbAutoPromoParticipationService,
     )
@@ -273,7 +273,7 @@ def test_auto_promo_mrc_1000_promo_950_is_can_apply() -> None:
 
 def test_auto_promo_full_price_is_discounted_times_4() -> None:
     """WB full price = discounted_price * 4 (75% discount)."""
-    from app.services.pricing.wb_auto_promo_participation_service import (
+    from app.services.wb.pricing.wb_auto_promo_participation_service import (
         STATUS_CAN_APPLY,
         WbAutoPromoParticipationService,
     )
@@ -298,7 +298,7 @@ def test_auto_promo_full_price_is_discounted_times_4() -> None:
 
 def test_auto_promo_blocked_when_below_mrc_lower_bound() -> None:
     """If max_auto_promo_price < mrc_lower_bound, recommendation must be blocked."""
-    from app.services.pricing.wb_auto_promo_participation_service import (
+    from app.services.wb.pricing.wb_auto_promo_participation_service import (
         STATUS_BLOCKED_BY_MRC,
         WbAutoPromoParticipationService,
     )
@@ -323,7 +323,7 @@ def test_auto_promo_blocked_when_below_mrc_lower_bound() -> None:
 
 def test_auto_promo_blocked_when_below_min_price() -> None:
     """If max_auto_promo_price < seller minPrice, recommendation must be blocked."""
-    from app.services.pricing.wb_auto_promo_participation_service import (
+    from app.services.wb.pricing.wb_auto_promo_participation_service import (
         STATUS_BLOCKED_BY_MIN_PRICE,
         WbAutoPromoParticipationService,
     )
@@ -348,7 +348,7 @@ def test_auto_promo_blocked_when_below_min_price() -> None:
 
 def test_auto_promo_already_eligible_when_current_price_ok() -> None:
     """If current discounted price already <= candidate, no action needed."""
-    from app.services.pricing.wb_auto_promo_participation_service import (
+    from app.services.wb.pricing.wb_auto_promo_participation_service import (
         STATUS_ALREADY_ELIGIBLE,
         WbAutoPromoParticipationService,
     )
@@ -372,7 +372,7 @@ def test_auto_promo_already_eligible_when_current_price_ok() -> None:
 
 def test_auto_promo_candidate_from_discount_percent() -> None:
     """When no max_auto_promo_price, candidate = current_full_price * (1 - discount/100)."""
-    from app.services.pricing.wb_auto_promo_participation_service import (
+    from app.services.wb.pricing.wb_auto_promo_participation_service import (
         STATUS_CAN_APPLY,
         WbAutoPromoParticipationService,
     )

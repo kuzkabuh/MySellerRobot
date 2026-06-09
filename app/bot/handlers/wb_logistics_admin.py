@@ -16,7 +16,7 @@ from app.core.security import TokenCipher
 from app.integrations.wb import WildberriesClient
 from app.models.domain import MarketplaceAccount
 from app.models.enums import Marketplace
-from app.services.wb_logistics.wb_logistics_tariff_sync_service import (
+from app.services.wb.logistics.wb_logistics_tariff_sync_service import (
     WbLogisticsTariffSyncService,
 )
 

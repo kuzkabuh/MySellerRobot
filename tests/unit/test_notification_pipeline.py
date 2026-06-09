@@ -7,8 +7,8 @@ import pytest
 
 from app.models.domain import AlertEvent, MarketplaceAccount, Order, OrderItem, SalesEvent, User
 from app.models.enums import AlertType, Marketplace, NotificationType, SaleEventType, SaleModel
-from app.services.order_card_service import OrderCardService, VisualNotification
-from app.services.sales_event_sync_service import (
+from app.services.unit_economics.order_card_service import OrderCardService, VisualNotification
+from app.services.common.sales_event_sync_service import (
     OrderLifecycleNotification,
     SaleNotification,
     SalesEventSyncService,
@@ -491,7 +491,7 @@ def _sale_event(marketplace: Marketplace) -> SalesEvent:
 
 
 def _order_notification():
-    from app.services.order_processing_service import NewOrderNotification
+    from app.services.common.order_processing_service import NewOrderNotification
 
     return NewOrderNotification(
         telegram_id=777000,

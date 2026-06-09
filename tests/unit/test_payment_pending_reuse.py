@@ -8,7 +8,7 @@ import pytest
 
 from app.models.enums import PaymentStatus
 from app.models.subscriptions import Payment
-from app.services.payment_service import PaymentService
+from app.services.payments.payment_service import PaymentService
 
 
 @pytest.fixture
@@ -73,8 +73,8 @@ class TestPendingPaymentReuse:
         ]
 
         with (
-            patch("app.services.payment_service.get_settings") as mock_settings,
-            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payments.payment_service.get_settings") as mock_settings,
+            patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
         ):
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
@@ -125,8 +125,8 @@ class TestPendingPaymentReuse:
         ]
 
         with (
-            patch("app.services.payment_service.get_settings") as mock_settings,
-            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payments.payment_service.get_settings") as mock_settings,
+            patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
         ):
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
@@ -182,8 +182,8 @@ class TestPendingPaymentReuse:
         ]
 
         with (
-            patch("app.services.payment_service.get_settings") as mock_settings,
-            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payments.payment_service.get_settings") as mock_settings,
+            patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
         ):
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
@@ -217,8 +217,8 @@ class TestPendingPaymentReuse:
         ]
 
         with (
-            patch("app.services.payment_service.get_settings") as mock_settings,
-            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payments.payment_service.get_settings") as mock_settings,
+            patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
         ):
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
@@ -288,8 +288,8 @@ class TestReconciliationOfStuckPayments:
         ]
 
         with (
-            patch("app.services.payment_service.get_settings") as mock_settings,
-            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payments.payment_service.get_settings") as mock_settings,
+            patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
             patch("app.bot.main.create_bot") as mock_create_bot,
         ):
             settings = MagicMock()
@@ -351,8 +351,8 @@ class TestReconciliationOfStuckPayments:
         ]
 
         with (
-            patch("app.services.payment_service.get_settings") as mock_settings,
-            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payments.payment_service.get_settings") as mock_settings,
+            patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
         ):
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"
@@ -400,8 +400,8 @@ class TestReconciliationOfStuckPayments:
         ]
 
         with (
-            patch("app.services.payment_service.get_settings") as mock_settings,
-            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payments.payment_service.get_settings") as mock_settings,
+            patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
             patch("app.bot.main.create_bot") as mock_create_bot,
         ):
             settings = MagicMock()
@@ -471,8 +471,8 @@ class TestReconciliationOfStuckPayments:
         ]
 
         with (
-            patch("app.services.payment_service.get_settings") as mock_settings,
-            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payments.payment_service.get_settings") as mock_settings,
+            patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
             patch("app.bot.main.create_bot") as mock_create_bot,
         ):
             settings = MagicMock()
@@ -531,8 +531,8 @@ class TestReconciliationOfStuckPayments:
         ]
 
         with (
-            patch("app.services.payment_service.get_settings") as mock_settings,
-            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payments.payment_service.get_settings") as mock_settings,
+            patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
         ):
             settings = MagicMock()
             settings.yookassa_shop_id = "shop"

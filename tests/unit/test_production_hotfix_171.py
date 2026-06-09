@@ -140,7 +140,7 @@ class TestPartialPollingFailure:
 
     @pytest.mark.asyncio
     async def test_recovery_failure_sets_flag(self) -> None:
-        from app.services.order_processing_service import OrderProcessingService
+        from app.services.common.order_processing_service import OrderProcessingService
 
         session = AsyncMock()
         service = OrderProcessingService(session)
@@ -181,7 +181,7 @@ class TestPartialPollingFailure:
 
     @pytest.mark.asyncio
     async def test_success_advances_cursor(self) -> None:
-        from app.services.order_processing_service import OrderProcessingService
+        from app.services.common.order_processing_service import OrderProcessingService
 
         session = AsyncMock()
         service = OrderProcessingService(session)
@@ -227,7 +227,7 @@ class TestMissingGreenletSafety:
     @pytest.mark.asyncio
     async def test_poll_failure_uses_saved_primitives(self) -> None:
         from app.core.exceptions import IntegrationError
-        from app.services.order_processing_service import OrderProcessingService
+        from app.services.common.order_processing_service import OrderProcessingService
 
         session = AsyncMock()
         session.rollback = AsyncMock()
@@ -256,7 +256,7 @@ class TestSaleNotificationPhotoFallback:
 
     @pytest.mark.asyncio
     async def test_photo_success_no_fallback(self) -> None:
-        from app.services.notification_service import NotificationService
+        from app.services.alerts.notification_service import NotificationService
 
         bot = AsyncMock()
         notifier = NotificationService(bot)
@@ -274,7 +274,7 @@ class TestSaleNotificationPhotoFallback:
 
     @pytest.mark.asyncio
     async def test_photo_failure_falls_back_to_text(self) -> None:
-        from app.services.notification_service import NotificationService
+        from app.services.alerts.notification_service import NotificationService
 
         bot = AsyncMock()
         bot.send_photo = AsyncMock(side_effect=Exception("wrong type of the web page content"))
@@ -296,7 +296,7 @@ class TestSaleNotificationPhotoFallback:
 
     @pytest.mark.asyncio
     async def test_no_image_uses_text_directly(self) -> None:
-        from app.services.notification_service import NotificationService
+        from app.services.alerts.notification_service import NotificationService
 
         bot = AsyncMock()
         notifier = NotificationService(bot)

@@ -5,7 +5,7 @@ updated: 2026-05-17
 
 import pytest
 
-from app.services.notification_service import NotificationService
+from app.services.alerts.notification_service import NotificationService
 
 
 class FakeBot:

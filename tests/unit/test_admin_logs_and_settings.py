@@ -19,7 +19,7 @@ class TestAdminLogsModal:
         """Test that log entries with quotes don't break JavaScript."""
         from datetime import UTC, datetime
 
-        from app.services.log_viewer_service import LogEntry
+        from app.services.admin.log_viewer_service import LogEntry
 
         # Create a log entry with problematic characters
         entry = LogEntry(
@@ -49,7 +49,7 @@ class TestAdminLogsModal:
         """Test that log entries with HTML tags are handled safely."""
         from datetime import UTC, datetime
 
-        from app.services.log_viewer_service import LogEntry
+        from app.services.admin.log_viewer_service import LogEntry
 
         entry = LogEntry(
             timestamp=datetime.now(UTC),
@@ -98,7 +98,7 @@ class TestLogViewerServiceMasking:
 
     def test_mask_sensitive_data_in_logs(self):
         """Test that sensitive data is masked in log entries."""
-        from app.services.log_viewer_service import LogViewerService
+        from app.services.admin.log_viewer_service import LogViewerService
 
         service = LogViewerService()
 

@@ -6,7 +6,7 @@ updated: 2026-05-15
 from decimal import Decimal
 
 from app.models.enums import Marketplace
-from app.services.master_product_service import (
+from app.services.unit_economics.master_product_service import (
     MarketplaceComparisonRow,
     MarketplaceProductInfo,
     MasterProductAnalyticsRow,

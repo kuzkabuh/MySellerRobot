@@ -26,11 +26,11 @@ from app.core.config import get_settings
 from app.core.db import get_session
 from app.models.domain import MarketplaceAccount, User
 from app.models.enums import Marketplace
-from app.services.commission_tariffs.admin_notifications import notify_admins
-from app.services.profile_service import ProfileService, ProfileUpdateData, ProfileValidationError
-from app.services.subscription_service import SubscriptionService
-from app.services.support_service import SupportService
-from app.services.user_activity_service import UserActivityService
+from app.services.commissions.admin_notifications import notify_admins
+from app.services.account.profile_service import ProfileService, ProfileUpdateData, ProfileValidationError
+from app.services.subscriptions.subscription_service import SubscriptionService
+from app.services.admin.support_service import SupportService
+from app.services.admin.user_activity_service import UserActivityService
 from app.utils.datetime import format_datetime_for_user
 
 logger = logging.getLogger(__name__)
@@ -235,7 +235,7 @@ async def check_wb_key(callback: CallbackQuery) -> None:
         await callback.answer("Проверяю ключ...", show_alert=False)
 
         from app.core.security import TokenCipher
-        from app.services.api_key_validation_service import ApiKeyValidationService
+        from app.services.account.api_key_validation_service import ApiKeyValidationService
 
         cipher = TokenCipher()
         validator = ApiKeyValidationService(session, cipher)
@@ -287,7 +287,7 @@ async def check_ozon_key(callback: CallbackQuery) -> None:
         await callback.answer("Проверяю ключ...", show_alert=False)
 
         from app.core.security import TokenCipher
-        from app.services.api_key_validation_service import ApiKeyValidationService
+        from app.services.account.api_key_validation_service import ApiKeyValidationService
 
         cipher = TokenCipher()
         validator = ApiKeyValidationService(session, cipher)

@@ -65,25 +65,25 @@ from app.models.subscriptions import Payment, UserSubscription
 from app.repositories.accounts import MarketplaceAccountRepository
 from app.repositories.orders import OrderRepository
 from app.repositories.users import UserRepository
-from app.services.admin_service import AdminService
-from app.services.daily_report_service import DailyReportService
-from app.services.data_quality_service import DataQualityService
-from app.services.deployment_service import DeploymentService
-from app.services.fbs_control_service import FbsControlService
-from app.services.integration_error_classifier import classify_integration_error
-from app.services.marketplace_estimates import (
+from app.services.admin.admin_service import AdminService
+from app.services.alerts.daily_report_service import DailyReportService
+from app.services.common.data_quality_service import DataQualityService
+from app.services.admin.deployment_service import DeploymentService
+from app.services.alerts.fbs_control_service import FbsControlService
+from app.services.common.integration_error_classifier import classify_integration_error
+from app.services.unit_economics.marketplace_estimates import (
     PlannedEconomics,
     calculate_planned_economics,
     confidence_label,
     confidence_notes,
 )
-from app.services.message_formatter import format_user_datetime, rub
-from app.services.plan_fact_service import PlanFactService
-from app.services.stock_forecast_service import StockForecastService
-from app.services.subscription_service import SubscriptionService
-from app.services.unit_economics_service import UnitEconomicsService
-from app.services.web_auth_service import WebAuthService
-from app.services.web_sync_service import WebSyncService
+from app.services.common.message_formatter import format_user_datetime, rub
+from app.services.unit_economics.plan_fact_service import PlanFactService
+from app.services.unit_economics.stock_forecast_service import StockForecastService
+from app.services.subscriptions.subscription_service import SubscriptionService
+from app.services.unit_economics.unit_economics_service import UnitEconomicsService
+from app.services.account.web_auth_service import WebAuthService
+from app.services.common.web_sync_service import WebSyncService
 
 router = Router(name="common")
 logger = logging.getLogger(__name__)

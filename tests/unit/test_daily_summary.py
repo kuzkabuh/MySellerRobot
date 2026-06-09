@@ -7,7 +7,7 @@ from datetime import date
 from decimal import Decimal
 
 from app.models.enums import Marketplace
-from app.services.daily_report_service import DailyReportService
+from app.services.alerts.daily_report_service import DailyReportService
 
 
 def test_summary_formats_wb_and_ozon_blocks_and_total() -> None:

@@ -7,8 +7,8 @@ import pytest
 from app.bot.states import MrcStates
 from app.core.exceptions import ValidationError
 from app.models.enums import FeatureCode
-from app.services.feature_access_service import _PRO_FEATURES
-from app.services.pricing.wb_mrc_price_service import WbMrcPriceService
+from app.services.subscriptions.feature_access_service import _PRO_FEATURES
+from app.services.wb.pricing.wb_mrc_price_service import WbMrcPriceService
 
 
 class TestFeatureCodeMrcPricing:
@@ -24,7 +24,7 @@ class TestFeatureCodeMrcPricing:
 
     def test_mrc_required_plan_is_pro(self) -> None:
         """MRC_PRICING should require Pro plan."""
-        from app.services.feature_access_service import FeatureAccessService
+        from app.services.subscriptions.feature_access_service import FeatureAccessService
 
         assert FeatureAccessService._required_plan_for_feature(FeatureCode.MRC_PRICING) == "Pro"
 

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.services.user_sync_status_service import (
+from app.services.common.user_sync_status_service import (
     SYNC_STATUS_LABELS,
     SYNC_TYPES,
     UserSyncStatusService,

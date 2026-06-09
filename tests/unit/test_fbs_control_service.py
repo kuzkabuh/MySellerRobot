@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 from app.models.domain import Order
 from app.models.enums import Marketplace, SaleModel
-from app.services.fbs_control_service import FbsControlService
+from app.services.alerts.fbs_control_service import FbsControlService
 
 
 def test_format_deadline_alert() -> None:

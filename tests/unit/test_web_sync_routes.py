@@ -8,8 +8,8 @@ from fastapi.testclient import TestClient
 
 from app.api.main import create_app
 from app.core.db import get_session
-from app.services.web_auth_service import WEB_SESSION_COOKIE, WebAuthService
-from app.services.web_sync_service import WebSyncRequestResult, WebSyncService
+from app.services.account.web_auth_service import WEB_SESSION_COOKIE, WebAuthService
+from app.services.common.web_sync_service import WebSyncRequestResult, WebSyncService
 
 
 class FakeAsyncSession:

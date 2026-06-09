@@ -3,7 +3,7 @@ description: Unit tests for integration error classification and recommendations
 updated: 2026-05-15
 """
 
-from app.services.integration_error_classifier import (
+from app.services.common.integration_error_classifier import (
     IntegrationErrorKind,
     classify_integration_error,
 )

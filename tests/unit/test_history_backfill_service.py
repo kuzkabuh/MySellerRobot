@@ -10,7 +10,7 @@ import pytest
 
 from app.models.domain import SyncJob
 from app.models.enums import Marketplace, SyncJobStatus, SyncJobType
-from app.services.history_backfill_service import BackfillCounters, HistoryBackfillService
+from app.services.common.history_backfill_service import BackfillCounters, HistoryBackfillService
 
 
 class FakeSyncJobs:

@@ -6,7 +6,7 @@ updated: 2026-05-15
 from decimal import Decimal
 
 from app.models.enums import Marketplace
-from app.services.unit_economics_service import UnitEconomicsService
+from app.services.unit_economics.unit_economics_service import UnitEconomicsService
 
 
 def test_break_even_price_uses_commission_logistics_cost_and_tax() -> None:

@@ -13,7 +13,7 @@ from app.models.wb_logistics_tariffs import (
     WbLogisticsTariffRate,
     WbLogisticsTariffVersion,
 )
-from app.services.wb_logistics.wb_logistics_tariff_sync_service import (
+from app.services.wb.logistics.wb_logistics_tariff_sync_service import (
     WbLogisticsTariffSyncService,
 )
 from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY, is_admin_user

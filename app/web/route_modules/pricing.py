@@ -31,17 +31,17 @@ from app.models.domain import (
     WbPromotionNomenclature,
 )
 from app.models.enums import Marketplace
-from app.services.pricing.wb_auto_promo_condition_resolver import WbAutoPromoConditionResolver
-from app.services.pricing.wb_auto_promo_file_import_service import (
+from app.services.wb.pricing.wb_auto_promo_condition_resolver import WbAutoPromoConditionResolver
+from app.services.wb.pricing.wb_auto_promo_file_import_service import (
     AutoPromoFilePreview,
     WbAutoPromoFileImportService,
 )
-from app.services.pricing.wb_auto_promo_participation_service import (
+from app.services.wb.pricing.wb_auto_promo_participation_service import (
     WbAutoPromoParticipationService,
 )
-from app.services.pricing.wb_price_apply_service import WbPriceApplyService
-from app.services.pricing.wb_price_sync_service import WbPriceSyncService
-from app.services.web_sync_service import WebSyncService, WebSyncType
+from app.services.wb.pricing.wb_price_apply_service import WbPriceApplyService
+from app.services.wb.pricing.wb_price_sync_service import WbPriceSyncService
+from app.services.common.web_sync_service import WebSyncService, WebSyncType
 from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY
 from app.web.rendering import page
 

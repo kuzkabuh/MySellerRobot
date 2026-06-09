@@ -8,8 +8,8 @@ from decimal import Decimal
 
 from app.models.domain import FboDigestQueue
 from app.models.enums import FboNotificationMode, Marketplace, SaleModel
-from app.services.fbo_digest_service import FboDigestService
-from app.services.order_notification_policy import OrderNotificationPolicyService
+from app.services.alerts.fbo_digest_service import FboDigestService
+from app.services.alerts.order_notification_policy import OrderNotificationPolicyService
 
 
 def test_default_policy_sends_fbs_and_queues_fbo_digest() -> None:

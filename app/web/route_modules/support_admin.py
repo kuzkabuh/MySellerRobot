@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.main import create_bot
 from app.models.domain import SupportTicket, User
-from app.services.support_service import (
+from app.services.admin.support_service import (
     SUPPORT_PRIORITIES,
     SUPPORT_STATUSES,
     TICKET_PRIORITY,

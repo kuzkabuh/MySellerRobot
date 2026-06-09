@@ -2,7 +2,7 @@
 
 from decimal import Decimal
 
-from app.services.pricing.wb_price_update_service import (
+from app.services.wb.pricing.wb_price_update_service import (
     calculate_wb_price_payload_for_target,
     is_quarantine_risk,
 )

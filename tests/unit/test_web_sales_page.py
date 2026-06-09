@@ -8,12 +8,12 @@ from typing import Any
 import pytest
 
 from app.models.enums import Marketplace
-from app.services.web_cabinet_service import SalesPageData, SalesRow
+from app.services.account.web_cabinet_service import SalesPageData, SalesRow
 
 
 def _make_filters(**kwargs: Any) -> SimpleNamespace:
     """Create a DashboardFilters-like namespace for testing."""
-    from app.services.web_dashboard_service import DashboardFilters
+    from app.services.common.web_dashboard_service import DashboardFilters
 
     return SimpleNamespace(
         period=kwargs.get("period", "30d"),

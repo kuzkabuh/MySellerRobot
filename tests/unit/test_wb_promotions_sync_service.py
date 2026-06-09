@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.services.wb.wb_promotions_sync_service import (
+from app.services.wb.promotions.wb_promotions_sync_service import (
     WbPromotionsSyncService,
     _extract_nomenclatures_list,
     _extract_promotions_list,

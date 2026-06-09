@@ -11,7 +11,7 @@ import pytest
 
 from app.models.enums import SubscriptionStatus
 from app.models.subscriptions import SubscriptionTier, UserSubscription
-from app.services.subscription_service import SubscriptionService
+from app.services.subscriptions.subscription_service import SubscriptionService
 
 
 def _make_tier(

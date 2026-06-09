@@ -21,7 +21,7 @@ import pytest
 
 from app.models.enums import PaymentStatus
 from app.models.subscriptions import Payment
-from app.services.payment_service import PaymentService
+from app.services.payments.payment_service import PaymentService
 
 
 @pytest.fixture

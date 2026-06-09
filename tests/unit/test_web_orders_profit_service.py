@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy.dialects import postgresql
 
 from app.models.enums import Marketplace, SaleModel
-from app.services.web_orders_profit_service import (
+from app.services.common.web_orders_profit_service import (
     ProfitSkuRow,
     WebOrdersProfitService,
     _reconciliation_status,
@@ -192,7 +192,7 @@ def test_reconciliation_status_maps_wb_fact_states() -> None:
 
 def test_order_page_result_dataclass_exists() -> None:
     """Verify OrderPageResult dataclass is available for pagination."""
-    from app.services.web_orders_profit_service import OrderPageResult
+    from app.services.common.web_orders_profit_service import OrderPageResult
 
     result = OrderPageResult(
         filters=build_order_web_filters(
@@ -222,7 +222,7 @@ def test_order_page_result_dataclass_exists() -> None:
 
 def test_pagination_total_pages_calculation() -> None:
     """Verify total pages are calculated correctly."""
-    from app.services.web_orders_profit_service import OrderPageResult
+    from app.services.common.web_orders_profit_service import OrderPageResult
 
     def make_result(total: int, per_page: int, page: int = 1) -> OrderPageResult:
         total_pages = max(1, (total + per_page - 1) // per_page)

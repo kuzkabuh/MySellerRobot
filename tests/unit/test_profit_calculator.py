@@ -6,7 +6,7 @@ updated: 2026-05-15
 from decimal import Decimal
 
 from app.schemas.profit import CostInput, ProfitInput
-from app.services.profit_calculator import ProfitCalculator
+from app.services.unit_economics.profit_calculator import ProfitCalculator
 
 
 def test_profit_calculation_with_costs() -> None:

@@ -11,7 +11,7 @@ import pytest
 
 from app.models.enums import PaymentStatus
 from app.models.subscriptions import Payment
-from app.services.payment_service import PaymentService
+from app.services.payments.payment_service import PaymentService
 
 
 @pytest.fixture
@@ -28,14 +28,14 @@ def mock_session():
 @pytest.fixture
 def mock_yookassa():
     """Mock YooKassa client."""
-    with patch("app.services.payment_service.YooKassaClient") as mock:
+    with patch("app.services.payments.payment_service.YooKassaClient") as mock:
         yield mock
 
 
 @pytest.fixture
 def payment_service(mock_session, mock_yookassa):
     """Create PaymentService with mocked dependencies."""
-    with patch("app.services.payment_service.get_settings") as mock_settings:
+    with patch("app.services.payments.payment_service.get_settings") as mock_settings:
         settings = MagicMock()
         settings.yookassa_shop_id = "test_shop"
         settings.yookassa_secret_key.get_secret_value.return_value = "test_secret"

@@ -2,10 +2,10 @@
 
 from decimal import Decimal
 
-from app.services.pricing.wb_auto_promo_condition_resolver import (
+from app.services.wb.pricing.wb_auto_promo_condition_resolver import (
     WbAutoPromoConditionResolver,
 )
-from app.services.pricing.wb_auto_promo_participation_service import (
+from app.services.wb.pricing.wb_auto_promo_participation_service import (
     STATUS_ALREADY_ELIGIBLE,
     STATUS_BLOCKED_BY_MIN_PRICE,
     STATUS_BLOCKED_BY_MRC,
@@ -13,7 +13,7 @@ from app.services.pricing.wb_auto_promo_participation_service import (
     STATUS_NO_AUTO_PROMO_PRICE,
     WbAutoPromoParticipationService,
 )
-from app.services.pricing.wb_price_apply_service import WbPriceApplyService
+from app.services.wb.pricing.wb_price_apply_service import WbPriceApplyService
 
 
 def test_mrc_1000_max_auto_950_current_1000_can_apply() -> None:

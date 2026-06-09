@@ -10,7 +10,7 @@ import asyncio
 import logging
 
 from app.core.db import AsyncSessionFactory
-from app.services.payment_service import PaymentService
+from app.services.payments.payment_service import PaymentService
 
 logger = logging.getLogger(__name__)
 

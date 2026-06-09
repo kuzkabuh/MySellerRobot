@@ -35,10 +35,10 @@ from app.models.domain import (
     WbPromotionNomenclature,
 )
 from app.models.enums import Marketplace, SubscriptionStatus
-from app.services.feature_access_service import FeatureAccessService, FeatureCode
-from app.services.pricing.mrc_import_service import MrcImportService
-from app.services.pricing.mrc_pricing_settings_service import MrcPricingSettingsService
-from app.services.pricing.wb_auto_promo_price_service import (
+from app.services.subscriptions.feature_access_service import FeatureAccessService, FeatureCode
+from app.services.wb.pricing.mrc_import_service import MrcImportService
+from app.services.wb.pricing.mrc_pricing_settings_service import MrcPricingSettingsService
+from app.services.wb.pricing.wb_auto_promo_price_service import (
     STATUS_AUTO_MIN_PRICE_VIOLATION,
     STATUS_AUTO_PRICE_OK,
     STATUS_AUTO_PRICE_VIOLATION,
@@ -46,8 +46,8 @@ from app.services.pricing.wb_auto_promo_price_service import (
     STATUS_AUTO_SET_PRICE,
     WbAutoPromoPriceService,
 )
-from app.services.pricing.wb_mrc_price_service import WbMrcPriceResult, WbMrcPriceService
-from app.services.wb.wb_promotions_sync_service import WbPromotionsSyncService
+from app.services.wb.pricing.wb_mrc_price_service import WbMrcPriceResult, WbMrcPriceService
+from app.services.wb.promotions.wb_promotions_sync_service import WbPromotionsSyncService
 from app.utils.datetime import format_datetime_for_user
 from app.web.dependencies import (
     CURRENT_WEB_USER_DEPENDENCY,
@@ -283,7 +283,7 @@ async def save_mrc_price(
         },
     )
     try:
-        from app.services.audit_log_service import AuditLogService
+        from app.services.admin.audit_log_service import AuditLogService
 
         await AuditLogService(session).log(
             "mrc_price_updated",
@@ -479,7 +479,7 @@ async def trigger_wb_prices_sync(
     """Manually trigger WB current prices sync."""
     await _ensure_mrc_access(session, user.id)
     from app.core.security import TokenCipher
-    from app.services.wb.wb_current_prices_sync_service import WbCurrentPricesSyncService
+    from app.services.wb.pricing.wb_current_prices_sync_service import WbCurrentPricesSyncService
 
     service = WbCurrentPricesSyncService(session, cipher=TokenCipher())
     try:
@@ -619,7 +619,7 @@ async def export_mrc_template(
     try:
         from fastapi.responses import FileResponse
 
-        from app.services.pricing.mrc_import_service import MrcImportService
+        from app.services.wb.pricing.mrc_import_service import MrcImportService
 
         access = await FeatureAccessService(session).can_use_feature(
             user.id, FeatureCode.MRC_PRICING
@@ -742,7 +742,7 @@ async def confirm_mrc_import(
     await _ensure_mrc_access(session, user.id)
     user_id = user.id
     try:
-        from app.services.pricing.mrc_import_service import MrcImportService
+        from app.services.wb.pricing.mrc_import_service import MrcImportService
 
         form_data = await request.form()
         import_id = _form_data_str(form_data, "import_id")
@@ -778,7 +778,7 @@ async def cancel_mrc_import(
     await _ensure_mrc_access(session, user.id)
     user_id = user.id
     try:
-        from app.services.pricing.mrc_import_service import MrcImportService
+        from app.services.wb.pricing.mrc_import_service import MrcImportService
 
         form_data = await request.form()
         import_id = _form_data_str(form_data, "import_id")
@@ -810,7 +810,7 @@ async def auto_promo_prices_page(
                 active_path="/web/mrc-pricing",
             )
 
-        from app.services.pricing.wb_price_update_service import WbPriceUpdateService
+        from app.services.wb.pricing.wb_price_update_service import WbPriceUpdateService
 
         price_service = WbPriceUpdateService(session)
 
@@ -891,7 +891,7 @@ async def auto_promo_prices_apply(
             return RedirectResponse(url="/web/auto-promo-prices?error=no_api_key", status_code=303)
 
         from app.core.security import TokenCipher
-        from app.services.pricing.wb_price_update_service import WbPriceUpdateService
+        from app.services.wb.pricing.wb_price_update_service import WbPriceUpdateService
 
         price_service = WbPriceUpdateService(session)
 
@@ -1209,7 +1209,7 @@ async def auto_promo_import_template(
 
         from fastapi.responses import FileResponse
 
-        from app.services.pricing.wb_auto_promo_import_service import (
+        from app.services.wb.pricing.wb_auto_promo_import_service import (
             WbAutoPromoImportService,
         )
 
@@ -1303,7 +1303,7 @@ async def auto_promo_condition_manual(
             },
         )
 
-        from app.services.pricing.wb_auto_promo_price_service import (
+        from app.services.wb.pricing.wb_auto_promo_price_service import (
             WbAutoPromoPriceService,
         )
 
@@ -1368,7 +1368,7 @@ async def auto_promo_import_preview(
         import tempfile
         from pathlib import Path
 
-        from app.services.pricing.wb_auto_promo_import_service import (
+        from app.services.wb.pricing.wb_auto_promo_import_service import (
             WbAutoPromoImportService,
         )
 
@@ -1436,7 +1436,7 @@ async def auto_promo_import_apply(
                 active_path="/web/mrc-pricing",
             )
 
-        from app.services.pricing.wb_auto_promo_import_service import (
+        from app.services.wb.pricing.wb_auto_promo_import_service import (
             WbAutoPromoImportService,
         )
 
@@ -1492,7 +1492,7 @@ async def auto_promo_recommendations_page(
                 active_path="/web/mrc-pricing",
             )
 
-        from app.services.pricing.wb_price_update_service import (
+        from app.services.wb.pricing.wb_price_update_service import (
             WbPriceUpdateService,
         )
 
@@ -1532,7 +1532,7 @@ async def auto_promo_recommendations_page(
             db_recs = list(recs_result.scalars().all())
 
             for db_rec in db_recs:
-                from app.services.pricing.wb_auto_promo_price_service import (
+                from app.services.wb.pricing.wb_auto_promo_price_service import (
                     AutoPromoPriceRecommendation,
                 )
 
@@ -1625,7 +1625,7 @@ async def auto_promo_recommendations_build(
                 active_path="/web/mrc-pricing",
             )
 
-        from app.services.pricing.wb_auto_promo_price_service import (
+        from app.services.wb.pricing.wb_auto_promo_price_service import (
             WbAutoPromoPriceService,
         )
 
@@ -1699,10 +1699,10 @@ async def auto_promo_recommendations_export(
 
         from openpyxl import Workbook
 
-        from app.services.pricing.wb_auto_promo_price_service import (
+        from app.services.wb.pricing.wb_auto_promo_price_service import (
             WbAutoPromoPriceService,
         )
-        from app.services.pricing.wb_price_update_service import (
+        from app.services.wb.pricing.wb_price_update_service import (
             WbPriceUpdateService,
         )
 

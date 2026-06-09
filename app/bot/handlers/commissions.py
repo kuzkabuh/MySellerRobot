@@ -19,17 +19,17 @@ from app.core.security import TokenCipher
 from app.models.domain import User
 from app.models.enums import Marketplace
 from app.repositories.accounts import MarketplaceAccountRepository
-from app.services.commission_tariffs.admin_notifications import (
+from app.services.commissions.admin_notifications import (
     format_ozon_import_notification,
     format_ozon_monitor_notification,
     format_wb_sync_notification,
     notify_admins,
 )
-from app.services.commission_tariffs.ozon_commission_source_monitor_service import (
+from app.services.ozon.commissions.ozon_commission_source_monitor_service import (
     OzonCommissionSourceMonitorService,
 )
-from app.services.commission_tariffs.ozon_commission_xlsx_importer import OzonCommissionXlsxImporter
-from app.services.commission_tariffs.wb_commission_sync_service import WbCommissionSyncService
+from app.services.ozon.commissions.ozon_commission_xlsx_importer import OzonCommissionXlsxImporter
+from app.services.wb.commissions.wb_commission_sync_service import WbCommissionSyncService
 
 router = Router(name="commission_admin")
 logger = logging.getLogger(__name__)

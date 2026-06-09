@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 from app.models.domain import Product, StockSnapshot
 from app.models.enums import Marketplace
-from app.services.stock_service import StockService
+from app.services.common.stock_service import StockService
 
 
 class _DummyProducts:

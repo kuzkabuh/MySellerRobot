@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.services.log_viewer_service import (
+from app.services.admin.log_viewer_service import (
     ALLOWED_LOG_FILES,
     LogViewerService,
 )
@@ -82,8 +82,8 @@ def temp_logs_dir(tmp_path):
 @pytest.fixture
 def service(temp_logs_dir):
     with (
-        patch("app.services.log_viewer_service.LOGS_DIR", temp_logs_dir),
-        patch("app.services.log_viewer_service.ARCHIVE_DIR", temp_logs_dir / "archive"),
+        patch("app.services.admin.log_viewer_service.LOGS_DIR", temp_logs_dir),
+        patch("app.services.admin.log_viewer_service.ARCHIVE_DIR", temp_logs_dir / "archive"),
     ):
         svc = LogViewerService()
         yield svc

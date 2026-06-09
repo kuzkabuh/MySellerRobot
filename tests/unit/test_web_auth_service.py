@@ -8,8 +8,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services.web_auth_service import WebAuthService
-from app.services.web_password_auth_service import WebPasswordAuthError, WebPasswordAuthService
+from app.services.account.web_auth_service import WebAuthService
+from app.services.account.web_password_auth_service import WebPasswordAuthError, WebPasswordAuthService
 
 
 class FakeWebAuthRepository:
@@ -174,7 +174,7 @@ def test_canonical_web_base_url_strips_trailing_web() -> None:
 
 
 def test_login_link_path_is_canonical() -> None:
-    from app.services.web_auth_service import WEB_LOGIN_PATH
+    from app.services.account.web_auth_service import WEB_LOGIN_PATH
 
     assert WEB_LOGIN_PATH == "/web/login"
     assert "/web/web" not in WEB_LOGIN_PATH

@@ -259,7 +259,7 @@ class TestPartialFailureSemantics:
 
     @pytest.mark.asyncio
     async def test_wb_live_poll_updates_timestamp_on_recovery_failure(self) -> None:
-        from app.services.order_processing_service import (
+        from app.services.common.order_processing_service import (
             OrderProcessingService,
         )
 
@@ -359,7 +359,7 @@ class TestPartialFailureSemantics:
 
     @pytest.mark.asyncio
     async def test_ozon_poll_updates_timestamp(self) -> None:
-        from app.services.order_processing_service import (
+        from app.services.common.order_processing_service import (
             OrderProcessingService,
         )
 

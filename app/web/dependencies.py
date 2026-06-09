@@ -10,7 +10,7 @@ from app.core.config import get_settings
 from app.core.db import get_session
 from app.models.domain import User
 from app.repositories.web_auth import WebAuthRepository
-from app.services.web_auth_service import WEB_SESSION_COOKIE, WebAuthService
+from app.services.account.web_auth_service import WEB_SESSION_COOKIE, WebAuthService
 
 SESSION_DEPENDENCY = Depends(get_session)
 WEB_DASHBOARD_PATH = "/web/"

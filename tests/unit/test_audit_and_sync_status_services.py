@@ -2,8 +2,8 @@
 
 import pytest
 
-from app.services.audit_log_service import AuditLogService
-from app.services.sync_status_service import (
+from app.services.admin.audit_log_service import AuditLogService
+from app.services.common.sync_status_service import (
     STATUS_COMPLETED_WITH_WARNINGS,
     STATUS_FAILED,
     STATUS_SUCCESS,

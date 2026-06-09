@@ -15,7 +15,7 @@ from app.models.domain import (
 )
 from app.models.enums import CalculationType, Marketplace, SaleModel, SourceEventType
 from app.schemas.profit import CostInput, ProfitInput
-from app.services.wb_daily_financial_detail_service import (
+from app.services.wb.reports.financial_detail_service import (
     DETAILED_REPORT_FIELDS,
     SyncCounters,
     WbDailyFinancialDetailService,

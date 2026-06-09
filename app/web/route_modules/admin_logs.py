@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from app.models.domain import User
-from app.services.log_viewer_service import LogViewerService
+from app.services.admin.log_viewer_service import LogViewerService
 from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, is_admin_user
 from app.web.rendering import page
 

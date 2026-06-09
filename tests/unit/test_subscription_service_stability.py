@@ -3,7 +3,7 @@ description: Stability tests for subscription service fallbacks and async-safe l
 updated: 2026-05-17
 """
 
-from app.services.subscription_service import SubscriptionService
+from app.services.subscriptions.subscription_service import SubscriptionService
 
 
 class EmptyResult:

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.services.profile_service import (
+from app.services.account.profile_service import (
     ProfileService,
     ProfileUpdateData,
     ProfileValidationError,
@@ -58,7 +58,7 @@ def mock_session():
 
 @pytest.mark.asyncio
 async def test_get_profile_returns_profile_data(mock_session, monkeypatch):
-    monkeypatch.setattr("app.services.profile_service.SubscriptionService", _SubscriptionService)
+    monkeypatch.setattr("app.services.account.profile_service.SubscriptionService", _SubscriptionService)
     user = _make_user(first_name="Иван", last_name="Петров", tariff="Free")
     mock_session.get = AsyncMock(return_value=user)
 

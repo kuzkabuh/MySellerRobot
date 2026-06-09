@@ -29,9 +29,9 @@ from app.bot.states import AdminTariffStates, PaymentStates
 from app.core.config import get_settings
 from app.core.db import AsyncSessionFactory
 from app.repositories.users import UserRepository
-from app.services.payment_service import PaymentService
-from app.services.subscription_service import SubscriptionService
-from app.services.subscription_text_formatter import (
+from app.services.payments.payment_service import PaymentService
+from app.services.subscriptions.subscription_service import SubscriptionService
+from app.services.subscriptions.subscription_text_formatter import (
     build_tier_card,
     format_admin_tariff_confirmation,
     format_current_subscription,
@@ -322,7 +322,7 @@ async def handle_promo_code_input(message: Message, state: FSMContext) -> None:
     from decimal import Decimal
 
     from app.models.enums import PromoType
-    from app.services.promo_code_service import PromoCodeService, PromoValidationError
+    from app.services.subscriptions.promo_code_service import PromoCodeService, PromoValidationError
 
     code = (message.text or "").strip()
     if not code:
@@ -531,7 +531,7 @@ async def handle_payment_confirmation(callback: CallbackQuery, state: FSMContext
             return
 
         if promo_code_usage_id and final_amount == "0":
-            from app.services.promo_code_service import PromoCodeService
+            from app.services.subscriptions.promo_code_service import PromoCodeService
 
             sub_service = SubscriptionService(session)
             tier = await sub_service.get_tier_by_code(tier_code)

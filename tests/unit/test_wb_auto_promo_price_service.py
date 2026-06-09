@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.services.pricing.wb_auto_promo_price_service import (
+from app.services.wb.pricing.wb_auto_promo_price_service import (
     STATUS_AUTO_MIN_PRICE_VIOLATION,
     STATUS_AUTO_MRC_MISSING,
     STATUS_AUTO_PRICE_OK,

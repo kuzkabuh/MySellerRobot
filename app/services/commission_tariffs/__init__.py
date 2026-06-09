@@ -1,8 +1,4 @@
-"""Commission tariff system for WB and Ozon marketplace commissions.
-
-Provides:
-- WB commission sync from official API
-- Ozon commission source monitoring
-- Ozon XLSX import
-- Unified commission resolution for profit calculations
+"""version: 1.1.0
+description: Compatibility facade. Commission tariffs moved to commissions/, ozon/commissions/, wb/commissions/.
+updated: 2026-06-09
 """

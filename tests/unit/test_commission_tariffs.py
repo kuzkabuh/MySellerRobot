@@ -9,20 +9,20 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.services.commission_tariffs.admin_notifications import (
+from app.services.commissions.admin_notifications import (
     format_wb_sync_notification,
 )
-from app.services.commission_tariffs.commission_resolver_service import (
+from app.services.commissions.commission_resolver_service import (
     CommissionResolverService,
 )
-from app.services.commission_tariffs.ozon_commission_source_monitor_service import (
+from app.services.ozon.commissions.ozon_commission_source_monitor_service import (
     OzonCommissionPageParser,
 )
-from app.services.commission_tariffs.ozon_commission_xlsx_importer import (
+from app.services.ozon.commissions.ozon_commission_xlsx_importer import (
     _extract_date_from_filename,
     _normalize_commission_value,
 )
-from app.services.commission_tariffs.wb_commission_sync_service import (
+from app.services.wb.commissions.wb_commission_sync_service import (
     _compute_payload_hash,
     _normalize_wb_tariff_entry,
 )
@@ -330,7 +330,7 @@ class TestWbCommissionResolver:
 class TestWbSyncNoChanges:
     @pytest.mark.asyncio
     async def test_sync_returns_no_changes_when_hash_matches(self) -> None:
-        from app.services.commission_tariffs.wb_commission_sync_service import (
+        from app.services.wb.commissions.wb_commission_sync_service import (
             WbCommissionSyncService,
         )
 
@@ -351,14 +351,14 @@ class TestWbSyncNoChanges:
             return_value=mock_version,
         ):
             with patch(
-                "app.services.commission_tariffs.wb_commission_sync_service.WildberriesClient"
+                "app.services.wb.commissions.wb_commission_sync_service.WildberriesClient"
             ) as mock_client_cls:
                 mock_client = AsyncMock()
                 mock_client.get_commission_tariffs = AsyncMock(return_value=[{"test": "data"}])
                 mock_client_cls.return_value = mock_client
 
                 with patch(
-                    "app.services.commission_tariffs.wb_commission_sync_service._compute_payload_hash",
+                    "app.services.wb.commissions.wb_commission_sync_service._compute_payload_hash",
                     return_value="abc123",
                 ):
                     result = await service.sync("test-api-key")
@@ -369,7 +369,7 @@ class TestWbSyncNoChanges:
     @pytest.mark.asyncio
     async def test_sync_creates_rates_from_real_payload(self) -> None:
         """Sync with real-structure payload must not create version with 0 rates."""
-        from app.services.commission_tariffs.wb_commission_sync_service import (
+        from app.services.wb.commissions.wb_commission_sync_service import (
             _normalize_wb_tariff_entry,
         )
 
@@ -406,7 +406,7 @@ class TestWbSyncNoChanges:
     @pytest.mark.asyncio
     async def test_sync_empty_report_returns_error(self) -> None:
         """Sync with empty report must not create a version."""
-        from app.services.commission_tariffs.wb_commission_sync_service import (
+        from app.services.wb.commissions.wb_commission_sync_service import (
             WbCommissionSyncService,
         )
 
@@ -419,7 +419,7 @@ class TestWbSyncNoChanges:
 
         with patch.object(service, "_get_active_version", return_value=None):
             with patch(
-                "app.services.commission_tariffs.wb_commission_sync_service.WildberriesClient"
+                "app.services.wb.commissions.wb_commission_sync_service.WildberriesClient"
             ) as mock_client_cls:
                 mock_client = AsyncMock()
                 mock_client.get_commission_tariffs = AsyncMock(return_value=[])
@@ -433,7 +433,7 @@ class TestWbSyncNoChanges:
     @pytest.mark.asyncio
     async def test_sync_unparseable_report_returns_error(self) -> None:
         """Sync with report that cannot be parsed must not create a version."""
-        from app.services.commission_tariffs.wb_commission_sync_service import (
+        from app.services.wb.commissions.wb_commission_sync_service import (
             WbCommissionSyncService,
         )
 
@@ -446,7 +446,7 @@ class TestWbSyncNoChanges:
 
         with patch.object(service, "_get_active_version", return_value=None):
             with patch(
-                "app.services.commission_tariffs.wb_commission_sync_service.WildberriesClient"
+                "app.services.wb.commissions.wb_commission_sync_service.WildberriesClient"
             ) as mock_client_cls:
                 mock_client = AsyncMock()
                 mock_client.get_commission_tariffs = AsyncMock(
@@ -462,7 +462,7 @@ class TestWbSyncNoChanges:
     @pytest.mark.asyncio
     async def test_cleanup_empty_versions_deactivates_them(self) -> None:
         """Cleanup must deactivate active versions with 0 rates."""
-        from app.services.commission_tariffs.wb_commission_sync_service import (
+        from app.services.wb.commissions.wb_commission_sync_service import (
             WbCommissionSyncService,
         )
 
@@ -505,7 +505,7 @@ class TestWbSyncNoChanges:
 
 class TestOzonMonitorDetectsChanges:
     def test_detects_new_period(self) -> None:
-        from app.services.commission_tariffs.ozon_commission_source_monitor_service import (
+        from app.services.ozon.commissions.ozon_commission_source_monitor_service import (
             OzonCommissionSourceMonitorService,
         )
 
@@ -526,7 +526,7 @@ class TestOzonMonitorDetectsChanges:
         assert change_type == "new_period_detected"
 
     def test_detects_no_changes(self) -> None:
-        from app.services.commission_tariffs.ozon_commission_source_monitor_service import (
+        from app.services.ozon.commissions.ozon_commission_source_monitor_service import (
             OzonCommissionSourceMonitorService,
         )
 
@@ -547,7 +547,7 @@ class TestOzonMonitorDetectsChanges:
         assert change_type == "no_change"
 
     def test_detects_url_change(self) -> None:
-        from app.services.commission_tariffs.ozon_commission_source_monitor_service import (
+        from app.services.ozon.commissions.ozon_commission_source_monitor_service import (
             OzonCommissionSourceMonitorService,
         )
 
@@ -755,7 +755,7 @@ class TestOzonLowPriceSpecialRates:
     """Test special commission rates for Ozon items up to 300 RUB."""
 
     def test_fbo_up_to_100_rub(self) -> None:
-        from app.services.commission_tariffs.commission_resolver_service import (
+        from app.services.commissions.commission_resolver_service import (
             CommissionResolverService,
         )
 
@@ -766,7 +766,7 @@ class TestOzonLowPriceSpecialRates:
         assert rate == Decimal("14")
 
     def test_fbs_up_to_100_rub(self) -> None:
-        from app.services.commission_tariffs.commission_resolver_service import (
+        from app.services.commissions.commission_resolver_service import (
             CommissionResolverService,
         )
 
@@ -777,7 +777,7 @@ class TestOzonLowPriceSpecialRates:
         assert rate == Decimal("14")
 
     def test_fbo_fresh_up_to_100_rub(self) -> None:
-        from app.services.commission_tariffs.commission_resolver_service import (
+        from app.services.commissions.commission_resolver_service import (
             CommissionResolverService,
         )
 
@@ -788,7 +788,7 @@ class TestOzonLowPriceSpecialRates:
         assert rate == Decimal("17")
 
     def test_fbo_101_to_300_rub(self) -> None:
-        from app.services.commission_tariffs.commission_resolver_service import (
+        from app.services.commissions.commission_resolver_service import (
             CommissionResolverService,
         )
 
@@ -799,7 +799,7 @@ class TestOzonLowPriceSpecialRates:
         assert rate == Decimal("20")
 
     def test_fbs_101_to_300_rub(self) -> None:
-        from app.services.commission_tariffs.commission_resolver_service import (
+        from app.services.commissions.commission_resolver_service import (
             CommissionResolverService,
         )
 
@@ -810,7 +810,7 @@ class TestOzonLowPriceSpecialRates:
         assert rate == Decimal("20")
 
     def test_fbo_fresh_101_to_300_rub(self) -> None:
-        from app.services.commission_tariffs.commission_resolver_service import (
+        from app.services.commissions.commission_resolver_service import (
             CommissionResolverService,
         )
 
@@ -821,7 +821,7 @@ class TestOzonLowPriceSpecialRates:
         assert rate == Decimal("23")
 
     def test_rfbs_not_supported(self) -> None:
-        from app.services.commission_tariffs.commission_resolver_service import (
+        from app.services.commissions.commission_resolver_service import (
             CommissionResolverService,
         )
 
@@ -832,7 +832,7 @@ class TestOzonLowPriceSpecialRates:
         assert rate is None
 
     def test_above_300_rub_not_supported(self) -> None:
-        from app.services.commission_tariffs.commission_resolver_service import (
+        from app.services.commissions.commission_resolver_service import (
             CommissionResolverService,
         )
 

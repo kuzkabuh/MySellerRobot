@@ -17,13 +17,13 @@ from app.bot.states import CostStates
 from app.core.db import AsyncSessionFactory
 from app.repositories.products import ProductRepository
 from app.repositories.users import UserRepository
-from app.services.cost_management_service import (
+from app.services.unit_economics.cost_management_service import (
     CostManagementError,
     CostManagementService,
     parse_manual_cost_line,
 )
-from app.services.excel_cost_import import CostTemplateProductRow, ExcelCostImportService
-from app.services.web_sync_service import WebSyncService
+from app.services.unit_economics.excel_cost_import import CostTemplateProductRow, ExcelCostImportService
+from app.services.common.web_sync_service import WebSyncService
 
 router = Router(name="costs")
 logger = logging.getLogger(__name__)

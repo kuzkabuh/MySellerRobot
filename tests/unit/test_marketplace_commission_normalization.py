@@ -9,8 +9,8 @@ from app.integrations.ozon import OzonClient
 from app.integrations.wb import WildberriesClient
 from app.models.domain import Order, OrderItem
 from app.models.enums import EconomyConfidence, ExpenseSource, Marketplace, SaleModel
-from app.services.marketplace_estimates import calculate_planned_economics
-from app.services.product_sync_service import ProductSyncService, WbTariffRow
+from app.services.unit_economics.marketplace_estimates import calculate_planned_economics
+from app.services.common.product_sync_service import ProductSyncService, WbTariffRow
 
 
 def test_wb_report_order_uses_commission_percent_when_amount_absent() -> None:

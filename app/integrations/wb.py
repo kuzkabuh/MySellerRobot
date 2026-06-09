@@ -16,7 +16,7 @@ from app.models.enums import Marketplace, SaleEventType, SaleModel, SourceEventT
 from app.schemas.orders import NormalizedOrder, NormalizedOrderItem
 from app.schemas.products import ProductUpsert
 from app.schemas.sales import NormalizedSaleEvent
-from app.services.product_dimensions import calculate_volume_liters, decimal_or_none
+from app.services.common.product_dimensions import calculate_volume_liters, decimal_or_none
 from app.utils.datetime import get_moscow_today
 
 logger = logging.getLogger(__name__)

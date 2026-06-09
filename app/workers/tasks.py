@@ -26,22 +26,22 @@ from app.models.domain import AlertEvent, MarketplaceAccount, User
 from app.models.enums import Marketplace, SaleModel
 from app.repositories.orders import OrderRepository
 from app.repositories.sync_jobs import SyncJobRepository
-from app.services.account_profile_service import AccountProfileService
-from app.services.daily_report_service import DailyReportService
-from app.services.fbo_digest_service import FboDigestService
-from app.services.fbs_control_service import FbsControlService
-from app.services.history_backfill_service import BackfillCounters, HistoryBackfillService
-from app.services.notification_service import NotificationService
-from app.services.order_processing_service import NewOrderNotification, OrderProcessingService
-from app.services.ozon_balance_service import OzonBalanceService
-from app.services.ozon_catalog_enrichment_service import OzonCatalogEnrichmentService
-from app.services.product_sync_service import ProductSyncService
-from app.services.sales_event_sync_service import (
+from app.services.account.account_profile_service import AccountProfileService
+from app.services.alerts.daily_report_service import DailyReportService
+from app.services.alerts.fbo_digest_service import FboDigestService
+from app.services.alerts.fbs_control_service import FbsControlService
+from app.services.common.history_backfill_service import BackfillCounters, HistoryBackfillService
+from app.services.alerts.notification_service import NotificationService
+from app.services.common.order_processing_service import NewOrderNotification, OrderProcessingService
+from app.services.ozon.finance.ozon_balance_service import OzonBalanceService
+from app.services.ozon.api.ozon_catalog_enrichment_service import OzonCatalogEnrichmentService
+from app.services.common.product_sync_service import ProductSyncService
+from app.services.common.sales_event_sync_service import (
     OrderLifecycleNotification,
     SaleNotification,
     SalesEventSyncService,
 )
-from app.services.stock_service import StockService
+from app.services.common.stock_service import StockService
 from app.services.wb_daily_financial_detail_service import WbDailyFinancialDetailService
 from app.services.wb_report_relink_service import WbReportRelinkService
 from app.services.wb_report_service import WbFinancialReportService
@@ -1059,7 +1059,7 @@ async def process_history_backfills(ctx: dict[str, Any]) -> None:
 
 async def reconcile_pending_payments(ctx: dict[str, Any]) -> None:
     """Check PENDING YooKassa payments against the API and update status."""
-    from app.services.payment_service import PaymentService
+    from app.services.payments.payment_service import PaymentService
 
     async with AsyncSessionFactory() as session:
         service = PaymentService(session)
@@ -1099,11 +1099,11 @@ async def _load_account_refs_ozon(session: AsyncSession) -> list[AccountRef]:
 
 async def sync_wb_commissions(ctx: dict[str, Any]) -> None:
     """Daily sync of WB commission tariffs from the official API."""
-    from app.services.commission_tariffs.admin_notifications import (
+    from app.services.commissions.admin_notifications import (
         format_wb_sync_notification,
         notify_admins,
     )
-    from app.services.commission_tariffs.wb_commission_sync_service import WbCommissionSyncService
+    from app.services.wb.commissions.wb_commission_sync_service import WbCommissionSyncService
 
     async with bot_session() as bot:
         async with AsyncSessionFactory() as session:
@@ -1135,11 +1135,11 @@ async def sync_wb_commissions(ctx: dict[str, Any]) -> None:
 
 async def check_ozon_commission_source(ctx: dict[str, Any]) -> None:
     """Daily check of the Ozon commissions page for new tariff tables."""
-    from app.services.commission_tariffs.admin_notifications import (
+    from app.services.commissions.admin_notifications import (
         format_ozon_monitor_notification,
         notify_admins,
     )
-    from app.services.commission_tariffs.ozon_commission_source_monitor_service import (
+    from app.services.ozon.commissions.ozon_commission_source_monitor_service import (
         OzonCommissionSourceMonitorService,
     )
 
@@ -1155,8 +1155,8 @@ async def check_ozon_commission_source(ctx: dict[str, Any]) -> None:
 
 async def sync_wb_logistics_tariffs(ctx: dict[str, Any]) -> None:
     """Daily sync of WB box delivery logistics tariffs from /api/v1/tariffs/box."""
-    from app.services.commission_tariffs.admin_notifications import notify_admins
-    from app.services.wb_logistics.wb_logistics_tariff_sync_service import (
+    from app.services.commissions.admin_notifications import notify_admins
+    from app.services.wb.logistics.wb_logistics_tariff_sync_service import (
         WbLogisticsTariffSyncService,
     )
 
@@ -1215,7 +1215,7 @@ async def sync_wb_daily_promotions(ctx: dict[str, Any]) -> dict[str, Any]:
     """
     from app.core.config import get_settings
     from app.core.security import TokenCipher
-    from app.services.wb.wb_promotions_sync_service import WbPromotionsSyncService
+    from app.services.wb.promotions.wb_promotions_sync_service import WbPromotionsSyncService
 
     settings = get_settings()
     if not settings.wb_promotions_sync_enabled:
@@ -1298,7 +1298,7 @@ async def check_auto_promo_prices(ctx: dict[str, Any]) -> None:
     """
     from app.core.security import TokenCipher
     from app.models.domain import MrcPricingSettings
-    from app.services.pricing.wb_auto_promo_price_service import (
+    from app.services.wb.pricing.wb_auto_promo_price_service import (
         STATUS_AUTO_MIN_PRICE_VIOLATION,
         STATUS_AUTO_PRICE_OK,
         STATUS_AUTO_PRICE_VIOLATION,
@@ -1306,7 +1306,7 @@ async def check_auto_promo_prices(ctx: dict[str, Any]) -> None:
         STATUS_AUTO_SET_PRICE,
         WbAutoPromoPriceService,
     )
-    from app.services.pricing.wb_price_update_service import (
+    from app.services.wb.pricing.wb_price_update_service import (
         SOURCE_AUTO,
         WbPriceUpdateService,
     )
@@ -1451,7 +1451,7 @@ async def sync_wb_product_prices(ctx: dict[str, Any]) -> dict[str, Any]:
     Runs every 30 minutes. Fetches all current prices and upserts into wb_product_prices.
     """
     from app.core.security import TokenCipher
-    from app.services.wb.wb_current_prices_sync_service import WbCurrentPricesSyncService
+    from app.services.wb.pricing.wb_current_prices_sync_service import WbCurrentPricesSyncService
 
     async with AsyncSessionFactory() as session:
         service = WbCurrentPricesSyncService(session, cipher=TokenCipher())
@@ -1499,7 +1499,7 @@ def _tracked_task(
 ) -> Callable[[dict[str, Any]], Awaitable[Any]]:
     @wraps(func)
     async def wrapper(ctx: dict[str, Any]) -> Any:
-        from app.services.sync_status_service import SyncStatusService
+        from app.services.common.sync_status_service import SyncStatusService
 
         task_name = func.__name__
         if not hasattr(AsyncSessionFactory, "begin"):

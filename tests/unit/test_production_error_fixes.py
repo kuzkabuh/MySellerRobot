@@ -93,39 +93,39 @@ class TestParseSaleModel:
     """Test parse_sale_model() handles non-string values safely."""
 
     def test_parse_sale_model_none(self):
-        from app.services.web_dashboard_service import parse_sale_model
+        from app.services.common.web_dashboard_service import parse_sale_model
 
         assert parse_sale_model(None) is None
 
     def test_parse_sale_model_all(self):
-        from app.services.web_dashboard_service import parse_sale_model
+        from app.services.common.web_dashboard_service import parse_sale_model
 
         assert parse_sale_model("all") is None
 
     def test_parse_sale_model_fbo(self):
         from app.models.enums import SaleModel
-        from app.services.web_dashboard_service import parse_sale_model
+        from app.services.common.web_dashboard_service import parse_sale_model
 
         assert parse_sale_model("FBO") == SaleModel.FBO
 
     def test_parse_sale_model_fbs(self):
         from app.models.enums import SaleModel
-        from app.services.web_dashboard_service import parse_sale_model
+        from app.services.common.web_dashboard_service import parse_sale_model
 
         assert parse_sale_model("FBS") == SaleModel.FBS
 
     def test_parse_sale_model_invalid(self):
-        from app.services.web_dashboard_service import parse_sale_model
+        from app.services.common.web_dashboard_service import parse_sale_model
 
         assert parse_sale_model("INVALID") is None
 
     def test_parse_sale_model_empty_string(self):
-        from app.services.web_dashboard_service import parse_sale_model
+        from app.services.common.web_dashboard_service import parse_sale_model
 
         assert parse_sale_model("") is None
 
     def test_parse_sale_model_non_string_object(self):
-        from app.services.web_dashboard_service import parse_sale_model
+        from app.services.common.web_dashboard_service import parse_sale_model
 
         mock_query = MagicMock()
         mock_query.upper = MagicMock(side_effect=AttributeError)
@@ -137,34 +137,34 @@ class TestParseMarketplace:
     """Test parse_marketplace() handles non-string values safely."""
 
     def test_parse_marketplace_none(self):
-        from app.services.web_dashboard_service import parse_marketplace
+        from app.services.common.web_dashboard_service import parse_marketplace
 
         assert parse_marketplace(None) is None
 
     def test_parse_marketplace_all(self):
-        from app.services.web_dashboard_service import parse_marketplace
+        from app.services.common.web_dashboard_service import parse_marketplace
 
         assert parse_marketplace("all") is None
 
     def test_parse_marketplace_wb(self):
         from app.models.enums import Marketplace
-        from app.services.web_dashboard_service import parse_marketplace
+        from app.services.common.web_dashboard_service import parse_marketplace
 
         assert parse_marketplace("WB") == Marketplace.WB
 
     def test_parse_marketplace_ozon(self):
         from app.models.enums import Marketplace
-        from app.services.web_dashboard_service import parse_marketplace
+        from app.services.common.web_dashboard_service import parse_marketplace
 
         assert parse_marketplace("OZON") == Marketplace.OZON
 
     def test_parse_marketplace_invalid(self):
-        from app.services.web_dashboard_service import parse_marketplace
+        from app.services.common.web_dashboard_service import parse_marketplace
 
         assert parse_marketplace("INVALID") is None
 
     def test_parse_marketplace_non_string_object(self):
-        from app.services.web_dashboard_service import parse_marketplace
+        from app.services.common.web_dashboard_service import parse_marketplace
 
         mock_query = MagicMock()
         result = parse_marketplace(mock_query)
@@ -210,10 +210,10 @@ class TestYookassaCredentialsCheck:
     """Test YooKassa credential validation."""
 
     def test_payment_service_checks_empty_credentials(self):
-        from app.services.payment_service import PaymentService
+        from app.services.payments.payment_service import PaymentService
 
         mock_session = AsyncMock()
-        with patch("app.services.payment_service.get_settings") as mock_settings:
+        with patch("app.services.payments.payment_service.get_settings") as mock_settings:
             settings = MagicMock()
             settings.yookassa_shop_id = ""
             settings.yookassa_secret_key = MagicMock()
@@ -224,10 +224,10 @@ class TestYookassaCredentialsCheck:
             assert service._credentials_valid is False
 
     def test_payment_service_valid_credentials(self):
-        from app.services.payment_service import PaymentService
+        from app.services.payments.payment_service import PaymentService
 
         mock_session = AsyncMock()
-        with patch("app.services.payment_service.get_settings") as mock_settings:
+        with patch("app.services.payments.payment_service.get_settings") as mock_settings:
             settings = MagicMock()
             settings.yookassa_shop_id = "test_shop"
             settings.yookassa_secret_key = MagicMock()
@@ -238,10 +238,10 @@ class TestYookassaCredentialsCheck:
             assert service._credentials_valid is True
 
     def test_check_credentials_raises_when_invalid(self):
-        from app.services.payment_service import PaymentService
+        from app.services.payments.payment_service import PaymentService
 
         mock_session = AsyncMock()
-        with patch("app.services.payment_service.get_settings") as mock_settings:
+        with patch("app.services.payments.payment_service.get_settings") as mock_settings:
             settings = MagicMock()
             settings.yookassa_shop_id = ""
             settings.yookassa_secret_key = MagicMock()
@@ -311,10 +311,10 @@ class TestYookassaIdempotenceKey:
     def test_idempotence_key_is_uuid_v4_format(self):
         import uuid
 
-        from app.services.payment_service import PaymentService
+        from app.services.payments.payment_service import PaymentService
 
         mock_session = AsyncMock()
-        with patch("app.services.payment_service.get_settings") as mock_settings:
+        with patch("app.services.payments.payment_service.get_settings") as mock_settings:
             settings = MagicMock()
             settings.yookassa_shop_id = "test_shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "test_secret"
@@ -327,10 +327,10 @@ class TestYookassaIdempotenceKey:
             uuid.UUID(key, version=4)
 
     def test_idempotence_key_within_64_chars(self):
-        from app.services.payment_service import PaymentService
+        from app.services.payments.payment_service import PaymentService
 
         mock_session = AsyncMock()
-        with patch("app.services.payment_service.get_settings") as mock_settings:
+        with patch("app.services.payments.payment_service.get_settings") as mock_settings:
             settings = MagicMock()
             settings.yookassa_shop_id = "test_shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "test_secret"
@@ -343,10 +343,10 @@ class TestYookassaIdempotenceKey:
             assert len(key) <= 64
 
     def test_idempotence_key_unique_per_call(self):
-        from app.services.payment_service import PaymentService
+        from app.services.payments.payment_service import PaymentService
 
         mock_session = AsyncMock()
-        with patch("app.services.payment_service.get_settings") as mock_settings:
+        with patch("app.services.payments.payment_service.get_settings") as mock_settings:
             settings = MagicMock()
             settings.yookassa_shop_id = "test_shop"
             settings.yookassa_secret_key.get_secret_value.return_value = "test_secret"
@@ -366,7 +366,7 @@ class TestExtractReportRows:
     """Test _extract_report_rows handles all payload formats safely."""
 
     def test_payload_is_list_of_dicts(self):
-        from app.services.wb_report_service import _extract_report_rows
+        from app.services.wb.reports.report_service import _extract_report_rows
 
         payload = [
             {"reportId": "1", "dateFrom": "2026-05-01"},
@@ -377,7 +377,7 @@ class TestExtractReportRows:
         assert result[0]["reportId"] == "1"
 
     def test_payload_is_list_with_non_dict_items(self):
-        from app.services.wb_report_service import _extract_report_rows
+        from app.services.wb.reports.report_service import _extract_report_rows
 
         payload = [{"reportId": "1"}, "string_item", 42, None]
         result = _extract_report_rows(payload)
@@ -385,19 +385,19 @@ class TestExtractReportRows:
         assert result[0]["reportId"] == "1"
 
     def test_payload_is_empty_list(self):
-        from app.services.wb_report_service import _extract_report_rows
+        from app.services.wb.reports.report_service import _extract_report_rows
 
         result = _extract_report_rows([])
         assert result == []
 
     def test_payload_is_none(self):
-        from app.services.wb_report_service import _extract_report_rows
+        from app.services.wb.reports.report_service import _extract_report_rows
 
         result = _extract_report_rows(None)
         assert result == []
 
     def test_payload_is_dict_with_reports_key(self):
-        from app.services.wb_report_service import _extract_report_rows
+        from app.services.wb.reports.report_service import _extract_report_rows
 
         payload = {
             "reports": [
@@ -409,7 +409,7 @@ class TestExtractReportRows:
         assert len(result) == 2
 
     def test_payload_is_dict_with_data_key(self):
-        from app.services.wb_report_service import _extract_report_rows
+        from app.services.wb.reports.report_service import _extract_report_rows
 
         payload = {
             "data": [
@@ -421,7 +421,7 @@ class TestExtractReportRows:
         assert len(result) == 2
 
     def test_payload_is_dict_with_result_key(self):
-        from app.services.wb_report_service import _extract_report_rows
+        from app.services.wb.reports.report_service import _extract_report_rows
 
         payload = {"result": {"reports": [{"reportId": "x"}]}}
         result = _extract_report_rows(payload)
@@ -429,26 +429,26 @@ class TestExtractReportRows:
         assert result[0]["reportId"] == "x"
 
     def test_payload_is_dict_with_result_items(self):
-        from app.services.wb_report_service import _extract_report_rows
+        from app.services.wb.reports.report_service import _extract_report_rows
 
         payload = {"result": {"items": [{"id": "1"}, {"id": "2"}]}}
         result = _extract_report_rows(payload)
         assert len(result) == 2
 
     def test_payload_is_empty_dict(self):
-        from app.services.wb_report_service import _extract_report_rows
+        from app.services.wb.reports.report_service import _extract_report_rows
 
         result = _extract_report_rows({})
         assert result == []
 
     def test_payload_is_unexpected_type_logs_warning(self):
-        from app.services.wb_report_service import _extract_report_rows
+        from app.services.wb.reports.report_service import _extract_report_rows
 
         result = _extract_report_rows("unexpected_string")
         assert result == []
 
     def test_payload_is_int_returns_empty(self):
-        from app.services.wb_report_service import _extract_report_rows
+        from app.services.wb.reports.report_service import _extract_report_rows
 
         result = _extract_report_rows(42)
         assert result == []

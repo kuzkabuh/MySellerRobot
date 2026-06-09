@@ -11,10 +11,10 @@ import openpyxl
 import pytest
 
 from app.models.domain import WbAutoPromoFileImport, WbAutoPromoFileImportRow
-from app.services.pricing.wb_auto_promo_file_import_service import (
+from app.services.wb.pricing.wb_auto_promo_file_import_service import (
     WbAutoPromoFileImportService,
 )
-from app.services.pricing.wb_auto_promo_participation_service import (
+from app.services.wb.pricing.wb_auto_promo_participation_service import (
     STATUS_CAN_APPLY,
     WbAutoPromoParticipationService,
 )

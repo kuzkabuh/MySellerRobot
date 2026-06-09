@@ -31,14 +31,14 @@ from app.models.domain import (
 )
 from app.models.enums import Marketplace
 from app.repositories.users import UserRepository
-from app.services.account_profile_service import AccountProfileService
-from app.services.account_service import (
+from app.services.account.account_profile_service import AccountProfileService
+from app.services.account.account_service import (
     AccountConnectionError,
     CreateAccountCommand,
     MarketplaceAccountService,
 )
-from app.services.history_backfill_service import HistoryBackfillService
-from app.services.marketplace_presentation import marketplace_marker
+from app.services.common.history_backfill_service import HistoryBackfillService
+from app.services.common.marketplace_presentation import marketplace_marker
 from app.services.wb_report_service import WbFinancialReportService
 from app.utils.datetime import format_datetime_for_user
 

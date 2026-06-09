@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import openpyxl
 import pytest
 
-from app.services.pricing.wb_auto_promo_import_service import (
+from app.services.wb.pricing.wb_auto_promo_import_service import (
     WbAutoPromoImportService,
 )
 

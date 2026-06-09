@@ -19,7 +19,7 @@ from app.core.config import get_settings
 from app.core.db import get_session
 from app.models.enums import PaymentStatus
 from app.models.subscriptions import Payment
-from app.services.payment_service import PaymentService
+from app.services.payments.payment_service import PaymentService
 from app.utils.client_ip import get_client_ip
 
 logger = logging.getLogger(__name__)

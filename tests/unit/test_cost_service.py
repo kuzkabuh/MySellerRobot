@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from app.models.domain import ProductCostHistory
-from app.services.cost_service import choose_actual_cost
+from app.services.unit_economics.cost_service import choose_actual_cost
 
 
 def test_choose_actual_cost_by_order_date() -> None:

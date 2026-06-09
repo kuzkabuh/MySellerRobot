@@ -9,7 +9,7 @@ import pytest
 
 from app.models.domain import MrcImport, MrcImportRow, Product
 from app.models.enums import Marketplace
-from app.services.pricing.mrc_import_service import HAS_OPENPYXL, MrcImportService
+from app.services.wb.pricing.mrc_import_service import HAS_OPENPYXL, MrcImportService
 
 if not HAS_OPENPYXL:
     pytest.skip("openpyxl not installed", allow_module_level=True)

@@ -3,7 +3,7 @@
 from decimal import Decimal
 from unittest.mock import MagicMock
 
-from app.services.wb.wb_current_prices_sync_service import WbCurrentPricesSyncService
+from app.services.wb.pricing.wb_current_prices_sync_service import WbCurrentPricesSyncService
 
 
 class TestParseWbGoodsFilterResponse:

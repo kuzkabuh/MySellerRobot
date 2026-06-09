@@ -7,7 +7,7 @@ import pytest
 
 from app.models.enums import PaymentStatus
 from app.models.subscriptions import Payment
-from app.services.payment_service import _build_receipt
+from app.services.payments.payment_service import _build_receipt
 
 
 class TestBuildReceipt:
@@ -96,8 +96,8 @@ class TestPaymentServiceWithReceipt:
     @pytest.mark.asyncio
     async def test_create_payment_passes_receipt_to_yookassa(self, mock_session, mock_tier):
         with (
-            patch("app.services.payment_service.get_settings") as mock_settings,
-            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payments.payment_service.get_settings") as mock_settings,
+            patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
             patch("app.services.payment_service.SubscriptionService"),
         ):
             settings = MagicMock()
@@ -123,7 +123,7 @@ class TestPaymentServiceWithReceipt:
             mock_result.scalar_one_or_none.side_effect = [mock_tier, None]
             mock_session.execute.return_value = mock_result
 
-            from app.services.payment_service import PaymentService
+            from app.services.payments.payment_service import PaymentService
 
             service = PaymentService(mock_session)
 
@@ -148,8 +148,8 @@ class TestPaymentServiceWithReceipt:
     @pytest.mark.asyncio
     async def test_create_payment_receipt_amount_matches_tier_price(self, mock_session, mock_tier):
         with (
-            patch("app.services.payment_service.get_settings") as mock_settings,
-            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payments.payment_service.get_settings") as mock_settings,
+            patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
             patch("app.services.payment_service.SubscriptionService"),
         ):
             settings = MagicMock()
@@ -175,7 +175,7 @@ class TestPaymentServiceWithReceipt:
             mock_result.scalar_one_or_none.side_effect = [mock_tier, None]
             mock_session.execute.return_value = mock_result
 
-            from app.services.payment_service import PaymentService
+            from app.services.payments.payment_service import PaymentService
 
             service = PaymentService(mock_session)
 
@@ -196,8 +196,8 @@ class TestPaymentServiceWithReceipt:
     async def test_create_payment_returns_correct_structure(self, mock_session, mock_tier):
         """Handler expects (Payment, confirmation_url) tuple with no KeyError."""
         with (
-            patch("app.services.payment_service.get_settings") as mock_settings,
-            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payments.payment_service.get_settings") as mock_settings,
+            patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
             patch("app.services.payment_service.SubscriptionService"),
         ):
             settings = MagicMock()
@@ -223,7 +223,7 @@ class TestPaymentServiceWithReceipt:
             mock_result.scalar_one_or_none.side_effect = [mock_tier, None]
             mock_session.execute.return_value = mock_result
 
-            from app.services.payment_service import PaymentService
+            from app.services.payments.payment_service import PaymentService
 
             service = PaymentService(mock_session)
 
@@ -244,8 +244,8 @@ class TestPaymentServiceWithReceipt:
     @pytest.mark.asyncio
     async def test_create_payment_uses_human_readable_description(self, mock_session, mock_tier):
         with (
-            patch("app.services.payment_service.get_settings") as mock_settings,
-            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payments.payment_service.get_settings") as mock_settings,
+            patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
             patch("app.services.payment_service.SubscriptionService"),
         ):
             settings = MagicMock()
@@ -271,7 +271,7 @@ class TestPaymentServiceWithReceipt:
             mock_result.scalar_one_or_none.side_effect = [mock_tier, None]
             mock_session.execute.return_value = mock_result
 
-            from app.services.payment_service import PaymentService
+            from app.services.payments.payment_service import PaymentService
 
             service = PaymentService(mock_session)
 
@@ -290,8 +290,8 @@ class TestPaymentServiceWithReceipt:
     async def test_pending_payment_reused_instead_of_duplicate(self, mock_session, mock_tier):
         """If a PENDING payment exists, return it instead of creating a new one."""
         with (
-            patch("app.services.payment_service.get_settings") as mock_settings,
-            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payments.payment_service.get_settings") as mock_settings,
+            patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
             patch("app.services.payment_service.SubscriptionService"),
         ):
             settings = MagicMock()
@@ -333,7 +333,7 @@ class TestPaymentServiceWithReceipt:
             mock_result.scalar_one_or_none.side_effect = [mock_tier, existing_payment]
             mock_session.execute.return_value = mock_result
 
-            from app.services.payment_service import PaymentService
+            from app.services.payments.payment_service import PaymentService
 
             service = PaymentService(mock_session)
 
@@ -354,8 +354,8 @@ class TestPaymentServiceWithReceipt:
     async def test_no_keyerror_on_yookassa_response(self, mock_session, mock_tier):
         """Accessing yookassa_payment['id'] must not raise KeyError."""
         with (
-            patch("app.services.payment_service.get_settings") as mock_settings,
-            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payments.payment_service.get_settings") as mock_settings,
+            patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
             patch("app.services.payment_service.SubscriptionService"),
         ):
             settings = MagicMock()
@@ -381,7 +381,7 @@ class TestPaymentServiceWithReceipt:
             mock_result.scalar_one_or_none.side_effect = [mock_tier, None]
             mock_session.execute.return_value = mock_result
 
-            from app.services.payment_service import PaymentService
+            from app.services.payments.payment_service import PaymentService
 
             service = PaymentService(mock_session)
 

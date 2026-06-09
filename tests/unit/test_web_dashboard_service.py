@@ -7,7 +7,7 @@ from datetime import date
 from decimal import Decimal
 
 from app.models.enums import Marketplace, SaleModel
-from app.services.web_dashboard_service import (
+from app.services.common.web_dashboard_service import (
     DailyPoint,
     MarketplaceBreakdown,
     build_dashboard_filters,

@@ -161,7 +161,7 @@ def test_wb_product_price_import_in_auto_promo_service():
     """
     import inspect
 
-    from app.services.pricing.wb_auto_promo_price_service import (
+    from app.services.wb.pricing.wb_auto_promo_price_service import (
         WbAutoPromoPriceService,
         WbProductPrice,
     )

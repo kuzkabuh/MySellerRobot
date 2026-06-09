@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.services.user_activity_service import UserActivityService, action_label
+from app.services.admin.user_activity_service import UserActivityService, action_label
 
 
 @pytest.fixture

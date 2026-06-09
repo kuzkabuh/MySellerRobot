@@ -35,8 +35,8 @@ from app.core.config import get_settings
 from app.core.db import AsyncSessionFactory
 from app.models.enums import PromoType, PromoUsageStatus
 from app.models.promo_codes import PromoCode
-from app.services.promo_code_service import PromoCodeService, PromoValidationError, normalize_code
-from app.services.tariff_service import TariffService
+from app.services.subscriptions.promo_code_service import PromoCodeService, PromoValidationError, normalize_code
+from app.services.subscriptions.tariff_service import TariffService
 
 router = Router(name="admin_panel")
 logger = logging.getLogger(__name__)
