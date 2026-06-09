@@ -1,6 +1,6 @@
 """version: 1.2.0
 description: Web cabinet order list, order detail, and PostgreSQL-safe SKU profit queries.
-updated: 2026-05-17
+updated: 2026-06-09
 """
 
 from dataclasses import dataclass
@@ -26,6 +26,7 @@ from app.models.enums import (
     Marketplace,
     ReconciliationStatus,
     SaleModel,
+    SourceEventType,
 )
 from app.services.common.marketplace_presentation import order_status_label
 from app.services.common.web_dashboard_service import (
