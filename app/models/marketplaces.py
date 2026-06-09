@@ -59,6 +59,7 @@ class MarketplaceAccount(TimestampMixin, Base):
     last_wb_financial_detail_sync_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )
+    last_ozon_finance_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error_message: Mapped[str | None] = mapped_column(Text)
     seller_external_id: Mapped[str | None] = mapped_column(String(128), index=True)

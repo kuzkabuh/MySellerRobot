@@ -20,7 +20,7 @@ def _sync_center_content(data: SyncCenterPageData) -> str:
     for acc_data in data.accounts:
         a = acc_data.account
         status_badge = _account_status_badge(a.status.value, a.is_active)
-        freshness_rows = _sync_freshness_rows(acc_data)
+        freshness_rows = _sync_freshness_rows(acc_data, a.marketplace.value == "OZON")
         api_key_status = _api_key_badge(a.api_key_status)
         last_sync = (
             f"{a.last_success_sync_at.strftime('%d.%m.%Y %H:%M')}" if a.last_success_sync_at else "никогда"
@@ -57,7 +57,7 @@ def _sync_center_content(data: SyncCenterPageData) -> str:
                 <thead>
                   <tr>
                     <th>Заказы</th><th>Продажи</th><th>Остатки</th><th>Товары</th>
-                    <th>Профиль</th><th>Отчёты WB</th>
+                    <th>Профиль</th><th>{"Финансы Ozon" if a.marketplace.value == "OZON" else "Отчёты WB"}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -128,15 +128,18 @@ def _api_key_badge(api_status: str | None) -> str:
     return f'<span class="badge {tone}">{label}</span>'
 
 
-def _sync_freshness_rows(acc_data: object) -> str:
+def _sync_freshness_rows(acc_data: object, is_ozon: bool = False) -> str:
     entries = [
-        ("sync_freshness_orders", "orders"),
-        ("sync_freshness_sales", "sales"),
-        ("sync_freshness_stocks", "stocks"),
-        ("sync_freshness_products", "products"),
-        ("sync_freshness_profile", "profile"),
-        ("sync_freshness_wb_reports", "wb_reports"),
+        ("sync_freshness_orders", "Заказы"),
+        ("sync_freshness_sales", "Продажи"),
+        ("sync_freshness_stocks", "Остатки"),
+        ("sync_freshness_products", "Товары"),
+        ("sync_freshness_profile", "Профиль"),
     ]
+    if is_ozon:
+        entries.append(("sync_freshness_ozon_finance", "Финансы Ozon"))
+    else:
+        entries.append(("sync_freshness_wb_reports", "Отчёты WB"))
     tones = {"good": "good", "warn": "warn", "bad": "bad", "none": ""}
     labels = {"good": "OK", "warn": "Задержка", "bad": "Просрочка", "none": "Нет данных"}
     cells = []

@@ -232,6 +232,7 @@ class OrderProcessingService:
                                 created = await ozon_finance.aggregate_order_finance(order)
                                 if created > 0:
                                     await ozon_finance.reconcile_ozon_order(order)
+                                account.last_ozon_finance_sync_at = datetime.now(tz=UTC)
                             except Exception:
                                 logger.warning(
                                     "ozon_finance_aggregation_failed",

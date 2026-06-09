@@ -224,6 +224,8 @@ def _order_detail_content(detail: OrderDetail, timezone: str, is_admin: bool = F
     order_date = localized_order_date(order.order_date, timezone)
     order_state = escape(order_state_label(order.normalized_status, order.requires_seller_action))
     wb_fact_html = _wb_order_fact_html(getattr(detail, "wb_fact", None), timezone)
+    ozon_fact_html = _ozon_order_fact_html(getattr(detail, "ozon_fact", None))
+    fact_html = wb_fact_html or ozon_fact_html
     is_financial_only = getattr(detail, "is_financial_only", False)
     financial_only_warning = (
         '<div class="band warn" style="margin:14px 0;padding:14px">'
@@ -279,7 +281,7 @@ def _order_detail_content(detail: OrderDetail, timezone: str, is_admin: bool = F
           </table>
         </div>
       </section>
-      {wb_fact_html}
+      {fact_html}
       {'<section class="band" style="margin-top:14px"><details><summary style="cursor:pointer"><h2 style="display:inline">Технические данные</h2></summary><pre class="mono">' + raw_payload + '</pre></details></section>' if is_admin else ''}
     """
 
@@ -342,6 +344,60 @@ def _wb_order_fact_html(wb_fact: Any, timezone: str) -> str:
         {unlinked_rows}
       </section>
     """
+
+def _ozon_order_fact_html(ozon_fact: Any) -> str:
+    if ozon_fact is None:
+        return ""
+    status_value = getattr(getattr(ozon_fact, "status", ""), "value", getattr(ozon_fact, "status", ""))
+    status_label = {
+        "FACT_MATCHED": "Факт полный",
+        "FACT_PARTIAL": "Факт частичный",
+        "FACT_UNMATCHED": "Факт не привязан",
+        "FACT_AMBIGUOUS": "Неоднозначная сверка",
+        "MISSING_REPORT": "Не загружен отчёт Ozon",
+        "PRELIMINARY": "Только план",
+    }.get(status_value, "Только план")
+    articles = "".join(
+        "<tr>"
+        f"<td>{escape(article.label)}</td>"
+        f'<td class="num">{_rub(article.amount) if article.amount is not None else "—"}</td>'
+        "</tr>"
+        for article in getattr(ozon_fact, "articles", [])
+    )
+    rows_list = getattr(ozon_fact, "rows", [])
+    rows_table = ""
+    if rows_list:
+        rows_table = "".join(
+            "<tr>"
+            f"<td>{escape(getattr(r, 'operation_type', '') or '')}</td>"
+            f"<td>{escape(getattr(r, 'operation_category', '') or '')}</td>"
+            f'<td class="num">{_rub(getattr(r, "amount", None) or ZERO)}</td>'
+            f"<td class=\"num\">{escape(getattr(r, 'currency', 'RUB') or 'RUB')}</td>"
+            "</tr>"
+            for r in rows_list
+        )
+    return f"""
+      <section class="band" style="margin-top:14px">
+        <h2>Факт по данным Ozon</h2>
+        <p><span class="badge {_reconciliation_tone(status_value)}">{escape(status_label)}</span></p>
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>Статья</th><th class="num">Сумма</th></tr></thead>
+            <tbody>{articles}</tbody>
+          </table>
+        </div>
+      </section>
+      <section class="band" style="margin-top:14px">
+        <h2>Строки фин. данных Ozon</h2>
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>Тип операции</th><th>Категория</th><th class="num">Сумма</th><th class="num">Валюта</th></tr></thead>
+            <tbody>{rows_table}</tbody>
+          </table>
+        </div>
+      </section>
+    """
+
 
 def _reconciliation_tone(status: str) -> str:
     return {

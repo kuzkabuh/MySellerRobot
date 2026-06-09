@@ -194,10 +194,15 @@ class SyncCenterAccountData:
         return self._freshness(self.account.last_wb_reports_sync_at, 24 * 60)
 
     @property
+    def sync_freshness_ozon_finance(self) -> str:
+        return self._freshness(self.account.last_ozon_finance_sync_at, 24 * 60)
+
+    @property
     def total_syncs_today(self) -> int:
         count = 0
         for attr in ("last_order_poll_at", "last_sales_sync_at", "last_stocks_sync_at",
-                     "last_products_sync_at", "last_profile_sync_at", "last_wb_reports_sync_at"):
+                     "last_products_sync_at", "last_profile_sync_at", "last_wb_reports_sync_at",
+                     "last_ozon_finance_sync_at"):
             val = getattr(self.account, attr, None)
             if val and val.date() == datetime.now(val.tzinfo or UTC).date():
                 count += 1

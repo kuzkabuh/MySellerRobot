@@ -101,6 +101,20 @@ class WbOrderFact:
 
 
 @dataclass(slots=True)
+class OzonFactArticle:
+    key: str
+    label: str
+    amount: Decimal | None
+
+
+@dataclass(slots=True)
+class OzonOrderFact:
+    status: ReconciliationStatus
+    articles: list[OzonFactArticle]
+    rows: list[FinancialReportRow]
+
+
+@dataclass(slots=True)
 class OrderDetail:
     order: Order
     items: list[OrderDetailItem]
@@ -109,6 +123,7 @@ class OrderDetail:
     deviation: Decimal | None
     reconciliation_status: ReconciliationStatus
     wb_fact: WbOrderFact | None = None
+    ozon_fact: OzonOrderFact | None = None
     is_financial_only: bool = False
 
 
@@ -371,12 +386,15 @@ class WebOrdersProfitService:
         actual_profit = actual_total if has_actual else None
         deviation = actual_total - estimated_total if has_actual else None
         wb_fact = await self._wb_order_fact(order) if order.marketplace == Marketplace.WB else None
+        ozon_fact = await self._ozon_order_fact(order) if order.marketplace == Marketplace.OZON else None
         missing_cost = any(item.cost_price_used is None for item in order.items)
         reconciliation_status = (
             ReconciliationStatus.MANUAL_REVIEW
             if missing_cost
             else wb_fact.status
             if wb_fact is not None
+            else ozon_fact.status
+            if ozon_fact is not None
             else ReconciliationStatus.PRELIMINARY
         )
         is_financial_only = (
@@ -393,6 +411,7 @@ class WebOrdersProfitService:
             deviation=deviation,
             reconciliation_status=reconciliation_status,
             wb_fact=wb_fact,
+            ozon_fact=ozon_fact,
             is_financial_only=is_financial_only,
         )
 
@@ -428,6 +447,49 @@ class WebOrdersProfitService:
             linked_rows=linked_rows,
             unlinked_product_rows=unlinked_rows,
         )
+
+    async def _ozon_order_fact(self, order: Order) -> OzonOrderFact | None:
+        if not order.order_external_id:
+            return None
+        result = await self.session.execute(
+            select(FinancialReportRow)
+            .where(
+                FinancialReportRow.marketplace_account_id == order.marketplace_account_id,
+                FinancialReportRow.marketplace == Marketplace.OZON,
+                FinancialReportRow.order_external_id == order.order_external_id,
+            )
+            .order_by(FinancialReportRow.operation_category, FinancialReportRow.operation_date)
+        )
+        rows = list(result.scalars().all())
+        if not rows:
+            return None
+
+        articles: list[OzonFactArticle] = []
+        seen_categories: set[str] = set()
+        for row in rows:
+            cat = (row.operation_category or "other").lower()
+            if cat not in seen_categories:
+                seen_categories.add(cat)
+                label = _ozon_category_label(cat)
+                articles.append(OzonFactArticle(key=cat, label=label, amount=row.amount))
+            else:
+                existing = next((a for a in articles if a.key == cat), None)
+                if existing is not None and row.amount is not None:
+                    existing.amount = (existing.amount or ZERO) + row.amount
+
+        has_actual = any(
+            s.calculation_type == CalculationType.ACTUAL
+            for item in getattr(order, "items", [])
+            for s in getattr(item, "snapshots", [])
+        )
+        if has_actual:
+            status = ReconciliationStatus.FACT_MATCHED
+        elif rows:
+            status = ReconciliationStatus.FACT_PARTIAL
+        else:
+            status = ReconciliationStatus.PRELIMINARY
+
+        return OzonOrderFact(status=status, articles=articles, rows=rows)
 
     async def _wb_rows_linked_to_order(self, order: Order) -> list[WbDailyReportRow]:
         result = await self.session.execute(
@@ -1051,6 +1113,23 @@ def _latest_snapshot(
     if not filtered:
         return None
     return max(filtered, key=lambda item: (item.calculated_at, item.id or 0))
+
+
+def _ozon_category_label(cat: str) -> str:
+    labels = {
+        "sale": "Продажа",
+        "payout": "Выплата",
+        "commission": "Комиссия Ozon",
+        "logistics": "Логистика",
+        "other_marketplace_costs": "Прочие расходы МП",
+        "return": "Возвраты",
+        "storage": "Хранение",
+        "penalty": "Штрафы",
+        "deduction": "Удержания",
+        "acceptance": "Приёмка",
+        "compensation": "Компенсации",
+    }
+    return labels.get(cat, cat)
 
 
 def _filter_profit_rows(rows: list[ProfitSkuRow], economy: str) -> list[ProfitSkuRow]:

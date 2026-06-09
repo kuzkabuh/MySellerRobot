@@ -981,6 +981,8 @@ async def reconcile_ozon_finance(ctx: dict[str, Any]) -> None:
                             extra={"order_id": order.id, "account_id": ref.id},
                         )
                         failed += 1
+                from datetime import UTC, datetime
+                account.last_ozon_finance_sync_at = datetime.now(tz=UTC)
                 await session.commit()
             except Exception:
                 failed += 1
