@@ -548,10 +548,8 @@ def test_nav_hides_admin_sections_for_regular_users() -> None:
 
     assert 'href="/web/admin"' not in html
     assert 'href="/web/admin/support"' not in html
-    assert 'href="/web/control"' not in html
     assert 'href="/web/health"' not in html
     assert "Панель администратора" not in html
-    assert "Контроль ошибок" not in html
     assert "Здоровье кабинетов" not in html
 
 
@@ -559,7 +557,7 @@ def test_nav_shows_admin_sections_for_admin_users() -> None:
     html = page("Главная", "Артем", "<main></main>", is_admin=True, user_role="admin")
 
     assert 'href="/web/admin"' in html
-    assert 'href="/web/admin/support"' not in html
+    assert 'href="/web/admin/support"' in html
     assert "Обзор" in html
     assert "Синхронизации" in html
     assert "Логи и аудит" in html

@@ -1,4 +1,4 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: Navigation icons for MP Control web rendering.
 updated: 2026-06-09
 """
@@ -44,6 +44,11 @@ NAV_ICONS = {
     "Синхронизация": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13 5a5 5 0 00-8.5-1.8L3 5M3 11a5 5 0 008.5 1.8L13 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     "Безопасность": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2l5 2v4c0 3-2 5-5 6-3-1-5-3-5-6V4l5-2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
     "Поддержка": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 3h10v8H6l-3 3V3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M6 6h5M6 8.5h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Интеграции": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M11 3H5a2 2 0 00-2 2v6a2 2 0 002 2h6a2 2 0 002-2V5a2 2 0 00-2-2z" stroke="currentColor" stroke-width="1.5"/><path d="M8 6v4M6 8h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "Финансовый обзор": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="10" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M2 7h12M5 11h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "WB Отчёты": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="10" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M5 6h6M5 8.5h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "WB Логистика": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3" y="2" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M6 5h4M6 8h4M6 11h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+    "WB ежедневные отчёты": '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="10" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M5 6h6M5 8.5h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
 }
 
 NAV_ICONS_FALLBACK = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="3" stroke="currentColor" stroke-width="1.5"/></svg>'

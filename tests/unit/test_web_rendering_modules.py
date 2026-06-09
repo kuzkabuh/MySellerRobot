@@ -37,13 +37,13 @@ def test_user_nav_contains_orders() -> None:
     html = _nav("/web/orders", False)
 
     assert "Заказы" in html
-    assert "Админка" not in html
+    assert "Панель управления" not in html
 
 
 def test_admin_nav_contains_admin_group() -> None:
     html = _nav("/web/admin", True)
 
-    assert "Админка" in html
+    assert "Панель управления" in html
 
 
 def test_web_routes_import_after_rendering_split() -> None:

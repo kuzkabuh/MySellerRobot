@@ -996,6 +996,42 @@ def _css() -> str:
       font-weight: 600;
       font-size: 13px;
     }
+    .empty-state.compact { min-height: 80px; padding: 14px; font-size: 12px; }
+    .empty-state strong { display: block; color: var(--text-secondary); margin-bottom: 4px; }
+    .empty-state span { display: block; color: var(--text-muted); font-weight: 500; }
+
+    /* ── Notices ── */
+    .notice {
+      padding: 12px 14px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--bg-muted);
+      color: var(--text-secondary);
+      font-size: 13px;
+      margin-bottom: 12px;
+    }
+    .notice.success { background: var(--success-soft); border-color: var(--success-border); color: #047857; }
+    .notice.danger { background: var(--danger-soft); border-color: var(--danger-border); color: #b91c1c; }
+    .notice.warning { background: var(--warning-soft); border-color: var(--warning-border); color: #92400e; }
+
+    /* ── Tiny Button ── */
+    .button-tiny {
+      display: inline-flex;
+      align-items: center;
+      height: 26px;
+      padding: 0 8px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--bg-card);
+      color: var(--text-secondary);
+      font: inherit;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all 0.12s ease;
+    }
+    .button-tiny:hover { background: var(--bg-hover); border-color: #cbd5e1; color: var(--text); }
 
     /* ── Locked Feature ── */
     .locked-feature {

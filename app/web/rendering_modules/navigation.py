@@ -1,4 +1,4 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: Navigation rendering for MP Control web cabinet.
 updated: 2026-06-09
 """
@@ -10,52 +10,105 @@ from html import escape
 from app.web.rendering_modules.icons import NAV_ICONS, NAV_ICONS_FALLBACK
 
 NAV_GROUPS = [
-    ("Основное", [("Главная", "/web/")]),
-    ("Заказы", [("Заказы", "/web/orders")]),
+    (
+        "Основное",
+        [
+            ("Главная", "/web/"),
+        ],
+    ),
+    (
+        "Заказы и продажи",
+        [
+            ("Заказы", "/web/orders"),
+            ("Продажи", "/web/sales"),
+            ("Возвраты", "/web/returns"),
+        ],
+    ),
     (
         "Товары",
         [
             ("Товары", "/web/products"),
+            ("Остатки", "/web/stocks"),
+            ("Сопоставление WB / Ozon", "/web/product-matching"),
         ],
     ),
     (
         "Финансы",
         [
             ("Прибыль", "/web/profit"),
+            ("План / факт", "/web/plan-fact"),
+            ("Безубыточность", "/web/break-even"),
+            ("Финансовый обзор", "/web/finances"),
         ],
     ),
     (
         "Цены и акции",
         [
             ("Цены и акции", "/web/pricing"),
+            ("МРЦ WB", "/web/mrc-pricing"),
         ],
     ),
     (
-        "Кабинеты МП",
+        "Данные",
         [
-            ("Кабинеты МП", "/web/settings?tab=marketplaces"),
+            ("Себестоимость", "/web/costs"),
+            ("Качество данных", "/web/data-quality"),
+            ("Аналитика", "/web/analytics"),
+        ],
+    ),
+    (
+        "Мониторинг",
+        [
+            ("Алерты", "/web/alerts"),
+            ("Контроль ошибок", "/web/control"),
+        ],
+    ),
+    (
+        "Отчёты",
+        [
+            ("WB ежедневные отчёты", "/web/reports/wb-daily"),
         ],
     ),
     (
         "Аккаунт",
         [
-            ("Аккаунт", "/web/settings?tab=profile"),
+            ("Профиль", "/web/settings?tab=profile"),
+            ("Кабинеты МП", "/web/settings?tab=marketplaces"),
+            ("Настройки", "/web/settings"),
         ],
     ),
 ]
 
 ADMIN_NAV_GROUPS = [
     (
-        "Админка",
+        "Панель управления",
         [
             ("Обзор", "/web/admin"),
             ("Пользователи", "/web/admin/users"),
+        ],
+    ),
+    (
+        "Финансы",
+        [
             ("Тарифы и промокоды", "/web/admin/tariffs"),
             ("Платежи", "/web/admin/payments"),
+        ],
+    ),
+    (
+        "Интеграции",
+        [
             ("Интеграции", "/web/admin/commissions"),
+            ("WB Логистика", "/web/admin/wb-logistics"),
+            ("WB Отчёты", "/web/reports/wb-daily"),
+        ],
+    ),
+    (
+        "Система",
+        [
             ("Синхронизации", "/web/admin/sync-status"),
             ("Логи и аудит", "/web/admin/logs"),
             ("Бэкапы", "/web/admin/backups"),
+            ("Поддержка", "/web/admin/support"),
         ],
     ),
 ]
@@ -71,10 +124,12 @@ def _nav(active_path: str, show_admin: bool = False) -> str:
     def is_active(href: str) -> bool:
         if href == active_path:
             return True
-        if href.startswith("/web/settings?tab=") and active_path == "/web/settings":
-            return href.endswith("=profile")
-        if href.startswith("/web/settings?tab=") and active_path.startswith("/web/settings?tab="):
-            return href == active_path
+        if href.startswith("/web/settings?tab="):
+            if active_path.startswith("/web/settings?tab="):
+                return href == active_path
+            if active_path == "/web/settings":
+                return href.endswith("=profile")
+            return False
         return False
 
     groups = []
