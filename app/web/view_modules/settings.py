@@ -77,7 +77,7 @@ SYNC_FRESHNESS_STOCKS_HOURS = 24
 SYNC_FRESHNESS_PRODUCTS_HOURS = 48
 SYNC_FRESHNESS_PROFILE_HOURS = 48
 
-from app.web.view_modules.common import _page_header, _section_subnav, _web_tier_card
+from app.web.view_modules.common import _page_header, _section_subnav_products, _web_tier_card
 from app.web.view_modules.components import _simple_kpi
 from app.web.view_modules.formatting import _account_status_badge, _dt, _limit, _marketplace_label, _rub
 from app.web.view_modules.reports import _wb_reports_web
@@ -478,7 +478,7 @@ def _data_quality_content(report: DataQualityReport) -> str:
     )
     recommendations = "".join(f"<li>{escape(item)}</li>" for item in report.recommendations)
     return f"""
-      {_section_subnav("data_quality")}
+      {_section_subnav_products("data_quality")}
       <section class="kpi-grid">
         {_simple_kpi("Индекс качества данных", str(report.score), tone)}
       </section>

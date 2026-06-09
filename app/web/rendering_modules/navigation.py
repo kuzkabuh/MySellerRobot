@@ -1,5 +1,5 @@
-"""version: 1.1.0
-description: Navigation rendering for MP Control web cabinet.
+"""version: 2.0.0
+description: Compact sidebar navigation for MP Control web cabinet.
 updated: 2026-06-09
 """
 
@@ -9,134 +9,129 @@ from html import escape
 
 from app.web.rendering_modules.icons import NAV_ICONS, NAV_ICONS_FALLBACK
 
+# ── User sidebar: compact, only top-level sections ──
 NAV_GROUPS = [
     (
         "Основное",
-        [
-            ("Главная", "/web/"),
-        ],
+        [("Главная", "/web/")],
     ),
     (
-        "Заказы и продажи",
-        [
-            ("Заказы", "/web/orders"),
-            ("Продажи", "/web/sales"),
-            ("Возвраты", "/web/returns"),
-        ],
+        "Продажи",
+        [("Заказы и продажи", "/web/orders")],
     ),
     (
         "Товары",
-        [
-            ("Товары", "/web/products"),
-            ("Остатки", "/web/stocks"),
-            ("Сопоставление WB / Ozon", "/web/product-matching"),
-        ],
+        [("Товары", "/web/products")],
     ),
     (
         "Финансы",
-        [
-            ("Прибыль", "/web/profit"),
-            ("План / факт", "/web/plan-fact"),
-            ("Безубыточность", "/web/break-even"),
-            ("Финансовый обзор", "/web/finances"),
-        ],
+        [("Финансы", "/web/profit")],
     ),
     (
-        "Цены и акции",
-        [
-            ("Цены и акции", "/web/pricing"),
-            ("МРЦ WB", "/web/mrc-pricing"),
-        ],
-    ),
-    (
-        "Данные",
-        [
-            ("Себестоимость", "/web/costs"),
-            ("Качество данных", "/web/data-quality"),
-            ("Аналитика", "/web/analytics"),
-        ],
-    ),
-    (
-        "Мониторинг",
-        [
-            ("Алерты", "/web/alerts"),
-            ("Контроль ошибок", "/web/control"),
-        ],
+        "Цены",
+        [("Цены и акции", "/web/pricing")],
     ),
     (
         "Отчёты",
-        [
-            ("WB ежедневные отчёты", "/web/reports/wb-daily"),
-        ],
+        [("Отчёты", "/web/reports/wb-daily")],
+    ),
+    (
+        "Мониторинг",
+        [("Мониторинг", "/web/control")],
     ),
     (
         "Аккаунт",
         [
             ("Профиль", "/web/settings?tab=profile"),
-            ("Кабинеты МП", "/web/settings?tab=marketplaces"),
+            ("Мои кабинеты", "/web/accounts"),
             ("Настройки", "/web/settings"),
+            ("Подписка и тариф", "/web/subscription"),
+        ],
+    ),
+    (
+        "Помощь",
+        [("Поддержка", "/web/support")],
+    ),
+]
+
+# ── Admin sidebar: shown only for admin/superadmin ──
+ADMIN_NAV_GROUPS = [
+    (
+        "Админка",
+        [
+            ("Обзор", "/web/admin"),
+            ("Пользователи", "/web/admin/users"),
+            ("Финансы", "/web/admin/tariffs"),
+            ("Интеграции", "/web/admin/commissions"),
+            ("Система", "/web/admin/logs"),
         ],
     ),
 ]
 
-ADMIN_NAV_GROUPS = [
-    (
-        "Панель управления",
-        [
-            ("Обзор", "/web/admin"),
-            ("Пользователи", "/web/admin/users"),
-        ],
-    ),
-    (
-        "Финансы",
-        [
-            ("Тарифы и промокоды", "/web/admin/tariffs"),
-            ("Платежи", "/web/admin/payments"),
-        ],
-    ),
-    (
-        "Интеграции",
-        [
-            ("Интеграции", "/web/admin/commissions"),
-            ("WB Логистика", "/web/admin/wb-logistics"),
-            ("WB Отчёты", "/web/reports/wb-daily"),
-        ],
-    ),
-    (
-        "Система",
-        [
-            ("Синхронизации", "/web/admin/sync-status"),
-            ("Логи и аудит", "/web/admin/logs"),
-            ("Бэкапы", "/web/admin/backups"),
-            ("Поддержка", "/web/admin/support"),
-        ],
-    ),
-]
+# ── Prefix-based section membership for active detection ──
+# Each sidebar label maps to URL prefixes that should highlight it.
+SECTION_PREFIXES: dict[str, list[str]] = {
+    "Главная": ["/web/?"],
+    "Заказы и продажи": ["/web/orders", "/web/sales", "/web/returns"],
+    "Товары": ["/web/products", "/web/stocks", "/web/costs", "/web/product-matching", "/web/data-quality", "/web/alerts"],
+    "Финансы": ["/web/profit", "/web/plan-fact", "/web/break-even", "/web/finances"],
+    "Цены и акции": ["/web/pricing", "/web/mrc-pricing", "/web/auto-promo"],
+    "Отчёты": ["/web/reports", "/web/wb-daily-reports"],
+    "Мониторинг": ["/web/control", "/web/operations"],
+    "Мои кабинеты": ["/web/accounts"],
+    "Настройки": ["/web/settings"],
+    "Подписка и тариф": ["/web/subscription"],
+    "Поддержка": ["/web/support"],
+    # Admin
+    "Обзор": ["/web/admin$", "/web/health"],
+    "Пользователи": ["/web/admin/users"],
+    "Финансы": ["/web/admin/tariffs", "/web/admin/promocodes", "/web/admin/payments"],
+    "Интеграции": ["/web/admin/commissions", "/web/admin/wb-logistics", "/web/admin/wb-reports"],
+    "Система": ["/web/admin/logs", "/web/admin/sync-status", "/web/admin/backup", "/web/admin/support", "/web/admin/system"],
+}
 
 __all__ = [
     "NAV_GROUPS",
     "ADMIN_NAV_GROUPS",
+    "SECTION_PREFIXES",
     "_nav",
+    "_nav_is_active",
 ]
 
 
-def _nav(active_path: str, show_admin: bool = False) -> str:
-    def is_active(href: str) -> bool:
-        if href == active_path:
-            return True
-        if href.startswith("/web/settings?tab="):
-            if active_path.startswith("/web/settings?tab="):
-                return href == active_path
-            if active_path == "/web/settings":
-                return href.endswith("=profile")
-            return False
+def _nav_is_active(path: str, href: str, label: str) -> bool:
+    """Check if a sidebar item should be highlighted based on current path."""
+    if href == path:
+        return True
+    # Handle settings tab
+    if href.startswith("/web/settings?tab="):
+        if path.startswith("/web/settings?tab="):
+            return href == path
+        if path == "/web/settings":
+            return href.endswith("=profile")
         return False
+    # Use prefix-based matching from SECTION_PREFIXES
+    prefixes = SECTION_PREFIXES.get(label)
+    if prefixes:
+        for prefix in prefixes:
+            if prefix.endswith("$"):
+                # Exact match required
+                if path == prefix[:-1]:
+                    return True
+            elif prefix == "/web/?":
+                if path == "/web/" or path == "/web":
+                    return True
+            elif path.startswith(prefix):
+                return True
+    return False
 
+
+def _nav(active_path: str, show_admin: bool = False) -> str:
     groups = []
     for title, items in NAV_GROUPS:
         links = []
         for label, href in items:
-            active = ' class="active"' if is_active(href) else ""
+            active = ' class="active"' if _nav_is_active(active_path, href, label) else ""
             icon_svg = NAV_ICONS.get(label, NAV_ICONS_FALLBACK)
             links.append(
                 f'<a{active} href="{href}"><span class="nav-icon">{icon_svg}</span>'
@@ -151,7 +146,7 @@ def _nav(active_path: str, show_admin: bool = False) -> str:
         for title, items in ADMIN_NAV_GROUPS:
             links = []
             for label, href in items:
-                active = ' class="active"' if is_active(href) else ""
+                active = ' class="active"' if _nav_is_active(active_path, href, label) else ""
                 icon_svg = NAV_ICONS.get(label, NAV_ICONS_FALLBACK)
                 links.append(
                     f'<a{active} href="{href}"><span class="nav-icon">{icon_svg}</span>'

@@ -77,7 +77,7 @@ SYNC_FRESHNESS_STOCKS_HOURS = 24
 SYNC_FRESHNESS_PRODUCTS_HOURS = 48
 SYNC_FRESHNESS_PROFILE_HOURS = 48
 
-from app.web.view_modules.common import _section_subnav
+from app.web.view_modules.common import _section_subnav_finance
 from app.web.view_modules.components import _simple_kpi
 from app.web.view_modules.formatting import _marketplace_label, _rub
 from app.web.view_modules.forms import _profit_filters
@@ -136,7 +136,7 @@ def _profit_content(data: ProfitPageData) -> str:
     deviation_tone = "bad" if summary.deviation < 0 else "good"
     roi_value = f"{summary.roi_percent}%" if summary.roi_percent is not None else "н/д"
     return f"""
-      {_section_subnav("profit")}
+      {_section_subnav_finance("profit")}
       {_profit_filters(data.filters)}
       <section class="kpi-grid">
         {_simple_kpi("Плановая прибыль", _rub(summary.estimated_profit), estimated_tone)}

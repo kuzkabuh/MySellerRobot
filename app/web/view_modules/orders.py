@@ -77,7 +77,7 @@ SYNC_FRESHNESS_STOCKS_HOURS = 24
 SYNC_FRESHNESS_PRODUCTS_HOURS = 48
 SYNC_FRESHNESS_PROFILE_HOURS = 48
 
-from app.web.view_modules.common import _page_header, _render_pagination, _render_sync_freshness, _section_subnav
+from app.web.view_modules.common import _page_header, _render_pagination, _render_sync_freshness, _section_subnav_orders
 from app.web.view_modules.components import _simple_kpi
 from app.web.view_modules.formatting import _confidence_badge, _fact_status_badge, _marketplace_label, _order_status_badge, _percent_optional, _rub, _rub_optional, _sale_model_badge
 from app.web.view_modules.forms import _orders_filters, _sales_returns_filters
@@ -156,7 +156,7 @@ def _orders_content(
     sync_badge = _render_sync_freshness(last_poll_info, timezone) if last_poll_info else ""
 
     return f"""
-      {_section_subnav("orders")}
+      {_section_subnav_orders("orders")}
       {_orders_filters(filters)}
       {sync_badge}
       <section class="band">
@@ -224,7 +224,7 @@ def _order_detail_content(detail: OrderDetail, timezone: str) -> str:
     order_state = escape(order_state_label(order.normalized_status, order.requires_seller_action))
     wb_fact_html = _wb_order_fact_html(getattr(detail, "wb_fact", None), timezone)
     return f"""
-      {_section_subnav("orders")}
+      {_section_subnav_orders("orders")}
       <section class="detail-grid">
         <section class="band">
           <h2>Информация</h2>

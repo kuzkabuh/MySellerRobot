@@ -77,7 +77,7 @@ SYNC_FRESHNESS_STOCKS_HOURS = 24
 SYNC_FRESHNESS_PRODUCTS_HOURS = 48
 SYNC_FRESHNESS_PROFILE_HOURS = 48
 
-from app.web.view_modules.common import _section_subnav
+from app.web.view_modules.common import _section_subnav_finance
 from app.web.view_modules.components import _simple_kpi
 from app.web.view_modules.formatting import _marketplace_label, _percent_optional, _rub
 from app.web.view_modules.forms import _plan_fact_filters, _select
@@ -124,7 +124,7 @@ def _plan_fact_content(data: PlanFactPageData) -> str:
     plan = data.plan
     plan_panel = _plan_fact_plan_panel(data)
     return f"""
-      {_section_subnav("plan_fact")}
+      {_section_subnav_finance("plan_fact")}
       {_plan_fact_filters(data)}
       {plan_panel}
       <section class="kpi-grid">
@@ -248,7 +248,7 @@ def _break_even_content(
             "Недостаточно заказов с экономикой для расчёта безубыточности.</td></tr>"
         )
     return f"""
-      {_section_subnav("break_even")}
+      {_section_subnav_finance("break_even")}
       <form class="filters" method="get" action="/web/break-even">
         <div>
           <label for="target_margin">Целевая маржа, %</label>

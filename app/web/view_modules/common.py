@@ -82,6 +82,18 @@ from app.web.view_modules.formatting import _limit, _rub
 __all__ = [
     "_placeholder_page",
     "_section_subnav",
+    "_section_subnav_orders",
+    "_section_subnav_products",
+    "_section_subnav_finance",
+    "_section_subnav_pricing",
+    "_section_subnav_reports",
+    "_section_subnav_monitoring",
+    "_section_subnav_account",
+    "_section_subnav_admin_overview",
+    "_section_subnav_admin_users",
+    "_section_subnav_admin_finance",
+    "_section_subnav_admin_integrations",
+    "_section_subnav_admin_system",
     "_page_header",
     "_web_tier_card",
 ]
@@ -119,26 +131,147 @@ def _placeholder_page(section: str, user: User) -> str:
         active_path=f"/web/{section}",
     )
 
-def _section_subnav(active: str) -> str:
-    items = {
-        "orders": ("Заказы", "/web/orders"),
-        "profit": ("Прибыль", "/web/profit"),
-        "plan_fact": ("План/факт", "/web/plan-fact"),
-        "break_even": ("Безубыточность", "/web/break-even"),
-        "products": ("Товары", "/web/products"),
-        "product_matching": ("Сопоставление", "/web/product-matching"),
-        "stocks": ("Остатки", "/web/stocks"),
-        "alerts": ("Алерты", "/web/alerts"),
-        "data_quality": ("Качество данных", "/web/data-quality"),
-    }
+
+def _subnav_render(items: list[tuple[str, str, str]], active: str) -> str:
+    """Render a subnav from (key, label, href) tuples, highlighting active."""
     return (
         '<div class="subnav">'
         + "".join(
             f'<a class="{"active" if key == active else ""}" href="{href}">{label}</a>'
-            for key, (label, href) in items.items()
+            for key, label, href in items
         )
         + "</div>"
     )
+
+
+def _section_subnav(active: str) -> str:
+    """Legacy subnav covering all sections (backward compat)."""
+    items: list[tuple[str, str, str]] = [
+        ("orders", "Заказы", "/web/orders"),
+        ("sales", "Продажи", "/web/sales"),
+        ("returns", "Возвраты", "/web/returns"),
+        ("profit", "Прибыль", "/web/profit"),
+        ("plan_fact", "План/факт", "/web/plan-fact"),
+        ("break_even", "Безубыточность", "/web/break-even"),
+        ("products", "Товары", "/web/products"),
+        ("stocks", "Остатки", "/web/stocks"),
+        ("costs", "Себестоимость", "/web/costs"),
+        ("product_matching", "Сопоставление", "/web/product-matching"),
+        ("data_quality", "Качество данных", "/web/data-quality"),
+        ("alerts", "Алерты", "/web/alerts"),
+    ]
+    return _subnav_render(items, active)
+
+
+def _section_subnav_orders(active: str) -> str:
+    items: list[tuple[str, str, str]] = [
+        ("orders", "Заказы", "/web/orders"),
+        ("sales", "Продажи", "/web/sales"),
+        ("returns", "Возвраты", "/web/returns"),
+    ]
+    return _subnav_render(items, active)
+
+
+def _section_subnav_products(active: str) -> str:
+    items: list[tuple[str, str, str]] = [
+        ("products", "Товары", "/web/products"),
+        ("stocks", "Остатки", "/web/stocks"),
+        ("costs", "Себестоимость", "/web/costs"),
+        ("product_matching", "Сопоставление", "/web/product-matching"),
+        ("data_quality", "Качество данных", "/web/data-quality"),
+        ("alerts", "Алерты", "/web/alerts"),
+    ]
+    return _subnav_render(items, active)
+
+
+def _section_subnav_finance(active: str) -> str:
+    items: list[tuple[str, str, str]] = [
+        ("profit", "Прибыль", "/web/profit"),
+        ("plan_fact", "План/факт", "/web/plan-fact"),
+        ("break_even", "Безубыточность", "/web/break-even"),
+        ("finances", "Финансовый обзор", "/web/finances"),
+    ]
+    return _subnav_render(items, active)
+
+
+def _section_subnav_pricing(active: str) -> str:
+    items: list[tuple[str, str, str]] = [
+        ("pricing", "Цены", "/web/pricing"),
+        ("mrc_pricing", "МРЦ WB", "/web/mrc-pricing"),
+        ("auto_promo", "Автоакции WB", "/web/auto-promo"),
+    ]
+    return _subnav_render(items, active)
+
+
+def _section_subnav_reports(active: str) -> str:
+    items: list[tuple[str, str, str]] = [
+        ("wb_daily", "WB ежедневные", "/web/reports/wb-daily"),
+        ("wb_daily_reports", "WB отчёты", "/web/wb-daily-reports"),
+    ]
+    return _subnav_render(items, active)
+
+
+def _section_subnav_monitoring(active: str) -> str:
+    items: list[tuple[str, str, str]] = [
+        ("control", "Контроль ошибок", "/web/control"),
+        ("alerts", "Алерты", "/web/alerts"),
+        ("operations", "Состояние", "/web/operations"),
+    ]
+    return _subnav_render(items, active)
+
+
+def _section_subnav_account(active: str) -> str:
+    items: list[tuple[str, str, str]] = [
+        ("profile", "Профиль", "/web/settings?tab=profile"),
+        ("accounts", "Мои кабинеты", "/web/accounts"),
+        ("settings", "Настройки", "/web/settings"),
+        ("subscription", "Подписка и тариф", "/web/subscription"),
+    ]
+    return _subnav_render(items, active)
+
+
+def _section_subnav_admin_overview(active: str) -> str:
+    items: list[tuple[str, str, str]] = [
+        ("admin", "Обзор", "/web/admin"),
+        ("health", "Здоровье системы", "/web/health"),
+    ]
+    return _subnav_render(items, active)
+
+
+def _section_subnav_admin_users(active: str) -> str:
+    items: list[tuple[str, str, str]] = [
+        ("users", "Пользователи", "/web/admin/users"),
+    ]
+    return _subnav_render(items, active)
+
+
+def _section_subnav_admin_finance(active: str) -> str:
+    items: list[tuple[str, str, str]] = [
+        ("tariffs", "Тарифы", "/web/admin/tariffs"),
+        ("promocodes", "Промокоды", "/web/admin/promocodes"),
+        ("payments", "Платежи", "/web/admin/payments"),
+        ("commissions", "Комиссии", "/web/admin/commissions"),
+    ]
+    return _subnav_render(items, active)
+
+
+def _section_subnav_admin_integrations(active: str) -> str:
+    items: list[tuple[str, str, str]] = [
+        ("commissions", "Интеграции", "/web/admin/commissions"),
+        ("wb_logistics", "WB Логистика", "/web/admin/wb-logistics"),
+        ("wb_reports", "WB Отчёты", "/web/reports/wb-daily"),
+    ]
+    return _subnav_render(items, active)
+
+
+def _section_subnav_admin_system(active: str) -> str:
+    items: list[tuple[str, str, str]] = [
+        ("sync", "Синхронизации", "/web/admin/sync-status"),
+        ("logs", "Логи и аудит", "/web/admin/logs"),
+        ("backups", "Бэкапы", "/web/admin/backup"),
+        ("support", "Поддержка", "/web/admin/support"),
+    ]
+    return _subnav_render(items, active)
 
 def _render_sync_freshness(last_poll_info: dict[str, object], timezone: str) -> str:
     """Render a sync freshness indicator badge for the orders page."""

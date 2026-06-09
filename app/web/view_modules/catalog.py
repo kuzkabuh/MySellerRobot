@@ -77,7 +77,7 @@ SYNC_FRESHNESS_STOCKS_HOURS = 24
 SYNC_FRESHNESS_PRODUCTS_HOURS = 48
 SYNC_FRESHNESS_PROFILE_HOURS = 48
 
-from app.web.view_modules.common import _page_header, _section_subnav
+from app.web.view_modules.common import _page_header, _section_subnav_products
 from app.web.view_modules.components import _simple_kpi
 from app.web.view_modules.formatting import _alert_delivery_badge, _alert_type_badge, _cost_status_badge, _dt, _marketplace_label, _percent_optional, _rub, _sale_model_badge
 from app.web.view_modules.forms import _select
@@ -149,7 +149,7 @@ def _products_content(rows: list[MasterProductAnalyticsRow]) -> str:
         )
     )
     return f"""
-      {_section_subnav("products")}
+      {_section_subnav_products("products")}
       <section class="band">
         <h2>Единые карточки товаров</h2>
         <p class="muted">
@@ -207,7 +207,7 @@ def _master_product_detail_content(detail: MasterProductDetail) -> str:
         else '<div class="product-thumb">нет фото</div>'
     )
     return f"""
-      {_section_subnav("products")}
+      {_section_subnav_products("products")}
       <section class="band">
         <div style="display:flex;align-items:center;gap:14px">
           {image}
@@ -263,7 +263,7 @@ def _product_matching_content(candidates: list[ProductMatchingCandidate]) -> str
             '<tr><td colspan="7" class="muted">Товары для сопоставления пока не найдены.</td></tr>'
         )
     return f"""
-      {_section_subnav("products")}
+      {_section_subnav_products("products")}
       <section class="band">
         <h2>Сопоставление товаров</h2>
         <p class="muted">
@@ -335,7 +335,7 @@ def _stocks_forecast_content(
             "</div></td></tr>"
         )
     return f"""
-      {_section_subnav("stocks")}
+      {_section_subnav_products("stocks")}
       {_stock_filters(marketplace, sale_model, stock_status)}
       <section class="kpi-grid">
         {_simple_kpi("Всего позиций", str(len(rows)))}
@@ -418,7 +418,7 @@ def _alerts_content(events: list[AlertEvent], timezone: str = "Europe/Moscow") -
     if not body:
         body = '<tr><td colspan="5"><div class="empty-state">Активных алертов пока нет. Всё спокойно.</div></td></tr>'
     return f"""
-      {_section_subnav("alerts")}
+      {_section_subnav_products("alerts")}
       <section class="kpi-grid">
         {_simple_kpi("Всего алертов", str(len(events)))}
         {_simple_kpi("Новые", str(pending), "action" if pending else "neutral")}

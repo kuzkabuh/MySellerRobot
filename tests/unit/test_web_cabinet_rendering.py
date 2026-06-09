@@ -31,10 +31,9 @@ def test_navigation_contains_grouped_web_cabinet_sections() -> None:
         active_path="/web/settings?tab=marketplaces",
     )
 
-    assert "Заказы" in html
+    assert "Заказы и продажи" in html
     assert "Финансы" in html
-    assert "Кабинеты МП" in html
-    assert "Кабинеты МП" in html
+    assert "Мои кабинеты" in html
     assert 'href="/web/settings?tab=profile"' in html
     assert "Профиль и настройки" not in html
     assert 'href="/web/web/' not in html
@@ -536,8 +535,7 @@ def test_nav_links_cover_all_required_sections() -> None:
         "/web/orders",
         "/web/profit",
         "/web/pricing",
-        "/web/settings?tab=marketplaces",
-        "/web/settings?tab=profile",
+        "/web/settings",
     ]
     for href in required_hrefs:
         assert f'href="{href}"' in html, f"Missing nav link: {href}"
@@ -547,9 +545,14 @@ def test_nav_hides_admin_sections_for_regular_users() -> None:
     html = page("Главная", "Артем", "<main></main>")
 
     assert 'href="/web/admin"' not in html
-    assert 'href="/web/admin/support"' not in html
+    assert 'href="/web/admin/users"' not in html
+    assert 'href="/web/admin/tariffs"' not in html
+    assert 'href="/web/admin/commissions"' not in html
+    assert 'href="/web/admin/logs"' not in html
     assert 'href="/web/health"' not in html
+    assert "Админка" not in html
     assert "Панель администратора" not in html
+    assert "Панель управления" not in html
     assert "Здоровье кабинетов" not in html
 
 
@@ -557,10 +560,17 @@ def test_nav_shows_admin_sections_for_admin_users() -> None:
     html = page("Главная", "Артем", "<main></main>", is_admin=True, user_role="admin")
 
     assert 'href="/web/admin"' in html
-    assert 'href="/web/admin/support"' in html
+    assert 'href="/web/admin/users"' in html
+    assert 'href="/web/admin/tariffs"' in html
+    assert 'href="/web/admin/commissions"' in html
+    assert 'href="/web/admin/logs"' in html
+    assert "Админка" in html
     assert "Обзор" in html
-    assert "Синхронизации" in html
-    assert "Логи и аудит" in html
+    assert "Пользователи" in html
+    assert "Финансы" in html
+    assert "Интеграции" in html
+    assert "Система" in html
+    assert "Панель управления" not in html
     assert "Sync status" not in html
     assert "Worker diagnostics" not in html
     assert "Audit log" not in html
