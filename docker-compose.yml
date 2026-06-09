@@ -1,4 +1,4 @@
-# version: 1.9.9
+# version: 1.10.1
 # description: Local Docker Compose stack for app, worker, PostgreSQL, and Redis.
 # updated: 2026-05-15
 services:

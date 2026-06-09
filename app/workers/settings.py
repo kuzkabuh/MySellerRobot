@@ -9,6 +9,7 @@ from arq.connections import RedisSettings
 from app.core.config import get_settings
 from app.core.redis import redis_settings_from_url
 from app.workers.tasks import (
+    backfill_wb_daily_financial_details,
     check_auto_promo_prices,
     check_fbs_deadlines,
     check_low_stocks,
@@ -94,6 +95,7 @@ class WorkerSettings:
         cron(sync_wb_account_profiles, hour={7, 19}, minute=40),
         cron(check_wb_financial_reports, hour=4, minute=10),
         cron(sync_wb_daily_financial_details, hour=5, minute=0),
+        cron(backfill_wb_daily_financial_details, hour=6, minute=0),
         cron(reconcile_pending_payments, minute={5, 25, 45}),
         cron(resend_unnotified_orders, minute={7, 22, 37, 52}),
         cron(sync_products, hour=1, minute=20),

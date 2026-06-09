@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.exceptions import AuthenticationError, MarketplaceApiError, RateLimitError
 from app.core.security import TokenCipher
-from app.integrations.wb import WildberriesClient
+from app.integrations.wildberries.finance_client import WbFinanceApiClient
 from app.models.domain import (
     FinancialReportRow,
     MarketplaceAccount,
@@ -117,6 +117,13 @@ class WbDailyFinancialDetailService:
         self.calculator = ProfitCalculator()
         self.cost_service = CostService(session)
         self.order_repo = OrderRepository(session)
+        self._finance_client: WbFinanceApiClient | None = None
+
+    def _get_finance_client(self, account: MarketplaceAccount) -> WbFinanceApiClient:
+        if self._finance_client is None:
+            api_key = self.cipher.decrypt(account.encrypted_api_key)
+            self._finance_client = WbFinanceApiClient(api_key)
+        return self._finance_client
 
     async def sync_account_for_date(
         self,
@@ -127,7 +134,7 @@ class WbDailyFinancialDetailService:
             return SyncCounters()
 
         settings = get_settings()
-        client = WildberriesClient(self.cipher.decrypt(account.encrypted_api_key))
+        client = self._get_finance_client(account)
         limit = settings.wb_report_detailed_limit
         date_str = report_date.isoformat()
 
@@ -143,10 +150,11 @@ class WbDailyFinancialDetailService:
         counters = SyncCounters()
         all_rows: list[dict[str, Any]] = []
         rrd_id = 0
+        consecutive_empty = 0
 
         try:
             while True:
-                payload = await client.get_sales_report_details(
+                payload = await client.get_sales_reports_detailed(
                     date_from=date_str,
                     date_to=date_str,
                     period="daily",
@@ -155,7 +163,19 @@ class WbDailyFinancialDetailService:
                     fields=DETAILED_REPORT_FIELDS,
                 )
                 counters.pages_fetched += 1
-                page_rows = self._extract_rows(payload)
+
+                if payload is None:
+                    logger.info(
+                        "wb_finance_api_204_no_more_data",
+                        extra={
+                            "account_id": account.id,
+                            "report_date": date_str,
+                            "rrd_id": rrd_id,
+                        },
+                    )
+                    break
+
+                page_rows = WbFinanceApiClient.extract_rows(payload)
                 all_rows.extend(page_rows)
                 counters.total_rows_fetched += len(page_rows)
 
@@ -171,11 +191,17 @@ class WbDailyFinancialDetailService:
                 )
 
                 if not page_rows:
-                    break
+                    consecutive_empty += 1
+                    if consecutive_empty >= 3:
+                        break
+                    rrd_id += 1
+                    continue
+                consecutive_empty = 0
 
                 last_rrd_id = self._get_last_rrd_id(page_rows)
                 if last_rrd_id is None or last_rrd_id == rrd_id:
-                    break
+                    rrd_id += 1
+                    continue
                 rrd_id = last_rrd_id
 
         except (AuthenticationError, RateLimitError, MarketplaceApiError) as exc:
@@ -227,22 +253,6 @@ class WbDailyFinancialDetailService:
         )
 
         return counters
-
-    def _extract_rows(self, payload: Any) -> list[dict[str, Any]]:
-        if payload is None:
-            return []
-        if isinstance(payload, list):
-            return [item for item in payload if isinstance(item, dict)]
-        if isinstance(payload, dict):
-            for key in ("data", "details", "rows", "result"):
-                value = payload.get(key)
-                if isinstance(value, list):
-                    return [item for item in value if isinstance(item, dict)]
-                if isinstance(value, dict):
-                    nested = value.get("details") or value.get("rows")
-                    if isinstance(nested, list):
-                        return [item for item in nested if isinstance(item, dict)]
-        return []
 
     @staticmethod
     def _get_last_rrd_id(rows: list[dict[str, Any]]) -> int | None:
@@ -302,6 +312,7 @@ class WbDailyFinancialDetailService:
         order_external_id = self._extract_order_external_id(row)
         product_external_id = str(row.get("nmId") or "") if row.get("nmId") is not None else None
         operation_type = self._determine_operation_type(row)
+        operation_category = self._classify_operation_category(row, operation_type)
         operation_date = self._parse_operation_date(row, report_date)
         amount = self._determine_amount(row, operation_type)
 
@@ -326,10 +337,48 @@ class WbDailyFinancialDetailService:
         report_row.order_external_id = order_external_id
         report_row.product_external_id = product_external_id
         report_row.operation_type = operation_type
+        report_row.operation_category = operation_category
         report_row.operation_date = operation_date
         report_row.amount = amount
         report_row.raw_payload = row
         await self.session.flush()
+
+    @staticmethod
+    def _classify_operation_category(
+        row: dict[str, Any],
+        operation_type: str,
+    ) -> str:
+        type_lower = operation_type.lower()
+        doc_type = str(row.get("docTypeName") or "").lower()
+
+        if any(kw in type_lower or kw in doc_type for kw in ("продажа", "sale", "реализация")):
+            return "sale"
+        if any(kw in type_lower or kw in doc_type for kw in ("возврат", "return")):
+            return "return"
+        if any(kw in type_lower or kw in doc_type for kw in ("логист", "delivery", "logistic")):
+            return "logistics"
+        if any(kw in type_lower or kw in doc_type for kw in ("комисс", "commission", "reward")):
+            return "commission"
+        if any(kw in type_lower or kw in doc_type for kw in ("штраф", "penalty", "fine")):
+            return "penalty"
+        if any(kw in type_lower or kw in doc_type for kw in ("хранен", "storage")):
+            return "storage"
+        if any(kw in type_lower or kw in doc_type for kw in ("удержан", "deduction", "удержание")):
+            return "deduction"
+        if any(kw in type_lower or kw in doc_type for kw in ("приемк", "приёмк", "acceptance")):
+            return "acceptance"
+        if any(kw in type_lower or kw in doc_type
+               for kw in ("доплат", "additional", "additionalPayment")):
+            return "compensation"
+        if any(kw in type_lower or kw in doc_type
+               for kw in ("эквайринг", "acquiring", "paymentProcessing")):
+            return "acquiring"
+
+        # Check raw payload for forPay
+        forPay = row.get("forPay")
+        if forPay is not None:
+            return "payout"
+        return "other"
 
     @staticmethod
     def _extract_order_external_id(row: dict[str, Any]) -> str | None:

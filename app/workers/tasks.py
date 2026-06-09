@@ -30,11 +30,12 @@ from app.services.account.account_profile_service import AccountProfileService
 from app.services.alerts.daily_report_service import DailyReportService
 from app.services.alerts.fbo_digest_service import FboDigestService
 from app.services.alerts.fbs_control_service import FbsControlService
-from app.services.common.history_backfill_service import BackfillCounters, HistoryBackfillService
 from app.services.alerts.notification_service import NotificationService
-from app.services.common.order_processing_service import NewOrderNotification, OrderProcessingService
-from app.services.ozon.finance.ozon_balance_service import OzonBalanceService
-from app.services.ozon.api.ozon_catalog_enrichment_service import OzonCatalogEnrichmentService
+from app.services.common.history_backfill_service import BackfillCounters, HistoryBackfillService
+from app.services.common.order_processing_service import (
+    NewOrderNotification,
+    OrderProcessingService,
+)
 from app.services.common.product_sync_service import ProductSyncService
 from app.services.common.sales_event_sync_service import (
     OrderLifecycleNotification,
@@ -42,6 +43,8 @@ from app.services.common.sales_event_sync_service import (
     SalesEventSyncService,
 )
 from app.services.common.stock_service import StockService
+from app.services.ozon.api.ozon_catalog_enrichment_service import OzonCatalogEnrichmentService
+from app.services.ozon.finance.ozon_balance_service import OzonBalanceService
 from app.services.wb_daily_financial_detail_service import WbDailyFinancialDetailService
 from app.services.wb_report_relink_service import WbReportRelinkService
 from app.services.wb_report_service import WbFinancialReportService
@@ -1445,6 +1448,79 @@ async def check_auto_promo_prices(ctx: dict[str, Any]) -> None:
                 pass
 
 
+async def backfill_wb_daily_financial_details(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Backfill WB financial details for recent days.
+
+    Re-syncs the last 14 days of financial data for all WB accounts.
+    Useful for picking up updated/corrected report rows.
+    """
+    moscow_tz = ZoneInfo("Europe/Moscow")
+    moscow_today = datetime.now(tz=moscow_tz).date()
+    days_to_sync = 14
+    async with AsyncSessionFactory() as session:
+        account_refs = await _load_account_refs_wb(session)
+        total_accounts = len(account_refs)
+        success_count = 0
+        failed_count = 0
+        last_error: str | None = None
+        total_rows_upserted = 0
+        total_snapshots = 0
+
+        for ref in account_refs:
+            account = await _load_account_by_id(session, ref.id)
+            if account is None:
+                continue
+            try:
+                service = WbDailyFinancialDetailService(session)
+                for day_offset in range(1, days_to_sync + 1):
+                    report_date = moscow_today - timedelta(days=day_offset)
+                    counters = await service.sync_account_for_date(account, report_date)
+                    total_rows_upserted += counters.rows_upserted
+                    total_snapshots += counters.snapshots_upserted
+                    if counters.errors:
+                        logger.warning(
+                            "wb_financial_detail_backfill_date_warnings",
+                            extra={
+                                "account_id": ref.id,
+                                "report_date": report_date.isoformat(),
+                                "errors": counters.errors[:3],
+                            },
+                        )
+                await session.commit()
+                success_count += 1
+                logger.info(
+                    "wb_financial_detail_backfill_account_done",
+                    extra={
+                        "account_id": ref.id,
+                        "rows_upserted": total_rows_upserted,
+                        "snapshots_upserted": total_snapshots,
+                    },
+                )
+            except Exception as exc:
+                failed_count += 1
+                last_error = str(exc)[:500]
+                logger.exception(
+                    "wb_financial_detail_backfill_failed",
+                    extra={"account_id": ref.id, "error": last_error},
+                )
+                try:
+                    await session.rollback()
+                except Exception:
+                    pass
+        return _task_stats(
+            {
+                "accounts_total": total_accounts,
+                "accounts_success": success_count,
+                "accounts_failed": failed_count,
+                "days_synced": days_to_sync,
+                "rows_upserted": total_rows_upserted,
+                "snapshots_upserted": total_snapshots,
+            },
+            failed_count=failed_count,
+            last_error=last_error,
+        )
+
+
 async def sync_wb_product_prices(ctx: dict[str, Any]) -> dict[str, Any]:
     """Sync current WB product prices from /api/v2/prices into wb_product_prices table.
 
@@ -1588,6 +1664,7 @@ for _task_name in (
     "sync_wb_account_profiles",
     "check_wb_financial_reports",
     "sync_wb_daily_financial_details",
+    "backfill_wb_daily_financial_details",
     "reconcile_pending_payments",
     "resend_unnotified_orders",
     "sync_wb_commissions",

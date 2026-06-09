@@ -195,6 +195,7 @@ def _order_detail_content(detail: OrderDetail, timezone: str, is_admin: bool = F
             if estimated and estimated.economy_confidence
             else item.economy_confidence
         )
+        actual_tone = "good" if actual_profit and actual_profit >= 0 else "bad" if actual_profit else ""
         item_rows.append(
             "<tr>"
             f"<td>{escape(item.title or 'Без названия')}"
@@ -209,7 +210,7 @@ def _order_detail_content(detail: OrderDetail, timezone: str, is_admin: bool = F
             f'<td class="num">{_rub_optional(item.package_cost_used)}</td>'
             f'<td class="num">{_rub_optional(item.tax_amount_estimated)}</td>'
             f'<td class="num">{_rub_optional(estimated_profit)}</td>'
-            f'<td class="num">{_rub_optional(actual_profit)}</td>'
+            f'<td class="num"><span class="{"tone-" + actual_tone if actual_tone else ""}">{_rub_optional(actual_profit)}</span></td>'
             f"<td>{_confidence_badge(confidence)}</td>"
             "</tr>"
         )
@@ -259,10 +260,6 @@ def _order_detail_content(detail: OrderDetail, timezone: str, is_admin: bool = F
             <span>Отклонение</span><strong>{_rub_optional(detail.deviation)}</strong>
             <span>Статус сверки</span><strong>{_reconciliation_badge(getattr(detail, "reconciliation_status", None))}</strong>
           </div>
-          <p class="muted">
-            Если фактическая прибыль отсутствует, финансовые отчёты маркетплейса
-            ещё не сопоставлены с заказом.
-          </p>
         </section>
       </section>
       <section class="band" style="margin-top:14px">
@@ -274,7 +271,7 @@ def _order_detail_content(detail: OrderDetail, timezone: str, is_admin: bool = F
                 <th>Товар</th><th class="num">Кол-во</th><th class="num">Цена</th>
                 <th class="num">Комиссия</th><th class="num">Логистика</th>
                 <th class="num">Себестоимость</th><th class="num">Упаковка</th>
-                <th class="num">Налог</th><th class="num">План</th><th class="num">Факт</th>
+                <th class="num">Налог</th><th class="num">Прибыль план</th><th class="num">Прибыль факт</th>
                 <th>Достоверность</th>
               </tr>
             </thead>
@@ -297,6 +294,9 @@ def _wb_order_fact_html(wb_fact: Any, timezone: str) -> str:
         "FACT_AMBIGUOUS": "Неоднозначная сверка",
         "FACT_CONFLICT": "Конфликт сумм",
         "MANUAL_REVIEW": "Нужна проверка",
+        "MISSING_COST": "Нет себестоимости",
+        "MISSING_REPORT": "Не загружен отчёт WB",
+        "ERROR_STATUS": "Ошибка обработки",
         "PRELIMINARY": "Только план",
     }.get(status_value, "Только план")
     states = "".join(
@@ -320,7 +320,7 @@ def _wb_order_fact_html(wb_fact: Any, timezone: str) -> str:
     return f"""
       <section class="band" style="margin-top:14px">
         <h2>Факт по отчёту WB</h2>
-        <p><span class="badge warn">{escape(status_label)}</span></p>
+        <p><span class="badge {_reconciliation_tone(status_value)}">{escape(status_label)}</span></p>
         <p class="muted">
           Строки отчёта WB могут быть связаны с товаром, но не связаны с конкретным заказом.
           Такие строки учитываются в аналитике товара и общей финансовой аналитике, но не
@@ -342,6 +342,19 @@ def _wb_order_fact_html(wb_fact: Any, timezone: str) -> str:
         {unlinked_rows}
       </section>
     """
+
+def _reconciliation_tone(status: str) -> str:
+    return {
+        "FACT_MATCHED": "good",
+        "FACT_PARTIAL": "warn",
+        "FACT_UNMATCHED": "warn",
+        "FACT_AMBIGUOUS": "warn",
+        "FACT_CONFLICT": "bad",
+        "MANUAL_REVIEW": "bad",
+        "MISSING_COST": "bad",
+        "MISSING_REPORT": "warn",
+        "ERROR_STATUS": "bad",
+    }.get(status, "")
 
 def _wb_report_rows_table(rows: list[Any], timezone: str, *, empty_text: str) -> str:
     if not rows:
@@ -412,23 +425,32 @@ def _wb_fact_state_text(state: str) -> str:
 
 def _reconciliation_badge(status: Any) -> str:
     value = getattr(status, "value", status) or "PRELIMINARY"
-    label = {
-        "PRELIMINARY": "PRELIMINARY",
-        "FACT_MATCHED": "FACT_MATCHED",
-        "FACT_PARTIAL": "FACT_PARTIAL",
-        "FACT_UNMATCHED": "FACT_UNMATCHED",
-        "FACT_AMBIGUOUS": "FACT_AMBIGUOUS",
-        "FACT_CONFLICT": "FACT_CONFLICT",
-        "MANUAL_REVIEW": "MANUAL_REVIEW",
-    }.get(str(value), str(value))
-    tone = {
+    labels = {
+        "PRELIMINARY": "Только план",
+        "FACT_MATCHED": "Факт полный",
+        "FACT_PARTIAL": "Факт частичный",
+        "FACT_UNMATCHED": "Факт не привязан",
+        "FACT_AMBIGUOUS": "Неоднозначно",
+        "FACT_CONFLICT": "Конфликт",
+        "MANUAL_REVIEW": "Проверка",
+        "MISSING_COST": "Нет себестоимости",
+        "MISSING_REPORT": "Нет отчёта",
+        "ERROR_STATUS": "Ошибка",
+    }
+    tones = {
         "FACT_MATCHED": "good",
         "FACT_PARTIAL": "warn",
         "FACT_UNMATCHED": "warn",
         "FACT_AMBIGUOUS": "warn",
         "FACT_CONFLICT": "bad",
         "MANUAL_REVIEW": "bad",
-    }.get(str(value), "")
+        "MISSING_COST": "bad",
+        "MISSING_REPORT": "warn",
+        "ERROR_STATUS": "bad",
+    }
+    sv = str(value)
+    label = labels.get(sv, sv)
+    tone = tones.get(sv, "")
     return f'<span class="badge {tone}">{escape(label)}</span>'
 
 def _wb_link_status_text(row: Any) -> str:
