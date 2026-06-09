@@ -94,6 +94,7 @@ __all__ = [
     "_section_subnav_admin_finance",
     "_section_subnav_admin_integrations",
     "_section_subnav_admin_system",
+    "_section_subnav_admin_main",
     "_page_header",
     "_web_tier_card",
 ]
@@ -198,15 +199,15 @@ def _section_subnav_pricing(active: str) -> str:
     items: list[tuple[str, str, str]] = [
         ("pricing", "Цены", "/web/pricing"),
         ("mrc_pricing", "МРЦ WB", "/web/mrc-pricing"),
-        ("auto_promo", "Автоакции WB", "/web/auto-promo"),
+        ("wb_promotions", "Акции WB", "/web/wb-promotions"),
+        ("auto_promo", "Автоакции WB", "/web/auto-promo-prices"),
     ]
     return _subnav_render(items, active)
 
 
 def _section_subnav_reports(active: str) -> str:
     items: list[tuple[str, str, str]] = [
-        ("wb_daily", "WB ежедневные", "/web/reports/wb-daily"),
-        ("wb_daily_reports", "WB отчёты", "/web/wb-daily-reports"),
+        ("wb_daily", "Ежедневные WB", "/web/reports/wb-daily"),
     ]
     return _subnav_render(items, active)
 
@@ -214,8 +215,8 @@ def _section_subnav_reports(active: str) -> str:
 def _section_subnav_monitoring(active: str) -> str:
     items: list[tuple[str, str, str]] = [
         ("control", "Контроль ошибок", "/web/control"),
-        ("alerts", "Алерты", "/web/alerts"),
-        ("operations", "Состояние", "/web/operations"),
+        ("sync", "Синхронизация", "/web/sync-center"),
+        ("analytics", "Аналитика", "/web/analytics"),
     ]
     return _subnav_render(items, active)
 
@@ -223,9 +224,10 @@ def _section_subnav_monitoring(active: str) -> str:
 def _section_subnav_account(active: str) -> str:
     items: list[tuple[str, str, str]] = [
         ("profile", "Профиль", "/web/settings?tab=profile"),
-        ("accounts", "Мои кабинеты", "/web/accounts"),
+        ("accounts", "Кабинеты МП", "/web/accounts"),
         ("settings", "Настройки", "/web/settings"),
         ("subscription", "Подписка и тариф", "/web/subscription"),
+        ("security", "Безопасность", "/web/settings/security"),
     ]
     return _subnav_render(items, active)
 
@@ -255,11 +257,18 @@ def _section_subnav_admin_finance(active: str) -> str:
     return _subnav_render(items, active)
 
 
+def _section_subnav_admin_main(active: str) -> str:
+    items: list[tuple[str, str, str]] = [
+        ("admin", "Обзор", "/web/admin"),
+        ("users", "Пользователи", "/web/admin/users"),
+    ]
+    return _subnav_render(items, active)
+
+
 def _section_subnav_admin_integrations(active: str) -> str:
     items: list[tuple[str, str, str]] = [
-        ("commissions", "Интеграции", "/web/admin/commissions"),
-        ("wb_logistics", "WB Логистика", "/web/admin/wb-logistics"),
-        ("wb_reports", "WB Отчёты", "/web/reports/wb-daily"),
+        ("commissions", "Комиссии", "/web/admin/commissions"),
+        ("wb_logistics", "Логистика WB", "/admin/wb-logistics"),
     ]
     return _subnav_render(items, active)
 
@@ -267,9 +276,11 @@ def _section_subnav_admin_integrations(active: str) -> str:
 def _section_subnav_admin_system(active: str) -> str:
     items: list[tuple[str, str, str]] = [
         ("sync", "Синхронизации", "/web/admin/sync-status"),
-        ("logs", "Логи и аудит", "/web/admin/logs"),
-        ("backups", "Бэкапы", "/web/admin/backup"),
-        ("support", "Поддержка", "/web/admin/support"),
+        ("workers", "Воркеры", "/web/admin/worker-diagnostics"),
+        ("logs", "Логи", "/web/admin/logs"),
+        ("audit", "Аудит", "/web/admin/audit-log"),
+        ("backups", "Бэкапы", "/web/admin/backups"),
+        ("support", "Обращения", "/web/admin/support"),
     ]
     return _subnav_render(items, active)
 

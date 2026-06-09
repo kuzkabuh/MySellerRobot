@@ -31,9 +31,9 @@ def test_navigation_contains_grouped_web_cabinet_sections() -> None:
         active_path="/web/settings?tab=marketplaces",
     )
 
-    assert "Заказы и продажи" in html
+    assert "Дашборд" in html
     assert "Финансы" in html
-    assert "Мои кабинеты" in html
+    assert "Кабинеты МП" in html
     assert 'href="/web/settings?tab=profile"' in html
     assert "Профиль и настройки" not in html
     assert 'href="/web/web/' not in html
@@ -260,7 +260,7 @@ def test_orders_content_links_are_canonical() -> None:
     html = routes._orders_content(page_result, "Europe/Moscow")
 
     assert 'href="/web/orders/42"' in html
-    assert "FACT_MATCHED" in html
+    assert "Факт полный" in html
     assert 'href="/web/web/' not in html
 
 
@@ -564,11 +564,18 @@ def test_nav_shows_admin_sections_for_admin_users() -> None:
     assert 'href="/web/admin/tariffs"' in html
     assert 'href="/web/admin/commissions"' in html
     assert 'href="/web/admin/logs"' in html
+    assert 'href="/web/admin/promocodes"' in html
+    assert 'href="/web/admin/payments"' in html
+    assert 'href="/web/admin/audit-log"' in html
+    assert 'href="/web/admin/sync-status"' in html
+    assert 'href="/web/admin/worker-diagnostics"' in html
+    assert 'href="/web/admin/backups"' in html
+    assert 'href="/web/admin/support"' in html
+    assert 'href="/admin/wb-logistics"' in html
     assert "Админка" in html
     assert "Обзор" in html
     assert "Пользователи" in html
     assert "Финансы" in html
-    assert "Интеграции" in html
     assert "Система" in html
     assert "Панель управления" not in html
     assert "Sync status" not in html

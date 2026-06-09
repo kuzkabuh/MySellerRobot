@@ -1,6 +1,6 @@
-"""version: 2.0.0
-description: Compact sidebar navigation for MP Control web cabinet.
-updated: 2026-06-09
+"""version: 2.1.0
+description: Compact sidebar navigation for MP Control web cabinet – rebuilt from actual routes.
+updated: 2026-06-10
 """
 
 # ruff: noqa: E501
@@ -9,48 +9,75 @@ from html import escape
 
 from app.web.rendering_modules.icons import NAV_ICONS, NAV_ICONS_FALLBACK
 
-# ── User sidebar: compact, only top-level sections ──
+# ── User sidebar ──
 NAV_GROUPS = [
     (
         "Основное",
-        [("Главная", "/web/")],
-    ),
-    (
-        "Продажи",
-        [("Заказы и продажи", "/web/orders")],
+        [
+            ("Дашборд", "/web/"),
+            ("Заказы", "/web/orders"),
+            ("Продажи", "/web/sales"),
+            ("Возвраты", "/web/returns"),
+        ],
     ),
     (
         "Товары",
-        [("Товары", "/web/products")],
+        [
+            ("Товары", "/web/products"),
+            ("Сопоставление", "/web/product-matching"),
+            ("Остатки", "/web/stocks"),
+            ("Себестоимость", "/web/costs"),
+            ("Алерты", "/web/alerts"),
+            ("Качество данных", "/web/data-quality"),
+        ],
     ),
     (
         "Финансы",
-        [("Финансы", "/web/profit")],
+        [
+            ("Прибыль", "/web/profit"),
+            ("План/факт", "/web/plan-fact"),
+            ("Безубыточность", "/web/break-even"),
+            ("Финансовый обзор", "/web/finances"),
+        ],
     ),
     (
-        "Цены",
-        [("Цены и акции", "/web/pricing")],
+        "Цены и акции",
+        [
+            ("Цены", "/web/pricing"),
+            ("МРЦ WB", "/web/mrc-pricing"),
+            ("Акции WB", "/web/wb-promotions"),
+            ("Автоакции WB", "/web/auto-promo-prices"),
+        ],
     ),
     (
         "Отчёты",
-        [("Отчёты", "/web/reports/wb-daily")],
+        [
+            ("Ежедневные WB", "/web/reports/wb-daily"),
+        ],
     ),
     (
         "Мониторинг",
-        [("Мониторинг", "/web/control")],
+        [
+            ("Контроль ошибок", "/web/control"),
+            ("Синхронизация", "/web/sync-center"),
+            ("Аналитика", "/web/analytics"),
+        ],
     ),
     (
         "Аккаунт",
         [
             ("Профиль", "/web/settings?tab=profile"),
-            ("Мои кабинеты", "/web/accounts"),
+            ("Кабинеты МП", "/web/accounts"),
             ("Настройки", "/web/settings"),
             ("Подписка и тариф", "/web/subscription"),
+            ("Безопасность", "/web/settings/security"),
         ],
     ),
     (
         "Помощь",
-        [("Поддержка", "/web/support")],
+        [
+            ("Поддержка", "/web/settings?tab=support"),
+        ],
     ),
 ]
 
@@ -61,33 +88,75 @@ ADMIN_NAV_GROUPS = [
         [
             ("Обзор", "/web/admin"),
             ("Пользователи", "/web/admin/users"),
-            ("Финансы", "/web/admin/tariffs"),
-            ("Интеграции", "/web/admin/commissions"),
-            ("Система", "/web/admin/logs"),
+        ],
+    ),
+    (
+        "Финансы",
+        [
+            ("Тарифы", "/web/admin/tariffs"),
+            ("Промокоды", "/web/admin/promocodes"),
+            ("Платежи", "/web/admin/payments"),
+            ("Комиссии", "/web/admin/commissions"),
+        ],
+    ),
+    (
+        "Система",
+        [
+            ("Логи", "/web/admin/logs"),
+            ("Аудит", "/web/admin/audit-log"),
+            ("Синхронизации", "/web/admin/sync-status"),
+            ("Воркеры", "/web/admin/worker-diagnostics"),
+            ("Бэкапы", "/web/admin/backups"),
+            ("Обращения", "/web/admin/support"),
+            ("Логистика WB", "/admin/wb-logistics"),
         ],
     ),
 ]
 
 # ── Prefix-based section membership for active detection ──
-# Each sidebar label maps to URL prefixes that should highlight it.
 SECTION_PREFIXES: dict[str, list[str]] = {
-    "Главная": ["/web/?"],
-    "Заказы и продажи": ["/web/orders", "/web/sales", "/web/returns"],
-    "Товары": ["/web/products", "/web/stocks", "/web/costs", "/web/product-matching", "/web/data-quality", "/web/alerts"],
-    "Финансы": ["/web/profit", "/web/plan-fact", "/web/break-even", "/web/finances", "/web/finances/unmatched"],
-    "Цены и акции": ["/web/pricing", "/web/mrc-pricing", "/web/auto-promo"],
-    "Отчёты": ["/web/reports", "/web/wb-daily-reports"],
-    "Мониторинг": ["/web/control", "/web/operations"],
-    "Мои кабинеты": ["/web/accounts"],
+    "Дашборд": ["/web/?"],
+    "Заказы": ["/web/orders"],
+    "Продажи": ["/web/sales"],
+    "Возвраты": ["/web/returns"],
+    "Товары": ["/web/products"],
+    "Сопоставление": ["/web/product-matching"],
+    "Остатки": ["/web/stocks"],
+    "Себестоимость": ["/web/costs"],
+    "Алерты": ["/web/alerts"],
+    "Качество данных": ["/web/data-quality"],
+    "Прибыль": ["/web/profit$"],
+    "План/факт": ["/web/plan-fact"],
+    "Безубыточность": ["/web/break-even"],
+    "Финансовый обзор": ["/web/finances"],
+    "Цены": ["/web/pricing$"],
+    "МРЦ WB": ["/web/mrc-pricing", "/web/auto-promo"],
+    "Акции WB": ["/web/wb-promotions"],
+    "Автоакции WB": ["/web/auto-promo-prices", "/web/auto-promo-import"],
+    "Ежедневные WB": ["/web/reports/wb-daily"],
+    "Контроль ошибок": ["/web/control"],
+    "Синхронизация": ["/web/sync-center", "/web/sync/"],
+    "Аналитика": ["/web/analytics"],
+    "Профиль": ["/web/settings?tab=profile"],
+    "Кабинеты МП": ["/web/accounts"],
     "Настройки": ["/web/settings"],
     "Подписка и тариф": ["/web/subscription"],
-    "Поддержка": ["/web/support"],
+    "Безопасность": ["/web/settings/security"],
+    "Поддержка": ["/web/settings?tab=support", "/web/settings/support"],
     # Admin
-    "Обзор": ["/web/admin$", "/web/health"],
+    "Обзор": ["/web/admin$"],
     "Пользователи": ["/web/admin/users"],
-    "Финансы": ["/web/admin/tariffs", "/web/admin/promocodes", "/web/admin/payments"],
-    "Интеграции": ["/web/admin/commissions", "/web/admin/wb-logistics", "/web/admin/wb-reports"],
-    "Система": ["/web/admin/logs", "/web/admin/sync-status", "/web/admin/backup", "/web/admin/support", "/web/admin/system"],
+    "Тарифы": ["/web/admin/tariffs"],
+    "Промокоды": ["/web/admin/promocodes"],
+    "Платежи": ["/web/admin/payments"],
+    "Комиссии": ["/web/admin/commissions"],
+    "Обращения": ["/web/admin/support"],
+    "Логи": ["/web/admin/logs"],
+    "Аудит": ["/web/admin/audit-log"],
+    "Синхронизации": ["/web/admin/sync-status"],
+    "Воркеры": ["/web/admin/worker-diagnostics"],
+    "Бэкапы": ["/web/admin/backups"],
+    "Логистика WB": ["/admin/wb-logistics"],
 }
 
 __all__ = [
@@ -115,7 +184,6 @@ def _nav_is_active(path: str, href: str, label: str) -> bool:
     if prefixes:
         for prefix in prefixes:
             if prefix.endswith("$"):
-                # Exact match required
                 if path == prefix[:-1]:
                     return True
             elif prefix == "/web/?":
