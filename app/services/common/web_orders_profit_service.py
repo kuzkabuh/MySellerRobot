@@ -108,6 +108,7 @@ class OrderDetail:
     deviation: Decimal | None
     reconciliation_status: ReconciliationStatus
     wb_fact: WbOrderFact | None = None
+    is_financial_only: bool = False
 
 
 @dataclass(slots=True)
@@ -373,6 +374,12 @@ class WebOrdersProfitService:
             if wb_fact is not None
             else ReconciliationStatus.PRELIMINARY
         )
+        is_financial_only = (
+            order.marketplace == Marketplace.WB
+            and order.source_event_type == SourceEventType.REPORT_ORDER
+            and order.srid is not None
+            and _is_short_srid(order.srid)
+        )
         return OrderDetail(
             order=order,
             items=items,
@@ -381,6 +388,7 @@ class WebOrdersProfitService:
             deviation=deviation,
             reconciliation_status=reconciliation_status,
             wb_fact=wb_fact,
+            is_financial_only=is_financial_only,
         )
 
     async def _wb_order_fact(self, order: Order) -> WbOrderFact:
@@ -1109,3 +1117,19 @@ def localized_order_date(value: datetime, timezone: str) -> str:
 
 def order_state_label(status: str | None, requires_action: bool) -> str:
     return order_status_label(status, requires_action)
+
+
+def _is_short_srid(srid: str | None) -> bool:
+    """Check if srid looks like a short code rather than a real order ID.
+
+    Real WB srids are typically longer strings or contain hyphens.
+    Short all-numeric codes are likely financial report references.
+    """
+    if not srid:
+        return False
+    text = str(srid).strip()
+    if len(text) < 8:
+        return True
+    if text.isdigit() and len(text) < 12:
+        return True
+    return False

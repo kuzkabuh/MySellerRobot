@@ -24,6 +24,11 @@ from app.repositories.sync_jobs import SyncJobRepository
 from app.services.unit_economics.finance_service import FinanceService
 from app.services.unit_economics.order_profit_service import OrderProfitService
 from app.services.common.product_sync_service import ProductSyncService
+from app.services.wb.reports.operation_classifier import (
+    classify_financial_operation,
+    has_real_order_id,
+    is_sale_operation,
+)
 from app.services.wb_report_relink_service import WbReportRelinkService
 
 logger = logging.getLogger(__name__)
@@ -383,12 +388,21 @@ class HistoryBackfillService:
             or f"wb-fin-{account.id}-{operation_date.isoformat()}-{row.get('nmID')}"
         )
         amount = self._decimal(row.get("ppvzForPay") or row.get("retailPriceWithDiscRub") or 0)
+
+        seller_oper = str(row.get("sellerOperName") or "").strip() or None
+        doc_type = str(row.get("docTypeName") or "").strip() or None
+        operation_type, operation_category = classify_financial_operation(
+            seller_oper_name=seller_oper,
+            doc_type_name=doc_type,
+            bonus_type_name=str(row.get("bonusTypeName") or "").strip() or None,
+        )
+
         added = await self.finance.add_financial_row(
             user_id=account.user_id,
             account_id=account.id,
             marketplace=Marketplace.WB,
             external_row_id=external_row_id,
-            operation_type=str(row.get("docTypeName") or row.get("operationType") or "sale"),
+            operation_type=operation_type,
             operation_date=operation_date,
             amount=amount,
             order_external_id=str(row.get("srid") or "") or None,
@@ -397,8 +411,8 @@ class HistoryBackfillService:
         )
         counters.financial_rows += int(added)
         counters.skipped += int(not added)
-        operation = str(row.get("docTypeName") or row.get("operationType") or "").lower()
-        if "возврат" in operation or "return" in operation:
+
+        if operation_type == "return":
             created = await self.returns.add_once(
                 user_id=account.user_id,
                 account_id=account.id,
@@ -412,29 +426,39 @@ class HistoryBackfillService:
                 raw_payload=row,
             )
             counters.returns += int(created)
-        else:
-            created = await self.sales.add_once(
-                user_id=account.user_id,
-                account_id=account.id,
-                marketplace=Marketplace.WB,
-                external_event_id=f"wb-sale-{external_row_id}",
-                order_external_id=str(row.get("srid") or "") or None,
-                event_date=operation_date,
-                quantity=int(row.get("quantity") or 1),
-                amount=amount,
-                raw_payload=row,
+            return
+
+        if not is_sale_operation(operation_type):
+            counters.skipped += 1
+            return
+
+        if not has_real_order_id(row):
+            counters.skipped += 1
+            return
+
+        created = await self.sales.add_once(
+            user_id=account.user_id,
+            account_id=account.id,
+            marketplace=Marketplace.WB,
+            external_event_id=f"wb-sale-{external_row_id}",
+            order_external_id=str(row.get("srid") or "") or None,
+            event_date=operation_date,
+            quantity=int(row.get("quantity") or 1),
+            amount=amount,
+            raw_payload=row,
+        )
+        counters.sales += int(created)
+
+        try:
+            created_order = await self._upsert_order_with_profit(
+                account,
+                WildberriesClient("").normalize_report_order(row),
             )
-            counters.sales += int(created)
-            try:
-                created_order = await self._upsert_order_with_profit(
-                    account,
-                    WildberriesClient("").normalize_report_order(row),
-                )
-                counters.orders += int(created_order)
-                counters.profit_items += int(created_order)
-                counters.skipped += int(not created_order)
-            except Exception:
-                counters.warnings.append("Часть WB строк отчёта не удалось сопоставить с заказами.")
+            counters.orders += int(created_order)
+            counters.profit_items += int(created_order)
+            counters.skipped += int(not created_order)
+        except Exception:
+            counters.warnings.append("Часть WB строк отчёта не удалось сопоставить с заказами.")
 
     async def _store_ozon_return(
         self,

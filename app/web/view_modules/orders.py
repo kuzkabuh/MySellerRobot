@@ -223,8 +223,19 @@ def _order_detail_content(detail: OrderDetail, timezone: str) -> str:
     order_date = localized_order_date(order.order_date, timezone)
     order_state = escape(order_state_label(order.normalized_status, order.requires_seller_action))
     wb_fact_html = _wb_order_fact_html(getattr(detail, "wb_fact", None), timezone)
+    is_financial_only = getattr(detail, "is_financial_only", False)
+    financial_only_warning = (
+        '<div class="band warn" style="margin:14px 0;padding:14px">'
+        "<strong>Внимание!</strong> Эта запись, вероятно, является строкой финансового отчёта, "
+        "а не реальным заказом покупателя. "
+        "Она не привязана к заказу и не должна учитываться в аналитике заказов."
+        "</div>"
+        if is_financial_only
+        else ""
+    )
     return f"""
       {_section_subnav_orders("orders")}
+      {financial_only_warning}
       <section class="detail-grid">
         <section class="band">
           <h2>Информация</h2>
@@ -273,8 +284,10 @@ def _order_detail_content(detail: OrderDetail, timezone: str) -> str:
       </section>
       {wb_fact_html}
       <section class="band" style="margin-top:14px">
-        <h2>Исходные данные</h2>
-        <pre class="mono">{raw_payload}</pre>
+        <details>
+          <summary style="cursor:pointer"><h2 style="display:inline">Технические данные</h2></summary>
+          <pre class="mono">{raw_payload}</pre>
+        </details>
       </section>
     """
 
