@@ -98,7 +98,7 @@ class WorkerSettings:
         cron(sync_wb_account_profiles, hour={7, 19}, minute=40),
         cron(check_wb_financial_reports, hour=4, minute=10),
         cron(sync_wb_daily_financial_details, hour=5, minute=0),
-        cron(backfill_wb_daily_financial_details, hour=6, minute=0),
+        cron(backfill_wb_daily_financial_details, hour=4, minute=35),
         cron(reconcile_pending_payments, minute={5, 25, 45}),
         cron(resend_unnotified_orders, minute={7, 22, 37, 52}),
         cron(sync_products, hour=1, minute=20),
