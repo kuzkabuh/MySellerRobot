@@ -441,12 +441,10 @@ class WebSyncRunService:
             try:
                 job = await queue.enqueue_job(
                     task_name,
-                    {
-                        "triggered_by_user_id": user_id,
-                        "source": "web_sync_center",
-                        "sync_run_id": run.id,
-                        "marketplace_account_id": account.id,
-                    },
+                    triggered_by_user_id=user_id,
+                    source="web_sync_center",
+                    sync_run_id=run.id,
+                    marketplace_account_id=account.id,
                 )
             finally:
                 await queue.close()

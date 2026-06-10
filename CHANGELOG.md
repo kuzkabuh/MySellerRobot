@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.14.1
+
+### Fixed
+
+- **Критическое**: ручной запуск синхронизаций из Sync Center падал с `TypeError: takes 1 positional argument but 2 were given` — payload передавался как позиционный аргумент в `arq.enqueue_job`. Исправлено: payload разворачивается как `**kwargs`, arq корректно сливает их в `ctx`.
+- Исправлен аналогичный баг в админской панели (`/web/admin/sync-status/run/`).
+
 ## 1.14.0
 
 ### Added

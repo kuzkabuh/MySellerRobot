@@ -1040,7 +1040,8 @@ async def admin_run_sync_task(
         try:
             job = await queue.enqueue_job(
                 task_name,
-                {"triggered_by_user_id": user.id, "source": "web_admin"},
+                triggered_by_user_id=user.id,
+                source="web_admin",
             )
         finally:
             await queue.close()
