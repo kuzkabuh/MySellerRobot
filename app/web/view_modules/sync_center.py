@@ -5,12 +5,14 @@ updated: 2026-06-10
 
 # ruff: noqa: E501
 
-from datetime import UTC, datetime
+import json
+from datetime import datetime
 from decimal import Decimal
 from html import escape
 
 from app.models.domain import SyncRun
 from app.services.account.web_cabinet_service import SyncCenterPageData
+from app.services.common.sync_period_limits import ManualSyncPeriodLimits
 from app.services.common.web_sync_run_service import SYNC_TYPE_MAP
 from app.web.view_modules.common import _sync_center_subnav
 from app.web.view_modules.formatting import _marketplace_label, _rub
@@ -18,7 +20,12 @@ from app.web.view_modules.formatting import _marketplace_label, _rub
 ZERO = Decimal("0")
 
 
-def _sync_center_content(data: SyncCenterPageData, is_admin: bool = False) -> str:
+def _sync_center_content(
+    data: SyncCenterPageData,
+    is_admin: bool = False,
+    limits: ManualSyncPeriodLimits | None = None,
+    period_supported: list[str] | None = None,
+) -> str:
     healthy_pct = round(data.healthy_accounts / data.total_accounts * 100) if data.total_accounts else 0
     healthy_tone = "good" if healthy_pct >= 80 else ("warn" if healthy_pct >= 50 else "bad")
     dq_tone = _tone_for_score(data.data_quality_score)
@@ -37,6 +44,17 @@ def _sync_center_content(data: SyncCenterPageData, is_admin: bool = False) -> st
         '<div class="empty-state"><strong>Нет подключённых кабинетов</strong><span>Добавьте кабинет Wildberries или Ozon в разделе «Кабинеты МП».</span></div>'
     )
 
+    period_bar = _sync_period_bar(limits, period_supported) if limits else ""
+    limits_json = ""
+    if limits:
+        limits_json = json.dumps({
+            "max_days_back": limits.max_days_back,
+            "max_range_days": limits.max_range_days,
+            "tariff_code": limits.tariff_code,
+            "tariff_name": limits.tariff_name,
+            "period_supported": period_supported or [],
+        })
+
     return f"""
     {_sync_center_subnav("overview")}
     <div class="page-header">
@@ -50,6 +68,7 @@ def _sync_center_content(data: SyncCenterPageData, is_admin: bool = False) -> st
         { '<button class="btn btn-sm btn-danger" onclick="retryAllErrors()" id="retryAllErrorsBtn" title="Повторить все ошибки">↻ Повторить ошибки</button>' if is_admin else '' }
       </div>
     </div>
+    {period_bar}
     <div class="premium-kpi-grid">
       <div class="premium-kpi good"><span>Кабинетов подключено</span><strong>{data.total_accounts}</strong><small>всего кабинетов</small></div>
       <div class="premium-kpi {healthy_tone}"><span>Здоровье</span><strong>{healthy_pct}%</strong><small>{data.healthy_accounts} из {data.total_accounts} без ошибок</small></div>
@@ -58,9 +77,10 @@ def _sync_center_content(data: SyncCenterPageData, is_admin: bool = False) -> st
       <div class="premium-kpi {'bad' if error_count > 0 else 'good'}"><span>С ошибками</span><strong>{error_count}</strong><small>{'требуют внимания' if error_count > 0 else 'ошибок нет'}</small></div>
       <div class="premium-kpi {'bad' if stale_count > 0 else 'good'}"><span>Просрочено</span><strong>{stale_count}</strong><small>синхронизаций с просрочкой</small></div>
       <div class="premium-kpi {dq_tone}"><span>Качество данных</span><strong>{data.data_quality_score or 'н/д'}{'%' if data.data_quality_score is not None else ''}</strong><small>оценка качества</small></div>
-      <div class="premium-kpi"><span>Последняя синхронизация</span><strong style="font-size:14px">{last_sync_display}</strong><small>успешная синхронизация</small></div>
+      <div class="premium-kpi"><span>Последняя синхронизация</span><span style="font-size:14px">{last_sync_display}</span><small>успешная синхронизация</small></div>
     </div>
     {account_cards_html}
+    <script id="sync-period-limits-data" type="application/json">{limits_json}</script>
     """
 
 
@@ -298,7 +318,7 @@ def _error_block(account: object) -> str:
 def _sync_center_history_content(runs: list[SyncRun], is_admin: bool) -> str:
     has_running = any(r.status == "running" for r in runs)
     if not runs:
-        rows_html = '<tr><td colspan="10"><div class="empty-state compact">История запусков пуста.</div></td></tr>'
+        rows_html = '<tr><td colspan="11"><div class="empty-state compact">История запусков пуста.</div></td></tr>'
     else:
         rows_html = ""
         for r in runs:
@@ -310,6 +330,7 @@ def _sync_center_history_content(runs: list[SyncRun], is_admin: bool) -> str:
               <td>{escape(r.marketplace)}</td>
               <td>{_sync_type_label(r.sync_type)}</td>
               <td>{_trigger_source_label(r.trigger_source)}</td>
+              <td>{_period_display(r)}</td>
               <td>{_run_status_badge(r.status)}</td>
               <td>{dur}</td>
               <td class="num">{r.records_loaded}</td>
@@ -363,6 +384,7 @@ def _sync_center_history_content(runs: list[SyncRun], is_admin: bool) -> str:
               <th>Маркетплейс</th>
               <th>Тип синхронизации</th>
               <th>Источник</th>
+              <th>Период</th>
               <th>Статус</th>
               <th>Длительность</th>
               <th class="num">Загружено</th>
@@ -455,6 +477,47 @@ def _sync_center_settings_content() -> str:
         Настройки автообновления управляются системой. Ручное изменение расписания будет добавлено позже.
       </div>
     </div>"""
+
+
+def _sync_period_bar(limits: ManualSyncPeriodLimits, period_supported: list[str] | None) -> str:
+    limit_hint = f"Ваш тариф: макс. {limits.max_days_back} дн. глубины, макс. {limits.max_range_days} дн. диапазона."
+    preset_buttons = ""
+    for days in (7, 30, 90, 180, 365):
+        if days <= limits.max_days_back:
+            preset_buttons += f'<button class="button-tiny" data-preset="{days}d">{days} дн.</button>'
+    return f"""
+    <div class="sync-period-bar" style="margin-bottom:14px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card)">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:0">
+        <input type="checkbox" id="sync-period-toggle" onchange="toggleSyncPeriod(this.checked)"> 📅 <strong>Период синхронизации</strong>
+        <span class="muted" style="font-size:12px;margin-left:8px">{limit_hint}</span>
+      </label>
+      <div id="sync-period-controls" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+          <span class="muted" style="font-size:12px">Быстрый выбор:</span>
+          {preset_buttons}
+          <button class="button-tiny active" data-preset="custom" onclick="selectSyncPeriodPreset('custom')">Свой</button>
+        </div>
+        <div id="sync-period-custom" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <label style="font-size:12px">с <input type="date" id="sync-period-from" style="font-size:12px;padding:2px 6px"></label>
+          <label style="font-size:12px">по <input type="date" id="sync-period-to" style="font-size:12px;padding:2px 6px"></label>
+          <button class="button-tiny" onclick="applySyncPeriod()">Применить</button>
+          <button class="button-tiny" onclick="clearSyncPeriod()">Сбросить</button>
+        </div>
+        <div id="sync-period-active" style="display:none;margin-top:6px;font-size:12px">
+          <span class="badge action" id="sync-period-badge">Период не выбран</span>
+        </div>
+      </div>
+    </div>"""
+
+
+def _period_display(run: SyncRun) -> str:
+    details = run.details_json
+    if not details or not details.get("date_from"):
+        return '<span class="muted">—</span>'
+    date_from = details["date_from"]
+    date_to = details["date_to"]
+    period_days = details.get("period_days", 0)
+    return f'<span class="muted" style="font-size:11px" title="{escape(date_from)} → {escape(date_to)}">{date_from} – {date_to} ({period_days} дн.)</span>'
 
 
 def _tone_for_score(score: int | None) -> str:

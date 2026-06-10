@@ -3,19 +3,20 @@
 from __future__ import annotations
 
 import logging
-from html import escape as esc
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import MarketplaceAccount, User
-from app.services.account.web_auth_service import WEB_SESSION_COOKIE
 from app.services.account.web_cabinet_service import WebCabinetService
-from app.services.common.web_sync_run_service import WebSyncRunService, SYNC_TYPE_MAP
+from app.services.common.sync_period_limits import (
+    get_manual_sync_period_limits,
+    get_period_supported_sync_types,
+)
+from app.services.common.web_sync_run_service import SYNC_TYPE_MAP, WebSyncRunService
 from app.web.dependencies import (
-    ADMIN_WEB_USER_DEPENDENCY,
     CURRENT_WEB_USER_DEPENDENCY,
     SESSION_DEPENDENCY,
     is_admin_user,
@@ -23,8 +24,8 @@ from app.web.dependencies import (
 from app.web.rendering import page
 from app.web.view_modules.sync_center import (
     _sync_center_content,
-    _sync_center_history_content,
     _sync_center_errors_content,
+    _sync_center_history_content,
     _sync_center_settings_content,
 )
 
@@ -47,6 +48,9 @@ async def sync_center_page(
     data = await svc.sync_center_page(user.id, user.timezone)
     is_admin = is_admin_user(user)
 
+    limits = await get_manual_sync_period_limits(session, user.id)
+    period_supported = get_period_supported_sync_types()
+
     if tab == "history":
         runs = await run_svc.history(user_id=user.id, limit=100)
         content = _sync_center_history_content(runs, is_admin)
@@ -56,7 +60,7 @@ async def sync_center_page(
     elif tab == "settings":
         content = _sync_center_settings_content()
     else:
-        content = _sync_center_content(data, is_admin)
+        content = _sync_center_content(data, is_admin, limits=limits, period_supported=period_supported)
 
     return page(
         "Центр синхронизации",
@@ -70,6 +74,9 @@ async def sync_center_page(
 async def sync_center_run_sync(
     account_id: int,
     sync_type: str = Query(...),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+    period_preset: str | None = Query(None),
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> JSONResponse:
@@ -87,7 +94,12 @@ async def sync_center_run_sync(
         )
 
     svc = WebSyncRunService(session)
-    result = await svc.trigger_sync(user.id, account, sync_type)
+    result = await svc.trigger_sync(
+        user.id, account, sync_type,
+        date_from=date_from,
+        date_to=date_to,
+        period_preset=period_preset,
+    )
     await session.commit()
 
     status_code = 200 if result.get("ok") else (
@@ -173,6 +185,7 @@ async def sync_center_history(
                 "records_updated": r.records_updated,
                 "records_skipped": r.records_skipped,
                 "error_message": r.error_message,
+                "details_json": r.details_json,
             }
             for r in runs
         ],

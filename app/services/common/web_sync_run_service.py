@@ -9,7 +9,7 @@ from typing import Any, cast
 
 from arq.connections import RedisSettings, create_pool
 from redis.asyncio import Redis
-from sqlalchemy import and_, desc, func, select, update
+from sqlalchemy import and_, desc, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -17,7 +17,11 @@ from sqlalchemy.orm import joinedload
 from app.core.config import get_settings
 from app.core.redis import redis_settings_from_url
 from app.models.domain import MarketplaceAccount, SyncRun, User
-from app.models.enums import Marketplace
+from app.services.common.sync_period_limits import (
+    ManualSyncPeriodLimits,
+    get_manual_sync_period_limits,
+    parse_period_preset,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -410,6 +414,9 @@ class WebSyncRunService:
         account: MarketplaceAccount,
         sync_type: str,
         trigger_source: str = "manual",
+        date_from: str | None = None,
+        date_to: str | None = None,
+        period_preset: str | None = None,
     ) -> dict[str, Any]:
         task_name = _resolve_task(sync_type, account.marketplace.value)
         if task_name is None:
@@ -417,6 +424,15 @@ class WebSyncRunService:
                 "ok": False,
                 "status": "not_implemented",
                 "message": f"Синхронизация «{SYNC_TYPE_MAP.get(sync_type, {}).get('label', sync_type)}» для {account.marketplace.value} пока не реализована.",
+            }
+
+        limits = await get_manual_sync_period_limits(self.session, user_id)
+        period_result = await self._validate_sync_period(limits, date_from, date_to, period_preset)
+        if "error_code" in period_result:
+            return {
+                "ok": False,
+                "status": period_result["error_code"],
+                "message": period_result["message"],
             }
 
         existing = await self.find_active_run(
@@ -464,6 +480,17 @@ class WebSyncRunService:
                 sync_type=sync_type,
                 trigger_source=trigger_source,
             )
+            if period_result.get("period_applied"):
+                run.details_json = {
+                    "date_from": period_result["date_from"],
+                    "date_to": period_result["date_to"],
+                    "period_days": period_result["period_days"],
+                    "period_preset": period_result["period_preset"],
+                    "tariff_code": period_result["tariff_code"],
+                    "tariff_name": period_result["tariff_name"],
+                    "limit_max_days_back": period_result["limit_max_days_back"],
+                    "limit_max_range_days": period_result["limit_max_range_days"],
+                }
             await self.session.flush()
         except IntegrityError:
             await self.session.rollback()
@@ -487,13 +514,17 @@ class WebSyncRunService:
         try:
             queue = await create_pool(_redis_settings())
             try:
-                job = await queue.enqueue_job(
-                    task_name,
-                    triggered_by_user_id=user_id,
-                    source="web_sync_center",
-                    sync_run_id=run.id,
-                    marketplace_account_id=account.id,
-                )
+                enqueue_kwargs: dict[str, Any] = {
+                    "triggered_by_user_id": user_id,
+                    "source": "web_sync_center",
+                    "sync_run_id": run.id,
+                    "marketplace_account_id": account.id,
+                }
+                if period_result.get("period_applied"):
+                    enqueue_kwargs["date_from"] = period_result["date_from"]
+                    enqueue_kwargs["date_to"] = period_result["date_to"]
+                    enqueue_kwargs["period_days"] = period_result["period_days"]
+                job = await queue.enqueue_job(task_name, **enqueue_kwargs)
             finally:
                 await queue.close()
         except Exception as exc:
@@ -533,6 +564,64 @@ class WebSyncRunService:
             "status": "queued",
             "run_id": run.id,
             "message": f"Синхронизация «{label}» поставлена в очередь.",
+        }
+
+    async def _validate_sync_period(
+        self,
+        limits: ManualSyncPeriodLimits,
+        date_from: str | None,
+        date_to: str | None,
+        period_preset: str | None,
+    ) -> dict:
+        today = datetime.now(tz=UTC).date()
+
+        if period_preset and period_preset != "custom":
+            preset_days = parse_period_preset(period_preset)
+            if preset_days is None:
+                return {"error_code": "invalid_period_preset", "message": f"Неизвестный пресет периода: {period_preset}"}
+            if preset_days > limits.max_days_back:
+                return {
+                    "error_code": "period_exceeds_limits",
+                    "message": f"Период {preset_days} дн. превышает лимит тарифа ({limits.max_days_back} дн.).",
+                }
+            effective_date_from = today - timedelta(days=preset_days)
+            effective_date_to = today
+            period_days = preset_days
+        elif date_from and date_to:
+            try:
+                parsed_from = datetime.strptime(date_from, "%Y-%m-%d").date()
+                parsed_to = datetime.strptime(date_to, "%Y-%m-%d").date()
+            except ValueError:
+                return {"error_code": "invalid_date_format", "message": "Неверный формат даты. Используйте ГГГГ-ММ-ДД."}
+            if parsed_from > parsed_to:
+                return {"error_code": "invalid_date_range", "message": "Дата начала не может быть позже даты окончания."}
+            if parsed_from < today - timedelta(days=limits.max_days_back):
+                return {
+                    "error_code": "period_exceeds_limits",
+                    "message": f"Дата начала {date_from} выходит за лимит тарифа в {limits.max_days_back} дн.",
+                }
+            range_days = (parsed_to - parsed_from).days
+            if range_days > limits.max_range_days:
+                return {
+                    "error_code": "period_exceeds_limits",
+                    "message": f"Диапазон {range_days} дн. превышает лимит тарифа ({limits.max_range_days} дн.).",
+                }
+            effective_date_from = parsed_from
+            effective_date_to = parsed_to
+            period_days = range_days
+        else:
+            return {"period_applied": False}
+
+        return {
+            "period_applied": True,
+            "date_from": effective_date_from.isoformat(),
+            "date_to": effective_date_to.isoformat(),
+            "period_days": period_days,
+            "period_preset": period_preset or "custom",
+            "tariff_code": limits.tariff_code,
+            "tariff_name": limits.tariff_name,
+            "limit_max_days_back": limits.max_days_back,
+            "limit_max_range_days": limits.max_range_days,
         }
 
     async def verify_api_key(

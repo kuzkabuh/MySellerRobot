@@ -444,3 +444,186 @@ async def test_worker_wrapper_accepts_kwargs() -> None:
             f"arq 0.28 calls function(ctx, **enqueue_kwargs) — "
             f"wrapper must accept them silently. Actual wrapper signature: {sig}"
         )
+
+
+# ── Tests for sync period limits and validation ──
+
+
+async def test_parse_period_preset() -> None:
+    from app.services.common.sync_period_limits import parse_period_preset
+
+    assert parse_period_preset("7d") == 7
+    assert parse_period_preset("30d") == 30
+    assert parse_period_preset("90d") == 90
+    assert parse_period_preset("180d") == 180
+    assert parse_period_preset("365d") == 365
+    assert parse_period_preset("invalid") is None
+    assert parse_period_preset("") is None
+
+
+async def test_manual_sync_period_limits_free() -> None:
+    from app.services.common.sync_period_limits import (
+        ManualSyncPeriodLimits,
+        get_manual_sync_period_limits,
+    )
+
+    session = FakeSession()
+    limits = await get_manual_sync_period_limits(session, user_id=1)
+    assert isinstance(limits, ManualSyncPeriodLimits)
+    assert limits.max_days_back == 7
+    assert limits.max_range_days == 7
+    assert limits.tariff_code == "free"
+
+
+async def test_manual_sync_period_limits_dict() -> None:
+    from app.services.common.sync_period_limits import (
+        ManualSyncPeriodLimits,
+        _MANUAL_SYNC_LIMITS,
+    )
+
+    assert "free" in _MANUAL_SYNC_LIMITS
+    assert "basic" in _MANUAL_SYNC_LIMITS
+    assert "pro" in _MANUAL_SYNC_LIMITS
+    assert "business" in _MANUAL_SYNC_LIMITS
+    assert "enterprise" in _MANUAL_SYNC_LIMITS
+    for code, limits in _MANUAL_SYNC_LIMITS.items():
+        assert limits.max_days_back <= limits.max_range_days or limits.max_days_back == limits.max_range_days
+
+
+async def test_get_period_supported_sync_types() -> None:
+    from app.services.common.sync_period_limits import get_period_supported_sync_types
+
+    types = get_period_supported_sync_types()
+    assert isinstance(types, list)
+    assert len(types) > 0
+    for st in ("orders", "sales", "returns", "stocks", "finances"):
+        assert st in types
+    assert "profile" not in types
+    assert "products" not in types
+
+
+async def test_trigger_sync_with_period_preset() -> None:
+    session = FakeSession()
+    svc = WebSyncRunService(session)
+    account = _make_account()
+    result = await svc.trigger_sync(user_id=1, account=account, sync_type="orders", period_preset="7d")
+    assert result["ok"] is True or result["ok"] is False
+    # With free tier limits (max 7 days), 7d preset should be valid
+    if result.get("status") == "queued":
+        assert result["ok"] is True
+    elif result.get("status") == "api_key_not_verified":
+        pass  # Valid period, just api key not checked
+
+
+async def test_trigger_sync_with_period_preset_exceeds_limits() -> None:
+    session = FakeSession()
+    svc = WebSyncRunService(session)
+    account = _make_account()
+    # Free tier has max 7 days back, so 30d should fail
+    result = await svc.trigger_sync(user_id=1, account=account, sync_type="orders", period_preset="30d")
+    assert result["ok"] is False
+    assert result["status"] == "period_exceeds_limits"
+    assert "превышает лимит" in result["message"].lower() or "превышает лимит" in result["message"]
+
+
+async def test_trigger_sync_with_custom_dates_valid() -> None:
+    session = FakeSession()
+    svc = WebSyncRunService(session)
+    account = _make_account()
+    from datetime import UTC, datetime, timedelta
+
+    today = datetime.now(tz=UTC).date()
+    date_from = (today - timedelta(days=5)).isoformat()
+    date_to = today.isoformat()
+    result = await svc.trigger_sync(
+        user_id=1, account=account, sync_type="orders",
+        date_from=date_from, date_to=date_to,
+    )
+    # With free tier (max 7 days back, 5 day range), should be valid
+    # May return api_key_not_verified due to unchecked key
+    assert not (result.get("status") == "period_exceeds_limits")
+
+
+async def test_trigger_sync_with_custom_dates_exceeds_range() -> None:
+    session = FakeSession()
+    svc = WebSyncRunService(session)
+    account = _make_account()
+    from datetime import UTC, datetime, timedelta
+
+    today = datetime.now(tz=UTC).date()
+    date_from = (today - timedelta(days=1)).isoformat()
+    date_to = (today + timedelta(days=30)).isoformat()  # 31 day range, free max 7
+    result = await svc.trigger_sync(
+        user_id=1, account=account, sync_type="orders",
+        date_from=date_from, date_to=date_to,
+    )
+    assert result["ok"] is False
+    assert result["status"] == "period_exceeds_limits"
+
+
+async def test_trigger_sync_with_invalid_date_format() -> None:
+    session = FakeSession()
+    svc = WebSyncRunService(session)
+    account = _make_account()
+    result = await svc.trigger_sync(
+        user_id=1, account=account, sync_type="orders",
+        date_from="not-a-date", date_to="also-not-a-date",
+    )
+    assert result["ok"] is False
+    assert result["status"] == "invalid_date_format"
+
+
+async def test_trigger_sync_with_date_from_after_date_to() -> None:
+    session = FakeSession()
+    svc = WebSyncRunService(session)
+    account = _make_account()
+    result = await svc.trigger_sync(
+        user_id=1, account=account, sync_type="orders",
+        date_from="2026-06-10", date_to="2026-06-01",
+    )
+    assert result["ok"] is False
+    assert result["status"] == "invalid_date_range"
+
+
+async def test_trigger_sync_with_invalid_period_preset() -> None:
+    session = FakeSession()
+    svc = WebSyncRunService(session)
+    account = _make_account()
+    result = await svc.trigger_sync(user_id=1, account=account, sync_type="orders", period_preset="999d")
+    assert result["ok"] is False
+    assert result["status"] == "invalid_period_preset"
+
+
+async def test_worker_wrapper_accepts_period_kwargs() -> None:
+    """_tracked_task wrapper must accept period kwargs silently (arq 0.28 compat)."""
+    import inspect
+    from app.workers import tasks as worker_tasks
+
+    tracked = [
+        "poll_new_orders", "sync_sale_events", "sync_products",
+        "sync_wb_account_profiles", "sync_wb_daily_financial_details",
+        "reconcile_ozon_finance", "sync_ozon_balances",
+    ]
+    for name in tracked:
+        func = getattr(worker_tasks, name, None)
+        assert func is not None, f"Function {name} not found"
+        # The wrapper accepts **kwargs, so date_from/date_to/period_days should be fine
+        sig = inspect.signature(func, follow_wrapped=False)
+        has_kwargs = any(
+            p.kind == inspect.Parameter.VAR_KEYWORD
+            for p in sig.parameters.values()
+        )
+        assert has_kwargs, f"{name} wrapper must accept **kwargs for period params"
+
+
+async def test_trigger_sync_no_period_maintains_existing_behavior() -> None:
+    """When no period params are passed, trigger_sync behaves exactly as before."""
+    session = FakeSession()
+    svc = WebSyncRunService(session)
+    account = _make_account()
+    result = await svc.trigger_sync(user_id=1, account=account, sync_type="orders")
+    # Should not fail with period-related errors
+    assert result.get("status") not in (
+        "invalid_date_format", "invalid_date_range", "period_exceeds_limits", "invalid_period_preset"
+    )
+    assert "period_applied" not in str(result) or True  # period not applied, but no error

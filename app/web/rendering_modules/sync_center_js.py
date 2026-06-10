@@ -1,8 +1,22 @@
-"""JavaScript for Sync Center: auto-refresh, run sync, verify API key, toasts."""
+"""JavaScript for Sync Center: auto-refresh, run sync, verify API key, toasts, period selector."""
 
 SYNC_CENTER_JS = """
 (function() {
   var pollingIntervals = {};
+  var syncPeriodActive = false;
+  var syncPeriodFrom = null;
+  var syncPeriodTo = null;
+  var syncPeriodPreset = null;
+  var syncPeriodDays = null;
+
+  var SYNC_PERIOD_SUPPORTED = [];
+  try {
+    var limitsEl = document.getElementById('sync-period-limits-data');
+    if (limitsEl) {
+      var limitsData = JSON.parse(limitsEl.textContent);
+      SYNC_PERIOD_SUPPORTED = limitsData.period_supported || [];
+    }
+  } catch(e) {}
 
   function showToast(message, type) {
     type = type || 'info';
@@ -22,9 +36,98 @@ SYNC_CENTER_JS = """
     }, 4000);
   }
 
-  function getCookie(name) {
-    var match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
-    return match ? decodeURIComponent(match[2]) : null;
+  window.toggleSyncPeriod = function(checked) {
+    var controls = document.getElementById('sync-period-controls');
+    if (controls) { controls.style.display = checked ? 'block' : 'none'; }
+    if (!checked) { clearSyncPeriod(); }
+  };
+
+  window.selectSyncPeriodPreset = function(preset) {
+    document.querySelectorAll('[data-preset]').forEach(function(btn) {
+      btn.classList.toggle('active', btn.getAttribute('data-preset') === preset);
+    });
+    var custom = document.getElementById('sync-period-custom');
+    if (custom) { custom.style.display = preset === 'custom' ? 'flex' : 'none'; }
+    if (preset !== 'custom') {
+      syncPeriodPreset = preset;
+      syncPeriodDays = parseInt(preset.replace('d', ''), 10);
+      syncPeriodFrom = null;
+      syncPeriodTo = null;
+      updateSyncPeriodBadge();
+    }
+  };
+
+  window.applySyncPeriod = function() {
+    var fromEl = document.getElementById('sync-period-from');
+    var toEl = document.getElementById('sync-period-to');
+    if (!fromEl || !toEl) return;
+    var fromVal = fromEl.value;
+    var toVal = toEl.value;
+    if (!fromVal || !toVal) {
+      showToast('Укажите даты начала и окончания периода.', 'warn');
+      return;
+    }
+    if (fromVal > toVal) {
+      showToast('Дата начала не может быть позже даты окончания.', 'error');
+      return;
+    }
+    syncPeriodFrom = fromVal;
+    syncPeriodTo = toVal;
+    syncPeriodPreset = 'custom';
+    syncPeriodDays = Math.round((new Date(toVal) - new Date(fromVal)) / (1000 * 60 * 60 * 24));
+    document.querySelectorAll('[data-preset]').forEach(function(btn) {
+      btn.classList.toggle('active', btn.getAttribute('data-preset') === 'custom');
+    });
+    updateSyncPeriodBadge();
+    showToast('Период синхронизации установлен: ' + fromVal + ' — ' + toVal, 'success');
+  };
+
+  window.clearSyncPeriod = function() {
+    syncPeriodActive = false;
+    syncPeriodFrom = null;
+    syncPeriodTo = null;
+    syncPeriodPreset = null;
+    syncPeriodDays = null;
+    document.querySelectorAll('[data-preset]').forEach(function(btn) {
+      btn.classList.remove('active');
+    });
+    var badge = document.getElementById('sync-period-badge');
+    if (badge) { badge.textContent = 'Период не выбран'; badge.className = 'badge'; }
+    var activeDiv = document.getElementById('sync-period-active');
+    if (activeDiv) { activeDiv.style.display = 'none'; }
+    var fromEl = document.getElementById('sync-period-from');
+    var toEl = document.getElementById('sync-period-to');
+    if (fromEl) fromEl.value = '';
+    if (toEl) toEl.value = '';
+  };
+
+  function updateSyncPeriodBadge() {
+    var badge = document.getElementById('sync-period-badge');
+    var activeDiv = document.getElementById('sync-period-active');
+    if (!badge || !activeDiv) return;
+    activeDiv.style.display = 'block';
+    syncPeriodActive = true;
+    if (syncPeriodFrom && syncPeriodTo) {
+      badge.textContent = 'Период: ' + syncPeriodFrom + ' — ' + syncPeriodTo + ' (' + syncPeriodDays + ' дн.)';
+    } else if (syncPeriodPreset) {
+      badge.textContent = 'Период: последние ' + syncPeriodDays + ' дней';
+    }
+    badge.className = 'badge action';
+  }
+
+  function getPeriodParams() {
+    if (!syncPeriodActive) return '';
+    if (syncPeriodFrom && syncPeriodTo) {
+      return '&date_from=' + encodeURIComponent(syncPeriodFrom) + '&date_to=' + encodeURIComponent(syncPeriodTo);
+    }
+    if (syncPeriodPreset && syncPeriodPreset !== 'custom') {
+      return '&period_preset=' + encodeURIComponent(syncPeriodPreset);
+    }
+    return '';
+  }
+
+  function isPeriodSupported(syncType) {
+    return SYNC_PERIOD_SUPPORTED.indexOf(syncType) >= 0;
   }
 
   function triggerSync(accountId, syncType, marketplace, btn) {
@@ -56,6 +159,9 @@ SYNC_CENTER_JS = """
     }
 
     var url = '/web/sync-center/accounts/' + accountId + '/run?sync_type=' + encodeURIComponent(syncType);
+    if (isPeriodSupported(syncType)) {
+      url += getPeriodParams();
+    }
 
     fetch(url, { method: 'POST', headers: { 'x-forwarded-for': window.location.host } })
       .then(function(r) { return r.json(); })
@@ -75,7 +181,8 @@ SYNC_CENTER_JS = """
             setTimeout(function() { resetBtn(btn); }, 3000);
           }
         } else {
-          showToast(data.message || 'Ошибка запуска', 'error');
+          var msg = data.message || 'Ошибка запуска';
+          showToast(msg, 'error');
           if (btn) { resetBtn(btn); }
         }
       })
@@ -224,6 +331,13 @@ SYNC_CENTER_JS = """
       btn.addEventListener('click', function(e) {
         var accountId = btn.getAttribute('data-account-id');
         verifyApiKey(accountId, btn);
+      });
+    });
+
+    document.querySelectorAll('[data-preset]').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        var preset = btn.getAttribute('data-preset');
+        selectSyncPeriodPreset(preset);
       });
     });
   });
