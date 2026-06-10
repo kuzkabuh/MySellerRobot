@@ -10,6 +10,7 @@ from typing import Any, cast
 from arq.connections import RedisSettings, create_pool
 from redis.asyncio import Redis
 from sqlalchemy import and_, desc, func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 STALE_SYNC_TIMEOUT_MINUTES = 30
 STALE_BACKFILL_TIMEOUT_HOURS = 6
+STALE_QUEUED_TIMEOUT_MINUTES = 10
 
 SYNC_TYPE_MAP: dict[str, dict[str, Any]] = {
     "products": {
@@ -317,6 +319,29 @@ class WebSyncRunService:
         count = result.scalar_one() or 0
         return count > 0
 
+    async def find_active_run(
+        self,
+        user_id: int,
+        account_id: int,
+        marketplace: str,
+        sync_type: str,
+        trigger_source: str = "manual",
+    ) -> SyncRun | None:
+        result = await self.session.execute(
+            select(SyncRun)
+            .where(
+                SyncRun.user_id == user_id,
+                SyncRun.marketplace_account_id == account_id,
+                SyncRun.marketplace == marketplace,
+                SyncRun.sync_type == sync_type,
+                SyncRun.trigger_source == trigger_source,
+                SyncRun.status.in_(["queued", "running"]),
+            )
+            .order_by(SyncRun.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     async def history(
         self,
         user_id: int | None = None,
@@ -394,16 +419,20 @@ class WebSyncRunService:
                 "message": f"Синхронизация «{SYNC_TYPE_MAP.get(sync_type, {}).get('label', sync_type)}» для {account.marketplace.value} пока не реализована.",
             }
 
-        stale_count = await self.mark_stale_syncs_as_failed()
-        if stale_count:
-            logger.info("stale_syncs_cleaned_on_trigger", extra={"count": stale_count})
-
-        running = await self.check_running(account.id, sync_type)
-        if running:
+        existing = await self.find_active_run(
+            user_id=user_id,
+            account_id=account.id,
+            marketplace=account.marketplace.value,
+            sync_type=sync_type,
+            trigger_source=trigger_source,
+        )
+        if existing is not None:
             return {
-                "ok": False,
-                "status": "already_running",
-                "message": f"Синхронизация «{SYNC_TYPE_MAP.get(sync_type, {}).get('label', sync_type)}» уже выполняется. Дождитесь завершения.",
+                "ok": True,
+                "already_running": True,
+                "run_id": existing.id,
+                "status": existing.status,
+                "message": "Эта синхронизация уже находится в очереди или выполняется",
             }
 
         if account.api_key_status == "unchecked":
@@ -427,14 +456,33 @@ class WebSyncRunService:
                 "message": "Кабинет отключён. Активируйте кабинет перед синхронизацией.",
             }
 
-        run = await self.create_run(
-            user_id=user_id,
-            account_id=account.id,
-            marketplace=account.marketplace.value,
-            sync_type=sync_type,
-            trigger_source=trigger_source,
-        )
-        await self.session.flush()
+        try:
+            run = await self.create_run(
+                user_id=user_id,
+                account_id=account.id,
+                marketplace=account.marketplace.value,
+                sync_type=sync_type,
+                trigger_source=trigger_source,
+            )
+            await self.session.flush()
+        except IntegrityError:
+            await self.session.rollback()
+            existing = await self.find_active_run(
+                user_id=user_id,
+                account_id=account.id,
+                marketplace=account.marketplace.value,
+                sync_type=sync_type,
+                trigger_source=trigger_source,
+            )
+            if existing is not None:
+                return {
+                    "ok": True,
+                    "already_running": True,
+                    "run_id": existing.id,
+                    "status": existing.status,
+                    "message": "Эта синхронизация уже находится в очереди или выполняется",
+                }
+            raise
 
         try:
             queue = await create_pool(_redis_settings())
@@ -579,13 +627,13 @@ class WebSyncRunService:
         now = datetime.now(tz=UTC)
         running_cutoff = now - timedelta(minutes=STALE_SYNC_TIMEOUT_MINUTES)
         backfill_cutoff = now - timedelta(hours=STALE_BACKFILL_TIMEOUT_HOURS)
-        queued_cutoff = now - timedelta(minutes=STALE_SYNC_TIMEOUT_MINUTES)
+        queued_cutoff = now - timedelta(minutes=STALE_QUEUED_TIMEOUT_MINUTES)
 
         count = 0
-        for status, cutoff, sync_type_filter in [
-            ("running", running_cutoff, None),
-            ("running", backfill_cutoff, "wb_financial_details"),
-            ("queued", queued_cutoff, None),
+        for status, cutoff, sync_type_filter, target_status, error_code in [
+            ("queued", queued_cutoff, None, "error", "SYNC_RUN_QUEUE_TIMEOUT"),
+            ("running", running_cutoff, None, "timeout", "SYNC_RUN_TIMEOUT"),
+            ("running", backfill_cutoff, "wb_financial_details", "timeout", "SYNC_RUN_TIMEOUT"),
         ]:
             conditions = [
                 SyncRun.status == status,
@@ -602,14 +650,21 @@ class WebSyncRunService:
             )
             stale_runs = list(result.scalars().all())
             for run in stale_runs:
-                run.status = "timeout"
+                run.status = target_status
                 run.finished_at = now
                 if run.started_at:
                     run.duration_seconds = Decimal(str((now - run.started_at).total_seconds()))
-                run.error_message = (
-                    f"Задача не завершилась корректно: превышено время выполнения "
-                    f"({STALE_SYNC_TIMEOUT_MINUTES if sync_type_filter is None else STALE_BACKFILL_TIMEOUT_HOURS} мин)."
-                )[:5000]
+                if status == "queued":
+                    run.error_message = (
+                        f"Задача не была запущена: превышено время ожидания в очереди "
+                        f"({STALE_QUEUED_TIMEOUT_MINUTES} мин)."
+                    )[:5000]
+                else:
+                    run.error_message = (
+                        f"Задача не завершилась корректно: превышено время выполнения "
+                        f"({STALE_SYNC_TIMEOUT_MINUTES if sync_type_filter is None else STALE_BACKFILL_TIMEOUT_HOURS} мин)."
+                    )[:5000]
+                run.error_code = error_code
                 count += 1
                 logger.warning(
                     "stale_sync_run_marked_failed",
@@ -619,6 +674,7 @@ class WebSyncRunService:
                         "marketplace": run.marketplace,
                         "status": status,
                         "started_at": run.started_at.isoformat() if run.started_at else None,
+                        "error_code": error_code,
                     },
                 )
 

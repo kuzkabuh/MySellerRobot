@@ -107,6 +107,12 @@ class SyncRun(Base):
         Index("ix_sync_runs_account_started", "marketplace_account_id", "started_at"),
         Index("ix_sync_runs_status_started", "status", "started_at"),
         Index("ix_sync_runs_user_triggered", "user_id", "started_at"),
+        Index(
+            "uq_sync_runs_active_manual",
+            "user_id", "marketplace_account_id", "marketplace", "sync_type", "trigger_source",
+            unique=True,
+            postgresql_where=sa.text("status IN ('queued', 'running')"),
+        ),
     )
 
     id: Mapped[int_pk]

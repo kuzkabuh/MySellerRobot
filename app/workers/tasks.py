@@ -123,8 +123,9 @@ def _task_stats(
     }
 
 
-async def poll_new_orders(ctx: dict[str, Any]) -> dict[str, Any]:
+async def poll_new_orders(ctx: dict[str, Any], payload: dict | None = None) -> dict[str, Any]:
     """Poll active marketplace accounts and store unseen orders."""
+    payload = payload or {}
 
     async with bot_session() as bot:
         notifier = NotificationService(bot)
@@ -228,7 +229,8 @@ def _is_fbs_like_notification(sale_model: str | None) -> bool:
     }
 
 
-async def send_daily_reports(ctx: dict[str, Any]) -> None:
+async def send_daily_reports(ctx: dict[str, Any], payload: dict | None = None) -> None:
+    payload = payload or {}
     async with bot_session() as bot:
         async with AsyncSessionFactory() as session:
             users = (
@@ -252,13 +254,15 @@ async def send_daily_reports(ctx: dict[str, Any]) -> None:
                 )
 
 
-async def check_fbs_deadlines(ctx: dict[str, Any]) -> None:
+async def check_fbs_deadlines(ctx: dict[str, Any], payload: dict | None = None) -> None:
+    payload = payload or {}
     async with AsyncSessionFactory() as session:
         created = await FbsControlService(session).create_deadline_alerts()
         logger.info("fbs_deadline_alerts_created", extra={"alerts_created": created})
 
 
-async def send_fbo_digests(ctx: dict[str, Any]) -> None:
+async def send_fbo_digests(ctx: dict[str, Any], payload: dict | None = None) -> None:
+    payload = payload or {}
     async with bot_session() as bot:
         notifier = NotificationService(bot)
         async with AsyncSessionFactory() as session:
@@ -280,8 +284,9 @@ async def send_fbo_digests(ctx: dict[str, Any]) -> None:
                         pass
 
 
-async def send_alert_notifications(ctx: dict[str, Any]) -> None:
+async def send_alert_notifications(ctx: dict[str, Any], payload: dict | None = None) -> None:
     """Deliver pending alert events to Telegram after they are safely persisted."""
+    payload = payload or {}
 
     async with bot_session() as bot:
         async with AsyncSessionFactory() as session:
@@ -347,7 +352,8 @@ async def _deliver_alert_notifications(
     return sent, failed
 
 
-async def sync_sale_events(ctx: dict[str, Any]) -> dict[str, Any]:
+async def sync_sale_events(ctx: dict[str, Any], payload: dict | None = None) -> dict[str, Any]:
+    payload = payload or {}
     async with bot_session() as bot:
         notifier = NotificationService(bot)
         account_refs = await _load_account_refs(AsyncSessionFactory)
@@ -672,12 +678,13 @@ def _lifecycle_notification_log_extra(
     }
 
 
-async def resend_unnotified_orders(ctx: dict[str, Any]) -> None:
+async def resend_unnotified_orders(ctx: dict[str, Any], payload: dict | None = None) -> None:
     """Recovery task: deliver saved FBS-like orders with first_notified_at IS NULL.
 
     Runs independently of API polling to catch orders that were persisted
     but never notified due to polling failures or worker crashes.
     """
+    payload = payload or {}
     async with bot_session() as bot:
         notifier = NotificationService(bot)
         account_refs = await _load_account_refs(AsyncSessionFactory)
@@ -731,7 +738,8 @@ async def resend_unnotified_orders(ctx: dict[str, Any]) -> None:
         )
 
 
-async def sync_wb_daily_sales_reports(ctx: dict[str, Any]) -> None:
+async def sync_wb_daily_sales_reports(ctx: dict[str, Any], payload: dict | None = None) -> None:
+    payload = payload or {}
     moscow_today = datetime.now(tz=MOSCOW_TZ).date()
     report_dates = [moscow_today - timedelta(days=days) for days in (1, 2, 3)]
     async with AsyncSessionFactory() as session:
@@ -755,7 +763,8 @@ async def sync_wb_daily_sales_reports(ctx: dict[str, Any]) -> None:
                         pass
 
 
-async def sync_wb_account_profiles(ctx: dict[str, Any]) -> None:
+async def sync_wb_account_profiles(ctx: dict[str, Any], payload: dict | None = None) -> None:
+    payload = payload or {}
     async with AsyncSessionFactory() as session:
         account_refs = await _load_account_refs_wb(session)
         service = AccountProfileService(session)
@@ -774,7 +783,8 @@ async def sync_wb_account_profiles(ctx: dict[str, Any]) -> None:
                     pass
 
 
-async def check_wb_financial_reports(ctx: dict[str, Any]) -> None:
+async def check_wb_financial_reports(ctx: dict[str, Any], payload: dict | None = None) -> None:
+    payload = payload or {}
     async with AsyncSessionFactory() as session:
         account_refs = await _load_account_refs_wb(session)
         service = WbFinancialReportService(session)
@@ -804,7 +814,8 @@ async def check_wb_financial_reports(ctx: dict[str, Any]) -> None:
                     pass
 
 
-async def sync_wb_daily_financial_details(ctx: dict[str, Any]) -> None:
+async def sync_wb_daily_financial_details(ctx: dict[str, Any], payload: dict | None = None) -> None:
+    payload = payload or {}
     moscow_yesterday = (datetime.now(tz=MOSCOW_TZ) - timedelta(days=1)).date()
     async with AsyncSessionFactory() as session:
         account_refs = await _load_account_refs_wb(session)
@@ -842,7 +853,8 @@ async def sync_wb_daily_financial_details(ctx: dict[str, Any]) -> None:
                     pass
 
 
-async def relink_wb_report_rows(ctx: dict[str, Any]) -> dict[str, int]:
+async def relink_wb_report_rows(ctx: dict[str, Any], payload: dict | None = None) -> dict[str, int]:
+    payload = payload or {}
     async with AsyncSessionFactory() as session:
         result = await WbReportRelinkService(session).relink_pending_rows(limit=2000)
         await session.commit()
@@ -865,7 +877,8 @@ async def relink_wb_report_rows(ctx: dict[str, Any]) -> dict[str, int]:
         }
 
 
-async def sync_ozon_catalog_enrichment(ctx: dict[str, Any]) -> None:
+async def sync_ozon_catalog_enrichment(ctx: dict[str, Any], payload: dict | None = None) -> None:
+    payload = payload or {}
     async with AsyncSessionFactory() as session:
         account_refs = await _load_account_refs_ozon(session)
         service = OzonCatalogEnrichmentService(session)
@@ -896,8 +909,9 @@ async def sync_ozon_catalog_enrichment(ctx: dict[str, Any]) -> None:
                     pass
 
 
-async def sync_ozon_balances(ctx: dict[str, Any]) -> None:
+async def sync_ozon_balances(ctx: dict[str, Any], payload: dict | None = None) -> None:
     """Sync Ozon account balances via POST /v1/finance/balance."""
+    payload = payload or {}
     async with AsyncSessionFactory() as session:
         account_refs = await _load_account_refs_ozon(session)
         success = 0
@@ -953,12 +967,13 @@ async def sync_ozon_balances(ctx: dict[str, Any]) -> None:
         )
 
 
-async def reconcile_ozon_finance(ctx: dict[str, Any]) -> None:
+async def reconcile_ozon_finance(ctx: dict[str, Any], payload: dict | None = None) -> None:
     """Reconcile Ozon orders against FinancialReportRow entries.
 
     Creates ACTUAL profit snapshots for Ozon orders that have financial data
     but no actual snapshots yet.
     """
+    payload = payload or {}
     async with AsyncSessionFactory() as session:
         account_refs = await _load_account_refs_ozon(session)
         reconciled = 0
@@ -1034,7 +1049,8 @@ async def _load_ozon_orders_without_actual(
     return list(result.scalars().unique().all())
 
 
-async def sync_products(ctx: dict[str, Any]) -> None:
+async def sync_products(ctx: dict[str, Any], payload: dict | None = None) -> None:
+    payload = payload or {}
     account_refs = await _load_account_refs(AsyncSessionFactory)
     total = 0
     failed = 0
@@ -1071,7 +1087,8 @@ async def sync_products(ctx: dict[str, Any]) -> None:
     )
 
 
-async def check_low_stocks(ctx: dict[str, Any]) -> None:
+async def check_low_stocks(ctx: dict[str, Any], payload: dict | None = None) -> None:
+    payload = payload or {}
     async with AsyncSessionFactory() as session:
         account_refs = await _load_account_refs(AsyncSessionFactory)
         service = StockService(session)
@@ -1106,7 +1123,8 @@ async def check_low_stocks(ctx: dict[str, Any]) -> None:
             logger.exception("stock_alert_creation_failed")
 
 
-async def process_history_backfills(ctx: dict[str, Any]) -> None:
+async def process_history_backfills(ctx: dict[str, Any], payload: dict | None = None) -> None:
+    payload = payload or {}
     async with bot_session() as bot:
         async with AsyncSessionFactory() as session:
             jobs = await SyncJobRepository(session).pending_history_jobs(limit=3)
@@ -1145,8 +1163,9 @@ async def process_history_backfills(ctx: dict[str, Any]) -> None:
                         )
 
 
-async def reconcile_pending_payments(ctx: dict[str, Any]) -> None:
+async def reconcile_pending_payments(ctx: dict[str, Any], payload: dict | None = None) -> None:
     """Check PENDING YooKassa payments against the API and update status."""
+    payload = payload or {}
     from app.services.payments.payment_service import PaymentService
 
     async with AsyncSessionFactory() as session:
@@ -1185,8 +1204,9 @@ async def _load_account_refs_ozon(session: AsyncSession) -> list[AccountRef]:
     return [AccountRef(id=row[0], marketplace=row[1].value, user_id=row[2]) for row in result.all()]
 
 
-async def sync_wb_commissions(ctx: dict[str, Any]) -> None:
+async def sync_wb_commissions(ctx: dict[str, Any], payload: dict | None = None) -> None:
     """Daily sync of WB commission tariffs from the official API."""
+    payload = payload or {}
     from app.services.commissions.admin_notifications import (
         format_wb_sync_notification,
         notify_admins,
@@ -1221,8 +1241,9 @@ async def sync_wb_commissions(ctx: dict[str, Any]) -> None:
                 await notify_admins(bot, notification)
 
 
-async def check_ozon_commission_source(ctx: dict[str, Any]) -> None:
+async def check_ozon_commission_source(ctx: dict[str, Any], payload: dict | None = None) -> None:
     """Daily check of the Ozon commissions page for new tariff tables."""
+    payload = payload or {}
     from app.services.commissions.admin_notifications import (
         format_ozon_monitor_notification,
         notify_admins,
@@ -1241,8 +1262,9 @@ async def check_ozon_commission_source(ctx: dict[str, Any]) -> None:
                 await notify_admins(bot, notification)
 
 
-async def sync_wb_logistics_tariffs(ctx: dict[str, Any]) -> None:
+async def sync_wb_logistics_tariffs(ctx: dict[str, Any], payload: dict | None = None) -> None:
     """Daily sync of WB box delivery logistics tariffs from /api/v1/tariffs/box."""
+    payload = payload or {}
     from app.services.commissions.admin_notifications import notify_admins
     from app.services.wb.logistics.wb_logistics_tariff_sync_service import (
         WbLogisticsTariffSyncService,
@@ -1294,13 +1316,14 @@ async def sync_wb_logistics_tariffs(ctx: dict[str, Any]) -> None:
                 await notify_admins(bot, message)
 
 
-async def sync_wb_daily_promotions(ctx: dict[str, Any]) -> dict[str, Any]:
+async def sync_wb_daily_promotions(ctx: dict[str, Any], payload: dict | None = None) -> dict[str, Any]:
     """Daily sync of WB calendar promotions and product nomenclatures.
 
     Runs at configured time (default 00:15 Moscow time).
     Fetches promotions active today, then fetches product lists for
     regular (non-auto) promotions.
     """
+    payload = payload or {}
     from app.core.config import get_settings
     from app.core.security import TokenCipher
     from app.services.wb.promotions.wb_promotions_sync_service import WbPromotionsSyncService
@@ -1378,12 +1401,13 @@ async def sync_wb_daily_promotions(ctx: dict[str, Any]) -> dict[str, Any]:
                 await service.release_sync_lock()
 
 
-async def check_auto_promo_prices(ctx: dict[str, Any]) -> None:
+async def check_auto_promo_prices(ctx: dict[str, Any], payload: dict | None = None) -> None:
     """Check auto promotion prices and optionally apply safe changes.
 
     Runs every 30 minutes. For accounts with auto_price_for_auto_promotions enabled,
     builds recommendations and applies only safe price changes.
     """
+    payload = payload or {}
     from app.core.security import TokenCipher
     from app.models.domain import MrcPricingSettings
     from app.services.wb.pricing.wb_auto_promo_price_service import (
@@ -1533,12 +1557,13 @@ async def check_auto_promo_prices(ctx: dict[str, Any]) -> None:
                 pass
 
 
-async def backfill_wb_daily_financial_details(ctx: dict[str, Any]) -> dict[str, Any]:
+async def backfill_wb_daily_financial_details(ctx: dict[str, Any], payload: dict | None = None) -> dict[str, Any]:
     """Backfill WB financial details for recent days.
 
     Re-syncs the last 14 days of financial data for all WB accounts.
     Useful for picking up updated/corrected report rows.
     """
+    payload = payload or {}
     moscow_tz = ZoneInfo("Europe/Moscow")
     moscow_today = datetime.now(tz=moscow_tz).date()
     days_to_sync = ctx.get("days", 14) if ctx else 14
@@ -1625,11 +1650,12 @@ async def backfill_wb_daily_financial_details(ctx: dict[str, Any]) -> dict[str, 
         )
 
 
-async def sync_wb_product_prices(ctx: dict[str, Any]) -> dict[str, Any]:
+async def sync_wb_product_prices(ctx: dict[str, Any], payload: dict | None = None) -> dict[str, Any]:
     """Sync current WB product prices from /api/v2/prices into wb_product_prices table.
 
     Runs every 30 minutes. Fetches all current prices and upserts into wb_product_prices.
     """
+    payload = payload or {}
     from app.core.security import TokenCipher
     from app.services.wb.pricing.wb_current_prices_sync_service import WbCurrentPricesSyncService
 
@@ -1883,7 +1909,8 @@ async def _send_sync_notification(session: AsyncSession, sync_run_id: int, event
         )
 
 
-async def check_stale_sync_runs(ctx: dict[str, Any]) -> dict[str, int]:
+async def check_stale_sync_runs(ctx: dict[str, Any], payload: dict | None = None) -> dict[str, int]:
+    payload = payload or {}
     from app.services.common.sync_status_service import SyncStatusService
     from app.services.common.web_sync_run_service import WebSyncRunService
 

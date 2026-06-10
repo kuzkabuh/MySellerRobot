@@ -60,7 +60,13 @@ SYNC_CENTER_JS = """
     fetch(url, { method: 'POST', headers: { 'x-forwarded-for': window.location.host } })
       .then(function(r) { return r.json(); })
       .then(function(data) {
-        if (data.ok) {
+        if (data.already_running) {
+          showToast(data.message || 'Уже выполняется', 'info');
+          if (btn) { resetBtn(btn); }
+          if (data.run_id) {
+            pollRunStatus(data.run_id, btn);
+          }
+        } else if (data.ok) {
           showToast(data.message || 'Синхронизация запущена', 'success');
           if (data.run_id) {
             pollRunStatus(data.run_id, btn);
