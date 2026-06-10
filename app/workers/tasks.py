@@ -1709,7 +1709,7 @@ async def _process_wb_supplier_order(
 ) -> None:
     from app.integrations.wb import WildberriesClient
     from app.repositories.orders import OrderRepository
-    from app.services.profit.order_profit_service import OrderProfitService
+    from app.services.unit_economics.order_profit_service import OrderProfitService
     from app.models.finance import ProfitSnapshot
     from app.models.enums import CalculationType
     from app.models.orders import OrderItem
@@ -1724,19 +1724,22 @@ async def _process_wb_supplier_order(
     else:
         counts["records_updated"] += 1
 
-    await session.execute(
-        delete(ProfitSnapshot).where(
-            ProfitSnapshot.order_item_id.in_(
-                select(OrderItem.id).where(OrderItem.order_id == order.id)
-            ),
-            ProfitSnapshot.calculation_type == CalculationType.ESTIMATED,
+    try:
+        await session.execute(
+            delete(ProfitSnapshot).where(
+                ProfitSnapshot.order_item_id.in_(
+                    select(OrderItem.id).where(OrderItem.order_id == order.id)
+                ),
+                ProfitSnapshot.calculation_type == CalculationType.ESTIMATED,
+            )
         )
-    )
-    profit_svc = OrderProfitService(session)
-    await profit_svc.calculate_estimated_profit(
-        account, order, normalized,
-        calculation_source="sync_center_orders_stats",
-    )
+        profit_svc = OrderProfitService(session)
+        await profit_svc.calculate_estimated_profit(
+            account, order, normalized,
+            calculation_source="sync_center_orders_stats",
+        )
+    except Exception:
+        logger.exception("order_profit_recalculate_failed", extra={"order_id": order.id})
 
 
 async def sync_wb_orders_stats(ctx: dict[str, Any], payload: dict | None = None) -> dict[str, Any]:
@@ -1748,8 +1751,6 @@ async def sync_wb_orders_stats(ctx: dict[str, Any], payload: dict | None = None)
     payload = payload or {}
     from app.core.security import TokenCipher
     from app.integrations.wb import WildberriesClient
-    from app.services.common.sales_event_sync_service import _get_profit_service, _get_order_repo
-
     cipher = TokenCipher()
     counts: dict[str, int] = {
         "records_loaded": 0, "records_created": 0, "records_updated": 0,
@@ -1928,12 +1929,15 @@ async def _process_wb_fbs_order(
             ProfitSnapshot.calculation_type == CalculationType.ESTIMATED,
         )
     )
-    from app.services.profit.order_profit_service import OrderProfitService
-    profit_svc = OrderProfitService(session)
-    await profit_svc.calculate_estimated_profit(
-        account, order, normalized,
-        calculation_source="sync_center_fbs_assembly",
-    )
+    try:
+        from app.services.unit_economics.order_profit_service import OrderProfitService
+        profit_svc = OrderProfitService(session)
+        await profit_svc.calculate_estimated_profit(
+            account, order, normalized,
+            calculation_source="sync_center_fbs_assembly",
+        )
+    except Exception:
+        logger.exception("order_profit_recalculate_failed", extra={"order_id": order.id})
 
 
 async def sync_wb_fbs_assembly_orders(ctx: dict[str, Any], payload: dict | None = None) -> dict[str, Any]:
