@@ -1,6 +1,6 @@
-"""version: 1.0.0
-description: Order, sale, return, and order reconciliation HTML view helpers.
-updated: 2026-06-09
+"""version: 2.0.0
+description: Modernized order, sale, return, and order reconciliation HTML view helpers.
+updated: 2026-06-10
 """
 
 # ruff: noqa: E501, F401, E402, F811, I001
@@ -16,7 +16,7 @@ from urllib.parse import parse_qs
 from fastapi import HTTPException, Request
 
 from app.models.domain import AlertEvent, MarketplaceAccount, User
-from app.models.enums import Marketplace
+from app.models.enums import Marketplace, ReconciliationStatus
 from app.models.subscriptions import SubscriptionTier
 from app.services.common.data_quality_service import DataQualityReport
 from app.services.common.marketplace_presentation import (
@@ -90,6 +90,91 @@ __all__ = [
 ]
 
 
+def _marketplace_id_label(marketplace: Marketplace) -> str:
+    return "Заказ WB" if marketplace == Marketplace.WB else "Заказ Ozon"
+
+
+def _marketplace_posting_label(marketplace: Marketplace) -> str:
+    return "Отправление" if marketplace == Marketplace.WB else "Отправление Ozon"
+
+
+def _order_identifiers(row: OrderRow) -> str:
+    mp = row.marketplace
+    parts = []
+    order_label = _marketplace_id_label(mp)
+    parts.append(f"<strong>{order_label}:</strong> {escape(row.order_external_id)}")
+    if row.posting_number:
+        posting_label = _marketplace_posting_label(mp)
+        parts.append(f'<div class="muted">{posting_label}: {escape(row.posting_number)}</div>')
+    if mp == Marketplace.WB and hasattr(row, 'srid') and row.srid:
+        parts.append(f'<div class="muted">SRID: {escape(row.srid)}</div>')
+    return "".join(parts)
+
+
+def _economy_status_badge(economy_confidence: str | None, missing_cost: bool, profit: Decimal | None) -> str:
+    if missing_cost:
+        return '<span class="badge bad">Нет себестоимости</span>'
+    if economy_confidence == "EXACT":
+        return '<span class="badge good">Факт</span>'
+    if economy_confidence == "ESTIMATED":
+        return '<span class="badge warn">Оценка</span>'
+    return '<span class="badge">План (предв.)</span>'
+
+
+def _problem_badges(row: OrderRow) -> str:
+    badges = []
+    if row.missing_cost:
+        badges.append('<span class="badge bad">нет себестоимости</span>')
+    profit_val = getattr(row, 'estimated_profit', None)
+    if profit_val is not None and profit_val < 0:
+        badges.append('<span class="badge bad">убыток</span>')
+    if hasattr(row, 'reconciliation_status'):
+        rs = row.reconciliation_status
+        if rs in (ReconciliationStatus.FACT_AMBIGUOUS, ReconciliationStatus.FACT_CONFLICT):
+            badges.append('<span class="badge warn">неоднозначно</span>')
+    return "".join(badges)
+
+
+def _orders_summary(rows: list[OrderRow]) -> str:
+    total_orders = len(set(r.order_id for r in rows))
+    total_qty = sum(r.quantity for r in rows)
+    total_revenue = sum(r.revenue for r in rows)
+    profits = [r.estimated_profit for r in rows if r.estimated_profit is not None]
+    total_profit = sum(profits) if profits else ZERO
+    missing_cost = sum(1 for r in rows if r.missing_cost)
+    loss_count = sum(1 for r in rows if r.estimated_profit is not None and r.estimated_profit < 0)
+    margin = (total_profit / total_revenue * Decimal("100")).quantize(Decimal("0.1")) if total_revenue > ZERO else None
+
+    return f"""
+      <section class="orders-summary">
+        <article class="summary-card">
+          <span class="summary-label">Заказов</span>
+          <strong class="summary-value">{total_orders}</strong>
+          <span class="summary-note">позиций: {total_qty}</span>
+        </article>
+        <article class="summary-card">
+          <span class="summary-label">Выручка</span>
+          <strong class="summary-value">{_rub(total_revenue)}</strong>
+        </article>
+        <article class="summary-card {'good' if total_profit >= 0 else 'bad'}">
+          <span class="summary-label">Плановая прибыль</span>
+          <strong class="summary-value">{_rub(total_profit)}</strong>
+        </article>
+        <article class="summary-card {'good' if margin and margin >= 5 else 'warn' if margin and margin >= 0 else 'bad'}">
+          <span class="summary-label">Средняя маржа</span>
+          <strong class="summary-value">{_percent_optional(margin) if margin else 'н/д'}</strong>
+        </article>
+        <article class="summary-card {'bad' if missing_cost > 0 else 'neutral'}">
+          <span class="summary-label">Без себестоимости</span>
+          <strong class="summary-value">{missing_cost}</strong>
+        </article>
+        <article class="summary-card {'bad' if loss_count > 0 else 'neutral'}">
+          <span class="summary-label">Убыточные</span>
+          <strong class="summary-value">{loss_count}</strong>
+        </article>
+      </section>"""
+
+
 def _orders_content(
     result: Any, timezone: str, *, last_poll_info: dict[str, object] | None = None
 ) -> str:
@@ -113,37 +198,57 @@ def _orders_content(
     table_rows = []
     for row in rows:
         profit = row.estimated_profit
-        profit_badge = "bad" if profit is not None and profit < 0 else "good"
-        cost_badge = '<span class="badge warn">без себестоимости</span>' if row.missing_cost else ""
-        confidence_badge = _confidence_badge(row.economy_confidence)
+        profit_tone = "bad" if profit is not None and profit < 0 else "good"
         profit_cell = (
-            f'<td class="num"><span class="badge {profit_badge}">'
+            f'<td class="num"><span class="badge {profit_tone}">'
             f"{_rub_optional(profit)}</span></td>"
         )
+        economy_badge = _economy_status_badge(row.economy_confidence, row.missing_cost, profit)
+        problem_badges = _problem_badges(row)
+        expand_id = f"order-detail-{row.order_id}-{row.item_id}"
+
         table_rows.append(
-            "<tr>"
+            "<tr class='order-row' data-order-id='{row.order_id}' onclick='toggleOrderDetail(this)'>"
             f"<td>{localized_order_date(row.order_date, timezone)}</td>"
             f"<td>{_marketplace_label(row.marketplace)}</td>"
             f"<td>{_sale_model_badge(row.sale_model)}</td>"
-            f'<td><a href="/web/orders/{row.order_id}">{escape(row.title)}</a>'
-            f'<div class="muted">{escape(row.seller_article)}</div>{cost_badge}</td>'
-            f"<td><strong>Заказ WB:</strong> {escape(row.order_external_id)}"
-            f'<div class="muted">Отправление: {escape(row.posting_number or "н/д")}</div></td>'
+            f'<td class="cell-title"><a href="/web/orders/{row.order_id}">{escape(row.title or "Без названия")}</a>'
+            f'<div class="muted">{escape(row.seller_article or "")}</div></td>'
+            f"<td class='cell-ids'>{_order_identifiers(row)}</td>"
             f'<td class="num">{row.quantity}</td>'
             f'<td class="num">{_rub(row.revenue)}</td>'
+            f"<td class='cell-costs muted'>{_rub_optional(None)}</td>"
             f"{profit_cell}"
             f'<td class="num">{_percent_optional(row.margin_percent)}</td>'
-            f"<td>{_order_status_badge(row.status, row.requires_action)}"
-            f"<div>{_reconciliation_badge(getattr(row, 'reconciliation_status', None))}</div>"
-            f"<div>{confidence_badge}</div></td>"
-            f"<td>{escape(source_event_label(row.source_event_type))}</td>"
-            "</tr>"
+            f"<td class='cell-status'>"
+            f"<div>{_order_status_badge(row.status, row.requires_action)}</div>"
+            f"<div>{economy_badge}</div>"
+            f"{problem_badges}"
+            f"</td>"
+            f"<td class='cell-source'>{escape(source_event_label(row.source_event_type))}</td>"
+            f"<td><a class='button-tiny' href='/web/orders/{row.order_id}'>Подробнее</a></td>"
+            f"</tr>"
+            f"<tr class='order-detail-row' id='{expand_id}' style='display:none'>"
+            f"<td colspan='13'><div class='order-detail-body'>"
+            f"<div class='detail-grid-compact'>"
+            f"<div><strong>Товар:</strong> {escape(row.title or 'Без названия')}</div>"
+            f"<div><strong>Артикул:</strong> {escape(row.seller_article or 'н/д')}</div>"
+            f"<div><strong>МП:</strong> {_marketplace_label(row.marketplace)}</div>"
+            f"<div><strong>Модель:</strong> {_sale_model_badge(row.sale_model)}</div>"
+            f"<div><strong>Цена:</strong> {_rub(row.revenue)}</div>"
+            f"<div><strong>Прибыль:</strong> <span class='{'tone-bad' if profit is not None and profit < 0 else 'tone-good'}'>"
+            f"{_rub_optional(profit)}</span></div>"
+            f"<div><strong>Маржа:</strong> {_percent_optional(row.margin_percent)}</div>"
+            f"<div><strong>Статус экономики:</strong> {economy_badge}</div>"
+            f"</div>"
+            f"<div class='detail-actions' style='margin-top:10px'>"
+            f"<a class='button-tiny' href='/web/orders/{row.order_id}'>Карточка заказа</a>"
+            f"</div>"
+            f"</div></td>"
+            f"</tr>"
         )
-    body = (
-        "".join(table_rows)
-        if table_rows
-        else '<tr><td colspan="11" class="muted">Заказов по выбранным фильтрам пока нет.</td></tr>'
-    )
+
+    body = "".join(table_rows) if table_rows else ''
 
     range_start = (page - 1) * per_page + 1 if total_count > 0 else 0
     range_end = min(page * per_page, total_count)
@@ -153,33 +258,133 @@ def _orders_content(
 
     pagination_html = _render_pagination(filters, page, total_pages, per_page, total_count)
 
-    sync_badge = _render_sync_freshness(last_poll_info, timezone) if last_poll_info else ""
+    sync_html = _render_modern_sync(last_poll_info, timezone) if last_poll_info else ""
+    summary_html = _orders_summary(rows) if rows else ""
+
+    empty_html = ""
+    if not rows:
+        empty_html = '''
+        <div class="empty-state">
+          <strong>Заказы за выбранный период не найдены.</strong>
+          <span>Попробуйте изменить фильтры или синхронизировать заказы.</span>
+          <div style="margin-top:12px;display:flex;gap:8px;justify-content:center">
+            <a class="button" href="/web/orders?period=30d">За 30 дней</a>
+            <a class="button primary" href="/web/sync-center?tab=sync">Синхронизировать</a>
+            <a class="button" href="/web/accounts">Настройки кабинетов</a>
+          </div>
+        </div>'''
 
     return f"""
-      {_section_subnav_orders("orders")}
+      {sync_html}
+      {summary_html}
       {_orders_filters(filters)}
-      {sync_badge}
       <section class="band">
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px">
-          <h2 style="margin:0">Заказы и позиции</h2>
-          <div class="muted" style="font-size:13px">{range_text}</div>
+        <div class="orders-toolbar">
+          <h2 style="margin:0">Операции</h2>
+          <div class="orders-toolbar-right">
+            <span class="muted" style="font-size:13px">{range_text}</span>
+            <a class="button-tiny" href="/web/orders?export=csv&{_export_params(filters)}">CSV</a>
+            <a class="button-tiny" href="/web/sync-center?tab=sync">Обновить</a>
+          </div>
         </div>
+        {empty_html}
+        {_orders_table_html(body, rows)}
+        {pagination_html}
+      </section>
+      <script>
+      function toggleOrderDetail(tr) {{
+        var next = tr.nextElementSibling;
+        if (next && next.classList.contains('order-detail-row')) {{
+          next.style.display = next.style.display === 'none' ? 'table-row' : 'none';
+        }}
+      }}
+      </script>
+    """
+
+
+def _export_params(filters: OrderWebFilters) -> str:
+    from urllib.parse import urlencode
+    params = {
+        "period": filters.period,
+        "marketplace": filters.marketplace.value if filters.marketplace else "all",
+        "sale_model": filters.sale_model.value if filters.sale_model else "all",
+        "economy": filters.economy,
+        "sku": filters.sku,
+    }
+    if filters.period == "custom":
+        params["date_from"] = filters.local_date_from.isoformat()
+        params["date_to"] = filters.local_date_to.isoformat()
+    return urlencode(params)
+
+
+def _orders_table_html(body: str, rows: list) -> str:
+    if not rows:
+        return ""
+    return f"""
         <div class="table-wrap">
-          <table class="table">
+          <table class="table orders-table">
             <thead>
               <tr>
                 <th>Дата</th><th>МП</th><th>Модель</th><th>Товар</th>
                 <th>Идентификаторы</th><th class="num">Кол-во</th>
-                <th class="num">Цена</th><th class="num">Плановая прибыль</th>
-                <th class="num">Маржа</th><th>Статус</th><th>Источник</th>
+                <th class="num">Цена</th><th class="num">Расходы</th>
+                <th class="num">План. прибыль</th><th class="num">Маржа</th>
+                <th>Статус</th><th>Источник</th><th></th>
               </tr>
             </thead>
             <tbody>{body}</tbody>
           </table>
-        </div>
-        {pagination_html}
-      </section>
-    """
+        </div>"""
+
+
+def _render_modern_sync(last_poll_info: dict[str, object], timezone: str) -> str:
+    from datetime import UTC, datetime
+
+    last_poll_at = last_poll_info.get("last_poll_at")
+    if not last_poll_at:
+        return '<div class="sync-bar warn">Синхронизация: не выполнялась</div>'
+
+    now = datetime.now(tz=UTC)
+    poll_dt = last_poll_at
+    if not isinstance(poll_dt, datetime):
+        return ""
+    if poll_dt.tzinfo is None:
+        poll_dt = poll_dt.replace(tzinfo=UTC)
+    age_minutes = int((now - poll_dt).total_seconds() / 60)
+
+    tone = "good" if age_minutes < 10 else "warn" if age_minutes < 30 else "bad"
+    action_link = '<a class="button-tiny" href="/web/sync-center?tab=sync">Центр синхронизации</a>'
+
+    accounts = last_poll_info.get("accounts", [])
+    acc_details = []
+    if isinstance(accounts, list):
+        for acc in accounts[:4]:
+            if not isinstance(acc, dict):
+                continue
+            mp = acc.get("marketplace", "?")
+            ts = acc.get("last_poll_at")
+            if isinstance(ts, datetime):
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=UTC)
+                acc_age = int((now - ts).total_seconds() / 60)
+                acc_details.append(f"{mp}: {acc_age} мин")
+
+    hint = " · ".join(acc_details) if acc_details else ""
+
+    last_update_str = format_datetime_for_user(poll_dt, timezone) if hasattr(poll_dt, 'tzinfo') else str(poll_dt)
+
+    return f"""
+      <div class="sync-bar {tone}">
+        <span class="sync-bar-main">
+          <span class="badge {tone}">Синхронизация: {age_minutes} мин назад</span>
+          <span class="muted" style="font-size:12px">Последнее обновление: {last_update_str}</span>
+        </span>
+        <span class="sync-bar-acc">
+          {"<span class='muted' style='font-size:12px'>" + escape(hint) + "</span>" if hint else ""}
+          {action_link}
+        </span>
+      </div>"""
+
 
 def _order_detail_content(detail: OrderDetail, timezone: str, is_admin: bool = False) -> str:
     order = detail.order
@@ -200,8 +405,7 @@ def _order_detail_content(detail: OrderDetail, timezone: str, is_admin: bool = F
             "<tr>"
             f"<td>{escape(item.title or 'Без названия')}"
             f'<div class="muted">Артикул: {escape(item.seller_article or "н/д")}</div>'
-            f'<div class="muted">nm_id: {escape(item.marketplace_article or "н/д")}</div>'
-            f'<div class="muted">product_id: {escape(str(item.product_id or "н/д"))}</div></td>'
+            f'<div class="muted">{escape(str(item.marketplace_article or "н/д"))}</div></td>'
             f'<td class="num">{item.quantity}</td>'
             f'<td class="num">{_rub(item.discounted_price * item.quantity)}</td>'
             f'<td class="num">{_rub_optional(item.commission_estimated)}</td>'
@@ -227,6 +431,7 @@ def _order_detail_content(detail: OrderDetail, timezone: str, is_admin: bool = F
     ozon_fact_html = _ozon_order_fact_html(getattr(detail, "ozon_fact", None))
     fact_html = wb_fact_html or ozon_fact_html
     is_financial_only = getattr(detail, "is_financial_only", False)
+    marketplace_id_label = _marketplace_id_label(order.marketplace)
     financial_only_warning = (
         '<div class="band warn" style="margin:14px 0;padding:14px">'
         "<strong>Внимание!</strong> Эта запись, вероятно, является строкой финансового отчёта, "
@@ -236,8 +441,16 @@ def _order_detail_content(detail: OrderDetail, timezone: str, is_admin: bool = F
         if is_financial_only
         else ""
     )
+    has_no_finance = not fact_html and not is_financial_only
+    finance_section = ""
+    if has_no_finance:
+        finance_section = (
+            '<section class="band" style="margin-top:14px">'
+            '<div class="empty-state compact">'
+            "Финансовые данные по этому заказу ещё не загружены."
+            "</div></section>"
+        )
     return f"""
-      {_section_subnav_orders("orders")}
       {financial_only_warning}
       <section class="detail-grid">
         <section class="band">
@@ -245,13 +458,12 @@ def _order_detail_content(detail: OrderDetail, timezone: str, is_admin: bool = F
           <div class="kv">
             <span>Маркетплейс</span><strong>{_marketplace_label(order.marketplace)}</strong>
             <span>Модель</span><strong>{sale_model}</strong>
-            <span>Статус</span><strong>{_order_status_badge(order.normalized_status or order.status, order.requires_seller_action)}</strong>
+            <span>Статус заказа</span><strong>{_order_status_badge(order.normalized_status or order.status, order.requires_seller_action)}</strong>
+            <span>Статус экономики</span><strong>{_economy_status_badge(str(order.economy_confidence) if hasattr(order, 'economy_confidence') else None, any(i.cost_price_used is None for i in detail.items), detail.estimated_profit)}</strong>
+            <span>Статус сверки</span><strong>{_reconciliation_badge(getattr(detail, "reconciliation_status", None))}</strong>
             <span>Дата заказа</span><strong>{order_date}</strong>
             <span>Дедлайн</span><strong>{deadline}</strong>
-            <span>Заказ WB</span><strong>{escape(order.order_external_id)}</strong>
-            <span>Srid</span><strong>{escape(order.srid or "н/д")}</strong>
-            <span>ШК / posting</span><strong>{escape(order.posting_number or "н/д")}</strong>
-            <span>Действие</span><strong>{order_state}</strong>
+            <span>{marketplace_id_label}</span><strong>{escape(order.order_external_id)}</strong>
           </div>
         </section>
         <section class="band">
@@ -282,8 +494,10 @@ def _order_detail_content(detail: OrderDetail, timezone: str, is_admin: bool = F
         </div>
       </section>
       {fact_html}
+      {finance_section}
       {'<section class="band" style="margin-top:14px"><details><summary style="cursor:pointer"><h2 style="display:inline">Технические данные</h2></summary><pre class="mono">' + raw_payload + '</pre></details></section>' if is_admin else ''}
     """
+
 
 def _wb_order_fact_html(wb_fact: Any, timezone: str) -> str:
     if wb_fact is None:
@@ -344,6 +558,7 @@ def _wb_order_fact_html(wb_fact: Any, timezone: str) -> str:
         {unlinked_rows}
       </section>
     """
+
 
 def _ozon_order_fact_html(ozon_fact: Any) -> str:
     if ozon_fact is None:
@@ -412,6 +627,7 @@ def _reconciliation_tone(status: str) -> str:
         "ERROR_STATUS": "bad",
     }.get(status, "")
 
+
 def _wb_report_rows_table(rows: list[Any], timezone: str, *, empty_text: str) -> str:
     if not rows:
         return f'<div class="empty-state">{escape(empty_text)}</div>'
@@ -435,6 +651,7 @@ def _wb_report_rows_table(rows: list[Any], timezone: str, *, empty_text: str) ->
         </table>
       </div>
     """
+
 
 def _wb_report_row_html(row: Any, timezone: str) -> str:
     sale_dt = getattr(row, "sale_dt", None)
@@ -466,10 +683,12 @@ def _wb_report_row_html(row: Any, timezone: str) -> str:
         "</tr>"
     )
 
+
 def _wb_fact_state_badge(state: str) -> str:
     label = _wb_fact_state_text(state)
     tone = {"present": "good", "unlinked": "warn", "missing": "warn"}.get(state, "")
     return f'<span class="badge {tone}">{escape(label)}</span>'
+
 
 def _wb_fact_state_text(state: str) -> str:
     return {
@@ -478,6 +697,7 @@ def _wb_fact_state_text(state: str) -> str:
         "missing": "не найдено в отчёте",
         "report_not_loaded": "отчёт WB ещё не загружен",
     }.get(state, "нет данных")
+
 
 def _reconciliation_badge(status: Any) -> str:
     value = getattr(status, "value", status) or "PRELIMINARY"
@@ -509,12 +729,14 @@ def _reconciliation_badge(status: Any) -> str:
     tone = tones.get(sv, "")
     return f'<span class="badge {tone}">{escape(label)}</span>'
 
+
 def _wb_link_status_text(row: Any) -> str:
     if getattr(row, "linked_order_id", None):
         return "Связана с заказом"
     if getattr(row, "linked_product_id", None):
         return "Товар найден, заказ не связан"
     return "Не связано"
+
 
 def _sales_content(data: SalesPageData, timezone: str, sku: str) -> str:
     rows = "".join(
@@ -526,7 +748,6 @@ def _sales_content(data: SalesPageData, timezone: str, sku: str) -> str:
         f"<td>"
         f'  <div>{escape(row.product_name or row.seller_article)}</div>'
         f'  <div class="muted">{escape(row.marketplace_article)}</div>'
-        f'  <div class="muted">{_nm_barcode(row.nm_id, row.barcode)}</div>'
         f"</td>"
         f'<td class="num">{row.quantity}</td>'
         f'<td class="num">{_rub(row.amount)}</td>'
@@ -571,13 +792,6 @@ def _sales_content(data: SalesPageData, timezone: str, sku: str) -> str:
       </section>
     """
 
-def _nm_barcode(nm_id: int | None, barcode: str | None) -> str:
-    parts = []
-    if nm_id:
-        parts.append(f"NM {nm_id}")
-    if barcode:
-        parts.append(f"ШК {barcode}")
-    return " / ".join(parts) if parts else ""
 
 def _order_link(order_id: int | None, external_id: str | None) -> str:
     if order_id:
@@ -585,6 +799,7 @@ def _order_link(order_id: int | None, external_id: str | None) -> str:
     if external_id:
         return escape(external_id)
     return "н/д"
+
 
 def _wb_report_link(
     report_number: str | None,
@@ -600,6 +815,7 @@ def _wb_report_link(
         return f'<a href="/web/wb-reports/{import_id}">{escape(label)}</a>'
     return escape(label)
 
+
 def _sales_actions(order_id: int | None, wb_report_import_id: int | None) -> str:
     links = []
     if order_id:
@@ -609,6 +825,7 @@ def _sales_actions(order_id: int | None, wb_report_import_id: int | None) -> str
             f'<a class="button-tiny" href="/web/wb-reports/{wb_report_import_id}">Отчёт</a>'
         )
     return " ".join(links) if links else '<span class="muted">—</span>'
+
 
 def _returns_content(data: ReturnsPageData, timezone: str, sku: str) -> str:
     rows = "".join(

@@ -170,6 +170,8 @@ def _section_subnav_orders(active: str) -> str:
         ("orders", "Заказы", "/web/orders"),
         ("sales", "Продажи", "/web/sales"),
         ("returns", "Возвраты", "/web/returns"),
+        ("profit", "Прибыль", "/web/profit"),
+        ("plan_fact", "План/факт", "/web/plan-fact"),
     ]
     return _subnav_render(items, active)
 
@@ -320,22 +322,22 @@ def _render_sync_freshness(last_poll_info: dict[str, object], timezone: str) -> 
 
     if age_minutes < 5:
         badge_class = "good"
-        label = f"Синхронизация: {age_minutes} мин назад"
+        label = f"Обновлено {age_minutes} мин назад"
     elif age_minutes < 10:
         badge_class = "good"
-        label = f"Синхронизация: {age_minutes} мин назад"
+        label = f"Обновлено {age_minutes} мин назад"
     elif age_minutes < 30:
         badge_class = "warn"
-        label = f"Синхронизация: {age_minutes} мин назад"
+        label = f"Обновлено {age_minutes} мин назад"
     else:
         badge_class = "bad"
-        label = f"Синхронизация: {age_minutes} мин назад (возможна задержка)"
+        label = f"Обновлено {age_minutes} мин назад (возможна задержка)"
 
     account_hints = []
     accounts = last_poll_info.get("accounts", [])
     if not isinstance(accounts, list):
         accounts = []
-    for acc in accounts[:3]:
+    for acc in accounts[:4]:
         if not isinstance(acc, dict):
             continue
         mp = acc.get("marketplace", "?")
@@ -349,9 +351,10 @@ def _render_sync_freshness(last_poll_info: dict[str, object], timezone: str) -> 
     hint_text = " · ".join(account_hints) if account_hints else ""
 
     return (
-        '<div style="margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+        '<div class="sync-bar" style="margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card)">'
         f'<span class="badge {badge_class}">{escape(label)}</span>'
-        f"{'<span class="muted" style="font-size:12px">' + escape(hint_text) + '</span>' if hint_text else ''}"
+        f"{'<span class=\"muted\" style=\"font-size:12px\">' + escape(hint_text) + '</span>' if hint_text else ''}"
+        '<a class="button-tiny" href="/web/sync-center?tab=sync" style="margin-left:auto">Центр синхронизации</a>'
         "</div>"
     )
 
@@ -388,8 +391,11 @@ def _render_pagination(
 
     pages: list[str] = []
 
+    pages.append(f'<a href="{page_url(1)}" class="button {"primary disabled" if page == 1 else ""}" {"disabled" if page == 1 else ""}>«</a>')
     if page > 1:
-        pages.append(f'<a href="{page_url(page - 1)}" class="button">← Назад</a>')
+        pages.append(f'<a href="{page_url(page - 1)}" class="button">←</a>')
+    else:
+        pages.append(f'<span class="button disabled">←</span>')
 
     window = 2
     start = max(1, page - window)
@@ -412,10 +418,13 @@ def _render_pagination(
         pages.append(f'<a href="{page_url(total_pages)}" class="button">{total_pages}</a>')
 
     if page < total_pages:
-        pages.append(f'<a href="{page_url(page + 1)}" class="button">Далее →</a>')
+        pages.append(f'<a href="{page_url(page + 1)}" class="button">→</a>')
+    else:
+        pages.append(f'<span class="button disabled">→</span>')
+    pages.append(f'<a href="{page_url(total_pages)}" class="button {"primary disabled" if page == total_pages else ""}" {"disabled" if page == total_pages else ""}>»</a>')
 
-    per_page_options = [20, 50, 100, 200]
-    per_page_html = '<span class="muted" style="font-size:12px;margin-left:12px">На странице: '
+    per_page_options = [25, 50, 100]
+    per_page_html = '<span class="muted" style="font-size:12px;margin-left:auto">На странице: '
     per_page_links = []
     for opt in per_page_options:
         if opt == per_page:
@@ -426,8 +435,8 @@ def _render_pagination(
     per_page_html += " · ".join(per_page_links) + "</span>"
 
     return (
-        '<div style="display:flex;justify-content:center;align-items:center;flex-wrap:wrap;'
-        f'gap:8px;margin-top:16px;padding:12px 0">{" ".join(pages)}{per_page_html}</div>'
+        '<div class="pagination-bar" style="display:flex;justify-content:center;align-items:center;flex-wrap:wrap;'
+        f'gap:6px;margin-top:16px;padding:12px 0">{" ".join(pages)}{per_page_html}</div>'
     )
 
 def _page_header(title: str, description: str, href: str, action: str) -> str:

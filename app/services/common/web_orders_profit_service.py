@@ -63,6 +63,7 @@ class OrderRow:
     sale_model: SaleModel | None
     order_external_id: str
     posting_number: str | None
+    srid: str | None
     title: str
     seller_article: str
     marketplace_article: str
@@ -228,6 +229,7 @@ class WebOrdersProfitService:
                 Order.sale_model,
                 Order.order_external_id,
                 Order.posting_number,
+                Order.srid,
                 OrderItem.title,
                 OrderItem.seller_article,
                 OrderItem.marketplace_article,
@@ -287,6 +289,7 @@ class WebOrdersProfitService:
                 sale_model_value,
                 order_external_id,
                 posting_number,
+                srid,
                 title,
                 seller_article,
                 marketplace_article,
@@ -314,6 +317,7 @@ class WebOrdersProfitService:
                     sale_model=sale_model_value,
                     order_external_id=str(order_external_id),
                     posting_number=posting_number,
+                    srid=str(srid) if srid else None,
                     title=title or "Без названия",
                     seller_article=seller_article or "н/д",
                     marketplace_article=marketplace_article or "н/д",
@@ -940,7 +944,7 @@ def build_order_web_filters(
         local_date_to=base.local_date_to,
         date_from=base.date_from,
         date_to=base.date_to,
-        economy=economy if economy in {"all", "profit", "loss", "missing_cost"} else "all",
+        economy=economy if economy in {"all", "profit", "loss", "missing_cost", "no_finance"} else "all",
         status=(
             status
             if status

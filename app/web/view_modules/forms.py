@@ -1,6 +1,6 @@
-"""version: 1.0.0
-description: Form, filter, and query helpers for MP Control web cabinet views.
-updated: 2026-06-09
+"""version: 2.0.0
+description: Modernized filter forms for MP Control web cabinet views.
+updated: 2026-06-10
 """
 
 # ruff: noqa: E501, F401, E402, F811, I001
@@ -254,14 +254,34 @@ def _shared_order_filters(
     )
     date_from_value = filters.local_date_from.isoformat()
     date_to_value = filters.local_date_to.isoformat()
+    period = filters.period
+    from urllib.parse import urlencode
+    def _qp(p: str) -> str:
+        params = {"period": p}
+        if filters.marketplace:
+            params["marketplace"] = filters.marketplace.value
+        if filters.sale_model:
+            params["sale_model"] = filters.sale_model.value
+        if filters.sku:
+            params["sku"] = filters.sku
+        if filters.economy != "all":
+            params["economy"] = filters.economy
+        if filters.status != "all":
+            params["status"] = filters.status
+        if filters.sort != "date":
+            params["sort"] = filters.sort
+        if filters.direction != "desc":
+            params["direction"] = filters.direction
+        return urlencode(params)
+    quick_periods = ""
+    for key, label in [("today", "Сегодня"), ("yesterday", "Вчера"), ("7d", "7 дней"), ("30d", "30 дней"), ("current_month", "Этот месяц"), ("previous_month", "Прошлый месяц")]:
+        cls = "button primary" if key == period else "button"
+        quick_periods += f'<a class="{cls}" href="{escape(action)}?{_qp(key)}" style="height:30px;font-size:11px;padding:0 10px">{label}</a>'
     return f"""
-      <nav class="tabs" style="margin-bottom:12px">
-        <a href="/web/orders">Заказы</a>
-        <a href="/web/sales">Продажи</a>
-        <a href="/web/returns">Возвраты</a>
-        <a href="/web/reports/wb-daily">Финансы WB</a>
-      </nav>
       <form class="filters" method="get" action="{escape(action)}">
+        <div class="quick-periods" style="grid-column:1/-1;display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px">
+          {quick_periods}
+        </div>
         {_period_select(filters.period)}
         {
         _select(
@@ -297,6 +317,7 @@ def _shared_order_filters(
                 "profit": "Прибыльные",
                 "loss": "Убыточные",
                 "missing_cost": "Без себестоимости",
+                "no_finance": "Без фин. данных",
             },
             filters.economy,
         )
@@ -304,7 +325,7 @@ def _shared_order_filters(
         {status_filter}
         <div>
           <label for="sku">SKU / артикул</label>
-          <input id="sku" name="sku" type="search" value="{escape(filters.sku)}">
+          <input id="sku" name="sku" type="search" value="{escape(filters.sku)}" placeholder="Название, SKU, артикул">
         </div>
         <div>
           <label for="date_from">Дата с</label>
@@ -340,7 +361,10 @@ def _shared_order_filters(
             filters.direction,
         )
     }
-        <button class="button primary" type="submit">Применить</button>
+        <div class="filter-actions" style="display:flex;gap:6px;align-items:end">
+          <button class="button primary" type="submit">Применить</button>
+          <a class="button" href="{escape(action)}?period=30d">Сбросить</a>
+        </div>
       </form>
     """
 

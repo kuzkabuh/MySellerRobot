@@ -84,12 +84,12 @@ def order_status_tone(status: str | None, requires_action: bool = False) -> str:
 def source_event_label(value: SourceEventType | str | None) -> str:
     raw = _raw(value)
     mapping = {
-        "POSTING_EVENT": "Событие отправления Ozon",
-        "STATISTICS_ORDER": "Заказ из статистики WB",
-        "LIVE_ORDER": "Онлайн-заказ WB",
-        "REPORT_ORDER": "Заказ из отчёта WB",
-        "FBS_ORDER": "FBS-заказ",
-        "FBO_ORDER": "FBO-заказ",
+        "POSTING_EVENT": "API Ozon: отправление",
+        "STATISTICS_ORDER": "API WB: заказ",
+        "LIVE_ORDER": "API WB: заказ",
+        "REPORT_ORDER": "Файл отчёта WB",
+        "FBS_ORDER": "API WB: заказ",
+        "FBO_ORDER": "API Ozon: заказ",
     }
     return mapping.get(str(raw or ""), str(raw or "н/д"))
 
