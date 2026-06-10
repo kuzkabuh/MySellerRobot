@@ -459,7 +459,7 @@ def _order_detail_content(detail: OrderDetail, timezone: str, is_admin: bool = F
             <span>Маркетплейс</span><strong>{_marketplace_label(order.marketplace)}</strong>
             <span>Модель</span><strong>{sale_model}</strong>
             <span>Статус заказа</span><strong>{_order_status_badge(order.normalized_status or order.status, order.requires_seller_action)}</strong>
-            <span>Статус экономики</span><strong>{_economy_status_badge(str(order.economy_confidence) if hasattr(order, 'economy_confidence') else None, any(i.cost_price_used is None for i in detail.items), detail.estimated_profit)}</strong>
+            <span>Статус экономики</span><strong>{_economy_status_badge(detail.economy_confidence, detail.has_missing_cost_price, detail.estimated_profit)}</strong>
             <span>Статус сверки</span><strong>{_reconciliation_badge(getattr(detail, "reconciliation_status", None))}</strong>
             <span>Дата заказа</span><strong>{order_date}</strong>
             <span>Дедлайн</span><strong>{deadline}</strong>

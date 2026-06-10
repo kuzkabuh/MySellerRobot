@@ -110,11 +110,24 @@ async def order_detail_page(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> str:
-    detail = await WebOrdersProfitService(session).order_detail(user_id=user.id, order_id=order_id)
-    if detail is None:
-        raise HTTPException(status_code=404, detail="Заказ не найден")
-    is_admin = is_admin_user(user)
-    content = _order_detail_content(detail, user.timezone, is_admin=is_admin)
+    try:
+        detail = await WebOrdersProfitService(session).order_detail(
+            user_id=user.id, order_id=order_id
+        )
+        if detail is None:
+            raise HTTPException(status_code=404, detail="Заказ не найден")
+        is_admin = is_admin_user(user)
+        content = _order_detail_content(detail, user.timezone, is_admin=is_admin)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to render order detail for order_id=%s", order_id)
+        content = (
+            '<section class="band"><div class="empty-state">'
+            "<strong>Не удалось открыть детали заказа.</strong>"
+            "<span>Попробуйте позже или обратитесь в поддержку.</span>"
+            "</div></section>"
+        )
     return render_page(
         "Карточка заказа",
         user.first_name or user.username or str(user.telegram_id),

@@ -127,6 +127,8 @@ class OrderDetail:
     wb_fact: WbOrderFact | None = None
     ozon_fact: OzonOrderFact | None = None
     is_financial_only: bool = False
+    has_missing_cost_price: bool = False
+    economy_confidence: str = "PRELIMINARY"
 
 
 @dataclass(slots=True)
@@ -408,6 +410,14 @@ class WebOrdersProfitService:
             and order.srid is not None
             and _is_short_srid(order.srid)
         )
+        order_confidence = "PRELIMINARY"
+        conf_priority = {"EXACT": 0, "ESTIMATED": 1, "PRELIMINARY": 2}
+        for item in order.items:
+            ic = str(item.economy_confidence or "PRELIMINARY")
+            if conf_priority.get(ic, 2) > conf_priority.get(order_confidence, 2):
+                order_confidence = ic
+        order_confidence = order_confidence or "PRELIMINARY"
+
         return OrderDetail(
             order=order,
             items=items,
@@ -418,6 +428,8 @@ class WebOrdersProfitService:
             wb_fact=wb_fact,
             ozon_fact=ozon_fact,
             is_financial_only=is_financial_only,
+            has_missing_cost_price=missing_cost,
+            economy_confidence=order_confidence,
         )
 
     async def _wb_order_fact(self, order: Order) -> WbOrderFact:
