@@ -30,7 +30,7 @@ def _sync_center_content(data: SyncCenterPageData) -> str:
             if a.last_error_message
             else ""
         )
-        balance = _rub(acc_data.balance.balance) if acc_data.balance and acc_data.balance.balance else "н/д"
+        balance = _rub(acc_data.balance.current) if acc_data.balance and acc_data.balance.current is not None else "н/д"
         account_cards.append(
             f"""
         <section class="band" style="margin-top:14px">
