@@ -1540,15 +1540,21 @@ async def backfill_wb_daily_financial_details(ctx: dict[str, Any]) -> dict[str, 
     """
     moscow_tz = ZoneInfo("Europe/Moscow")
     moscow_today = datetime.now(tz=moscow_tz).date()
-    days_to_sync = 14
+    days_to_sync = ctx.get("days", 14) if ctx else 14
     async with AsyncSessionFactory() as session:
         account_refs = await _load_account_refs_wb(session)
         total_accounts = len(account_refs)
         success_count = 0
         failed_count = 0
         last_error: str | None = None
+        total_rows_fetched = 0
         total_rows_upserted = 0
+        total_rows_matched = 0
+        total_rows_unmatched = 0
+        total_orders_reconciled = 0
         total_snapshots = 0
+        total_pages = 0
+        total_failed_rows = 0
 
         for ref in account_refs:
             account = await _load_account_by_id(session, ref.id)
@@ -1559,8 +1565,14 @@ async def backfill_wb_daily_financial_details(ctx: dict[str, Any]) -> dict[str, 
                 for day_offset in range(1, days_to_sync + 1):
                     report_date = moscow_today - timedelta(days=day_offset)
                     counters = await service.sync_account_for_date(account, report_date)
+                    total_rows_fetched += counters.total_rows_fetched
                     total_rows_upserted += counters.rows_upserted
+                    total_rows_matched += counters.rows_matched
+                    total_rows_unmatched += counters.rows_unmatched
+                    total_orders_reconciled += counters.orders_reconciled
                     total_snapshots += counters.snapshots_upserted
+                    total_pages += counters.pages_fetched
+                    total_failed_rows += counters.failed_rows
                     if counters.errors:
                         logger.warning(
                             "wb_financial_detail_backfill_date_warnings",
@@ -1576,6 +1588,7 @@ async def backfill_wb_daily_financial_details(ctx: dict[str, Any]) -> dict[str, 
                     "wb_financial_detail_backfill_account_done",
                     extra={
                         "account_id": ref.id,
+                        "rows_fetched": total_rows_fetched,
                         "rows_upserted": total_rows_upserted,
                         "snapshots_upserted": total_snapshots,
                     },
@@ -1596,9 +1609,15 @@ async def backfill_wb_daily_financial_details(ctx: dict[str, Any]) -> dict[str, 
                 "accounts_total": total_accounts,
                 "accounts_success": success_count,
                 "accounts_failed": failed_count,
-                "days_synced": days_to_sync,
+                "period_days": days_to_sync,
+                "pages_fetched": total_pages,
+                "rows_fetched": total_rows_fetched,
                 "rows_upserted": total_rows_upserted,
+                "orders_linked": total_rows_matched,
+                "orders_not_found": total_rows_unmatched,
+                "orders_reconciled": total_orders_reconciled,
                 "snapshots_upserted": total_snapshots,
+                "failed_rows": total_failed_rows,
             },
             failed_count=failed_count,
             last_error=last_error,

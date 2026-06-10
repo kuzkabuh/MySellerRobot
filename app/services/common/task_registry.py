@@ -66,6 +66,13 @@ COUNTER_TRANSLATION: dict[str, str] = {
     "pending": "Ожидает",
     "ambiguous": "Неоднозначных",
     "errors": "Ошибок",
+    "period_days": "Период дозагрузки, дней",
+    "rows_fetched": "Строк загружено",
+    "rows_created": "Строк создано",
+    "rows_updated": "Строк обновлено",
+    "orders_linked": "Связано с заказами",
+    "orders_not_found": "Заказы не найдены",
+    "pages_fetched": "Страниц загружено",
 }
 
 ERROR_TRANSLATIONS: dict[str, str] = {

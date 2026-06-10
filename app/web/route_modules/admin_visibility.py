@@ -737,6 +737,7 @@ _MANUAL_TASKS = {
     "sync_wb_product_prices": "Цены WB",
     "check_auto_promo_prices": "Автоакции",
     "reconcile_pending_payments": "Платежи",
+    "backfill_wb_daily_financial_details": "Дозагрузка финансов WB",
 }
 
 
