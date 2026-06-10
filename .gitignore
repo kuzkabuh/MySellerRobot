@@ -45,6 +45,9 @@ backups/
 postgres_data/
 redis_data/
 
+# Docker Compose local overrides (not committed)
+docker-compose.override.yml
+
 # Runtime secrets and downloads
 runtime/secret/
 runtime/ozon_commissions/

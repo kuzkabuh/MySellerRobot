@@ -1,0 +1,20 @@
+# version: 1.0.0
+# description: Local development override — exposes PostgreSQL and Redis ports
+#              for external tools (pgAdmin, DBeaver, RedisInsight, etc.).
+# updated: 2026-06-10
+#
+# Usage:
+#   cp docker-compose.override.yml.example docker-compose.override.yml
+#   docker compose up
+#
+# The override file is automatically merged by Docker Compose.
+# Do NOT commit docker-compose.override.yml to git (it's in .gitignore).
+
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"

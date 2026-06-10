@@ -159,12 +159,106 @@ SECTION_PREFIXES: dict[str, list[str]] = {
     "Логистика WB": ["/admin/wb-logistics"],
 }
 
+# ── Unified subnav schemas ──
+# Maps section key → list of (key, label, href) for subnav rendering.
+# Single source of truth used by both sidebar and section subnavs.
+NAV_SUBGROUPS: dict[str, list[tuple[str, str, str]]] = {
+    "orders": [
+        ("orders", "Заказы", "/web/orders"),
+        ("sales", "Продажи", "/web/sales"),
+        ("returns", "Возвраты", "/web/returns"),
+        ("profit", "Прибыль", "/web/profit"),
+        ("plan_fact", "План/факт", "/web/plan-fact"),
+    ],
+    "products": [
+        ("products", "Товары", "/web/products"),
+        ("stocks", "Остатки", "/web/stocks"),
+        ("costs", "Себестоимость", "/web/costs"),
+        ("product_matching", "Сопоставление", "/web/product-matching"),
+        ("data_quality", "Качество данных", "/web/data-quality"),
+        ("alerts", "Алерты", "/web/alerts"),
+    ],
+    "finance": [
+        ("profit", "Прибыль", "/web/profit"),
+        ("plan_fact", "План/факт", "/web/plan-fact"),
+        ("break_even", "Безубыточность", "/web/break-even"),
+        ("finances", "Финансовый обзор", "/web/finances"),
+    ],
+    "pricing": [
+        ("pricing", "Цены", "/web/pricing"),
+        ("mrc_pricing", "МРЦ WB", "/web/mrc-pricing"),
+        ("wb_promotions", "Акции WB", "/web/wb-promotions"),
+        ("auto_promo", "Автоакции WB", "/web/auto-promo-prices"),
+    ],
+    "reports": [
+        ("wb_daily", "Ежедневные WB", "/web/reports/wb-daily"),
+    ],
+    "monitoring": [
+        ("control", "Контроль ошибок", "/web/control"),
+        ("sync", "Центр синхронизации", "/web/sync-center"),
+        ("analytics", "Аналитика", "/web/analytics"),
+    ],
+    "account": [
+        ("profile", "Профиль", "/web/settings?tab=profile"),
+        ("accounts", "Кабинеты МП", "/web/accounts"),
+        ("settings", "Настройки", "/web/settings"),
+        ("subscription", "Подписка и тариф", "/web/subscription"),
+        ("security", "Безопасность", "/web/settings/security"),
+    ],
+    "admin_overview": [
+        ("admin", "Обзор", "/web/admin"),
+    ],
+    "admin_users": [
+        ("users", "Пользователи", "/web/admin/users"),
+    ],
+    "admin_finance": [
+        ("tariffs", "Тарифы", "/web/admin/tariffs"),
+        ("promocodes", "Промокоды", "/web/admin/promocodes"),
+        ("payments", "Платежи", "/web/admin/payments"),
+        ("commissions", "Комиссии", "/web/admin/commissions"),
+    ],
+    "admin_integrations": [
+        ("commissions", "Комиссии", "/web/admin/commissions"),
+        ("wb_logistics", "Логистика WB", "/admin/wb-logistics"),
+    ],
+    "admin_system": [
+        ("sync", "Синхронизации", "/web/admin/sync-status"),
+        ("workers", "Воркеры", "/web/admin/worker-diagnostics"),
+        ("logs", "Логи", "/web/admin/logs"),
+        ("audit", "Аудит", "/web/admin/audit-log"),
+        ("backups", "Бэкапы", "/web/admin/backups"),
+        ("support", "Обращения", "/web/admin/support"),
+    ],
+    "admin_main": [
+        ("admin", "Обзор", "/web/admin"),
+        ("users", "Пользователи", "/web/admin/users"),
+    ],
+}
+
+# ── Legacy generic subnav covering all sections ──
+NAV_SUBGROUPS["legacy"] = [
+    ("orders", "Заказы", "/web/orders"),
+    ("sales", "Продажи", "/web/sales"),
+    ("returns", "Возвраты", "/web/returns"),
+    ("profit", "Прибыль", "/web/profit"),
+    ("plan_fact", "План/факт", "/web/plan-fact"),
+    ("break_even", "Безубыточность", "/web/break-even"),
+    ("products", "Товары", "/web/products"),
+    ("stocks", "Остатки", "/web/stocks"),
+    ("costs", "Себестоимость", "/web/costs"),
+    ("product_matching", "Сопоставление", "/web/product-matching"),
+    ("data_quality", "Качество данных", "/web/data-quality"),
+    ("alerts", "Алерты", "/web/alerts"),
+]
+
 __all__ = [
     "NAV_GROUPS",
     "ADMIN_NAV_GROUPS",
     "SECTION_PREFIXES",
+    "NAV_SUBGROUPS",
     "_nav",
     "_nav_is_active",
+    "_render_subnav",
 ]
 
 
@@ -226,3 +320,18 @@ def _nav(active_path: str, show_admin: bool = False) -> str:
                     f'<div class="nav-title">{escape(title)}</div>' + "\n".join(links) + "</div>"
                 )
     return "\n".join(groups)
+
+
+def _render_subnav(section_key: str, active: str) -> str:
+    """Render a subnav from the unified schema, highlighting active item."""
+    items = NAV_SUBGROUPS.get(section_key)
+    if not items:
+        return ""
+    return (
+        '<div class="subnav">'
+        + "".join(
+            f'<a class="{"active" if key == active else ""}" href="{href}">{label}</a>'
+            for key, label, href in items
+        )
+        + "</div>"
+    )

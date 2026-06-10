@@ -1,6 +1,17 @@
 """version: 1.3.0
 description: Synchronize marketplace buyout, WB daily sales reports, and completed sale events.
 updated: 2026-05-17
+
+Planned split (Phase 2):
+  app/services/sales/
+    sync_result.py                   -> SalesSyncResult, SaleNotification, OrderLifecycleNotification
+    sales_event_sync_service.py      -> SalesEventSyncService (main orchestrator, slimmed)
+    wb_sales_sync_service.py         -> _sync_wb_sales (WB-specific logic)
+    ozon_sales_sync_service.py       -> _sync_ozon_sales (Ozon-specific logic)
+    sales_notification_service.py    -> notification formatting and delivery
+    lifecycle_notification_service.py -> lifecycle event notifications
+    sales_upsert_service.py          -> upsert_order, upsert_sale_event, upsert_return_event, profit recalculation
+  Compatibility: app/services/sales_event_sync_service.py -> re-export facade
 """
 
 import logging
@@ -549,6 +560,7 @@ class SalesEventSyncService:
                 NotificationType.ORDER_CANCELLED,
             ):
                 continue
+            # TODO: items[0] assumes single-item order; for multi-item orders, match by order_external_id + sku/nm_id
             item = order.items[0] if order.items else None
             try:
                 card = await self.cards.cancellation_card(
@@ -687,6 +699,7 @@ class SalesEventSyncService:
         product_id: int | None = None
         estimated_profit: Decimal | None = None
         if related_order is not None:
+            # TODO: items[0] breaks for multi-item orders; match by order_external_id + sku/rrd_id/shk_id
             related_item_id = related_order.items[0].id if related_order.items else None
             _, estimated_profit = await self.orders.order_totals(related_order.id)
             product_id = related_order.items[0].product_id if related_order.items else None

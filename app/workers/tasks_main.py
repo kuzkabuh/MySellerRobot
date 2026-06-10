@@ -1,6 +1,6 @@
-"""version: 2.0.0
-description: ARQ tasks for sync, Ozon enrichment, WB daily sales, reports, and alerts.
-updated: 2026-05-21
+"""version: 2.1.0
+description: ARQ tasks — legacy module. New tasks go into app/workers/tasks/. All symbols are re-exported from app/workers/tasks/__init__.py.
+updated: 2026-06-10
 """
 
 import asyncio

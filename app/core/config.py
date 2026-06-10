@@ -135,6 +135,12 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
 
+    _PRODUCTION_FORBIDDEN_SECRETS: set[str] = {
+        "change-me",
+        "PASTE_FERNET_KEY_HERE",
+        "test-secret-key",
+    }
+
     @model_validator(mode="before")
     @classmethod
     def normalize_web_base_url_alias(cls, values: Any) -> Any:
@@ -145,6 +151,25 @@ class Settings(BaseSettings):
         ):
             values["web_base_url"] = values["web_app_base_url"]
         return values
+
+    @model_validator(mode="after")
+    def forbid_default_secrets_in_production(self) -> "Settings":
+        if not self.is_production:
+            return self
+        errors: list[str] = []
+        for field, default in [
+            ("app_secret_key", "change-me"),
+            ("encryption_key", "PASTE_FERNET_KEY_HERE"),
+        ]:
+            value = getattr(self, field)
+            raw = value.get_secret_value() if isinstance(value, SecretStr) else str(value)
+            if raw in self._PRODUCTION_FORBIDDEN_SECRETS or raw == default:
+                errors.append(
+                    f"{field}: замените значение по умолчанию перед запуском в production"
+                )
+        if errors:
+            raise ValueError("; ".join(errors))
+        return self
 
     @property
     def admin_ids(self) -> set[int]:

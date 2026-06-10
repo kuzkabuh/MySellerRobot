@@ -1,96 +1,35 @@
-"""version: 1.2.0
-description: FastAPI application factory, service endpoints, and web error handling.
-updated: 2026-05-17
+"""version: 1.3.0
+description: FastAPI application factory — slimmed down. Middleware, error handlers, and system endpoints extracted to submodules.
+updated: 2026-06-10
 """
 
 # ruff: noqa: E501
 
-import asyncio
-from collections.abc import Awaitable, Callable
-from html import escape
-from pathlib import Path
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
-
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.exception_handlers import http_exception_handler as fastapi_http_exception_handler
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import FastAPI
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.api.error_handlers import http_exception_handler
+from app.api.middleware.access_log import (
+    log_requests_middleware,
+    redact_query,
+    sanitize_headers,
+    sanitize_url,
+    should_log_access,
+)
+from app.api.routes.system import _read_app_version, router as system_router
 from app.api.telegram_webhook import router as telegram_webhook_router
 from app.api.webhooks import router as webhooks_router
-from app.core.config import Settings, get_settings
-from app.core.db import get_session
+from app.core.config import get_settings
 from app.core.logging import configure_logging
-from app.utils.client_ip import get_client_ip
-from app.web.csrf import is_valid_web_origin, requires_web_csrf_check
 from app.web.route_modules.payment_public import router as payment_public_router
 from app.web.route_modules.wb_logistics_admin import router as wb_logistics_router
 from app.web.routes import router as web_router
 
-SESSION_DEPENDENCY = Depends(get_session)
-SETTINGS_DEPENDENCY = Depends(get_settings)
-
-
-def _redact_query(query: str) -> str:
-    sensitive_keys = {"token", "api_key", "secret", "password", "client_id"}
-    pairs = parse_qsl(query, keep_blank_values=True)
-    if not pairs:
-        return query
-    return urlencode(
-        [
-            (key, "***REDACTED***" if key.lower() in sensitive_keys else value)
-            for key, value in pairs
-        ]
-    )
-
-
-def _sanitize_url(url: str) -> str:
-    """Mask sensitive query parameters in a URL string (e.g. Referer header)."""
-    if not url:
-        return url
-    try:
-        parsed = urlparse(url)
-        if not parsed.query:
-            return url
-        redacted_query = _redact_query(parsed.query)
-        return urlunparse(parsed._replace(query=redacted_query))
-    except Exception:
-        return url
-
-
-def _sanitize_headers(headers: dict[str, str]) -> dict[str, str]:
-    """Redact sensitive headers and mask tokens in URL-valued headers."""
-    result = dict(headers)
-    sensitive_headers = {
-        "authorization",
-        "cookie",
-        "x-api-key",
-        "x-admin-secret",
-        "x-telegram-bot-api-secret-token",
-    }
-    url_headers = {"referer", "referrer"}
-    for key in list(result.keys()):
-        lower_key = key.lower()
-        if lower_key in sensitive_headers:
-            result[key] = "***REDACTED***"
-        elif lower_key in url_headers:
-            result[key] = _sanitize_url(result[key])
-    return result
-
-
-def _should_log_access(path: str, status_code: int, duration_ms: int) -> bool:
-    if path == "/health":
-        return status_code >= 400 or duration_ms > 1000
-    return True
-
-
-def _read_app_version() -> str:
-    path = Path("VERSION")
-    if not path.exists():
-        return "0.0.0"
-    return path.read_text(encoding="utf-8").strip() or "0.0.0"
+# ── Compatibility re-exports for tests (preserve old import paths) ──
+_redact_query = redact_query
+_sanitize_url = sanitize_url
+_sanitize_headers = sanitize_headers
+_should_log_access = should_log_access
 
 
 def create_app() -> FastAPI:
@@ -104,304 +43,15 @@ def create_app() -> FastAPI:
     app.include_router(telegram_webhook_router)
     app.include_router(payment_public_router)
     app.include_router(wb_logistics_router)
-
-    @app.get("/web/payment/success")
-    async def redirect_payment_success(payment_id: str | None = None) -> RedirectResponse:
-        """Redirect legacy /web/payment/success to /payment/success."""
-        url = "/payment/success"
-        if payment_id:
-            url = f"/payment/success?payment_id={payment_id}"
-        return RedirectResponse(url=url, status_code=301)
-
-    @app.get("/web/payment/cancel")
-    async def redirect_payment_cancel(payment_id: str | None = None) -> RedirectResponse:
-        """Redirect legacy /web/payment/cancel to /payment/cancel."""
-        url = "/payment/cancel"
-        if payment_id:
-            url = f"/payment/cancel?payment_id={payment_id}"
-        return RedirectResponse(url=url, status_code=301)
-
-    @app.post("/web/webhooks/yookassa", include_in_schema=False)
-    async def yookassa_webhook_compat(
-        request: Request,
-        session: AsyncSession = SESSION_DEPENDENCY,
-    ) -> dict[str, str]:
-        """Accept YooKassa webhooks when a reverse proxy prepends /web upstream."""
-        from app.api.webhooks import yookassa_webhook
-
-        return await yookassa_webhook(request=request, session=session)
+    app.include_router(system_router)
 
     @app.middleware("http")
-    async def log_requests(
-        request: Request,
-        call_next: Callable[[Request], Awaitable[Response]],
-    ) -> Response:
-        import logging
-        import time
+    async def log_requests(request, call_next):
+        return await log_requests_middleware(request, call_next)
 
-        logger = logging.getLogger("app.api.main")
-        start_time = time.monotonic()
-
-        if requires_web_csrf_check(request) and not is_valid_web_origin(request, settings):
-            logger.warning(
-                "web_csrf_origin_rejected",
-                extra={"method": request.method, "path": request.url.path},
-            )
-            return HTMLResponse(
-                "<h1>Запрос отклонён</h1>"
-                "<p>Источник web-запроса не прошёл проверку безопасности.</p>",
-                status_code=403,
-            )
-
-        headers = _sanitize_headers(dict(request.headers))
-
-        client_ip = get_client_ip(request)
-        x_forwarded_for = request.headers.get("x-forwarded-for", "")
-        user_agent = request.headers.get("user-agent", "")
-        referer = _sanitize_url(request.headers.get("referer", ""))
-
-        if request.url.path.startswith("/web"):
-            cookie_header = request.headers.get("cookie", "")
-            cookie_count = len([c for c in cookie_header.split(";") if c.strip()])
-            session_cookie_count = sum(
-                1 for c in cookie_header.split(";") if c.strip().startswith("seller_web_session=")
-            )
-            if session_cookie_count != 1 and session_cookie_count > 0:
-                if session_cookie_count > 1:
-                    logger.warning(
-                        "web_cookie_count_anomaly",
-                        extra={
-                            "path": request.url.path,
-                            "seller_web_session_count": session_cookie_count,
-                            "total_cookie_count": cookie_count,
-                        },
-                    )
-                else:
-                    logger.debug(
-                        "web_cookie_count_anomaly",
-                        extra={
-                            "path": request.url.path,
-                            "seller_web_session_count": session_cookie_count,
-                            "total_cookie_count": cookie_count,
-                        },
-                    )
-
-        if request.url.path != "/health":
-            logger.info(
-                "incoming_request",
-                extra={
-                    "method": request.method,
-                    "path": request.url.path,
-                    "query": _redact_query(str(request.url.query)),
-                    "client_ip": client_ip,
-                    "x_forwarded_for": x_forwarded_for,
-                    "headers": headers,
-                },
-            )
-        try:
-            response = await call_next(request)
-        except Exception:
-            duration_ms = round((time.monotonic() - start_time) * 1000)
-            logger.exception(
-                "request_failed",
-                extra={
-                    "method": request.method,
-                    "path": request.url.path,
-                    "query": _redact_query(str(request.url.query)),
-                    "duration_ms": duration_ms,
-                    "client_ip": client_ip,
-                },
-            )
-            if request.url.path.startswith("/web"):
-                return HTMLResponse(
-                    "<h1>Ошибка web-кабинета</h1>"
-                    "<p>Мы уже записали технические детали в лог. "
-                    "Попробуйте открыть кабинет ещё раз или получите новую ссылку в боте.</p>",
-                    status_code=500,
-                )
-            return HTMLResponse(
-                "<h1>Внутренняя ошибка сервера</h1>"
-                "<p>Технические детали записаны в лог приложения.</p>",
-                status_code=500,
-            )
-
-        duration_ms = round((time.monotonic() - start_time) * 1000)
-
-        if request.url.path.startswith("/web"):
-            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            response.headers["Pragma"] = "no-cache"
-            response.headers["Expires"] = "0"
-
-        log_extra = {
-            "path": request.url.path,
-            "method": request.method,
-            "status": response.status_code,
-            "duration_ms": duration_ms,
-            "client_ip": client_ip,
-            "x_forwarded_for": x_forwarded_for,
-            "user_agent": user_agent[:200],
-            "referer": referer,
-        }
-
-        if not _should_log_access(request.url.path, response.status_code, duration_ms):
-            return response
-
-        if duration_ms > 1000:
-            logger.warning("slow_request", extra=log_extra)
-        else:
-            logger.info("response", extra=log_extra)
-
-        return response
-
-    @app.exception_handler(StarletteHTTPException)
-    async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> Response:
-        if request.url.path.startswith("/web"):
-            if exc.status_code == 401:
-                return HTMLResponse(
-                    "<!doctype html><html lang='ru'><head><meta charset='utf-8'>"
-                    "<title>Вход — MP Control</title>"
-                    "<style>body{font-family:system-ui,sans-serif;display:grid;"
-                    "place-items:center;min-height:80vh;margin:0;background:#f6f7f9;color:#111827}"
-                    ".card{max-width:440px;padding:36px;background:#fff;border-radius:16px;"
-                    "box-shadow:0 18px 45px rgb(17 24 39 / .12);text-align:center}"
-                    "h1{font-size:26px;margin:0 0 12px}a{display:inline-block;margin-top:16px;"
-                    "padding:10px 18px;background:#2563eb;color:#fff;border-radius:8px;"
-                    "text-decoration:none;font-weight:700}"
-                    "</style></head><body>"
-                    "<div class='card'><h1>🔐 Вход в web-кабинет</h1>"
-                    "<p>Сессия отсутствует или истекла.</p>"
-                    "<p>Напишите боту <b>@mpcontrolrobot</b> и нажмите "
-                    "«<b>🌐 Web-кабинет</b>», чтобы получить новую ссылку.</p>"
-                    '<a href="https://t.me/mpcontrolrobot">Открыть бота</a>'
-                    "</div></body></html>",
-                    status_code=401,
-                )
-            if exc.status_code == 404:
-                return HTMLResponse(
-                    "<!doctype html><html lang='ru'><head><meta charset='utf-8'>"
-                    "<title>404 — MP Control</title>"
-                    "<style>body{font-family:system-ui,sans-serif;display:grid;"
-                    "place-items:center;min-height:80vh;margin:0;background:#f6f7f9;color:#111827}"
-                    ".card{max-width:440px;padding:36px;background:#fff;border-radius:16px;"
-                    "box-shadow:0 18px 45px rgb(17 24 39 / .12);text-align:center}"
-                    "h1{font-size:26px;margin:0 0 12px}a{color:#2563eb;text-decoration:none;font-weight:600}"
-                    "</style></head><body>"
-                    "<div class='card'><h1>404 — Раздел не найден</h1>"
-                    f"<p>Страница <code>{escape(str(request.url.path))}</code> не существует.</p>"
-                    '<p><a href="/web/">Вернуться на главную</a></p>'
-                    "</div></body></html>",
-                    status_code=404,
-                )
-        return await fastapi_http_exception_handler(request, exc)
-
-    @app.get("/favicon.ico", include_in_schema=False)
-    async def favicon() -> Response:
-        path = Path("logo.png")
-        if await asyncio.to_thread(path.exists):
-            return FileResponse(path, media_type="image/x-icon")
-        return Response(status_code=204)
-
-    @app.get("/robots.txt", response_class=HTMLResponse, include_in_schema=False)
-    async def robots_txt() -> str:
-        return "User-agent: *\nDisallow: /web/\nDisallow: /admin/\n"
-
-    @app.get("/health")
-    async def health(session: AsyncSession = SESSION_DEPENDENCY) -> dict[str, str]:
-        await session.execute(text("select 1"))
-        return {"status": "ok"}
-
-    @app.get("/logo.png")
-    async def logo() -> FileResponse:
-        path = Path("logo.png")
-        return FileResponse(path)
-
-    @app.get("/", response_class=HTMLResponse)
-    async def landing() -> Response:
-        public_index = Path("public/index.html")
-        if await asyncio.to_thread(public_index.exists):
-            return FileResponse(public_index)
-        return HTMLResponse(_landing_page())
-
-    @app.get("/admin/errors")
-    async def errors(
-        x_admin_secret: str = Header(default=""),
-        current_settings: Settings = SETTINGS_DEPENDENCY,
-    ) -> dict[str, str]:
-        expected = current_settings.app_secret_key.get_secret_value()
-        if x_admin_secret != expected:
-            raise HTTPException(status_code=403, detail="Недостаточно прав")
-        log = await asyncio.to_thread(_read_errors_log)
-        return {"log": log}
+    app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 
     return app
 
 
 app = create_app()
-
-
-def _read_errors_log() -> str:
-    path = Path("logs/errors.log")
-    if not path.exists():
-        return ""
-    return path.read_text(encoding="utf-8")[-20_000:]
-
-
-def _landing_page() -> str:
-    return """<!doctype html>
-<html lang="ru">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>MP Control — аналитика Wildberries и Ozon</title>
-  <style>
-    body{margin:0;font-family:Inter,Segoe UI,Arial,sans-serif;color:#111827;background:#f6f7f9}
-    .wrap{max-width:1180px;margin:0 auto;padding:26px 18px}
-    .hero{min-height:76vh;display:flex;flex-direction:column;justify-content:center;padding:42px 0 28px}
-    .logo{width:86px;height:86px;object-fit:contain;margin-bottom:22px}
-    h1{font-size:58px;line-height:1.02;margin:0 0 18px;letter-spacing:0}
-    p{font-size:18px;line-height:1.65;color:#4b5563;max-width:760px}
-    .cta{display:inline-flex;align-items:center;gap:10px;background:#111827;color:#fff;text-decoration:none;padding:14px 18px;border-radius:8px;font-weight:700;margin-top:8px}
-    .preview{margin-top:40px;border:1px solid #d7dde5;border-radius:8px;background:#fff;overflow:hidden;box-shadow:0 18px 45px rgb(17 24 39 / .12)}
-    .bar{height:38px;background:#223047;color:#cbd5e1;display:flex;align-items:center;gap:8px;padding:0 14px;font-size:13px}
-    .dot{width:9px;height:9px;border-radius:50%;background:#ef4444}.dot:nth-child(2){background:#f59e0b}.dot:nth-child(3){background:#10b981}
-    .dash{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;padding:18px;background:#f8fafc}
-    .metric,.row{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:14px}
-    .metric span,.row span{display:block;color:#6b7280;font-size:13px}.metric strong{font-size:24px}
-    .rows{grid-column:1/-1;display:grid;grid-template-columns:1.2fr .8fr .8fr .8fr;gap:10px}
-    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:24px}
-    .item{background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:18px}
-    h2{margin:0 0 10px;font-size:24px} h3{margin:0 0 8px;font-size:17px}
-    @media(max-width:820px){.hero{min-height:auto;padding-top:28px}h1{font-size:40px}.dash,.grid,.rows{grid-template-columns:1fr}}
-  </style>
-</head>
-<body>
-  <main class="wrap">
-    <section class="hero">
-      <img class="logo" src="/logo.png" alt="MP Control">
-      <h1>MP Control</h1>
-      <p>Операционный кабинет для селлеров Wildberries и Ozon: заказы, Telegram-уведомления, продажи, выкупы, остатки, план/факт и контроль ошибок синхронизации.</p>
-      <a class="cta" href="https://t.me/mpcontrolrobot">Открыть Telegram-бота</a>
-      <div class="preview" aria-label="WEB-кабинет MP Control">
-        <div class="bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>WEB-кабинет селлера</span></div>
-        <div class="dash">
-          <div class="metric"><span>Выручка</span><strong>248 900 ₽</strong></div>
-          <div class="metric"><span>Заказы</span><strong>137</strong></div>
-          <div class="metric"><span>Прибыль</span><strong>62 400 ₽</strong></div>
-          <div class="metric"><span>Остатки</span><strong>18 SKU</strong></div>
-          <div class="rows">
-            <div class="row"><span>WB · FBS</span><strong>Новый заказ</strong></div>
-            <div class="row"><span>Ozon</span><strong>Выкуп</strong></div>
-            <div class="row"><span>План/факт</span><strong>+7%</strong></div>
-            <div class="row"><span>Контроль</span><strong>2 риска</strong></div>
-          </div>
-        </div>
-      </div>
-    </section>
-    <section class="grid">
-      <div class="item"><h3>Что умеет</h3><p>Следит за заказами, продажами, выкупами, остатками и финансовыми отчётами.</p></div>
-      <div class="item"><h3>Для кого</h3><p>Для селлеров, которым нужен понятный ежедневный контроль WB и Ozon без ручных таблиц.</p></div>
-      <div class="item"><h3>WEB-кабинет</h3><p>Дашборд, товары, остатки, план/факт, продавцы, балансы и диагностика ошибок.</p></div>
-    </section>
-  </main>
-</body>
-</html>"""

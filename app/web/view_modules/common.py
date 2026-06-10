@@ -148,80 +148,38 @@ def _subnav_render(items: list[tuple[str, str, str]], active: str) -> str:
 
 def _section_subnav(active: str) -> str:
     """Legacy subnav covering all sections (backward compat)."""
-    items: list[tuple[str, str, str]] = [
-        ("orders", "Заказы", "/web/orders"),
-        ("sales", "Продажи", "/web/sales"),
-        ("returns", "Возвраты", "/web/returns"),
-        ("profit", "Прибыль", "/web/profit"),
-        ("plan_fact", "План/факт", "/web/plan-fact"),
-        ("break_even", "Безубыточность", "/web/break-even"),
-        ("products", "Товары", "/web/products"),
-        ("stocks", "Остатки", "/web/stocks"),
-        ("costs", "Себестоимость", "/web/costs"),
-        ("product_matching", "Сопоставление", "/web/product-matching"),
-        ("data_quality", "Качество данных", "/web/data-quality"),
-        ("alerts", "Алерты", "/web/alerts"),
-    ]
-    return _subnav_render(items, active)
+    from app.web.rendering_modules.navigation import _render_subnav as _rs
+    return _rs("legacy", active)
 
 
 def _section_subnav_orders(active: str) -> str:
-    items: list[tuple[str, str, str]] = [
-        ("orders", "Заказы", "/web/orders"),
-        ("sales", "Продажи", "/web/sales"),
-        ("returns", "Возвраты", "/web/returns"),
-        ("profit", "Прибыль", "/web/profit"),
-        ("plan_fact", "План/факт", "/web/plan-fact"),
-    ]
-    return _subnav_render(items, active)
+    from app.web.rendering_modules.navigation import _render_subnav as _rs
+    return _rs("orders", active)
 
 
 def _section_subnav_products(active: str) -> str:
-    items: list[tuple[str, str, str]] = [
-        ("products", "Товары", "/web/products"),
-        ("stocks", "Остатки", "/web/stocks"),
-        ("costs", "Себестоимость", "/web/costs"),
-        ("product_matching", "Сопоставление", "/web/product-matching"),
-        ("data_quality", "Качество данных", "/web/data-quality"),
-        ("alerts", "Алерты", "/web/alerts"),
-    ]
-    return _subnav_render(items, active)
+    from app.web.rendering_modules.navigation import _render_subnav as _rs
+    return _rs("products", active)
 
 
 def _section_subnav_finance(active: str) -> str:
-    items: list[tuple[str, str, str]] = [
-        ("profit", "Прибыль", "/web/profit"),
-        ("plan_fact", "План/факт", "/web/plan-fact"),
-        ("break_even", "Безубыточность", "/web/break-even"),
-        ("finances", "Финансовый обзор", "/web/finances"),
-    ]
-    return _subnav_render(items, active)
+    from app.web.rendering_modules.navigation import _render_subnav as _rs
+    return _rs("finance", active)
 
 
 def _section_subnav_pricing(active: str) -> str:
-    items: list[tuple[str, str, str]] = [
-        ("pricing", "Цены", "/web/pricing"),
-        ("mrc_pricing", "МРЦ WB", "/web/mrc-pricing"),
-        ("wb_promotions", "Акции WB", "/web/wb-promotions"),
-        ("auto_promo", "Автоакции WB", "/web/auto-promo-prices"),
-    ]
-    return _subnav_render(items, active)
+    from app.web.rendering_modules.navigation import _render_subnav as _rs
+    return _rs("pricing", active)
 
 
 def _section_subnav_reports(active: str) -> str:
-    items: list[tuple[str, str, str]] = [
-        ("wb_daily", "Ежедневные WB", "/web/reports/wb-daily"),
-    ]
-    return _subnav_render(items, active)
+    from app.web.rendering_modules.navigation import _render_subnav as _rs
+    return _rs("reports", active)
 
 
 def _section_subnav_monitoring(active: str) -> str:
-    items: list[tuple[str, str, str]] = [
-        ("control", "Контроль ошибок", "/web/control"),
-        ("sync", "Синхронизация", "/web/sync-center"),
-        ("analytics", "Аналитика", "/web/analytics"),
-    ]
-    return _subnav_render(items, active)
+    from app.web.rendering_modules.navigation import _render_subnav as _rs
+    return _rs("monitoring", active)
 
 
 def _sync_center_subnav(active: str) -> str:
@@ -236,67 +194,38 @@ def _sync_center_subnav(active: str) -> str:
 
 
 def _section_subnav_account(active: str) -> str:
-    items: list[tuple[str, str, str]] = [
-        ("profile", "Профиль", "/web/settings?tab=profile"),
-        ("accounts", "Кабинеты МП", "/web/accounts"),
-        ("settings", "Настройки", "/web/settings"),
-        ("subscription", "Подписка и тариф", "/web/subscription"),
-        ("security", "Безопасность", "/web/settings/security"),
-    ]
-    return _subnav_render(items, active)
+    from app.web.rendering_modules.navigation import _render_subnav as _rs
+    return _rs("account", active)
 
 
 def _section_subnav_admin_overview(active: str) -> str:
-    items: list[tuple[str, str, str]] = [
-        ("admin", "Обзор", "/web/admin"),
-        ("health", "Здоровье системы", "/web/health"),
-    ]
-    return _subnav_render(items, active)
+    from app.web.rendering_modules.navigation import _render_subnav as _rs
+    return _rs("admin_overview", active)
 
 
 def _section_subnav_admin_users(active: str) -> str:
-    items: list[tuple[str, str, str]] = [
-        ("users", "Пользователи", "/web/admin/users"),
-    ]
-    return _subnav_render(items, active)
+    from app.web.rendering_modules.navigation import _render_subnav as _rs
+    return _rs("admin_users", active)
 
 
 def _section_subnav_admin_finance(active: str) -> str:
-    items: list[tuple[str, str, str]] = [
-        ("tariffs", "Тарифы", "/web/admin/tariffs"),
-        ("promocodes", "Промокоды", "/web/admin/promocodes"),
-        ("payments", "Платежи", "/web/admin/payments"),
-        ("commissions", "Комиссии", "/web/admin/commissions"),
-    ]
-    return _subnav_render(items, active)
+    from app.web.rendering_modules.navigation import _render_subnav as _rs
+    return _rs("admin_finance", active)
 
 
 def _section_subnav_admin_main(active: str) -> str:
-    items: list[tuple[str, str, str]] = [
-        ("admin", "Обзор", "/web/admin"),
-        ("users", "Пользователи", "/web/admin/users"),
-    ]
-    return _subnav_render(items, active)
+    from app.web.rendering_modules.navigation import _render_subnav as _rs
+    return _rs("admin_main", active)
 
 
 def _section_subnav_admin_integrations(active: str) -> str:
-    items: list[tuple[str, str, str]] = [
-        ("commissions", "Комиссии", "/web/admin/commissions"),
-        ("wb_logistics", "Логистика WB", "/admin/wb-logistics"),
-    ]
-    return _subnav_render(items, active)
+    from app.web.rendering_modules.navigation import _render_subnav as _rs
+    return _rs("admin_integrations", active)
 
 
 def _section_subnav_admin_system(active: str) -> str:
-    items: list[tuple[str, str, str]] = [
-        ("sync", "Синхронизации", "/web/admin/sync-status"),
-        ("workers", "Воркеры", "/web/admin/worker-diagnostics"),
-        ("logs", "Логи", "/web/admin/logs"),
-        ("audit", "Аудит", "/web/admin/audit-log"),
-        ("backups", "Бэкапы", "/web/admin/backups"),
-        ("support", "Обращения", "/web/admin/support"),
-    ]
-    return _subnav_render(items, active)
+    from app.web.rendering_modules.navigation import _render_subnav as _rs
+    return _rs("admin_system", active)
 
 def _render_sync_freshness(last_poll_info: dict[str, object], timezone: str) -> str:
     """Render a sync freshness indicator badge for the orders page."""
