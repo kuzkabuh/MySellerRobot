@@ -107,6 +107,8 @@ class Settings(BaseSettings):
     backup_remote_enabled: bool = False
     backup_remote_type: str = ""
     backup_remote_path: str = ""
+    backup_run_mode: str = "disabled"
+    backup_allow_plaintext_secrets: bool = False
     enable_telegram_deploy_notifications: bool = True
     enable_telegram_deploy_commands: bool = False
     telegram_deploy_mode: str = "trigger"

@@ -41,6 +41,7 @@ services:
       - ./runtime:/opt/mpcontrol/runtime:ro
       - ./logs:/opt/mpcontrol/logs:ro
       - ./backups:/opt/mpcontrol/backups:ro
+      - ./scripts:/opt/mpcontrol/scripts:ro
       - ./VERSION:/opt/mpcontrol/VERSION:ro
     depends_on:
       postgres:
