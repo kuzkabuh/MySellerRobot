@@ -10,6 +10,7 @@ from app.core.config import get_settings
 from app.core.redis import redis_settings_from_url
 from app.workers.tasks import (
     backfill_wb_daily_financial_details,
+    check_stale_sync_runs,
     reconcile_ozon_finance,
     check_auto_promo_prices,
     check_fbs_deadlines,
@@ -77,6 +78,7 @@ class WorkerSettings:
         check_auto_promo_prices,
         sync_wb_product_prices,
         backfill_wb_daily_financial_details,
+        check_stale_sync_runs,
     ]
     order_poll_minutes = _minute_schedule_from_interval(settings.order_poll_interval_seconds)
     cron_jobs = [
@@ -109,7 +111,8 @@ class WorkerSettings:
         cron(sync_wb_daily_promotions, minute={15, 45}),
         cron(check_auto_promo_prices, minute={0, 30}),
         cron(sync_wb_product_prices, minute={10, 40}),
+        cron(check_stale_sync_runs, minute={0, 15, 30, 45}),
     ]
     redis_settings = _redis_settings()
     max_jobs = 10
-    job_timeout = 300
+    job_timeout = 1800

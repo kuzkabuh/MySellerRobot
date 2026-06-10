@@ -19,6 +19,12 @@
 - При ошибке воркера статус `SyncRun` теперь корректно меняется на "Ошибка".
 - Во всех статусах заполняются поля `finished_at`, `duration_seconds`, счётчики записей.
 - При открытии страницы синхронизации запускается очистка зависших запусков.
+- Добавлен `asyncio.CancelledError` в обработку `_tracked_task` — задачи, убитые по таймауту arq, теперь корректно закрываются со статусом "timeout".
+- Добавлена периодическая задача `check_stale_sync_runs` (каждые 15 мин) для очистки зависших `SyncTaskRun` и `SyncRun`.
+- Увеличен `job_timeout` для arq-воркеров с 300 до 1800 секунд (30 мин) — backfill-задачи больше не обрываются.
+- Добавлен `mark_stale_task_runs_failed()` в `SyncStatusService` — зависшие started/running дольше 2 ч (6 ч для backfill) помечаются timeout.
+- Исправлен JS `pollRunStatus`: добавлена обработка статусов `warning` и `timeout`.
+- `triggerSingleSync` проверяет `btn instanceof HTMLElement` перед `classList.add`.
 
 ## 1.13.0
 

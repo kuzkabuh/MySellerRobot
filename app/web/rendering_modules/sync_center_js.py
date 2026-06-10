@@ -97,10 +97,21 @@ SYNC_CENTER_JS = """
             }
             clearInterval(pollingIntervals[runId]);
             delete pollingIntervals[runId];
-          } else if (data.status === 'error') {
-            showToast(data.message || 'Ошибка синхронизации', 'error');
+          } else if (data.status === 'warning') {
+            showToast(data.message || 'Синхронизация завершена с предупреждениями', 'warn');
             if (btn) {
-              btn.textContent = '✗ Ошибка';
+              btn.textContent = '⚠ Предупреждение';
+              btn.classList.remove('running');
+              btn.classList.add('error-flash');
+              setTimeout(function() { resetBtn(btn); }, 5000);
+            }
+            clearInterval(pollingIntervals[runId]);
+            delete pollingIntervals[runId];
+          } else if (data.status === 'error' || data.status === 'timeout') {
+            var msg = data.status === 'timeout' ? 'Превышено время выполнения' : (data.message || 'Ошибка синхронизации');
+            showToast(msg, 'error');
+            if (btn) {
+              btn.textContent = data.status === 'timeout' ? '⏱ Таймаут' : '✗ Ошибка';
               btn.classList.remove('running');
               btn.classList.add('error-flash');
               setTimeout(function() { resetBtn(btn); }, 4000);

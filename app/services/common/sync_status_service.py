@@ -1,10 +1,10 @@
 """Track worker task runs for admin visibility."""
 
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import SyncTaskRun
@@ -13,6 +13,10 @@ STATUS_STARTED = "started"
 STATUS_SUCCESS = "success"
 STATUS_FAILED = "failed"
 STATUS_COMPLETED_WITH_WARNINGS = "warning"
+STATUS_TIMEOUT = "timeout"
+
+STALE_TASK_TIMEOUT_MINUTES = 120
+STALE_BACKFILL_TASK_TIMEOUT_HOURS = 6
 
 
 class SyncStatusService:
@@ -134,6 +138,42 @@ class SyncStatusService:
             select(SyncTaskRun.task_name).distinct().order_by(SyncTaskRun.task_name)
         )
         return [row[0] for row in result.all()]
+
+    async def mark_stale_task_runs_failed(self) -> int:
+        now = datetime.now(tz=UTC)
+        running_cutoff = now - timedelta(minutes=STALE_TASK_TIMEOUT_MINUTES)
+        backfill_cutoff = now - timedelta(hours=STALE_BACKFILL_TASK_TIMEOUT_HOURS)
+
+        count = 0
+        for cutoff, task_filter in [
+            (running_cutoff, None),
+            (backfill_cutoff, "backfill_wb_daily_financial_details"),
+        ]:
+            conditions = [
+                SyncTaskRun.status.in_(["started", "running"]),
+                SyncTaskRun.finished_at.is_(None),
+                SyncTaskRun.started_at.isnot(None),
+                SyncTaskRun.started_at < cutoff,
+            ]
+            if task_filter is not None:
+                conditions.append(SyncTaskRun.task_name == task_filter)
+            result = await self.session.execute(
+                select(SyncTaskRun).where(and_(*conditions))
+            )
+            for run in result.scalars().all():
+                finished_at = datetime.now(tz=UTC)
+                run.status = STATUS_TIMEOUT
+                run.finished_at = finished_at
+                run.duration_ms = int((finished_at - run.started_at).total_seconds() * 1000)
+                run.failed_count = max(run.failed_count or 0, 1)
+                run.last_error = (
+                    f"Фоновая задача не завершилась корректно: превышено время выполнения "
+                    f"({STALE_TASK_TIMEOUT_MINUTES if task_filter is None else STALE_BACKFILL_TASK_TIMEOUT_HOURS} ч)."
+                )[:2000]
+                count += 1
+        if count:
+            await self.session.flush()
+        return count
 
     async def recent_runs_by_task(self, task_name: str, limit: int = 10) -> list[SyncTaskRun]:
         query = (

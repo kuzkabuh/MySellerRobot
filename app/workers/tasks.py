@@ -3,6 +3,7 @@ description: ARQ tasks for sync, Ozon enrichment, WB daily sales, reports, and a
 updated: 2026-05-21
 """
 
+import asyncio
 import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -1726,6 +1727,28 @@ def _tracked_task(
 
         try:
             result = await func(ctx)
+        except asyncio.CancelledError:
+            async with AsyncSessionFactory() as session:
+                service = SyncStatusService(session)
+                db_run = await session.get(type(run), run.id)
+                if db_run is not None:
+                    await service.mark_failed(db_run, "Задача отменена: превышено время выполнения.")
+                    await session.commit()
+                if sync_run_id is not None:
+                    await _update_sync_run(
+                        session, sync_run_id, "timeout",
+                        error_message="Задача отменена: превышено время выполнения.",
+                    )
+                    await _send_sync_notification(session, sync_run_id, "finish")
+            logger.warning(
+                "worker_task_cancelled",
+                extra={
+                    "task_name": task_name,
+                    "run_id": run.id,
+                    "sync_run_id": sync_run_id,
+                },
+            )
+            raise
         except Exception as exc:
             async with AsyncSessionFactory() as session:
                 service = SyncStatusService(session)
@@ -1858,6 +1881,25 @@ async def _send_sync_notification(session: AsyncSession, sync_run_id: int, event
             "sync_run_notification_failed",
             extra={"sync_run_id": sync_run_id, "event": event},
         )
+
+
+async def check_stale_sync_runs(ctx: dict[str, Any]) -> dict[str, int]:
+    from app.services.common.sync_status_service import SyncStatusService
+    from app.services.common.web_sync_run_service import WebSyncRunService
+
+    stats: dict[str, int] = {"sync_runs_cleaned": 0, "task_runs_cleaned": 0}
+    async with AsyncSessionFactory() as session:
+        sync_run_svc = WebSyncRunService(session)
+        stats["sync_runs_cleaned"] = await sync_run_svc.mark_stale_syncs_as_failed()
+        task_svc = SyncStatusService(session)
+        stats["task_runs_cleaned"] = await task_svc.mark_stale_task_runs_failed()
+        await session.commit()
+    if stats["sync_runs_cleaned"] or stats["task_runs_cleaned"]:
+        logger.info(
+            "stale_sync_runs_cleaned",
+            extra=stats,
+        )
+    return stats
 
 
 for _task_name in (
