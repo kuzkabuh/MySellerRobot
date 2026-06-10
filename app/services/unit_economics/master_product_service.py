@@ -15,10 +15,13 @@ from app.models.domain import (
     MasterProductLink,
     OrderItem,
     Product,
+    ProductCostHistory,
     SalesEvent,
     StockSnapshot,
 )
 from app.models.enums import Marketplace
+from app.models.ozon_reports import OzonPriceSnapshot
+from app.models.products import WbProductPrice
 from app.repositories.products import MasterProductRepository, ProductRepository
 
 
@@ -67,6 +70,31 @@ class MarketplaceComparisonRow:
 
 
 @dataclass(frozen=True)
+class PriceHistoryPoint:
+    date: str
+    marketplace: Marketplace
+    price: Decimal | None
+    discounted_price: Decimal | None
+
+
+@dataclass(frozen=True)
+class CostHistoryPoint:
+    valid_from: str
+    valid_to: str | None
+    cost_price: Decimal
+    package_cost: Decimal
+    additional_cost: Decimal
+
+
+@dataclass(frozen=True)
+class StockHistoryPoint:
+    date: str
+    warehouse: str | None
+    quantity: int
+    avg_daily_sales: Decimal | None
+
+
+@dataclass(frozen=True)
 class MasterProductDetail:
     master_product_id: int
     canonical_sku: str
@@ -77,6 +105,9 @@ class MasterProductDetail:
     marketplace_products: tuple[MarketplaceProductInfo, ...]
     marketplace_comparison: tuple[MarketplaceComparisonRow, ...]
     recommendations: tuple[str, ...]
+    price_history: tuple[PriceHistoryPoint, ...] = ()
+    cost_history: tuple[CostHistoryPoint, ...] = ()
+    stock_history: tuple[StockHistoryPoint, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -268,6 +299,10 @@ class MasterProductService:
                     stock_quantity=stock_quantity,
                 )
             )
+        product_ids_flat = [product.id for product in products]
+        price_history = await self._price_history(product_ids_flat)
+        cost_history = await self._cost_history(product_ids_flat)
+        stock_history = await self._stock_history(product_ids_flat)
         return MasterProductDetail(
             master_product_id=master.id,
             canonical_sku=master.canonical_sku,
@@ -279,6 +314,9 @@ class MasterProductService:
             marketplace_products=product_infos,
             marketplace_comparison=tuple(comparison),
             recommendations=tuple(_recommendations(comparison, products)),
+            price_history=price_history,
+            cost_history=cost_history,
+            stock_history=stock_history,
         )
 
     async def matching_candidates(self, user_id: int) -> list[ProductMatchingCandidate]:
@@ -438,6 +476,113 @@ class MasterProductService:
             if snapshot.product_id is not None and snapshot.product_id not in latest_by_product:
                 latest_by_product[snapshot.product_id] = snapshot
         return {product_id: snapshot.quantity for product_id, snapshot in latest_by_product.items()}
+
+    async def _price_history(
+        self,
+        product_ids: list[int],
+    ) -> tuple[PriceHistoryPoint, ...]:
+        if not product_ids:
+            return ()
+        points: list[PriceHistoryPoint] = []
+
+        # WB prices — query via product external IDs + account IDs
+        wb_ids = set()
+        ozon_ids = set()
+        for pid in product_ids:
+            prod = await self.session.get(Product, pid)
+            if prod is None:
+                continue
+            if prod.marketplace == Marketplace.WB and prod.external_product_id:
+                try:
+                    wb_ids.add(int(prod.external_product_id))
+                except (ValueError, TypeError):
+                    pass
+            elif prod.marketplace == Marketplace.OZON:
+                ozon_ids.add(pid)
+
+        if wb_ids:
+            wb_result = await self.session.execute(
+                select(WbProductPrice)
+                .where(WbProductPrice.wb_nm_id.in_(wb_ids))
+                .where(WbProductPrice.price.isnot(None))
+                .order_by(WbProductPrice.synced_at.desc())
+                .limit(200)
+            )
+            for row in wb_result.scalars().all():
+                points.append(PriceHistoryPoint(
+                    date=row.synced_at.strftime("%d.%m %H:%M"),
+                    marketplace=Marketplace.WB,
+                    price=row.price,
+                    discounted_price=row.discounted_price or row.price,
+                ))
+
+        if ozon_ids:
+            ozon_result = await self.session.execute(
+                select(OzonPriceSnapshot)
+                .where(OzonPriceSnapshot.product_id.in_(ozon_ids))
+                .where(OzonPriceSnapshot.price.isnot(None))
+                .order_by(OzonPriceSnapshot.synced_at.desc())
+                .limit(200)
+            )
+            for row in ozon_result.scalars().all():
+                points.append(PriceHistoryPoint(
+                    date=row.synced_at.strftime("%d.%m %H:%M"),
+                    marketplace=Marketplace.OZON,
+                    price=row.price,
+                    discounted_price=row.marketing_price or row.price,
+                ))
+
+        points.sort(key=lambda p: p.date, reverse=True)
+        return tuple(points[:50])
+
+    async def _cost_history(
+        self,
+        product_ids: list[int],
+    ) -> tuple[CostHistoryPoint, ...]:
+        if not product_ids:
+            return ()
+        result = await self.session.execute(
+            select(ProductCostHistory)
+            .where(ProductCostHistory.product_id.in_(product_ids))
+            .order_by(ProductCostHistory.valid_from.desc())
+            .limit(100)
+        )
+        return tuple(
+            CostHistoryPoint(
+                valid_from=c.valid_from.strftime("%d.%m.%Y") if c.valid_from else "н/д",
+                valid_to=c.valid_to.strftime("%d.%m.%Y") if c.valid_to else "текущая",
+                cost_price=c.cost_price,
+                package_cost=c.package_cost,
+                additional_cost=c.additional_cost,
+            )
+            for c in result.scalars().all()
+        )
+
+    async def _stock_history(
+        self,
+        product_ids: list[int],
+    ) -> tuple[StockHistoryPoint, ...]:
+        if not product_ids:
+            return ()
+        result = await self.session.execute(
+            select(StockSnapshot)
+            .where(StockSnapshot.product_id.in_(product_ids))
+            .order_by(StockSnapshot.snapshot_at.desc())
+            .limit(100)
+        )
+        seen: set[tuple[int, str | None, str]] = set()
+        points: list[StockHistoryPoint] = []
+        for s in result.scalars().all():
+            key = (s.product_id or 0, s.warehouse, s.snapshot_at.strftime("%d.%m %H:%M"))
+            if key not in seen:
+                seen.add(key)
+                points.append(StockHistoryPoint(
+                    date=s.snapshot_at.strftime("%d.%m %H:%M"),
+                    warehouse=s.warehouse,
+                    quantity=s.quantity,
+                    avg_daily_sales=s.average_daily_sales_7d,
+                ))
+        return tuple(points[:50])
 
     async def _actual_profit(self, product_ids: list[int]) -> Decimal:
         if not product_ids:

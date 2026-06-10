@@ -30,9 +30,12 @@ from app.services.common.marketplace_presentation import (
     order_status_label as presentation_order_status_label,
 )
 from app.services.unit_economics.master_product_service import (
+    CostHistoryPoint,
     MasterProductAnalyticsRow,
     MasterProductDetail,
+    PriceHistoryPoint,
     ProductMatchingCandidate,
+    StockHistoryPoint,
 )
 from app.services.unit_economics.plan_fact_service import PlanFactPageData
 from app.services.unit_economics.stock_forecast_service import (
@@ -173,6 +176,76 @@ def _products_content(rows: list[MasterProductAnalyticsRow]) -> str:
       </section>
     """
 
+def _price_history_html(detail: MasterProductDetail) -> str:
+    if not detail.price_history:
+        return ""
+    rows = "".join(
+        "<tr>"
+        f"<td>{_marketplace_label(p.marketplace)}</td>"
+        f'<td class="num">{_rub(p.price)}</td>'
+        f'<td class="num">{_rub(p.discounted_price)}</td>'
+        f"<td>{escape(p.date)}</td>"
+        "</tr>"
+        for p in detail.price_history
+    )
+    return f"""
+      <section class="band" style="margin-top:14px">
+        <h2>История цен</h2>
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>МП</th><th class="num">Цена</th><th class="num">Со скидкой</th><th>Дата</th></tr></thead>
+          <tbody>{rows}</tbody>
+        </table></div>
+      </section>
+    """
+
+
+def _cost_history_html(detail: MasterProductDetail) -> str:
+    if not detail.cost_history:
+        return ""
+    rows = "".join(
+        "<tr>"
+        f"<td>{escape(c.valid_from)}</td>"
+        f"<td>{escape(c.valid_to)}</td>"
+        f'<td class="num">{_rub(c.cost_price)}</td>'
+        f'<td class="num">{_rub(c.package_cost)}</td>'
+        f'<td class="num">{_rub(c.additional_cost)}</td>'
+        "</tr>"
+        for c in detail.cost_history
+    )
+    return f"""
+      <section class="band" style="margin-top:14px">
+        <h2>История себестоимости</h2>
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>С</th><th>По</th><th class="num">Закупка</th><th class="num">Упаковка</th><th class="num">Доп.</th></tr></thead>
+          <tbody>{rows}</tbody>
+        </table></div>
+      </section>
+    """
+
+
+def _stock_history_html(detail: MasterProductDetail) -> str:
+    if not detail.stock_history:
+        return ""
+    rows = "".join(
+        "<tr>"
+        f"<td>{escape(s.date)}</td>"
+        f"<td>{escape(s.warehouse) if s.warehouse else 'все'}</td>"
+        f'<td class="num">{s.quantity}</td>'
+        f'<td class="num">{s.avg_daily_sales}</td>'
+        "</tr>"
+        for s in detail.stock_history
+    )
+    return f"""
+      <section class="band" style="margin-top:14px">
+        <h2>История остатков</h2>
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Дата</th><th>Склад</th><th class="num">Остаток</th><th class="num">Продажи/день</th></tr></thead>
+          <tbody>{rows}</tbody>
+        </table></div>
+      </section>
+    """
+
+
 def _master_product_detail_content(detail: MasterProductDetail) -> str:
     product_rows = "".join(
         "<tr>"
@@ -229,6 +302,9 @@ def _master_product_detail_content(detail: MasterProductDetail) -> str:
           </table>
         </div>
       </section>
+      {_price_history_html(detail)}
+      {_cost_history_html(detail)}
+      {_stock_history_html(detail)}
       <section class="band" style="margin-top:14px">
         <h2>Что важно</h2>
         <ul>{recommendations}</ul>
