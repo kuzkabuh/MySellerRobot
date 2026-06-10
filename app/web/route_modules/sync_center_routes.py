@@ -38,16 +38,19 @@ async def sync_center_page(
     session: AsyncSession = SESSION_DEPENDENCY,
     tab: str = Query(default="overview"),
 ) -> str:
+    run_svc = WebSyncRunService(session)
+    stale_count = await run_svc.mark_stale_syncs_as_failed()
+    if stale_count:
+        logger.info("stale_syncs_cleaned", extra={"count": stale_count})
+
     svc = WebCabinetService(session)
     data = await svc.sync_center_page(user.id, user.timezone)
     is_admin = is_admin_user(user)
 
     if tab == "history":
-        run_svc = WebSyncRunService(session)
         runs = await run_svc.history(user_id=user.id, limit=100)
         content = _sync_center_history_content(runs, is_admin)
     elif tab == "errors":
-        run_svc = WebSyncRunService(session)
         errors = await run_svc.errors(user_id=user.id, limit=50)
         content = _sync_center_errors_content(errors, is_admin)
     elif tab == "settings":
@@ -166,6 +169,9 @@ async def sync_center_history(
                 "finished_at": r.finished_at.isoformat() if r.finished_at else None,
                 "duration_seconds": float(r.duration_seconds) if r.duration_seconds else None,
                 "records_loaded": r.records_loaded,
+                "records_created": r.records_created,
+                "records_updated": r.records_updated,
+                "records_skipped": r.records_skipped,
                 "error_message": r.error_message,
             }
             for r in runs

@@ -1684,15 +1684,27 @@ def _tracked_task(
         if not hasattr(AsyncSessionFactory, "begin"):
             return await func(ctx)
 
+        sync_run_id = ctx.get("sync_run_id") if ctx else None
+        triggered_by = ctx.get("triggered_by_user_id") if ctx else None
+
         async with AsyncSessionFactory() as session:
             service = SyncStatusService(session)
             run = await service.start(
                 task_name,
-                triggered_by_user_id=ctx.get("triggered_by_user_id") if ctx else None,
+                triggered_by_user_id=triggered_by,
                 metadata={"source": "arq"},
             )
             await session.commit()
-        logger.info("worker_task_started", extra={"task_name": task_name, "run_id": run.id})
+            if sync_run_id is not None:
+                await _send_sync_notification(session, sync_run_id, "start")
+        logger.info(
+            "worker_task_started",
+            extra={
+                "task_name": task_name,
+                "run_id": run.id,
+                "sync_run_id": sync_run_id,
+            },
+        )
 
         try:
             result = await func(ctx)
@@ -1703,7 +1715,20 @@ def _tracked_task(
                 if db_run is not None:
                     await service.mark_failed(db_run, str(exc))
                     await session.commit()
-            logger.exception("worker_task_failed", extra={"task_name": task_name, "run_id": run.id})
+                if sync_run_id is not None:
+                    await _update_sync_run(
+                        session, sync_run_id, "error",
+                        error_message=str(exc)[:5000],
+                    )
+                    await _send_sync_notification(session, sync_run_id, "finish")
+            logger.exception(
+                "worker_task_failed",
+                extra={
+                    "task_name": task_name,
+                    "run_id": run.id,
+                    "sync_run_id": sync_run_id,
+                },
+            )
             raise
 
         async with AsyncSessionFactory() as session:
@@ -1737,17 +1762,84 @@ def _tracked_task(
                         failed_count=failed_count,
                     )
                 await session.commit()
+
+                if sync_run_id is not None:
+                    sync_status = "warning" if (task_stats.get("status") == "completed_with_warnings" or failed_count > 0) else "success"
+                    await _update_sync_run(
+                        session, sync_run_id, sync_status,
+                        records_loaded=records_processed,
+                        records_created=success_count,
+                        records_updated=success_count,
+                        records_skipped=0,
+                        error_message=last_error if sync_status == "warning" else None,
+                    )
+                    await _send_sync_notification(session, sync_run_id, "finish")
+
                 logger.info(
                     "worker_task_finished",
                     extra={
                         "task_name": task_name,
                         "run_id": run.id,
+                        "sync_run_id": sync_run_id,
                         "duration_ms": db_run.duration_ms,
                     },
                 )
         return result
 
     return wrapper
+
+
+async def _update_sync_run(
+    session: AsyncSession,
+    sync_run_id: int,
+    status: str,
+    *,
+    records_loaded: int = 0,
+    records_created: int = 0,
+    records_updated: int = 0,
+    records_skipped: int = 0,
+    error_message: str | None = None,
+) -> None:
+    from app.services.common.web_sync_run_service import WebSyncRunService
+
+    svc = WebSyncRunService(session)
+    await svc.finish_run(
+        sync_run_id,
+        status=status,
+        records_loaded=records_loaded,
+        records_created=records_created,
+        records_updated=records_updated,
+        records_skipped=records_skipped,
+        error_message=error_message,
+    )
+    await session.commit()
+
+
+async def _send_sync_notification(session: AsyncSession, sync_run_id: int, event: str = "finish") -> None:
+    try:
+        from app.models.domain import SyncRun
+        from app.services.common.sync_notification_service import SyncNotificationService
+
+        result = await session.execute(
+            select(SyncRun)
+            .options(
+                joinedload(SyncRun.account),
+                joinedload(SyncRun.user),
+            )
+            .where(SyncRun.id == sync_run_id)
+        )
+        run = result.scalar_one_or_none()
+        if run is not None:
+            notifier = SyncNotificationService()
+            if event == "start":
+                await notifier.send_sync_start(run)
+            else:
+                await notifier.send_sync_finish(run)
+    except Exception:
+        logger.exception(
+            "sync_run_notification_failed",
+            extra={"sync_run_id": sync_run_id, "event": event},
+        )
 
 
 for _task_name in (

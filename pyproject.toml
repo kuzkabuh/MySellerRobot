@@ -3,7 +3,7 @@
 # updated: 2026-06-10
 [project]
 name = "seller-profit-bot"
-version = "1.13.0"
+version = "1.14.0"
 description = "MP Control service for WB and Ozon sellers with bot, web cabinet, subscriptions, and analytics"
 requires-python = ">=3.12,<3.15"
 dependencies = [

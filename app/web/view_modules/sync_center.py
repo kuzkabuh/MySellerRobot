@@ -296,8 +296,9 @@ def _error_block(account: object) -> str:
 
 
 def _sync_center_history_content(runs: list[SyncRun], is_admin: bool) -> str:
+    has_running = any(r.status == "running" for r in runs)
     if not runs:
-        rows_html = '<tr><td colspan="9"><div class="empty-state compact">История запусков пуста.</div></td></tr>'
+        rows_html = '<tr><td colspan="10"><div class="empty-state compact">История запусков пуста.</div></td></tr>'
     else:
         rows_html = ""
         for r in runs:
@@ -313,11 +314,37 @@ def _sync_center_history_content(runs: list[SyncRun], is_admin: bool) -> str:
               <td>{dur}</td>
               <td class="num">{r.records_loaded}</td>
               <td class="num">{r.records_created}</td>
+              <td class="num">{r.records_updated}</td>
               <td><span class="muted">{escape(r.error_message[:100]) if r.error_message else '—'}</span></td>
             </tr>"""
 
+    auto_refresh_script = ""
+    if has_running:
+        auto_refresh_script = """
+        <script>
+          (function() {
+            if (window._syncHistoryRefresh) return;
+            window._syncHistoryRefresh = true;
+            var count = 0;
+            var interval = setInterval(function() {
+              count++;
+              if (count >= 30) { clearInterval(interval); return; }
+              fetch('/web/sync-center/history?limit=100&t=' + Date.now())
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                  if (!data.runs) return;
+                  var stillRunning = data.runs.some(function(run) { return run.status === 'running'; });
+                  if (!stillRunning) { clearInterval(interval); }
+                  location.reload();
+                })
+                .catch(function() {});
+            }, 15000);
+          })();
+        </script>"""
+
     return f"""
     {_sync_center_subnav("history")}
+    {auto_refresh_script}
     <div class="page-header">
       <div>
         <h2>История запусков</h2>
@@ -340,6 +367,7 @@ def _sync_center_history_content(runs: list[SyncRun], is_admin: bool) -> str:
               <th>Длительность</th>
               <th class="num">Загружено</th>
               <th class="num">Создано</th>
+              <th class="num">Обновлено</th>
               <th>Ошибка</th>
             </tr>
           </thead>
@@ -459,7 +487,12 @@ def _run_status_badge(status: str) -> str:
         "queued": ("action", "В очереди"),
         "running": ("action", "Выполняется"),
         "success": ("good", "Успешно"),
+        "warning": ("warn", "Предупреждение"),
         "error": ("bad", "Ошибка"),
+        "failed": ("bad", "Ошибка"),
+        "timeout": ("bad", "Превышено время"),
+        "cancelled": ("", "Отменено"),
+        "pending": ("", "Ожидает"),
     }
     tone, label = mapping.get(status, ("", status))
     return f'<span class="badge {tone}">{label}</span>'

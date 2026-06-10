@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, cast
 
 from arq.connections import RedisSettings, create_pool
 from redis.asyncio import Redis
-from sqlalchemy import and_, desc, func, select
+from sqlalchemy import and_, desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -19,6 +19,9 @@ from app.models.domain import MarketplaceAccount, SyncRun, User
 from app.models.enums import Marketplace
 
 logger = logging.getLogger(__name__)
+
+STALE_SYNC_TIMEOUT_HOURS = 2
+STALE_BACKFILL_TIMEOUT_HOURS = 6
 
 SYNC_TYPE_MAP: dict[str, dict[str, Any]] = {
     "products": {
@@ -206,6 +209,86 @@ class WebSyncRunService:
         run.error_code = error_code
         await self.session.flush()
         return run
+
+    async def mark_warning(
+        self,
+        run_id: int,
+        warning_message: str,
+        *,
+        records_loaded: int = 0,
+        records_created: int = 0,
+        records_updated: int = 0,
+        records_skipped: int = 0,
+        details: dict[str, Any] | None = None,
+    ) -> SyncRun | None:
+        run = await self._get_run(run_id)
+        if run is None:
+            return None
+        now = datetime.now(tz=UTC)
+        run.status = "warning"
+        run.finished_at = now
+        if run.started_at:
+            run.duration_seconds = Decimal(str((now - run.started_at).total_seconds()))
+        run.records_loaded = records_loaded
+        run.records_created = records_created
+        run.records_updated = records_updated
+        run.records_skipped = records_skipped
+        run.error_message = warning_message[:5000]
+        if details:
+            run.details_json = details
+        await self.session.flush()
+        return run
+
+    async def mark_timeout(
+        self,
+        run_id: int,
+        error_message: str | None = None,
+    ) -> SyncRun | None:
+        run = await self._get_run(run_id)
+        if run is None:
+            return None
+        now = datetime.now(tz=UTC)
+        run.status = "timeout"
+        run.finished_at = now
+        if run.started_at:
+            run.duration_seconds = Decimal(str((now - run.started_at).total_seconds()))
+        run.error_message = (error_message or "Превышено время выполнения.")[:5000]
+        await self.session.flush()
+        return run
+
+    async def finish_run(
+        self,
+        run_id: int,
+        *,
+        status: str = "success",
+        records_loaded: int = 0,
+        records_created: int = 0,
+        records_updated: int = 0,
+        records_skipped: int = 0,
+        error_message: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> SyncRun | None:
+        if status == "error":
+            return await self.mark_failed(run_id, error_message or "Неизвестная ошибка")
+        if status == "warning":
+            return await self.mark_warning(
+                run_id,
+                error_message or "Завершено с предупреждениями",
+                records_loaded=records_loaded,
+                records_created=records_created,
+                records_updated=records_updated,
+                records_skipped=records_skipped,
+                details=details,
+            )
+        if status == "timeout":
+            return await self.mark_timeout(run_id, error_message)
+        return await self.mark_success(
+            run_id,
+            records_loaded=records_loaded,
+            records_created=records_created,
+            records_updated=records_updated,
+            records_skipped=records_skipped,
+        )
 
     async def get_run(self, run_id: int) -> SyncRun | None:
         return await self._get_run(run_id)
@@ -492,6 +575,51 @@ class WebSyncRunService:
             return {"valid": True, "details": {"warehouses_count": len(warehouses)}}
         return {"valid": False, "details": {}, "error": "Не удалось получить список складов"}
 
+    async def mark_stale_syncs_as_failed(self) -> int:
+        now = datetime.now(tz=UTC)
+        stale_cutoff = now - timedelta(hours=STALE_SYNC_TIMEOUT_HOURS)
+        backfill_cutoff = now - timedelta(hours=STALE_BACKFILL_TIMEOUT_HOURS)
+
+        count = 0
+        for cutoff, sync_type_filter in [
+            (stale_cutoff, None),
+            (backfill_cutoff, "wb_financial_details"),
+        ]:
+            conditions = [
+                SyncRun.status == "running",
+                SyncRun.started_at.isnot(None),
+                SyncRun.started_at < cutoff,
+            ]
+            if sync_type_filter is not None:
+                conditions.append(SyncRun.sync_type == sync_type_filter)
+            result = await self.session.execute(
+                select(SyncRun).where(and_(*conditions))
+            )
+            stale_runs = list(result.scalars().all())
+            for run in stale_runs:
+                run.status = "timeout"
+                run.finished_at = now
+                if run.started_at:
+                    run.duration_seconds = Decimal(str((now - run.started_at).total_seconds()))
+                run.error_message = (
+                    f"Задача не завершилась корректно: превышено время выполнения "
+                    f"({STALE_SYNC_TIMEOUT_HOURS if sync_type_filter is None else STALE_BACKFILL_TIMEOUT_HOURS} ч)."
+                )[:5000]
+                count += 1
+                logger.warning(
+                    "stale_sync_run_marked_failed",
+                    extra={
+                        "run_id": run.id,
+                        "sync_type": run.sync_type,
+                        "marketplace": run.marketplace,
+                        "started_at": run.started_at.isoformat() if run.started_at else None,
+                    },
+                )
+
+        if count:
+            await self.session.flush()
+        return count
+
     async def _get_run(self, run_id: int) -> SyncRun | None:
         result = await self.session.execute(
             select(SyncRun).where(SyncRun.id == run_id)
@@ -515,7 +643,9 @@ def _status_message(run: SyncRun) -> str:
         "queued": "Синхронизация ожидает запуска.",
         "running": "Синхронизация выполняется.",
         "success": "Синхронизация завершена успешно.",
+        "warning": f"Предупреждение: {run.error_message or 'завершено с предупреждениями'}",
         "error": f"Ошибка: {run.error_message or 'неизвестная ошибка'}",
+        "timeout": f"Превышено время: {run.error_message or 'задача не завершилась'}",
     }
     return messages.get(run.status, f"Статус: {run.status}")
 
