@@ -468,28 +468,29 @@ class WebSyncRunService:
             }
 
     async def _verify_wb_key(self, account: MarketplaceAccount) -> dict[str, Any]:
-        from app.integrations.wb_api import WildberriesAPI
+        from app.core.security import TokenCipher
+        from app.integrations.wb import WildberriesClient
 
-        client = WildberriesAPI(account)
-        try:
-            info = await client.get_seller_info()
-            if info and info.get("name"):
-                return {"valid": True, "details": {"seller_name": info.get("name")}}
-            return {"valid": False, "details": {}, "error": "Не удалось получить информацию о продавце"}
-        finally:
-            await client.close()
+        api_key = TokenCipher().decrypt(account.encrypted_api_key)
+        client = WildberriesClient(api_key=api_key)
+        info = await client.get_seller_info()
+        if info and info.get("name"):
+            return {"valid": True, "details": {"seller_name": info.get("name")}}
+        return {"valid": False, "details": {}, "error": "Не удалось получить информацию о продавце"}
 
     async def _verify_ozon_key(self, account: MarketplaceAccount) -> dict[str, Any]:
-        from app.integrations.ozon_api import OzonAPI
+        from app.core.security import TokenCipher
+        from app.integrations.ozon import OzonClient
 
-        client = OzonAPI(account)
-        try:
-            warehouses = await client.get_warehouses()
-            if warehouses is not None:
-                return {"valid": True, "details": {"warehouses_count": len(warehouses)}}
-            return {"valid": False, "details": {}, "error": "Не удалось получить список складов"}
-        finally:
-            await client.close()
+        api_key = TokenCipher().decrypt(account.encrypted_api_key)
+        client_id = ""
+        if account.encrypted_client_id:
+            client_id = TokenCipher().decrypt(account.encrypted_client_id)
+        client = OzonClient(api_key=api_key, client_id=client_id)
+        warehouses = await client.get_warehouses()
+        if warehouses is not None:
+            return {"valid": True, "details": {"warehouses_count": len(warehouses)}}
+        return {"valid": False, "details": {}, "error": "Не удалось получить список складов"}
 
     async def _get_run(self, run_id: int) -> SyncRun | None:
         result = await self.session.execute(
