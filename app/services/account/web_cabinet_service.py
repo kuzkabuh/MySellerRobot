@@ -623,7 +623,15 @@ class WebCabinetService:
                 and not _is_resolved_greenlet_error(account.last_error_message)
             ):
                 error_count += 1
-            if acc_data.sync_freshness_orders == "bad" or acc_data.sync_freshness_orders == "none":
+            any_stale = any(
+                getattr(acc_data, attr, "none") in ("bad", "none")
+                for attr in (
+                    "sync_freshness_orders", "sync_freshness_sales",
+                    "sync_freshness_stocks", "sync_freshness_products",
+                    "sync_freshness_profile",
+                )
+            )
+            if any_stale:
                 stale_count += 1
         dq_report = await DataQualityService(self.session).report(user_id=user_id)
         healthy = len(accounts_raw) - error_count

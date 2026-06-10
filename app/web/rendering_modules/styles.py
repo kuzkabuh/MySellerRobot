@@ -1288,4 +1288,89 @@ def _css() -> str:
       .kpi strong { font-size: 20px; }
       .premium-kpi strong { font-size: 22px; }
     }
+
+    /* ── Sync Center ── */
+    .sync-btn-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .sync-btn-grid .btn, .sync-btn-grid .button-tiny {
+      transition: all var(--transition-fast);
+    }
+    .sync-btn-grid .btn:disabled, .sync-btn-grid .btn.disabled,
+    .sync-btn-grid .button-tiny:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      pointer-events: auto;
+    }
+    .sync-btn-grid .btn.running {
+      background: var(--accent-soft);
+      color: var(--accent);
+      border-color: var(--accent);
+      position: relative;
+      padding-left: 28px;
+    }
+    .sync-btn-grid .btn.running::before {
+      content: "";
+      position: absolute;
+      left: 8px;
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--accent);
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: sync-spin 0.8s linear infinite;
+    }
+    @keyframes sync-spin {
+      to { transform: rotate(360deg); }
+    }
+    .sync-btn-grid .btn.success-flash {
+      background: var(--success-soft);
+      color: #047857;
+      border-color: var(--success-border);
+    }
+    .sync-btn-grid .btn.error-flash {
+      background: var(--danger-soft);
+      color: #b91c1c;
+      border-color: var(--danger-border);
+    }
+
+    /* ── Toast notifications ── */
+    #toast-container {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-width: 400px;
+    }
+    .toast {
+      padding: 12px 16px;
+      border-radius: var(--radius);
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-lg);
+      font-size: 13px;
+      font-weight: 600;
+      animation: toast-in 0.3s ease-out;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 280px;
+    }
+    .toast.success { border-left: 4px solid var(--success); color: #047857; }
+    .toast.error { border-left: 4px solid var(--danger); color: #b91c1c; }
+    .toast.warning { border-left: 4px solid var(--warning); color: #92400e; }
+    .toast.info { border-left: 4px solid var(--accent); color: var(--accent); }
+    @keyframes toast-in {
+      from { opacity: 0; transform: translateX(20px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+    @keyframes toast-out {
+      from { opacity: 1; transform: translateX(0); }
+      to { opacity: 0; transform: translateX(20px); }
+    }
     """

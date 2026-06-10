@@ -26,7 +26,6 @@ from app.services.account.web_auth_service import WEB_SESSION_COOKIE, WebAuthSer
 from app.services.account.web_cabinet_service import WebCabinetService
 from app.services.common.web_dashboard_service import WebDashboardService
 from app.services.common.web_orders_profit_service import WebOrdersProfitService
-from app.services.common.web_sync_service import WebSyncService
 from app.web.dependencies import (
     CURRENT_WEB_USER_DEPENDENCY,
     SESSION_DEPENDENCY,
@@ -36,24 +35,9 @@ from app.web.dependencies import (
 )
 from app.web.rendering import page
 from app.web.views import *
-from app.web.view_modules.sync_center import _sync_center_content
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-
-@router.get("/sync-center", response_class=HTMLResponse)
-async def sync_center_page(
-    user: User = CURRENT_WEB_USER_DEPENDENCY,
-    session: AsyncSession = SESSION_DEPENDENCY,
-) -> str:
-    data = await WebCabinetService(session).sync_center_page(user.id, user.timezone)
-    return page(
-        "Sync Center",
-        user.first_name or user.username or str(user.telegram_id),
-        _sync_center_content(data),
-        active_path="/web/sync-center",
-    )
 
 
 @router.get("/sales", response_class=HTMLResponse)

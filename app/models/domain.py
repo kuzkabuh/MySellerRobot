@@ -15,6 +15,7 @@ from app.models.finance import (
 from app.models.integrations import (
     ApiRequestLog,
     SyncJob,
+    SyncRun,
     SyncStatus,
     SyncTaskRun,
 )
@@ -131,6 +132,7 @@ __all__ = [
     "AlertEvent",
     "NotificationEvent",
     "SyncJob",
+    "SyncRun",
     "ApiRequestLog",
     "SyncTaskRun",
     "SyncStatus",

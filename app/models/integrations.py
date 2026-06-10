@@ -30,6 +30,7 @@ from app.models.enums import (
 JsonType = JSON().with_variant(JSONB, "postgresql")
 
 if TYPE_CHECKING:
+    from app.models.marketplaces import MarketplaceAccount
     from app.models.users import User
 
 class SyncJob(TimestampMixin, Base):
@@ -99,6 +100,51 @@ class SyncTaskRun(Base):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     run_metadata: Mapped[dict[str, Any] | None] = mapped_column("metadata", JsonType, nullable=True)
+
+class SyncRun(Base):
+    __tablename__ = "sync_runs"
+    __table_args__ = (
+        Index("ix_sync_runs_account_started", "marketplace_account_id", "started_at"),
+        Index("ix_sync_runs_status_started", "status", "started_at"),
+        Index("ix_sync_runs_user_triggered", "user_id", "started_at"),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    marketplace_account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("marketplace_accounts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    marketplace: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    sync_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    trigger_source: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="manual"
+    )
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="queued", index=True
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    duration_seconds: Mapped[float | None] = mapped_column(sa.Numeric(10, 2), nullable=True)
+    records_loaded: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    records_created: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    records_updated: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    records_skipped: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    error_message: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
+    details_json: Mapped[dict[str, Any] | None] = mapped_column("details", JsonType, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now(), index=True
+    )
+
+    account: Mapped["MarketplaceAccount | None"] = relationship(
+        backref="sync_runs", foreign_keys=[marketplace_account_id]
+    )
+    user: Mapped["User | None"] = relationship(
+        backref="sync_runs_triggered", foreign_keys=[user_id]
+    )
+
 
 class SyncStatus(TimestampMixin, Base):
     __tablename__ = "sync_statuses"

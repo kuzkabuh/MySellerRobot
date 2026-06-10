@@ -59,7 +59,7 @@ NAV_GROUPS = [
         "Мониторинг",
         [
             ("Контроль ошибок", "/web/control"),
-            ("Синхронизация", "/web/sync-center"),
+            ("Центр синхронизации", "/web/sync-center"),
             ("Аналитика", "/web/analytics"),
         ],
     ),
@@ -135,7 +135,7 @@ SECTION_PREFIXES: dict[str, list[str]] = {
     "Автоакции WB": ["/web/auto-promo-prices", "/web/auto-promo-import"],
     "Ежедневные WB": ["/web/reports/wb-daily"],
     "Контроль ошибок": ["/web/control"],
-    "Синхронизация": ["/web/sync-center", "/web/sync/"],
+    "Центр синхронизации": ["/web/sync-center", "/web/sync/"],
     "Аналитика": ["/web/analytics"],
     "Профиль": ["/web/settings?tab=profile"],
     "Кабинеты МП": ["/web/accounts"],

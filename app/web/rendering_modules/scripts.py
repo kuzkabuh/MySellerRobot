@@ -5,13 +5,15 @@ updated: 2026-06-09
 
 # ruff: noqa: E501
 
+from app.web.rendering_modules.sync_center_js import SYNC_CENTER_JS
+
 __all__ = [
     "_js",
 ]
 
 
 def _js() -> str:
-    return """
+    return SYNC_CENTER_JS + """
     (function() {
       var errorNode = document.getElementById('interface-error');
       var loadingSelectors = [

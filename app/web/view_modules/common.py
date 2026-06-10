@@ -88,6 +88,7 @@ __all__ = [
     "_section_subnav_pricing",
     "_section_subnav_reports",
     "_section_subnav_monitoring",
+    "_sync_center_subnav",
     "_section_subnav_account",
     "_section_subnav_admin_overview",
     "_section_subnav_admin_users",
@@ -217,6 +218,17 @@ def _section_subnav_monitoring(active: str) -> str:
         ("control", "Контроль ошибок", "/web/control"),
         ("sync", "Синхронизация", "/web/sync-center"),
         ("analytics", "Аналитика", "/web/analytics"),
+    ]
+    return _subnav_render(items, active)
+
+
+def _sync_center_subnav(active: str) -> str:
+    items: list[tuple[str, str, str]] = [
+        ("overview", "Обзор", "/web/sync-center?tab=overview"),
+        ("sync", "Синхронизация", "/web/sync-center?tab=sync"),
+        ("errors", "Ошибки", "/web/sync-center?tab=errors"),
+        ("history", "История запусков", "/web/sync-center?tab=history"),
+        ("settings", "Настройки", "/web/sync-center?tab=settings"),
     ]
     return _subnav_render(items, active)
 
