@@ -55,6 +55,7 @@ from app.services.wb_report_service import WbFinancialReportService
 
 logger = logging.getLogger(__name__)
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
+MAX_API_PAGES = 1000
 
 _PERMANENT_FAILURE_TYPES = (TelegramForbiddenError,)
 
@@ -1700,6 +1701,388 @@ async def sync_wb_product_prices(ctx: dict[str, Any], payload: dict | None = Non
             )
 
 
+async def _process_wb_supplier_order(
+    session: AsyncSession,
+    account: MarketplaceAccount,
+    order_payload: dict,
+    counts: dict[str, int],
+) -> None:
+    from app.integrations.wb import WildberriesClient
+    from app.repositories.orders import OrderRepository
+    from app.services.profit.order_profit_service import OrderProfitService
+    from app.models.finance import ProfitSnapshot
+    from app.models.enums import CalculationType
+    from app.models.orders import OrderItem
+    from sqlalchemy import select, delete
+
+    normalized = WildberriesClient(api_key="").normalize_statistics_order(order_payload)
+    repo = OrderRepository(session)
+    order, created = await repo.upsert(account.user_id, account.id, normalized)
+    counts["records_loaded"] += 1
+    if created:
+        counts["records_created"] += 1
+    else:
+        counts["records_updated"] += 1
+
+    await session.execute(
+        delete(ProfitSnapshot).where(
+            ProfitSnapshot.order_item_id.in_(
+                select(OrderItem.id).where(OrderItem.order_id == order.id)
+            ),
+            ProfitSnapshot.calculation_type == CalculationType.ESTIMATED,
+        )
+    )
+    profit_svc = OrderProfitService(session)
+    await profit_svc.calculate_estimated_profit(
+        account, order, normalized,
+        calculation_source="sync_center_orders_stats",
+    )
+
+
+async def sync_wb_orders_stats(ctx: dict[str, Any], payload: dict | None = None) -> dict[str, Any]:
+    """Sync WB orders statistics via /api/v1/supplier/orders with pagination by lastChangeDate.
+
+    Supports manual sync with period params from Sync Center.
+    For cron: processes all active WB accounts.
+    """
+    payload = payload or {}
+    from app.core.security import TokenCipher
+    from app.integrations.wb import WildberriesClient
+    from app.services.common.sales_event_sync_service import _get_profit_service, _get_order_repo
+
+    cipher = TokenCipher()
+    counts: dict[str, int] = {
+        "records_loaded": 0, "records_created": 0, "records_updated": 0,
+        "records_skipped": 0, "pages_loaded": 0, "accounts_total": 0, "accounts_success": 0,
+    }
+    details: dict[str, Any] = {"source_api": "/api/v1/supplier/orders"}
+
+    date_from_str = payload.get("date_from") or ctx.get("date_from")
+    date_to_str = payload.get("date_to") or ctx.get("date_to")
+    if date_from_str:
+        details["date_from"] = date_from_str
+    if date_to_str:
+        details["date_to"] = date_to_str
+    period_days = payload.get("period_days") or ctx.get("period_days")
+
+    account_id = payload.get("marketplace_account_id") or ctx.get("marketplace_account_id")
+
+    async def _process_account(account: MarketplaceAccount) -> dict[str, int]:
+        ac_counts: dict[str, int] = {
+            "records_loaded": 0, "records_created": 0, "records_updated": 0,
+            "records_skipped": 0, "pages_loaded": 0,
+        }
+        try:
+            api_key = cipher.decrypt(account.encrypted_api_key)
+        except Exception:
+            logger.exception("wb_orders_stats_decrypt_failed", extra={"account_id": account.id})
+            return ac_counts
+
+        wb_client = WildberriesClient(api_key=api_key)
+
+        now_moscow = datetime.now(tz=MOSCOW_TZ)
+        effective_from = now_moscow - timedelta(days=90)
+        if date_from_str:
+            try:
+                effective_from = datetime.fromisoformat(date_from_str).replace(tzinfo=MOSCOW_TZ)
+            except ValueError:
+                effective_from = datetime.strptime(date_from_str, "%Y-%m-%d").replace(tzinfo=MOSCOW_TZ)
+
+        pages = 0
+        cursor_date = effective_from
+        seen_srids: set[str] = set()
+        last_cursor_str = ""
+
+        while pages < MAX_API_PAGES:
+            try:
+                orders_data = await wb_client.get_supplier_orders(cursor_date)
+            except Exception as exc:
+                logger.error(
+                    "wb_orders_stats_api_failed",
+                    extra={"account_id": account.id, "cursor_date": cursor_date.isoformat(), "error": str(exc)},
+                )
+                break
+
+            pages += 1
+            ac_counts["pages_loaded"] = pages
+
+            if not orders_data:
+                break
+
+            for order_payload in orders_data:
+                srid = str(order_payload.get("srid") or "")
+                if srid and srid in seen_srids:
+                    ac_counts["records_skipped"] += 1
+                    continue
+                if srid:
+                    seen_srids.add(srid)
+
+                try:
+                    async with AsyncSessionFactory() as write_session:
+                        write_account = await _load_account_by_id(write_session, account.id)
+                        if write_account is None:
+                            continue
+                        await _process_wb_supplier_order(write_session, write_account, order_payload, ac_counts)
+                        await write_session.commit()
+                except Exception as exc:
+                    logger.exception(
+                        "wb_orders_stats_upsert_failed",
+                        extra={"account_id": account.id, "srid": srid, "error": str(exc)},
+                    )
+                    ac_counts["records_skipped"] += 1
+
+            last_change = orders_data[-1].get("lastChangeDate")
+            if last_change:
+                cursor_str = str(last_change)
+                if cursor_str == last_cursor_str:
+                    logger.warning(
+                        "wb_orders_stats_infinite_loop_guard",
+                        extra={"account_id": account.id, "last_change": cursor_str},
+                    )
+                    break
+                last_cursor_str = cursor_str
+                try:
+                    cursor_date = datetime.fromisoformat(cursor_str.replace("Z", "+00:00"))
+                except (ValueError, TypeError):
+                    cursor_date = cursor_date + timedelta(seconds=1)
+            else:
+                break
+
+        return ac_counts
+
+    if account_id:
+        async with AsyncSessionFactory() as session:
+            account = await _load_account_by_id(session, account_id)
+            if account:
+                ac_counts = await _process_account(account)
+                for k in counts:
+                    counts[k] += ac_counts.get(k, 0)
+                counts["accounts_total"] = 1
+                counts["accounts_success"] = 1 if ac_counts["records_loaded"] > 0 else 0
+            else:
+                logger.warning("wb_orders_stats_account_not_found", extra={"account_id": account_id})
+    else:
+        account_refs = await _load_account_refs(AsyncSessionFactory)
+        counts["accounts_total"] = len(account_refs)
+        for ref in account_refs:
+            if ref.marketplace != "WB":
+                continue
+            async with AsyncSessionFactory() as session:
+                account = await _load_account_by_id(session, ref.id)
+                if account is None:
+                    continue
+                ac_counts = await _process_account(account)
+                for k in counts:
+                    counts[k] += ac_counts.get(k, 0)
+                if ac_counts["records_loaded"] > 0:
+                    counts["accounts_success"] += 1
+
+    details["pages_loaded"] = counts["pages_loaded"]
+    if period_days:
+        details["period_days"] = period_days
+
+    logger.info(
+        "wb_orders_stats_sync_finished",
+        extra={"counts": counts},
+    )
+
+    failed_count = counts["accounts_total"] - counts["accounts_success"]
+    return {
+        "task_stats": counts,
+        "records_processed": counts["records_loaded"],
+        "success_count": counts["accounts_success"],
+        "failed_count": failed_count,
+        "last_error": None if failed_count == 0 else "wb_orders_stats completed with failures",
+        "status": "success" if failed_count == 0 else "completed_with_warnings",
+    }
+
+
+async def _process_wb_fbs_order(
+    session: AsyncSession,
+    account: MarketplaceAccount,
+    order_payload: dict,
+    counts: dict[str, int],
+) -> None:
+    from app.integrations.wb import WildberriesClient
+    from app.core.security import TokenCipher
+    from app.repositories.orders import OrderRepository
+    from app.models.finance import ProfitSnapshot
+    from app.models.enums import CalculationType
+    from app.models.orders import OrderItem
+    from sqlalchemy import select, delete
+
+    normalized = WildberriesClient(api_key="").normalize_historical_fbs_order(order_payload)
+    repo = OrderRepository(session)
+    order, created = await repo.upsert(account.user_id, account.id, normalized)
+    counts["records_loaded"] += 1
+    if created:
+        counts["records_created"] += 1
+    else:
+        counts["records_updated"] += 1
+
+    await session.execute(
+        delete(ProfitSnapshot).where(
+            ProfitSnapshot.order_item_id.in_(
+                select(OrderItem.id).where(OrderItem.order_id == order.id)
+            ),
+            ProfitSnapshot.calculation_type == CalculationType.ESTIMATED,
+        )
+    )
+    from app.services.profit.order_profit_service import OrderProfitService
+    profit_svc = OrderProfitService(session)
+    await profit_svc.calculate_estimated_profit(
+        account, order, normalized,
+        calculation_source="sync_center_fbs_assembly",
+    )
+
+
+async def sync_wb_fbs_assembly_orders(ctx: dict[str, Any], payload: dict | None = None) -> dict[str, Any]:
+    """Sync WB FBS assembly orders via /api/v3/orders with pagination.
+
+    Supports manual sync with period params from Sync Center.
+    Splits periods >30 days into 30-day windows.
+    For cron: processes all active WB accounts.
+    """
+    payload = payload or {}
+    from app.core.security import TokenCipher
+    from app.integrations.wb import WildberriesClient
+
+    cipher = TokenCipher()
+    counts: dict[str, int] = {
+        "records_loaded": 0, "records_created": 0, "records_updated": 0,
+        "records_skipped": 0, "pages_loaded": 0, "request_windows": 0,
+        "accounts_total": 0, "accounts_success": 0,
+    }
+    details: dict[str, Any] = {"source_api": "/api/v3/orders"}
+
+    date_from_str = payload.get("date_from") or ctx.get("date_from")
+    date_to_str = payload.get("date_to") or ctx.get("date_to")
+    if date_from_str:
+        details["date_from"] = date_from_str
+    if date_to_str:
+        details["date_to"] = date_to_str
+    period_days = payload.get("period_days") or ctx.get("period_days")
+
+    account_id = payload.get("marketplace_account_id") or ctx.get("marketplace_account_id")
+
+    async def _process_account(account: MarketplaceAccount) -> dict[str, int]:
+        ac_counts: dict[str, int] = {
+            "records_loaded": 0, "records_created": 0, "records_updated": 0,
+            "records_skipped": 0, "pages_loaded": 0, "request_windows": 0,
+        }
+        try:
+            api_key = cipher.decrypt(account.encrypted_api_key)
+        except Exception:
+            logger.exception("wb_fbs_assembly_decrypt_failed", extra={"account_id": account.id})
+            return ac_counts
+
+        wb_client = WildberriesClient(api_key=api_key)
+
+        now_utc = datetime.now(tz=UTC)
+        effective_from = now_utc - timedelta(days=30)
+        effective_to = now_utc
+        if date_from_str:
+            try:
+                effective_from = datetime.fromisoformat(date_from_str).replace(tzinfo=UTC)
+            except ValueError:
+                effective_from = datetime.strptime(date_from_str, "%Y-%m-%d").replace(tzinfo=UTC)
+        if date_to_str:
+            try:
+                effective_to = datetime.fromisoformat(date_to_str).replace(tzinfo=UTC)
+            except ValueError:
+                effective_to = datetime.strptime(date_to_str, "%Y-%m-%d").replace(tzinfo=UTC)
+
+        ws = []
+        window_start = effective_from
+        while window_start < effective_to:
+            window_end = min(window_start + timedelta(days=30), effective_to)
+            ws.append((window_start, window_end))
+            window_start = window_end
+
+        ac_counts["request_windows"] = len(ws)
+
+        for w_start, w_end in ws:
+            try:
+                orders = await wb_client.get_fbs_orders(
+                    date_from=w_start, date_to=w_end, limit=1000,
+                )
+            except Exception as exc:
+                logger.error(
+                    "wb_fbs_assembly_api_failed",
+                    extra={
+                        "account_id": account.id,
+                        "date_from": w_start.isoformat(),
+                        "date_to": w_end.isoformat(),
+                        "error": str(exc),
+                    },
+                )
+                continue
+
+            ac_counts["pages_loaded"] += 1
+
+            for order_payload in orders:
+                try:
+                    async with AsyncSessionFactory() as write_session:
+                        write_account = await _load_account_by_id(write_session, account.id)
+                        if write_account is None:
+                            continue
+                        await _process_wb_fbs_order(write_session, write_account, order_payload, ac_counts)
+                        await write_session.commit()
+                except Exception as exc:
+                    logger.exception(
+                        "wb_fbs_assembly_upsert_failed",
+                        extra={"account_id": account.id, "order_id": order_payload.get("id"), "error": str(exc)},
+                    )
+                    ac_counts["records_skipped"] += 1
+
+        return ac_counts
+
+    if account_id:
+        async with AsyncSessionFactory() as session:
+            account = await _load_account_by_id(session, account_id)
+            if account:
+                ac_counts = await _process_account(account)
+                for k in counts:
+                    counts[k] += ac_counts.get(k, 0)
+                counts["accounts_total"] = 1
+                counts["accounts_success"] = 1 if ac_counts["records_loaded"] > 0 else 0
+    else:
+        account_refs = await _load_account_refs(AsyncSessionFactory)
+        counts["accounts_total"] = len(account_refs)
+        for ref in account_refs:
+            if ref.marketplace != "WB":
+                continue
+            async with AsyncSessionFactory() as session:
+                account = await _load_account_by_id(session, ref.id)
+                if account is None:
+                    continue
+                ac_counts = await _process_account(account)
+                for k in counts:
+                    counts[k] += ac_counts.get(k, 0)
+                if ac_counts["records_loaded"] > 0:
+                    counts["accounts_success"] += 1
+
+    details["pages_loaded"] = counts["pages_loaded"]
+    details["request_windows"] = counts["request_windows"]
+    if period_days:
+        details["period_days"] = period_days
+
+    logger.info(
+        "wb_fbs_assembly_sync_finished",
+        extra={"counts": counts},
+    )
+
+    failed_count = counts["accounts_total"] - counts["accounts_success"]
+    return {
+        "task_stats": counts,
+        "records_processed": counts["records_loaded"],
+        "success_count": counts["accounts_success"],
+        "failed_count": failed_count,
+        "last_error": None if failed_count == 0 else "wb_fbs_assembly completed with failures",
+        "status": "success" if failed_count == 0 else "completed_with_warnings",
+    }
+
+
 async def _start_sync_run(session: AsyncSession, sync_run_id: int) -> None:
     from app.models.domain import SyncRun
 
@@ -1726,6 +2109,11 @@ def _tracked_task(
         task_name = func.__name__
         if not hasattr(AsyncSessionFactory, "begin"):
             return await func(ctx)
+
+        if kwargs and isinstance(ctx, dict):
+            for k, v in kwargs.items():
+                if v is not None:
+                    ctx[k] = v
 
         sync_run_id = kwargs.get("sync_run_id") or (ctx.get("sync_run_id") if ctx else None)
         triggered_by = kwargs.get("triggered_by_user_id") or (ctx.get("triggered_by_user_id") if ctx else None)
@@ -1832,13 +2220,26 @@ def _tracked_task(
 
                 if sync_run_id is not None:
                     sync_status = "warning" if (task_stats.get("status") == "completed_with_warnings" or failed_count > 0) else "success"
+                    inner_stats = task_stats.get("task_stats", {})
+                    if isinstance(inner_stats, dict):
+                        records_skipped = int(inner_stats.get("records_skipped") or 0)
+                        records_created_val = int(inner_stats.get("records_created") or 0)
+                        records_updated_val = int(inner_stats.get("records_updated") or 0)
+                    else:
+                        records_skipped = records_created_val = records_updated_val = 0
+                    task_details = {}
+                    if isinstance(inner_stats, dict):
+                        for key in ("pages_loaded", "request_windows", "source_api", "date_from", "date_to", "period_days"):
+                            if key in inner_stats:
+                                task_details[key] = inner_stats[key]
                     await _update_sync_run(
                         session, sync_run_id, sync_status,
                         records_loaded=records_processed,
-                        records_created=success_count,
-                        records_updated=success_count,
-                        records_skipped=0,
+                        records_created=records_created_val,
+                        records_updated=records_updated_val,
+                        records_skipped=records_skipped,
                         error_message=last_error if sync_status == "warning" else None,
+                        details=task_details or None,
                     )
                     await _send_sync_notification(session, sync_run_id, "finish")
 
@@ -1866,6 +2267,7 @@ async def _update_sync_run(
     records_updated: int = 0,
     records_skipped: int = 0,
     error_message: str | None = None,
+    details: dict[str, Any] | None = None,
 ) -> None:
     from app.services.common.web_sync_run_service import WebSyncRunService
 
@@ -1878,6 +2280,7 @@ async def _update_sync_run(
         records_updated=records_updated,
         records_skipped=records_skipped,
         error_message=error_message,
+        details=details,
     )
     await session.commit()
 
@@ -1956,5 +2359,7 @@ for _task_name in (
     "sync_wb_daily_promotions",
     "check_auto_promo_prices",
     "sync_wb_product_prices",
+    "sync_wb_orders_stats",
+    "sync_wb_fbs_assembly_orders",
 ):
     globals()[_task_name] = _tracked_task(globals()[_task_name])

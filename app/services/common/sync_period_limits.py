@@ -37,6 +37,7 @@ def get_period_supported_sync_types() -> list[str]:
     return [
         "orders", "sales", "returns", "stocks",
         "finances", "wb_financial_details", "ozon_finances",
+        "wb_orders_stats", "wb_fbs_assembly_orders", "wb_reports",
     ]
 
 

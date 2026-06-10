@@ -42,8 +42,8 @@ SYNC_TYPE_MAP: dict[str, dict[str, Any]] = {
     },
     "orders": {
         "task": "poll_new_orders",
-        "label": "Заказы",
-        "description": "Синхронизация заказов",
+        "label": "Сборочные задания FBS",
+        "description": "Загружает FBS-сборочные задания, а не все заказы. Доступны за последние 3 месяца. Максимум 30 дней за один API-запрос.",
     },
     "sales": {
         "task": "sync_sale_events",
@@ -83,7 +83,23 @@ SYNC_TYPE_MAP: dict[str, dict[str, Any]] = {
         "task_wb": "sync_wb_daily_financial_details",
         "task_ozon": None,
         "label": "Финансовые детализации WB",
-        "description": "Синхронизация финансовых детализаций WB",
+        "description": "Используется для расчёта комиссий, логистики, штрафов, удержаний и суммы к перечислению.",
+    },
+    "wb_orders_stats": {
+        "task_wb": "sync_wb_orders_stats",
+        "task_ozon": None,
+        "label": "Заказы WB",
+        "description": "Загружает заказы из статистики WB. Доступны за последние 90 дней. Данные обновляются WB примерно раз в 30 минут.",
+        "source_api": "/api/v1/supplier/orders",
+        "max_api_days_back": 90,
+    },
+    "wb_fbs_assembly_orders": {
+        "task_wb": "sync_wb_fbs_assembly_orders",
+        "task_ozon": None,
+        "label": "Сборочные задания FBS",
+        "description": "Загружает FBS-сборочные задания, а не все заказы. Доступны за последние 3 месяца. Максимум 30 дней за один API-запрос.",
+        "source_api": "/api/v3/orders",
+        "max_api_days_back": 90,
     },
     "ozon_finances": {
         "task_wb": None,
@@ -181,6 +197,7 @@ class WebSyncRunService:
         records_created: int = 0,
         records_updated: int = 0,
         records_skipped: int = 0,
+        details: dict[str, Any] | None = None,
     ) -> SyncRun | None:
         run = await self._get_run(run_id)
         if run is None:
@@ -194,6 +211,8 @@ class WebSyncRunService:
         run.records_created = records_created
         run.records_updated = records_updated
         run.records_skipped = records_skipped
+        if details:
+            run.details_json = details
         await self.session.flush()
         return run
 
@@ -288,13 +307,17 @@ class WebSyncRunService:
             )
         if status == "timeout":
             return await self.mark_timeout(run_id, error_message)
-        return await self.mark_success(
+        run = await self.mark_success(
             run_id,
             records_loaded=records_loaded,
             records_created=records_created,
             records_updated=records_updated,
             records_skipped=records_skipped,
         )
+        if run and details:
+            run.details_json = details
+            await self.session.flush()
+        return run
 
     async def get_run(self, run_id: int) -> SyncRun | None:
         return await self._get_run(run_id)
@@ -427,7 +450,7 @@ class WebSyncRunService:
             }
 
         limits = await get_manual_sync_period_limits(self.session, user_id)
-        period_result = await self._validate_sync_period(limits, date_from, date_to, period_preset)
+        period_result = await self._validate_sync_period(limits, date_from, date_to, period_preset, sync_type=sync_type)
         if "error_code" in period_result:
             return {
                 "ok": False,
@@ -572,17 +595,25 @@ class WebSyncRunService:
         date_from: str | None,
         date_to: str | None,
         period_preset: str | None,
+        sync_type: str | None = None,
     ) -> dict:
         today = datetime.now(tz=UTC).date()
+        effective_max_days = limits.max_days_back
+
+        sync_info = SYNC_TYPE_MAP.get(sync_type) if sync_type else None
+        if sync_info:
+            api_max = sync_info.get("max_api_days_back")
+            if api_max is not None:
+                effective_max_days = min(effective_max_days, api_max)
 
         if period_preset and period_preset != "custom":
             preset_days = parse_period_preset(period_preset)
             if preset_days is None:
                 return {"error_code": "invalid_period_preset", "message": f"Неизвестный пресет периода: {period_preset}"}
-            if preset_days > limits.max_days_back:
+            if preset_days > effective_max_days:
                 return {
                     "error_code": "period_exceeds_limits",
-                    "message": f"Период {preset_days} дн. превышает лимит тарифа ({limits.max_days_back} дн.).",
+                    "message": f"Период {preset_days} дн. превышает лимит ({effective_max_days} дн.).",
                 }
             effective_date_from = today - timedelta(days=preset_days)
             effective_date_to = today
@@ -595,16 +626,16 @@ class WebSyncRunService:
                 return {"error_code": "invalid_date_format", "message": "Неверный формат даты. Используйте ГГГГ-ММ-ДД."}
             if parsed_from > parsed_to:
                 return {"error_code": "invalid_date_range", "message": "Дата начала не может быть позже даты окончания."}
-            if parsed_from < today - timedelta(days=limits.max_days_back):
+            if parsed_from < today - timedelta(days=effective_max_days):
                 return {
                     "error_code": "period_exceeds_limits",
-                    "message": f"Дата начала {date_from} выходит за лимит тарифа в {limits.max_days_back} дн.",
+                    "message": f"Дата начала {date_from} выходит за лимит в {effective_max_days} дн.",
                 }
             range_days = (parsed_to - parsed_from).days
-            if range_days > limits.max_range_days:
+            if range_days > min(effective_max_days, limits.max_range_days):
                 return {
                     "error_code": "period_exceeds_limits",
-                    "message": f"Диапазон {range_days} дн. превышает лимит тарифа ({limits.max_range_days} дн.).",
+                    "message": f"Диапазон {range_days} дн. превышает лимит ({min(effective_max_days, limits.max_range_days)} дн.).",
                 }
             effective_date_from = parsed_from
             effective_date_to = parsed_to
@@ -622,6 +653,7 @@ class WebSyncRunService:
             "tariff_name": limits.tariff_name,
             "limit_max_days_back": limits.max_days_back,
             "limit_max_range_days": limits.max_range_days,
+            "effective_max_days": effective_max_days,
         }
 
     async def verify_api_key(

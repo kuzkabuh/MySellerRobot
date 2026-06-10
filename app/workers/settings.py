@@ -36,6 +36,8 @@ from app.workers.tasks import (
     sync_wb_daily_sales_reports,
     sync_wb_logistics_tariffs,
     sync_wb_product_prices,
+    sync_wb_orders_stats,
+    sync_wb_fbs_assembly_orders,
 )
 
 settings = get_settings()
@@ -77,6 +79,8 @@ class WorkerSettings:
         sync_wb_daily_promotions,
         check_auto_promo_prices,
         sync_wb_product_prices,
+        sync_wb_orders_stats,
+        sync_wb_fbs_assembly_orders,
         backfill_wb_daily_financial_details,
         check_stale_sync_runs,
     ]

@@ -126,21 +126,20 @@ SYNC_CENTER_JS = """
     return '';
   }
 
-  function isPeriodSupported(syncType) {
-    return SYNC_PERIOD_SUPPORTED.indexOf(syncType) >= 0;
-  }
+    function isPeriodSupported(syncType) {
+      return SYNC_PERIOD_SUPPORTED.indexOf(syncType) >= 0;
+    }
 
-  function triggerSync(accountId, syncType, marketplace, btn) {
-    if (btn && (btn.disabled || btn.classList.contains('running'))) return;
+    function triggerSync(accountId, syncType, marketplace, btn) {
+      if (btn && (btn.disabled || btn.classList.contains('running'))) return;
 
-    if (syncType === 'all') {
-      if (!confirm('Запустить синхронизацию всех типов данных для этого кабинета?')) return;
-      var syncTypes = ['products', 'stocks', 'orders', 'sales', 'returns', 'profile', 'finances'];
-      if (marketplace === 'WB') {
-        syncTypes.push('wb_reports', 'logistics', 'wb_financial_details');
-      } else {
-        syncTypes.push('ozon_finances');
-      }
+      if (syncType === 'all') {
+        if (!confirm('Запустить синхронизацию всех типов данных для этого кабинета?')) return;
+        if (marketplace === 'WB') {
+          var syncTypes = ['products', 'stocks', 'wb_orders_stats', 'orders', 'sales', 'returns', 'wb_reports', 'wb_financial_details', 'profile', 'finances', 'logistics'];
+        } else {
+          var syncTypes = ['products', 'stocks', 'orders', 'sales', 'returns', 'profile', 'finances', 'ozon_finances'];
+        }
       syncTypes.forEach(function(st) {
         triggerSingleSync(accountId, st, marketplace, null);
       });
@@ -267,7 +266,9 @@ SYNC_CENTER_JS = """
       'all': '↻ Синхронизировать всё',
       'products': '📦 Товары',
       'stocks': '📊 Остатки',
-      'orders': '📋 Заказы',
+      'orders': '📋 Сборочные задания FBS',
+      'wb_orders_stats': '📋 Заказы WB',
+      'wb_fbs_assembly_orders': '📋 Сборочные задания FBS',
       'sales': '💰 Продажи',
       'returns': '↩ Возвраты',
       'profile': '👤 Профиль',

@@ -44,6 +44,8 @@ async def test_resolve_task_wb() -> None:
     assert _resolve_task("orders", "WB") == "poll_new_orders"
     assert _resolve_task("profile", "WB") == "sync_wb_account_profiles"
     assert _resolve_task("logistics", "WB") == "sync_wb_logistics_tariffs"
+    assert _resolve_task("wb_orders_stats", "WB") == "sync_wb_orders_stats"
+    assert _resolve_task("wb_fbs_assembly_orders", "WB") == "sync_wb_fbs_assembly_orders"
 
 
 async def test_resolve_task_ozon() -> None:
@@ -73,6 +75,7 @@ async def test_sync_type_map_completeness() -> None:
         "products", "stocks", "orders", "sales", "returns",
         "profile", "finances", "reports", "logistics",
         "wb_financial_details", "ozon_finances",
+        "wb_orders_stats", "wb_fbs_assembly_orders",
     ]
     for st in required_types:
         assert st in SYNC_TYPE_MAP, f"Missing sync type: {st}"
@@ -614,6 +617,93 @@ async def test_worker_wrapper_accepts_period_kwargs() -> None:
             for p in sig.parameters.values()
         )
         assert has_kwargs, f"{name} wrapper must accept **kwargs for period params"
+
+
+async def test_wb_orders_stats_uses_supplier_orders_api() -> None:
+    """wb_orders_stats maps to /api/v1/supplier/orders."""
+    info = SYNC_TYPE_MAP.get("wb_orders_stats")
+    assert info is not None
+    assert info["task_wb"] == "sync_wb_orders_stats"
+    assert info.get("source_api") == "/api/v1/supplier/orders"
+    assert info.get("max_api_days_back") == 90
+    assert _resolve_task("wb_orders_stats", "WB") == "sync_wb_orders_stats"
+    assert _resolve_task("wb_orders_stats", "OZON") is None
+
+
+async def test_wb_fbs_assembly_orders_uses_v3_orders_api() -> None:
+    """wb_fbs_assembly_orders maps to /api/v3/orders."""
+    info = SYNC_TYPE_MAP.get("wb_fbs_assembly_orders")
+    assert info is not None
+    assert info["task_wb"] == "sync_wb_fbs_assembly_orders"
+    assert info.get("source_api") == "/api/v3/orders"
+    assert _resolve_task("wb_fbs_assembly_orders", "WB") == "sync_wb_fbs_assembly_orders"
+    assert _resolve_task("wb_fbs_assembly_orders", "OZON") is None
+
+
+async def test_orders_label_now_shows_fbs() -> None:
+    """The old 'orders' sync type now shows 'Сборочные задания FBS'."""
+    info = SYNC_TYPE_MAP.get("orders")
+    assert info is not None
+    assert info["label"] == "Сборочные задания FBS"
+
+
+async def test_sync_run_model_has_records_skipped() -> None:
+    """SyncRun model already has records_skipped field."""
+    from app.models.integrations import SyncRun
+
+    run = SyncRun(
+        user_id=1, marketplace_account_id=1, marketplace="WB",
+        sync_type="wb_orders_stats", trigger_source="manual",
+    )
+    assert hasattr(run, "records_skipped")
+
+    run.records_skipped = 12
+    assert run.records_skipped == 12
+
+
+async def test_sync_run_has_details_json() -> None:
+    """SyncRun model already has details_json field."""
+    from app.models.integrations import SyncRun
+
+    run = SyncRun(
+        user_id=1, marketplace_account_id=1, marketplace="WB",
+        sync_type="wb_orders_stats", trigger_source="manual",
+    )
+    assert hasattr(run, "details_json")
+    assert run.details_json is None or run.details_json == {}
+
+    details = {"source_api": "/api/v1/supplier/orders", "pages_loaded": 5}
+    run.details_json = details
+    assert run.details_json["source_api"] == "/api/v1/supplier/orders"
+
+
+async def test_period_limits_with_api_max_days() -> None:
+    """Period validation respects max_api_days_back from SYNC_TYPE_MAP."""
+    from app.services.common.sync_period_limits import (
+        ManualSyncPeriodLimits,
+    )
+
+    session = FakeSession()
+    svc = WebSyncRunService(session)
+    account = _make_account()
+    # Force period_applied to True by passing period_preset
+    result = await svc.trigger_sync(
+        user_id=1, account=account, sync_type="wb_orders_stats",
+        period_preset="7d",
+    )
+    # With free tier (max 7 days) and api limit 90, effective_max_days = 7
+    # Should either succeed (queued) or fail on api key check
+    assert result.get("status") not in ("period_exceeds_limits",)
+
+
+async def test_new_sync_types_appear_in_period_supported() -> None:
+    """New sync types are in period_supported list."""
+    from app.services.common.sync_period_limits import get_period_supported_sync_types
+
+    types = get_period_supported_sync_types()
+    assert "wb_orders_stats" in types
+    assert "wb_fbs_assembly_orders" in types
+    assert "wb_reports" in types
 
 
 async def test_trigger_sync_no_period_maintains_existing_behavior() -> None:

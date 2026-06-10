@@ -152,32 +152,39 @@ def _sync_buttons(account: object, is_ozon: bool) -> str:
         disabled = ' disabled'
         disabled_title = ' title="API-ключ не проверен"'
 
-    def _btn(sync_type: str, label: str, extra_cls: str = "") -> str:
+    def _btn(sync_type: str, label: str, extra_cls: str = "", title: str = "") -> str:
         nonlocal disabled, disabled_title
-        return f'<button class="btn btn-sm {extra_cls}" data-account-id="{aid}" data-sync-type="{sync_type}" data-marketplace="{mp}" data-running="false"{disabled}{disabled_title}>{label}</button>'
+        title_attr = f' title="{escape(title)}"' if title else ""
+        return f'<button class="btn btn-sm {extra_cls}" data-account-id="{aid}" data-sync-type="{sync_type}" data-marketplace="{mp}" data-running="false"{disabled}{disabled_title}{title_attr}>{label}</button>'
 
-    def _wbtn(sync_type: str, label: str) -> str:
-        return _btn(sync_type, label)
+    def _wbtn(sync_type: str, label: str, title: str = "") -> str:
+        return _btn(sync_type, label, title=title)
 
     btns = [
         _btn("all", "↻ Синхронизировать всё", "btn-primary"),
         _btn("products", "📦 Товары"),
         _btn("stocks", "📊 Остатки"),
-        _btn("orders", "📋 Заказы"),
-        _btn("sales", "💰 Продажи"),
-        _btn("returns", "↩ Возвраты"),
-        _btn("profile", "👤 Профиль"),
-        _btn("finances", "💳 Финансы"),
     ]
 
     if not is_ozon:
         btns.extend([
-            _wbtn("reports", "📑 Отчёты WB"),
-            _wbtn("logistics", "🚚 Логистика WB"),
+            _wbtn("wb_orders_stats", "📋 Заказы WB", "Загружает заказы из статистики WB. Доступны за последние 90 дней."),
+            _wbtn("orders", "📋 Сборочные задания FBS", "Загружает FBS-сборочные задания, а не все заказы."),
+            _wbtn("sales", "💰 Продажи"),
+            _wbtn("returns", "↩ Возвраты"),
+            _wbtn("wb_reports", "📑 Отчёты WB"),
             _wbtn("wb_financial_details", "📊 Финансовые детализации WB"),
+            _wbtn("profile", "👤 Профиль"),
+            _wbtn("finances", "💳 Финансы"),
+            _wbtn("logistics", "🚚 Логистика WB"),
         ])
     else:
         btns.extend([
+            _wbtn("orders", "📋 Заказы"),
+            _wbtn("sales", "💰 Продажи"),
+            _wbtn("returns", "↩ Возвраты"),
+            _wbtn("profile", "👤 Профиль"),
+            _wbtn("finances", "💳 Финансы"),
             _wbtn("ozon_finances", "💳 Финансы Ozon"),
             _wbtn("ozon_balance", "⚖ Баланс Ozon"),
         ])
@@ -192,17 +199,26 @@ def _sync_buttons(account: object, is_ozon: bool) -> str:
 
 
 def _freshness_table(acc_data: object, is_ozon: bool) -> str:
-    entries = [
-        ("sync_freshness_orders", "Заказы", "orders"),
-        ("sync_freshness_sales", "Продажи", "sales"),
-        ("sync_freshness_stocks", "Остатки", "stocks"),
-        ("sync_freshness_products", "Товары", "products"),
-        ("sync_freshness_profile", "Профиль", "profile"),
-    ]
     if is_ozon:
-        entries.append(("sync_freshness_ozon_finance", "Финансы Ozon", "ozon_finances"))
+        entries = [
+            ("sync_freshness_orders", "Заказы", "orders"),
+            ("sync_freshness_sales", "Продажи", "sales"),
+            ("sync_freshness_stocks", "Остатки", "stocks"),
+            ("sync_freshness_products", "Товары", "products"),
+            ("sync_freshness_profile", "Профиль", "profile"),
+            ("sync_freshness_ozon_finance", "Финансы Ozon", "ozon_finances"),
+        ]
     else:
-        entries.append(("sync_freshness_wb_reports", "Отчёты WB", "wb_reports"))
+        entries = [
+            ("sync_freshness_orders", "Сборочные задания FBS", "orders"),
+            ("sync_freshness_orders", "Заказы WB", "wb_orders_stats"),
+            ("sync_freshness_sales", "Продажи", "sales"),
+            ("sync_freshness_stocks", "Остатки", "stocks"),
+            ("sync_freshness_products", "Товары", "products"),
+            ("sync_freshness_profile", "Профиль", "profile"),
+            ("sync_freshness_wb_reports", "Отчёты WB", "wb_reports"),
+            ("sync_freshness_wb_financial_details", "Фин. детализации WB", "wb_financial_details"),
+        ]
 
     tones = {"good": "good", "warn": "warn", "bad": "bad", "none": ""}
     labels = {"good": "OK", "warn": "Задержка", "bad": "Просрочка", "none": "Нет данных"}
@@ -250,11 +266,14 @@ def _freshness_table(acc_data: object, is_ozon: bool) -> str:
 def _sync_ts(account: object, sync_type: str) -> datetime | None:
     mapping = {
         "orders": "last_order_poll_at",
+        "wb_orders_stats": "last_orders_sync_at",
+        "wb_fbs_assembly_orders": "last_order_poll_at",
         "sales": "last_sales_sync_at",
         "stocks": "last_stocks_sync_at",
         "products": "last_products_sync_at",
         "profile": "last_profile_sync_at",
         "wb_reports": "last_wb_reports_sync_at",
+        "wb_financial_details": "last_wb_financial_detail_sync_at",
         "ozon_finances": "last_ozon_finance_sync_at",
     }
     attr = mapping.get(sync_type)
@@ -266,11 +285,14 @@ def _sync_ts(account: object, sync_type: str) -> datetime | None:
 def _next_run(sync_type: str) -> str:
     intervals = {
         "orders": "каждые 3 мин",
+        "wb_orders_stats": "вручную",
+        "wb_fbs_assembly_orders": "вручную",
         "sales": "каждые 15 мин",
         "stocks": "3 раза в день",
         "products": "каждый час",
         "profile": "2 раза в день",
         "wb_reports": "раз в день",
+        "wb_financial_details": "раз в день",
         "ozon_finances": "3 раза в день",
         "finances": "раз в день",
         "logistics": "раз в день",
@@ -318,7 +340,7 @@ def _error_block(account: object) -> str:
 def _sync_center_history_content(runs: list[SyncRun], is_admin: bool) -> str:
     has_running = any(r.status == "running" for r in runs)
     if not runs:
-        rows_html = '<tr><td colspan="11"><div class="empty-state compact">История запусков пуста.</div></td></tr>'
+        rows_html = '<tr><td colspan="12"><div class="empty-state compact">История запусков пуста.</div></td></tr>'
     else:
         rows_html = ""
         for r in runs:
@@ -336,6 +358,7 @@ def _sync_center_history_content(runs: list[SyncRun], is_admin: bool) -> str:
               <td class="num">{r.records_loaded}</td>
               <td class="num">{r.records_created}</td>
               <td class="num">{r.records_updated}</td>
+              <td class="num">{r.records_skipped}</td>
               <td><span class="muted">{escape(r.error_message[:100]) if r.error_message else '—'}</span></td>
             </tr>"""
 
@@ -390,6 +413,7 @@ def _sync_center_history_content(runs: list[SyncRun], is_admin: bool) -> str:
               <th class="num">Загружено</th>
               <th class="num">Создано</th>
               <th class="num">Обновлено</th>
+              <th class="num">Пропущено</th>
               <th>Ошибка</th>
             </tr>
           </thead>
@@ -460,7 +484,7 @@ def _sync_center_settings_content() -> str:
           <tr><th>Тип синхронизации</th><th>Частота</th><th>Статус</th></tr>
         </thead>
         <tbody>
-          <tr><td>Заказы</td><td>Каждые 3 минуты</td><td><span class="badge good">Активно</span></td></tr>
+          <tr><td>Сборочные задания FBS</td><td>Каждые 3 минуты</td><td><span class="badge good">Активно</span></td></tr>
           <tr><td>Продажи и возвраты</td><td>Каждые 15 минут</td><td><span class="badge good">Активно</span></td></tr>
           <tr><td>Остатки</td><td>3 раза в день (8:00, 14:00, 20:00)</td><td><span class="badge good">Активно</span></td></tr>
           <tr><td>Товары</td><td>Каждый час</td><td><span class="badge good">Активно</span></td></tr>
@@ -512,12 +536,18 @@ def _sync_period_bar(limits: ManualSyncPeriodLimits, period_supported: list[str]
 
 def _period_display(run: SyncRun) -> str:
     details = run.details_json
-    if not details or not details.get("date_from"):
+    if not details:
+        return '<span class="muted">—</span>'
+    source_api = details.get("source_api", "")
+    if not details.get("date_from"):
+        if source_api:
+            return f'<span class="muted" style="font-size:10px">{escape(source_api)}</span>'
         return '<span class="muted">—</span>'
     date_from = details["date_from"]
     date_to = details["date_to"]
     period_days = details.get("period_days", 0)
-    return f'<span class="muted" style="font-size:11px" title="{escape(date_from)} → {escape(date_to)}">{date_from} – {date_to} ({period_days} дн.)</span>'
+    api_hint = f" {escape(source_api)}" if source_api else ""
+    return f'<span class="muted" style="font-size:11px" title="{escape(date_from)} → {escape(date_to)}{api_hint}">{date_from} – {date_to} ({period_days} дн.)</span>'
 
 
 def _tone_for_score(score: int | None) -> str:
@@ -538,6 +568,7 @@ def _last_success_time(accounts: list) -> datetime | None:
             "last_order_poll_at", "last_sales_sync_at", "last_stocks_sync_at",
             "last_products_sync_at", "last_profile_sync_at",
             "last_wb_reports_sync_at", "last_ozon_finance_sync_at",
+            "last_orders_sync_at", "last_wb_financial_detail_sync_at",
         ):
             ts = getattr(acc, field, None)
             if ts is not None:
