@@ -501,7 +501,10 @@ def _run_status_badge(status: str) -> str:
 def _trigger_source_label(source: str) -> str:
     mapping = {
         "manual": "Вручную",
-        "auto": "Авто",
+        "auto": "Автоматически",
+        "automatic": "Автоматически",
+        "cron": "Автоматически",
+        "scheduler": "Автоматически",
         "system": "Система",
         "web_admin": "Админ",
     }

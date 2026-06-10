@@ -49,7 +49,7 @@ def _sync_type_label(sync_type: str) -> str:
 
 
 def _trigger_source_label(source: str) -> str:
-    return {"manual": "Вручную", "auto": "Автоматически", "system": "Система"}.get(source, source)
+    return {"manual": "Вручную", "auto": "Автоматически", "automatic": "Автоматически", "cron": "Автоматически", "scheduler": "Автоматически", "system": "Система"}.get(source, source)
 
 
 def _account_name(run: SyncRun) -> str:

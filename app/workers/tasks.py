@@ -1673,6 +1673,22 @@ async def sync_wb_product_prices(ctx: dict[str, Any]) -> dict[str, Any]:
             )
 
 
+async def _start_sync_run(session: AsyncSession, sync_run_id: int) -> None:
+    from app.models.domain import SyncRun
+
+    result = await session.execute(
+        select(SyncRun).where(SyncRun.id == sync_run_id)
+    )
+    run = result.scalar_one_or_none()
+    if run is None:
+        return
+    now = datetime.now(tz=UTC)
+    run.status = "running"
+    if run.started_at is None:
+        run.started_at = now
+    await session.flush()
+
+
 def _tracked_task(
     func: Callable[[dict[str, Any]], Awaitable[Any]],
 ) -> Callable[[dict[str, Any]], Awaitable[Any]]:
@@ -1694,6 +1710,8 @@ def _tracked_task(
                 triggered_by_user_id=triggered_by,
                 metadata={"source": "arq"},
             )
+            if sync_run_id is not None:
+                await _start_sync_run(session, sync_run_id)
             await session.commit()
             if sync_run_id is not None:
                 await _send_sync_notification(session, sync_run_id, "start")

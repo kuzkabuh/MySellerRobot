@@ -76,6 +76,7 @@ class WorkerSettings:
         sync_wb_daily_promotions,
         check_auto_promo_prices,
         sync_wb_product_prices,
+        backfill_wb_daily_financial_details,
     ]
     order_poll_minutes = _minute_schedule_from_interval(settings.order_poll_interval_seconds)
     cron_jobs = [

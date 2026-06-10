@@ -39,8 +39,7 @@ SYNC_CENTER_JS = """
         syncTypes.push('ozon_finances');
       }
       syncTypes.forEach(function(st) {
-        var fakeBtn = { disabled: false, classList: { contains: function() { return false; } } };
-        triggerSingleSync(accountId, st, marketplace, fakeBtn);
+        triggerSingleSync(accountId, st, marketplace, null);
       });
       showToast('Синхронизации запускаются...', 'info');
       return;
@@ -50,7 +49,7 @@ SYNC_CENTER_JS = """
   }
 
   function triggerSingleSync(accountId, syncType, marketplace, btn) {
-    if (btn) {
+    if (btn && btn instanceof HTMLElement) {
       btn.disabled = true;
       btn.classList.add('running');
       btn.textContent = 'Выполняется...';
@@ -136,7 +135,7 @@ SYNC_CENTER_JS = """
   }
 
   function resetBtn(btn) {
-    if (!btn) return;
+    if (!btn || !(btn instanceof HTMLElement)) return;
     btn.disabled = false;
     btn.classList.remove('running', 'success-flash', 'error-flash');
     var syncType = btn.getAttribute('data-sync-type');

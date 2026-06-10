@@ -20,7 +20,7 @@ from app.models.enums import Marketplace
 
 logger = logging.getLogger(__name__)
 
-STALE_SYNC_TIMEOUT_HOURS = 2
+STALE_SYNC_TIMEOUT_MINUTES = 30
 STALE_BACKFILL_TIMEOUT_HOURS = 6
 
 SYNC_TYPE_MAP: dict[str, dict[str, Any]] = {
@@ -394,6 +394,10 @@ class WebSyncRunService:
                 "message": f"Синхронизация «{SYNC_TYPE_MAP.get(sync_type, {}).get('label', sync_type)}» для {account.marketplace.value} пока не реализована.",
             }
 
+        stale_count = await self.mark_stale_syncs_as_failed()
+        if stale_count:
+            logger.info("stale_syncs_cleaned_on_trigger", extra={"count": stale_count})
+
         running = await self.check_running(account.id, sync_type)
         if running:
             return {
@@ -463,8 +467,6 @@ class WebSyncRunService:
                 "status": "enqueue_failed",
                 "message": "Не удалось поставить задачу в очередь. Попробуйте позже.",
             }
-
-        await self.mark_started(run.id)
 
         label = SYNC_TYPE_MAP.get(sync_type, {}).get("label", sync_type)
         logger.info(
@@ -577,19 +579,24 @@ class WebSyncRunService:
 
     async def mark_stale_syncs_as_failed(self) -> int:
         now = datetime.now(tz=UTC)
-        stale_cutoff = now - timedelta(hours=STALE_SYNC_TIMEOUT_HOURS)
+        running_cutoff = now - timedelta(minutes=STALE_SYNC_TIMEOUT_MINUTES)
         backfill_cutoff = now - timedelta(hours=STALE_BACKFILL_TIMEOUT_HOURS)
+        queued_cutoff = now - timedelta(minutes=STALE_SYNC_TIMEOUT_MINUTES)
 
         count = 0
-        for cutoff, sync_type_filter in [
-            (stale_cutoff, None),
-            (backfill_cutoff, "wb_financial_details"),
+        for status, cutoff, sync_type_filter in [
+            ("running", running_cutoff, None),
+            ("running", backfill_cutoff, "wb_financial_details"),
+            ("queued", queued_cutoff, None),
         ]:
             conditions = [
-                SyncRun.status == "running",
-                SyncRun.started_at.isnot(None),
-                SyncRun.started_at < cutoff,
+                SyncRun.status == status,
             ]
+            if status == "running":
+                conditions.append(SyncRun.started_at.isnot(None))
+                conditions.append(SyncRun.started_at < cutoff)
+            else:
+                conditions.append(SyncRun.created_at < cutoff)
             if sync_type_filter is not None:
                 conditions.append(SyncRun.sync_type == sync_type_filter)
             result = await self.session.execute(
@@ -603,7 +610,7 @@ class WebSyncRunService:
                     run.duration_seconds = Decimal(str((now - run.started_at).total_seconds()))
                 run.error_message = (
                     f"Задача не завершилась корректно: превышено время выполнения "
-                    f"({STALE_SYNC_TIMEOUT_HOURS if sync_type_filter is None else STALE_BACKFILL_TIMEOUT_HOURS} ч)."
+                    f"({STALE_SYNC_TIMEOUT_MINUTES if sync_type_filter is None else STALE_BACKFILL_TIMEOUT_HOURS} мин)."
                 )[:5000]
                 count += 1
                 logger.warning(
@@ -612,6 +619,7 @@ class WebSyncRunService:
                         "run_id": run.id,
                         "sync_type": run.sync_type,
                         "marketplace": run.marketplace,
+                        "status": status,
                         "started_at": run.started_at.isoformat() if run.started_at else None,
                     },
                 )

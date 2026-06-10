@@ -219,3 +219,133 @@ async def test_trigger_sync_russian_messages() -> None:
     result3 = await svc.trigger_sync(user_id=1, account=account3, sync_type="orders")
     assert isinstance(result3.get("message"), str)
     assert "недействителен" in result3["message"]
+
+
+# ── Tests for the fix: lifecycle, stale cleanup, field usage ──
+
+
+async def test_create_run_not_prematurely_marked_running() -> None:
+    """SyncRun starts as 'queued' — worker marks 'running' later."""
+    session = FakeSession()
+    svc = WebSyncRunService(session)
+    run = await svc.create_run(
+        user_id=1, account_id=1, marketplace="WB", sync_type="orders",
+    )
+    assert run.status == "queued"
+    assert run.started_at is None
+
+
+async def test_create_run_uses_trigger_source() -> None:
+    """SyncRun uses trigger_source field (not source)."""
+    session = FakeSession()
+    svc = WebSyncRunService(session)
+    run = await svc.create_run(
+        user_id=1,
+        account_id=1,
+        marketplace="WB",
+        sync_type="orders",
+        trigger_source="manual",
+    )
+    assert run.trigger_source == "manual"
+    assert not hasattr(run, "source") or run.source is None
+
+
+async def test_create_run_automatic_trigger_source() -> None:
+    """SyncRun supports automatic trigger_source values."""
+    for src in ("auto", "automatic", "cron", "scheduler"):
+        session = FakeSession()
+        svc = WebSyncRunService(session)
+        run = await svc.create_run(
+            user_id=1,
+            account_id=1,
+            marketplace="WB",
+            sync_type="orders",
+            trigger_source=src,
+        )
+        assert run.trigger_source == src
+
+
+async def test_sync_run_model_has_correct_fields() -> None:
+    """SyncRun model uses trigger_source, records_*, error_message, etc."""
+    session = FakeSession()
+    svc = WebSyncRunService(session)
+    run = await svc.create_run(
+        user_id=1, account_id=1, marketplace="WB", sync_type="orders",
+    )
+    assert run.trigger_source == "manual"
+    assert hasattr(run, "records_loaded")
+    assert hasattr(run, "records_created")
+    assert hasattr(run, "records_updated")
+    assert hasattr(run, "records_skipped")
+    assert hasattr(run, "error_message")
+    assert hasattr(run, "duration_seconds")
+    assert hasattr(run, "error_code")
+    assert not hasattr(run, "source") or run.trigger_source is not None
+
+
+async def test_create_run_starts_queued() -> None:
+    """SyncRun starts as 'queued', not 'running'."""
+    session = FakeSession()
+    svc = WebSyncRunService(session)
+    run = await svc.create_run(
+        user_id=1, account_id=1, marketplace="WB", sync_type="orders",
+    )
+    assert run.status == "queued"
+    assert run.started_at is None
+
+
+async def test_trigger_source_label_mapping() -> None:
+    """Trigger source labels should be user-friendly."""
+    from app.web.view_modules.sync_center import _trigger_source_label
+
+    assert _trigger_source_label("manual") == "Вручную"
+    assert _trigger_source_label("auto") == "Автоматически"
+    assert _trigger_source_label("automatic") == "Автоматически"
+    assert _trigger_source_label("cron") == "Автоматически"
+    assert _trigger_source_label("scheduler") == "Автоматически"
+    assert _trigger_source_label("web_admin") == "Админ"
+
+
+async def test_run_status_badge_has_all_states() -> None:
+    """All sync_run statuses have badge labels."""
+    from app.web.view_modules.sync_center import _run_status_badge
+
+    for status in ("queued", "running", "success", "warning", "error", "timeout"):
+        badge = _run_status_badge(status)
+        assert isinstance(badge, str)
+        assert "badge" in badge
+
+
+async def test_sync_notification_builds_text(
+) -> None:
+    """SyncRun notification text builders use trigger_source, records fields."""
+    run = SimpleNamespace(
+        id=42,
+        marketplace="WB",
+        sync_type="orders",
+        trigger_source="manual",
+        status="running",
+        started_at=datetime.now(tz=UTC),
+        finished_at=None,
+        duration_seconds=None,
+        records_loaded=50,
+        records_created=40,
+        records_updated=10,
+        records_skipped=0,
+        error_message=None,
+        account=SimpleNamespace(name="Test Cabinet"),
+        user=SimpleNamespace(first_name="TestUser"),
+        user_id=1,
+    )
+    from app.services.common.sync_notification_service import _build_start_text, _build_success_text
+
+    start_text = _build_start_text(run)
+    assert "🚀" in start_text
+    assert "WB" in start_text
+    assert "Вручную" in start_text
+    assert "Test Cabinet" in start_text
+
+    success_text = _build_success_text(run)
+    assert "✅" in success_text
+    assert "50" in success_text
+    assert "40" in success_text
