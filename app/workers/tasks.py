@@ -1717,18 +1717,18 @@ async def _start_sync_run(session: AsyncSession, sync_run_id: int) -> None:
 
 
 def _tracked_task(
-    func: Callable[[dict[str, Any]], Awaitable[Any]],
-) -> Callable[[dict[str, Any]], Awaitable[Any]]:
+    func: Callable[..., Awaitable[Any]],
+) -> Callable[..., Awaitable[Any]]:
     @wraps(func)
-    async def wrapper(ctx: dict[str, Any]) -> Any:
+    async def wrapper(ctx: dict[str, Any], **kwargs: Any) -> Any:
         from app.services.common.sync_status_service import SyncStatusService
 
         task_name = func.__name__
         if not hasattr(AsyncSessionFactory, "begin"):
             return await func(ctx)
 
-        sync_run_id = ctx.get("sync_run_id") if ctx else None
-        triggered_by = ctx.get("triggered_by_user_id") if ctx else None
+        sync_run_id = kwargs.get("sync_run_id") or (ctx.get("sync_run_id") if ctx else None)
+        triggered_by = kwargs.get("triggered_by_user_id") or (ctx.get("triggered_by_user_id") if ctx else None)
 
         async with AsyncSessionFactory() as session:
             service = SyncStatusService(session)

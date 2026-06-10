@@ -4,12 +4,11 @@
 
 ### Fixed
 
-- **Критическое**: ручной запуск синхронизаций из Sync Center падал с `TypeError: takes 1 positional argument but 2 were given` — payload передавался как позиционный аргумент в `arq.enqueue_job`. Исправлено: payload разворачивается как `**kwargs`, arq корректно сливает их в `ctx`.
-- Исправлен аналогичный баг в админской панели (`/web/admin/sync-status/run/`).
+- **Критическое**: ручной запуск синхронизаций из Sync Center падал с `TypeError: got an unexpected keyword argument 'triggered_by_user_id'` — arq 0.28 передаёт kwargs из `enqueue_job` напрямую как именованные аргументы в функцию, а `_tracked_task` wrapper не принимал `**kwargs`. Исправлено: wrapper объявлен как `async def wrapper(ctx, **kwargs)`, читает `sync_run_id` и `triggered_by_user_id` из kwargs и не передаёт их в бизнес-логику.
 - **Защита от дублей**: `trigger_sync` проверяет существование активного (queued/running) запуска перед созданием нового. Добавлен частичный уникальный индекс `uq_sync_runs_active_manual` на `(user_id, marketplace_account_id, marketplace, sync_type, trigger_source) WHERE status IN ('queued', 'running')` + обработка `IntegrityError` на случай гонки.
-- **Сигнатуры воркеров**: во все 27 ARQ-функций добавлен опциональный параметр `payload: dict | None = None` для прямой совместимости с ручным запуском.
 - **Очистка зависших**: queued-записи старше 10 мин помечаются `failed` с `error_code='SYNC_RUN_QUEUE_TIMEOUT'`; running — `timeout` с `error_code='SYNC_RUN_TIMEOUT'`.
 - **Frontend**: кнопка блокируется сразу после клика; при ответе `already_running: true` показывается toast "Уже выполняется" без ошибки; статус существующего run_id обновляется через poll.
+- Исправлен аналогичный баг в админской панели (`/web/admin/sync-status/run/`).
 
 ### Changed
 

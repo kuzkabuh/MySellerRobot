@@ -414,3 +414,33 @@ async def test_worker_function_accepts_payload() -> None:
         # The functions are wrapped by _tracked_task, call wrapper(ctx)
         # We just verify the wrapper doesn't crash with 2 args
         pass
+
+
+async def test_worker_wrapper_accepts_kwargs() -> None:
+    """_tracked_task wrapper must accept **kwargs for arq 0.28 compatibility."""
+    import inspect
+    from app.workers import tasks as worker_tasks
+
+    tracked = [
+        "poll_new_orders", "send_daily_reports", "sync_sale_events",
+        "sync_products", "check_low_stocks", "sync_wb_account_profiles",
+        "check_wb_financial_reports", "sync_wb_daily_financial_details",
+        "sync_wb_logistics_tariffs", "sync_ozon_balances",
+        "reconcile_ozon_finance", "sync_ozon_catalog_enrichment",
+        "sync_wb_daily_sales_reports", "sync_wb_commissions",
+        "sync_wb_daily_promotions", "sync_wb_product_prices",
+        "backfill_wb_daily_financial_details",
+    ]
+    for name in tracked:
+        func = getattr(worker_tasks, name, None)
+        assert func is not None, f"Function {name} not found in tasks module"
+        sig = inspect.signature(func, follow_wrapped=False)
+        has_kwargs = any(
+            p.kind == inspect.Parameter.VAR_KEYWORD
+            for p in sig.parameters.values()
+        )
+        assert has_kwargs, (
+            f"{name} wrapper does not accept **kwargs. "
+            f"arq 0.28 calls function(ctx, **enqueue_kwargs) — "
+            f"wrapper must accept them silently. Actual wrapper signature: {sig}"
+        )
