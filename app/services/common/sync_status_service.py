@@ -128,3 +128,19 @@ class SyncStatusService:
         for run in runs:
             latest.setdefault(run.task_name, run)
         return latest
+
+    async def all_task_names(self) -> list[str]:
+        result = await self.session.execute(
+            select(SyncTaskRun.task_name).distinct().order_by(SyncTaskRun.task_name)
+        )
+        return [row[0] for row in result.all()]
+
+    async def recent_runs_by_task(self, task_name: str, limit: int = 10) -> list[SyncTaskRun]:
+        query = (
+            select(SyncTaskRun)
+            .where(SyncTaskRun.task_name == task_name)
+            .order_by(SyncTaskRun.started_at.desc())
+            .limit(limit)
+        )
+        result = await self.session.execute(query)
+        return list(result.scalars().all())

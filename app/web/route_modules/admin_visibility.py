@@ -31,6 +31,16 @@ from app.services.payments.payment_service import PaymentService
 from app.services.account.profile_service import ProfileService, ProfileValidationError
 from app.services.subscriptions.subscription_service import SubscriptionService
 from app.services.common.sync_status_service import SyncStatusService
+from app.services.common.task_registry import (
+    TASK_REGISTRY,
+    format_duration,
+    get_task_info,
+    status_color,
+    translate_category,
+    translate_counters,
+    translate_error,
+    translate_status,
+)
 from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY, is_admin_user
 from app.web.rendering import page
 
@@ -730,79 +740,288 @@ _MANUAL_TASKS = {
 }
 
 
-_WORKER_DIAGNOSTIC_TASKS = (
-    "poll_new_orders",
-    "sync_sale_events",
-    "sync_wb_product_prices",
-    "check_auto_promo_prices",
-)
+_FILTER_LABELS: dict[str, str] = {
+    "all": "Все",
+    "errors": "Только ошибки",
+    "warnings": "Только предупреждения",
+    "success": "Только успешные",
+    "wb": "Wildberries",
+    "ozon": "Ozon",
+    "system": "Системные задачи",
+    "finance": "Финансы",
+    "notifications": "Уведомления",
+}
+
+_FILTER_VALUES = {
+    "all": lambda info: True,
+    "errors": lambda info: info.get("status_text") in ("error", "failed"),
+    "warnings": lambda info: info.get("status_text") == "warning",
+    "success": lambda info: info.get("status_text") == "success",
+    "wb": lambda info: info.get("category") == "wb",
+    "ozon": lambda info: info.get("category") == "ozon",
+    "system": lambda info: info.get("category") == "system",
+    "finance": lambda info: info.get("category") == "finance",
+    "notifications": lambda info: info.get("category") == "notifications",
+}
+
+
+def _status_badge(status: str | None) -> str:
+    text = translate_status(status)
+    color = status_color(status)
+    return f'<span class="badge" style="background:{color}15;color:{color};border-color:{color}40">{_h(text)}</span>'
+
+
+def _duration_str(duration_ms: int | None) -> str:
+    return _h(format_duration(duration_ms))
+
+
+def _counters_str(counters: dict[str, int] | None) -> str:
+    items = translate_counters(counters)
+    if not items:
+        return '<span class="muted">—</span>'
+    parts = "".join(f"<div>{_h(label)}: {value}</div>" for label, value in items)
+    return f"<div style='font-size:12px;line-height:1.6'>{parts}</div>"
+
+
+def _error_str(error: str | None) -> str:
+    if not error:
+        return '<span class="muted">—</span>'
+    return _h(translate_error(error))
 
 
 @router.get("/admin/worker-diagnostics", response_class=HTMLResponse)
 async def admin_worker_diagnostics_page(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
+    filter: str = Query(default="all"),
 ) -> str:
     _require_admin(user)
-    latest_runs = await SyncStatusService(session).latest_by_task(limit=1000)
-    counts = {
-        row.task_name: (int(row.success_runs or 0), int(row.failed_runs or 0))
-        for row in (
-            await session.execute(
-                select(
-                    SyncTaskRun.task_name.label("task_name"),
-                    func.sum(case((SyncTaskRun.status == "success", 1), else_=0)).label(
-                        "success_runs"
-                    ),
-                    func.sum(case((SyncTaskRun.status == "failed", 1), else_=0)).label(
-                        "failed_runs"
-                    ),
-                )
-                .where(SyncTaskRun.task_name.in_(_WORKER_DIAGNOSTIC_TASKS))
-                .group_by(SyncTaskRun.task_name)
-            )
-        ).all()
-    }
-    rows = ""
-    for task_name in _WORKER_DIAGNOSTIC_TASKS:
+    svc = SyncStatusService(session)
+
+    # Collect all task names: from DB + registry
+    db_task_names = await svc.all_task_names()
+    all_names_set = set(db_task_names) | set(TASK_REGISTRY.keys())
+    all_task_names = sorted(all_names_set)
+
+    # Get latest run for each task
+    latest_runs = await svc.latest_by_task(limit=5000)
+
+    # Build per-task display info
+    task_infos: list[dict] = []
+    for task_name in all_task_names:
+        info = dict(get_task_info(task_name))
         run = latest_runs.get(task_name)
-        success_runs, failed_runs = counts.get(task_name, (0, 0))
-        latest_stats = ""
+        stats: dict[str, int] = {}
         if run and isinstance(run.run_metadata, dict):
-            latest_stats = ", ".join(
-                f"{_h(key)}={_h(value)}"
-                for key, value in (run.run_metadata.get("stats") or {}).items()
-            )
-        rows += (
-            f"<tr><td>{_h(task_name)}</td>"
-            f"<td>{_badge(run.status) if run else _badge('no_runs')}</td>"
-            f"<td>{_dt(run.started_at if run else None)}</td>"
-            f"<td>{_dt(run.finished_at if run else None)}</td>"
-            f"<td>{run.duration_ms if run and run.duration_ms is not None else '-'}</td>"
-            f"<td>{success_runs}</td><td>{failed_runs}</td>"
-            f"<td>{latest_stats}</td><td>{_h(run.last_error if run else '')}</td></tr>"
-        )
-    content = (
-        "<div class='page-header'><div><h2>Диагностика воркеров</h2>"
-        "<div class='summary-strip'><span>Источник: <strong>sync_task_runs</strong></span>"
-        "<span>Ключевые задачи: <strong>4</strong></span></div></div></div>"
-        + _table(
-            "Ключевые фоновые задачи",
-            [
-                "Задача",
-                "Статус",
-                "Старт",
-                "Финиш",
-                "мс",
-                "Успешно",
-                "Ошибки",
-                "Счётчики",
-                "Последняя ошибка",
-            ],
-            rows,
-        )
+            s = run.run_metadata.get("stats") or {}
+            if isinstance(s, dict):
+                stats = {str(k): int(v) if v is not None else 0 for k, v in s.items()}
+
+        status_text = run.status if run else "no_runs"
+        info["task_name"] = task_name
+        info["run"] = run
+        info["stats"] = stats
+        info["status_text"] = status_text
+        info["category"] = info.get("category", "unknown")
+        task_infos.append(info)
+
+    # Apply filter
+    filter_fn = _FILTER_VALUES.get(filter, _FILTER_VALUES["all"])
+    filtered = [t for t in task_infos if filter_fn(t)]
+
+    # Compute per-task totals for counters
+    total_tasks = len(filtered)
+    success_count = sum(
+        1 for t in filtered if t.get("status_text") == "success"
     )
-    return _admin_page("Диагностика воркеров", user, content, "/web/admin/worker-diagnostics")
+    warning_count = sum(
+        1 for t in filtered if t.get("status_text") == "warning"
+    )
+    error_count = sum(
+        1 for t in filtered if t.get("status_text") in ("error", "failed")
+    )
+    no_runs_count = sum(
+        1 for t in filtered if t.get("status_text") == "no_runs"
+    )
+
+    # Build filter bar
+    filter_items = "".join(
+        f'<a class="btn {"btn-primary" if filter == key else ""}" href="?filter={key}">{label}</a>'
+        for key, label in _FILTER_LABELS.items()
+    )
+
+    # Build KPI cards
+    last_update = max(
+        (
+            t["run"].finished_at or t["run"].started_at
+            for t in filtered
+            if t.get("run") and (t["run"].finished_at or t["run"].started_at)
+        ),
+        default=None,
+    )
+    last_update_str = _dt(last_update) if last_update else "—"
+
+    kpi_cards = f"""
+    <div class="kpi-grid">
+      <div class="kpi action"><span>Фоновых задач</span><strong>{total_tasks}</strong></div>
+      <div class="kpi good"><span>Успешно</span><strong>{success_count}</strong></div>
+      <div class="kpi warn"><span>Предупреждения</span><strong>{warning_count}</strong></div>
+      <div class="kpi bad"><span>Ошибки</span><strong>{error_count}</strong></div>
+      <div class="kpi neutral"><span>Не запускались</span><strong>{no_runs_count}</strong></div>
+      <div class="kpi"><span>Последнее обновление</span><strong style="font-size:14px">{last_update_str}</strong></div>
+    </div>"""
+
+    # Build table rows
+    rows = ""
+    for t_info in filtered:
+        task_name = t_info["task_name"]
+        title = t_info.get("title", task_name)
+        category = t_info.get("category", "unknown")
+        category_title = translate_category(category)
+        run = t_info.get("run")
+        status_text = t_info.get("status_text", "no_runs")
+        stats = t_info.get("stats", {})
+
+        started = _dt(run.started_at if run else None)
+        finished = _dt(run.finished_at if run else None)
+        if run and run.started_at and not run.finished_at:
+            finished = '<span class="muted">ещё выполняется</span>'
+
+        duration = _duration_str(run.duration_ms if run else None)
+        success_val = run.success_count if run else 0
+        failed_val = run.failed_count if run else 0
+
+        counters_html = _counters_str(stats)
+        error_html = _error_str(run.last_error if run else None)
+        badge = _status_badge(status_text)
+
+        # Detail section: task description + last 10 runs
+        info = get_task_info(task_name)
+        description = info.get("description", "")
+        last_10_runs = ""
+        if task_name in db_task_names:
+            recent = await svc.recent_runs_by_task(task_name, limit=10)
+            if recent:
+                sub_rows = ""
+                for sub in recent:
+                    sub_status = _status_badge(sub.status)
+                    sub_started = _dt(sub.started_at)
+                    sub_finished = _dt(sub.finished_at)
+                    sub_dur = _duration_str(sub.duration_ms)
+                    sub_success = sub.success_count
+                    sub_failed = sub.failed_count
+                    sub_error = _h(sub.last_error or "")
+                    sub_rows += (
+                        f"<tr><td>{sub_status}</td>"
+                        f"<td>{sub_started}</td>"
+                        f"<td>{sub_finished}</td>"
+                        f"<td>{sub_dur}</td>"
+                        f"<td>{sub_success}</td>"
+                        f"<td>{sub_failed}</td>"
+                        f"<td style='max-width:300px;overflow:hidden;text-overflow:ellipsis'>{sub_error}</td></tr>"
+                    )
+                last_10_runs = f"""
+                <div style="margin-top:12px">
+                  <strong style="font-size:13px">Последние 10 запусков:</strong>
+                  <div class="table-wrap" style="margin-top:6px">
+                    <table class="table" style="font-size:12px">
+                      <thead><tr><th>Состояние</th><th>Начало</th><th>Завершение</th><th>Длительность</th><th>Успешно</th><th>Ошибок</th><th>Ошибка</th></tr></thead>
+                      <tbody>{sub_rows}</tbody>
+                    </table>
+                  </div>
+                </div>"""
+
+        detail_html = f"""
+        <details style="margin-top:4px">
+          <summary class="button-tiny" style="cursor:pointer">Подробнее</summary>
+          <div style="margin-top:8px;padding:12px;background:var(--bg-muted);border-radius:var(--radius-sm);font-size:13px;line-height:1.6">
+            <div class="kv">
+              <span>Техническое имя</span><strong><code>{_h(task_name)}</code></strong>
+              <span>Описание</span><strong>{_h(description)}</strong>
+              <span>Категория</span><strong>{category_title}</strong>
+              <span>Состояние</span><strong>{badge}</strong>
+              <span>Начало</span><strong>{started}</strong>
+              <span>Завершение</span><strong>{finished}</strong>
+              <span>Длительность</span><strong>{duration}</strong>
+              <span>Успешных операций</span><strong>{success_val}</strong>
+              <span>Ошибок</span><strong>{failed_val}</strong>
+              <span>Итоги выполнения</span><strong>{counters_html}</strong>
+              <span>Последняя ошибка</span><strong>{error_html}</strong>
+            </div>
+            {last_10_runs}
+          </div>
+        </details>"""
+
+        rows += (
+            f"<tr>"
+            f"<td><strong>{_h(title)}</strong><div class='muted' style='font-size:11px'>{_h(task_name)}</div></td>"
+            f"<td>{_h(category_title)}</td>"
+            f"<td>{badge}</td>"
+            f"<td>{started}</td>"
+            f"<td>{finished}</td>"
+            f"<td>{duration}</td>"
+            f"<td class='num'>{success_val}</td>"
+            f"<td class='num'>{failed_val}</td>"
+            f"<td style='max-width:200px'>{counters_html}</td>"
+            f"<td style='max-width:200px;overflow-wrap:break-word'>{error_html}</td>"
+            f"<td>{detail_html}</td>"
+            f"</tr>"
+        )
+
+    if not rows:
+        rows = f'<tr><td colspan="11"><div class="empty-state" style="min-height:80px">Нет данных для выбранного фильтра</div></td></tr>'
+
+    section_title = "Все фоновые задачи"
+    has_key = any(t.get("is_key") for t in filtered)
+    has_non_key = any(not t.get("is_key") for t in filtered)
+    if has_key and has_non_key:
+        section_title = "Ключевые и остальные фоновые задачи"
+
+    info_block = """
+    <div class="notice" style="margin-bottom:16px">
+      <strong>Фоновые задачи</strong> — это автоматические процессы MP Control, которые загружают заказы, продажи, возвраты, цены, финансовые операции и выполняют системные проверки. Здесь отображается последнее состояние каждой задачи.
+    </div>"""
+
+    content = f"""
+    <div class="page-header">
+      <div>
+        <h2>Диагностика фоновых задач</h2>
+        <div class="summary-strip">
+          <span>Источник данных: <strong>sync_task_runs</strong></span>
+          <span>Всего задач в реестре: <strong>{len(TASK_REGISTRY)}</strong></span>
+        </div>
+      </div>
+    </div>
+    {info_block}
+    {kpi_cards}
+    <div class="filters" style="grid-template-columns:repeat(auto-fit, minmax(100px, auto))">
+      {filter_items}
+    </div>
+    <div class="band">
+      <h3 style="margin-bottom:12px">{section_title}</h3>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th style="min-width:180px">Фоновая задача</th>
+              <th>Категория</th>
+              <th>Состояние</th>
+              <th>Начало</th>
+              <th>Завершение</th>
+              <th>Длительность</th>
+              <th class="num">Успешных операций</th>
+              <th class="num">Ошибок</th>
+              <th>Итоги выполнения</th>
+              <th>Последняя ошибка</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>{rows}</tbody>
+        </table>
+      </div>
+    </div>"""
+
+    return _admin_page("Диагностика фоновых задач", user, content, "/web/admin/worker-diagnostics")
 
 
 @router.post("/admin/sync-status/run/{task_name}")
