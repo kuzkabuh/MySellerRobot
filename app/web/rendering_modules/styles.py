@@ -1578,11 +1578,42 @@ def _css() -> str:
     }
 
     /* ── Responsive table ── */
+    /* ── Profit Table ── */
+    .profit-table th, .profit-table td { white-space: nowrap; }
+    .profit-table th:first-child { min-width: 200px; }
+    .profit-table td:first-child { max-width: 260px; }
+    .profit-table th:nth-child(10) { min-width: 120px; } /* Расходы */
+    .profit-row { transition: background var(--transition-fast); }
+    .profit-row:hover { background: var(--bg-hover) !important; }
+    .sku-detail td { border-bottom: 1px solid var(--border-light); }
+    .sku-detail .order-detail-body {
+      padding: 14px 18px;
+      background: #fafbfd;
+      border-top: 1px dashed var(--border);
+    }
+    .profit-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+    /* ── Profit details collapse ── */
+    details summary { padding: 4px 0; }
+    details[open] summary { margin-bottom: 4px; }
+
+    /* ── Attention items collapsible ── */
+    .attention-item.collapsed p { display: none; }
+    .attention-item p { margin-top: 4px; }
+
+    @media (max-width: 1200px) {
+      .profit-table th:nth-child(7),
+      .profit-table td:nth-child(7) { display: none; } /* Выручка план */
+    }
     @media (max-width: 900px) {
-      .orders-table .cell-costs,
-      .orders-table .cell-source {
-        display: none;
-      }
+      .profit-table th:nth-child(6),
+      .profit-table td:nth-child(6) { display: none; } /* Возвраты */
+      .profit-table th:nth-child(8),
+      .profit-table td:nth-child(8) { display: none; } /* Выручка факт */
+      .profit-table th:nth-child(11),
+      .profit-table td:nth-child(11) { display: none; } /* Прибыль план */
+      .profit-table th:nth-child(15),
+      .profit-table td:nth-child(15) { display: none; } /* ROI */
       .orders-summary {
         grid-template-columns: repeat(3, minmax(120px, 1fr));
       }

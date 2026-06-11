@@ -201,12 +201,67 @@ async def profit_page(
     economy: str = Query(default="all"),
     status: str = Query(default="all"),
     sku: str = Query(default=""),
-    sort: str = Query(default="profit"),
+    sort: str = Query(default="profit_actual"),
     direction: str = Query(default="desc"),
     date_from: str | None = Query(default=None),
     date_to: str | None = Query(default=None),
+    page_number: int = Query(default=1, ge=1, alias="page"),
+    per_page: int = Query(default=50, ge=10, le=200),
 ) -> str:
+    sort_mapping = {
+        "profit": "profit",
+        "profit_actual": "actual_profit",
+        "revenue": "revenue",
+        "margin": "margin",
+        "orders": "orders",
+        "sales": "sales",
+        "roi": "roi",
+        "title": "title",
+    }
+    mapped_sort = sort_mapping.get(sort, "actual_profit")
     data = await WebOrdersProfitService(session).profit_by_sku(
+        user_id=user.id,
+        timezone=user.timezone,
+        period=period,
+        marketplace=marketplace,
+        sale_model=sale_model,
+        date_from=date_from,
+        date_to=date_to,
+        economy=economy,
+        status=status,
+        sku=sku,
+        sort=mapped_sort,
+        direction=direction,
+        page=page_number,
+        page_size=per_page,
+    )
+    content = _profit_content(data)
+    return render_page(
+        "Прибыль",
+        user.first_name or user.username or str(user.telegram_id),
+        content,
+        active_path="/web/profit",
+    )
+
+
+@router.get("/profit/export", response_class=Response)
+async def profit_export(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+    period: str = Query(default="7d"),
+    marketplace: str = Query(default="all"),
+    sale_model: str = Query(default="all"),
+    economy: str = Query(default="all"),
+    status: str = Query(default="all"),
+    sku: str = Query(default=""),
+    sort: str = Query(default="profit_actual"),
+    direction: str = Query(default="desc"),
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
+) -> Response:
+    from fastapi.responses import Response as FastResponse
+    svc = WebOrdersProfitService(session)
+    excel_bytes = await svc.export_profit_excel(
         user_id=user.id,
         timezone=user.timezone,
         period=period,
@@ -220,10 +275,9 @@ async def profit_page(
         sort=sort,
         direction=direction,
     )
-    content = _profit_content(data)
-    return render_page(
-        "Прибыль",
-        user.first_name or user.username or str(user.telegram_id),
-        content,
-        active_path="/web/profit",
+    filename = f"profit_report_{datetime.now(tz=UTC).strftime('%Y-%m-%d')}.xlsx"
+    return FastResponse(
+        content=excel_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

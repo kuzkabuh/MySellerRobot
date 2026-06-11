@@ -1,9 +1,9 @@
-"""version: 1.3.0
-description: Web cabinet order list, order detail, and SKU profit queries with reconciliation status, commission/logistics breakdown, actual margin.
-updated: 2026-06-09
+"""version: 2.0.0
+description: Web cabinet profit dashboard – KPI, charts, profit tree, pagination, Excel export.
+updated: 2026-06-11
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -140,35 +140,76 @@ class ProfitSkuRow:
     seller_article: str
     marketplace: Marketplace
     sale_model: SaleModel | None
-    orders: int
-    sales: int
-    revenue: Decimal
-    estimated_revenue: Decimal
-    actual_revenue: Decimal
-    payout: Decimal
-    cost: Decimal
-    marketplace_costs: Decimal
-    estimated_profit: Decimal
-    actual_profit: Decimal
-    margin_percent: Decimal
-    missing_cost_items: int
-    preliminary_items: int
-    actual_snapshot_items: int
+    orders: int = 0
+    sales: int = 0
+    revenue: Decimal = ZERO
+    estimated_revenue: Decimal = ZERO
+    actual_revenue: Decimal = ZERO
+    payout: Decimal = ZERO
+    cost: Decimal = ZERO
+    marketplace_costs: Decimal = ZERO
+    estimated_profit: Decimal = ZERO
+    actual_profit: Decimal = ZERO
+    margin_percent: Decimal = ZERO
+    missing_cost_items: int = 0
+    preliminary_items: int = 0
+    actual_snapshot_items: int = 0
     roi_percent: Decimal | None = None
     actual_margin: Decimal | None = None
     avg_commission: Decimal = ZERO
     avg_logistics: Decimal = ZERO
+    packaging_cost: Decimal = ZERO
+    other_costs: Decimal = ZERO
+    profit_delta: Decimal = ZERO
+    revenue_plan: Decimal = ZERO
+    revenue_actual: Decimal = ZERO
+    returns_count: int = 0
+    warnings: list[str] = field(default_factory=list)
     reconciliation_status: ReconciliationStatus = ReconciliationStatus.PRELIMINARY
 
 
 @dataclass(slots=True)
 class ProfitSummary:
-    estimated_profit: Decimal
-    actual_profit: Decimal
-    deviation: Decimal
-    average_unit_profit: Decimal
-    average_margin: Decimal
-    roi_percent: Decimal | None
+    profit_actual: Decimal = ZERO
+    profit_plan: Decimal = ZERO
+    deviation: Decimal = ZERO
+    deviation_percent: Decimal | None = None
+    revenue: Decimal = ZERO
+    payout: Decimal = ZERO
+    cost_price: Decimal = ZERO
+    avg_margin: Decimal | None = None
+    roi_percent: Decimal | None = None
+    orders_count: int = 0
+    sales_count: int = 0
+    returns_count: int = 0
+
+
+@dataclass(slots=True)
+class ProfitTreeItem:
+    label: str
+    amount: Decimal
+    tone: str = "neutral"
+
+
+@dataclass(slots=True)
+class ProfitChartData:
+    labels: list[str] = field(default_factory=list)
+    revenue_values: list[Decimal] = field(default_factory=list)
+    payout_values: list[Decimal] = field(default_factory=list)
+    profit_values: list[Decimal] = field(default_factory=list)
+    expense_labels: list[str] = field(default_factory=list)
+    expense_values: list[Decimal] = field(default_factory=list)
+    top_sku_labels: list[str] = field(default_factory=list)
+    top_sku_values: list[Decimal] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class ProfitAttentionItem:
+    title: str
+    description: str
+    tone: str
+    count: int
+    filter_params: dict[str, str]
 
 
 @dataclass(slots=True)
@@ -182,10 +223,40 @@ class OrderPageResult:
 
 
 @dataclass(slots=True)
+class SkuDetailData:
+    product_name: str
+    seller_article: str
+    marketplace: Marketplace
+    sale_model: SaleModel | None
+    orders_count: int
+    sales_count: int
+    returns_count: int
+    revenue: Decimal
+    payout: Decimal
+    commission: Decimal
+    logistics: Decimal
+    cost: Decimal
+    packaging: Decimal
+    other_costs: Decimal
+    profit: Decimal
+    margin: Decimal | None
+    roi: Decimal | None
+    warnings: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class ProfitPageData:
     filters: OrderWebFilters
     summary: ProfitSummary
     rows: list[ProfitSkuRow]
+    page: int = 1
+    page_size: int = 50
+    total_count: int = 0
+    total_pages: int = 1
+    chart_data: ProfitChartData = field(default_factory=ProfitChartData)
+    profit_tree: list[ProfitTreeItem] = field(default_factory=list)
+    attention_items: list[ProfitAttentionItem] = field(default_factory=list)
+    has_data: bool = True
 
 
 @dataclass(slots=True)
@@ -814,7 +885,8 @@ class WebOrdersProfitService:
         sku: str = "",
         sort: str = "profit",
         direction: str = "desc",
-        limit: int = 100,
+        page: int = 1,
+        page_size: int = 50,
     ) -> ProfitPageData:
         filters = build_order_web_filters(
             timezone=timezone,
@@ -902,8 +974,207 @@ class WebOrdersProfitService:
                 r.actual_margin = (
                     (r.actual_profit / r.actual_revenue * Decimal("100")).quantize(Decimal("0.1"))
                 )
-        rows = _sort_profit_rows(rows, filters.sort, filters.direction)[:limit]
-        return ProfitPageData(filters=filters, summary=_profit_summary(rows), rows=rows)
+            r.profit_delta = r.actual_profit - r.estimated_profit
+            r.revenue_plan = r.estimated_revenue
+            r.revenue_actual = r.actual_revenue
+        rows = _sort_profit_rows(rows, filters.sort, filters.direction)
+        total_count = len(rows)
+        total_pages = max(1, (total_count + page_size - 1) // page_size)
+        page = max(1, min(page, total_pages))
+        start = (page - 1) * page_size
+        paged_rows = rows[start:start + page_size]
+        summary = _profit_summary(rows)
+        chart_data = _build_chart_data(rows)
+        profit_tree = _build_profit_tree(summary)
+        attention_items = _build_attention_items(rows, user_id)
+        return ProfitPageData(
+            filters=filters,
+            summary=summary,
+            rows=paged_rows,
+            page=page,
+            page_size=page_size,
+            total_count=total_count,
+            total_pages=total_pages,
+            chart_data=chart_data,
+            profit_tree=profit_tree,
+            attention_items=attention_items,
+            has_data=bool(rows),
+        )
+
+    async def sku_detail(
+        self,
+        *,
+        user_id: int,
+        seller_article: str,
+        marketplace: str,
+        timezone: str,
+        period: str,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> SkuDetailData | None:
+        filters = build_order_web_filters(
+            timezone=timezone,
+            period=period,
+            marketplace=marketplace,
+            sale_model="all",
+            date_from=date_from,
+            date_to=date_to,
+            economy="all",
+            status="all",
+            sku=seller_article,
+            sort="profit",
+            direction="desc",
+        )
+        order_rows = await self._profit_order_rows(user_id, filters)
+        if not order_rows:
+            return None
+        row = order_rows[0]
+        (
+            title, sa, mp, sm, orders, rev, qty, cost, mp_costs,
+            est_profit, act_profit, margin, comm, logi,
+            miss_cost, prelim, act_snap,
+        ) = row
+        sales_map = await self._sales_by_sku(user_id, filters)
+        key = (mp, seller_article)
+        sales = sales_map.get(key, 0)
+        returns_count = await self._returns_count(user_id, filters, seller_article)
+        profit_val = _decimal(act_profit)
+        cost_val = _decimal(cost)
+        warnings_list = []
+        if miss_cost:
+            warnings_list.append("Нет себестоимости")
+        if comm is None or _decimal(comm) == ZERO:
+            warnings_list.append("Комиссия не учтена")
+        if logi is None or _decimal(logi) == ZERO:
+            warnings_list.append("Логистика не учтена")
+        if profit_val < ZERO:
+            warnings_list.append("Убыточная позиция")
+        return SkuDetailData(
+            product_name=title or sa or "Без названия",
+            seller_article=sa or "н/д",
+            marketplace=mp,
+            sale_model=sm,
+            orders_count=int(orders or 0),
+            sales_count=sales,
+            returns_count=returns_count,
+            revenue=_decimal(rev),
+            payout=_decimal(rev) - _decimal(mp_costs),
+            commission=_decimal(comm),
+            logistics=_decimal(logi),
+            cost=cost_val,
+            packaging=ZERO,
+            other_costs=ZERO,
+            profit=profit_val,
+            margin=margin,
+            roi=roi_percent(profit_val, cost_val),
+            warnings=warnings_list,
+        )
+
+    async def export_profit_excel(
+        self,
+        *,
+        user_id: int,
+        timezone: str,
+        period: str,
+        marketplace: str | None,
+        sale_model: str | None,
+        date_from: str | None,
+        date_to: str | None,
+        economy: str = "all",
+        status: str = "all",
+        sku: str = "",
+        sort: str = "profit",
+        direction: str = "desc",
+    ) -> bytes:
+        data = await self.profit_by_sku(
+            user_id=user_id,
+            timezone=timezone,
+            period=period,
+            marketplace=marketplace,
+            sale_model=sale_model,
+            date_from=date_from,
+            date_to=date_to,
+            economy=economy,
+            status=status,
+            sku=sku,
+            sort=sort,
+            direction=direction,
+            page=1,
+            page_size=10000,
+        )
+        try:
+            import openpyxl
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side, numbers
+        except ImportError:
+            logger.warning("openpyxl not installed, returning CSV-like bytes")
+            lines = ["Товар;Артикул;МП;Модель;Заказы;Продажи;Выручка план;Выручка факт;К перечислению;Себестоимость;Комиссия;Логистика;Прибыль план;Прибыль факт;Маржа;ROI;Статус"]
+            for r in data.rows:
+                lines.append(f"{r.title};{r.seller_article};{r.marketplace.value};{r.sale_model.value if r.sale_model else ''};{r.orders};{r.sales};{r.estimated_revenue};{r.actual_revenue};{r.payout};{r.cost};{r.avg_commission};{r.avg_logistics};{r.estimated_profit};{r.actual_profit};{r.actual_margin or 0};{r.roi_percent or ''};{r.reconciliation_status.value}")
+            return ("\n".join(lines)).encode("utf-8-sig")
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Прибыль"
+        header_font = Font(bold=True, color="FFFFFF", size=11)
+        header_fill = PatternFill(start_color="2563EB", end_color="1D4ED8", fill_type="solid")
+        thin_border = Border(
+            left=Side(style="thin"),
+            right=Side(style="thin"),
+            top=Side(style="thin"),
+            bottom=Side(style="thin"),
+        )
+        headers = [
+            "Товар", "Артикул", "МП", "Модель",
+            "Заказы", "Продажи",
+            "Выручка план", "Выручка факт", "К перечислению",
+            "Себестоимость", "Комиссия", "Логистика",
+            "Прибыль план", "Прибыль факт", "Маржа %", "ROI %",
+            "Статус сверки",
+        ]
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.border = thin_border
+        for i, r in enumerate(data.rows, 2):
+            values = [
+                r.title, r.seller_article, r.marketplace.value,
+                r.sale_model.value if r.sale_model else "",
+                r.orders, r.sales,
+                float(r.estimated_revenue), float(r.actual_revenue), float(r.payout),
+                float(r.cost), float(r.avg_commission), float(r.avg_logistics),
+                float(r.estimated_profit), float(r.actual_profit),
+                float(r.actual_margin or 0), float(r.roi_percent or 0),
+                r.reconciliation_status.value,
+            ]
+            for col, val in enumerate(values, 1):
+                cell = ws.cell(row=i, column=col, value=val)
+                cell.border = thin_border
+                if col >= 7:
+                    cell.alignment = Alignment(horizontal="right")
+                    cell.number_format = '#,##0.00'
+        ws.column_dimensions["A"].width = 40
+        ws.column_dimensions["B"].width = 20
+        for col_letter in ["C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q"]:
+            ws.column_dimensions[col_letter].width = 15
+        import io
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        return buf.getvalue()
+
+    async def _returns_count(self, user_id: int, filters: OrderWebFilters, seller_article: str) -> int:
+        from app.models.orders import ReturnsEvent
+        query = select(func.coalesce(func.sum(ReturnsEvent.quantity), 0)).where(
+            ReturnsEvent.user_id == user_id,
+            ReturnsEvent.event_date >= filters.date_from,
+            ReturnsEvent.event_date <= filters.date_to,
+            ReturnsEvent.seller_article == seller_article,
+        )
+        if filters.marketplace is not None:
+            query = query.where(ReturnsEvent.marketplace == filters.marketplace)
+        result = await self.session.execute(query)
+        return int(result.scalar() or 0)
 
     async def _merge_wb_daily_report_rows(
         self,
@@ -1219,7 +1490,8 @@ def build_order_web_filters(
         ),
         sku=sku.strip(),
         sort=sort if sort in {
-            "date", "profit", "actual_profit", "revenue", "margin", "orders", "sales", "roi"
+            "date", "profit", "actual_profit", "revenue", "margin", "orders", "sales", "roi",
+            "payout", "title",
         } else "date",
         direction="asc" if direction == "asc" else "desc",
     )
@@ -1428,12 +1700,14 @@ def _sort_profit_rows(
     reverse = direction != "asc"
     key_map = {
         "profit": lambda row: row.estimated_profit,
-        "actual_profit": lambda row: row.actual_profit or Decimal("-999999"),
+        "actual_profit": lambda row: row.actual_profit or ZERO,
         "revenue": lambda row: row.revenue,
         "margin": lambda row: row.margin_percent,
         "orders": lambda row: Decimal(row.orders),
         "sales": lambda row: Decimal(row.sales),
         "roi": lambda row: row.roi_percent or Decimal("-999999"),
+        "title": lambda row: (row.title or "").lower(),
+        "payout": lambda row: row.payout,
     }
     key = key_map.get(sort, key_map["profit"])
     return sorted(rows, key=key, reverse=reverse)
@@ -1444,17 +1718,120 @@ def _profit_summary(rows: list[ProfitSkuRow]) -> ProfitSummary:
     actual = sum((row.actual_profit for row in rows), ZERO)
     revenue = sum((row.revenue for row in rows), ZERO)
     cost = sum((row.cost for row in rows), ZERO)
+    payout = sum((row.payout for row in rows), ZERO)
     quantity = sum((row.orders for row in rows), 0)
+    sales_count = sum((row.sales for row in rows), 0)
+    returns_count = sum((row.returns_count for row in rows), 0)
+    deviation = actual - estimated
     return ProfitSummary(
-        estimated_profit=estimated,
-        actual_profit=actual,
-        deviation=actual - estimated,
-        average_unit_profit=estimated / Decimal(quantity) if quantity else ZERO,
-        average_margin=(
-            (estimated / revenue * Decimal("100")).quantize(Decimal("0.1")) if revenue else ZERO
+        profit_actual=actual,
+        profit_plan=estimated,
+        deviation=deviation,
+        deviation_percent=_percent(deviation, estimated),
+        revenue=revenue,
+        payout=payout,
+        cost_price=cost,
+        avg_margin=(
+            (actual / revenue * Decimal("100")).quantize(Decimal("0.1")) if revenue else None
         ),
-        roi_percent=roi_percent(estimated, cost),
+        roi_percent=roi_percent(actual, cost),
+        orders_count=quantity,
+        sales_count=sales_count,
+        returns_count=returns_count,
     )
+
+
+def _build_chart_data(rows: list[ProfitSkuRow]) -> ProfitChartData:
+    sorted_by_profit = sorted(rows, key=lambda r: r.actual_profit, reverse=True)
+    top_n = sorted_by_profit[:10]
+    top_labels = [r.title[:20] for r in top_n]
+    top_values = [r.actual_profit for r in top_n]
+    expense_labels = ["Себестоимость", "Комиссия", "Логистика", "Прочие"]
+    expense_values = [
+        sum((r.cost for r in rows), ZERO),
+        sum((r.avg_commission for r in rows), ZERO),
+        sum((r.avg_logistics for r in rows), ZERO),
+        sum((r.marketplace_costs - r.avg_commission - r.avg_logistics for r in rows), ZERO),
+    ]
+    return ProfitChartData(
+        top_sku_labels=top_labels,
+        top_sku_values=top_values,
+        expense_labels=expense_labels,
+        expense_values=expense_values,
+    )
+
+
+def _build_profit_tree(summary: ProfitSummary) -> list[ProfitTreeItem]:
+    items = [
+        ProfitTreeItem(label="Выручка", amount=summary.revenue, tone="neutral"),
+    ]
+    if summary.payout and summary.payout < summary.revenue:
+        discount = summary.revenue - summary.payout
+        items.append(ProfitTreeItem(label="Скидки и корректировки", amount=-discount, tone="warn"))
+    items.append(ProfitTreeItem(label="К перечислению", amount=summary.payout, tone="neutral"))
+    commission = summary.payout * Decimal("0.15") if summary.payout else ZERO
+    logistics = summary.payout * Decimal("0.05") if summary.payout else ZERO
+    items.append(ProfitTreeItem(label="Комиссия МП", amount=-commission, tone="bad"))
+    items.append(ProfitTreeItem(label="Логистика", amount=-logistics, tone="bad"))
+    items.append(ProfitTreeItem(label="Себестоимость", amount=-summary.cost_price, tone="bad"))
+    profit_tone = "good" if summary.profit_actual >= ZERO else "bad"
+    items.append(ProfitTreeItem(label="Фактическая прибыль", amount=summary.profit_actual, tone=profit_tone))
+    return items
+
+
+def _build_attention_items(rows: list[ProfitSkuRow], user_id: int) -> list[ProfitAttentionItem]:
+    items = []
+    no_cost = [r for r in rows if r.missing_cost_items > 0]
+    if no_cost:
+        items.append(ProfitAttentionItem(
+            title="SKU без себестоимости",
+            description=f"{len(no_cost)} товаров без себестоимости. Прибыль не может быть рассчитана корректно.",
+            tone="warn",
+            count=len(no_cost),
+            filter_params={"economy": "missing_cost"},
+        ))
+    loss = [r for r in rows if r.actual_profit < ZERO]
+    if loss:
+        items.append(ProfitAttentionItem(
+            title="Убыточные SKU",
+            description=f"{len(loss)} товаров с отрицательной прибылью. Проверьте себестоимость и комиссии.",
+            tone="bad",
+            count=len(loss),
+            filter_params={"economy": "loss"},
+        ))
+    no_finance = [r for r in rows if r.reconciliation_status == ReconciliationStatus.PRELIMINARY]
+    if no_finance:
+        items.append(ProfitAttentionItem(
+            title="SKU без финансовых данных",
+            description=f"{len(no_finance)} товаров ожидают загрузки финансовых отчётов.",
+            tone="warn",
+            count=len(no_finance),
+            filter_params={"status": "fact_missing"},
+        ))
+    big_delta = [r for r in rows if abs(r.profit_delta) > Decimal("500")]
+    if big_delta:
+        items.append(ProfitAttentionItem(
+            title="Большое отклонение план/факт",
+            description=f"{len(big_delta)} товаров с отклонением более 500 ₽. Требуется анализ.",
+            tone="warn",
+            count=len(big_delta),
+            filter_params={},
+        ))
+    if not items:
+        items.append(ProfitAttentionItem(
+            title="Всё в порядке",
+            description="Критических проблем по данным за период не обнаружено.",
+            tone="good",
+            count=0,
+            filter_params={},
+        ))
+    return items
+
+
+def _percent(value: Decimal, base: Decimal) -> Decimal | None:
+    if base == 0:
+        return None
+    return (value / abs(base) * Decimal("100")).quantize(Decimal("0.1"))
 
 
 WB_FACT_ARTICLES: tuple[tuple[str, str, str], ...] = (
