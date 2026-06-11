@@ -20,8 +20,6 @@ from app.models.enums import Marketplace, ReconciliationStatus
 from app.models.subscriptions import SubscriptionTier
 from app.services.common.data_quality_service import DataQualityReport
 from app.services.common.marketplace_presentation import (
-    marketplace_css_class,
-    marketplace_title,
     order_status_tone,
     sale_model_title,
     source_event_label,
@@ -595,7 +593,6 @@ def _order_detail_header(detail: OrderDetail, timezone: str) -> str:
     if detail.reconciliation_status in (ReconciliationStatus.FACT_AMBIGUOUS, ReconciliationStatus.MANUAL_REVIEW, ReconciliationStatus.ERROR_STATUS):
         indicators.append('<span class="badge bad" title="Есть ошибки">✗ Ошибки</span>')
 
-    marketplace_title_str = "Wildberries" if order.marketplace == Marketplace.WB else "Ozon"
     model_str = order.sale_model.value if order.sale_model else "—"
     status_str = order_state_label(order.normalized_status or order.status, order.requires_seller_action)
     source_str = source_event_label(order.source_event_type) if order.source_event_type else "—"
@@ -604,10 +601,10 @@ def _order_detail_header(detail: OrderDetail, timezone: str) -> str:
       <div class="detail-header" style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:20px">
         <div>
           <h1 style="margin:0 0 6px 0;font-size:22px">
-            {'Заказ WB' if order.marketplace == Marketplace.WB else 'Заказ Ozon'} №{escape(order.order_external_id)}
+            {'Заказ' if order.marketplace == Marketplace.WB else 'Заказ'} №{escape(order.order_external_id)}
           </h1>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-            <span class="marketplace-badge {marketplace_css_class(order.marketplace)}">{marketplace_title_str}</span>
+            {_marketplace_label(order.marketplace)}
             <span class="badge">{model_str}</span>
             <span class="badge">{escape(source_str)}</span>
             <span class="muted" style="font-size:12px">от {order_date}</span>

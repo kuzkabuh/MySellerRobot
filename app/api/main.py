@@ -6,6 +6,7 @@ updated: 2026-06-10
 # ruff: noqa: E501
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.error_handlers import http_exception_handler
@@ -38,6 +39,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Seller Profit Bot API", version=_read_app_version(), debug=settings.app_debug
     )
+    app.mount("/static", StaticFiles(directory="public/assets"), name="static")
     app.include_router(web_router)
     app.include_router(webhooks_router)
     app.include_router(telegram_webhook_router)

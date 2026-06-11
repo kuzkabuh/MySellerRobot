@@ -25,6 +25,10 @@ from app.models.commission_tariffs import (
 )
 from app.models.domain import User
 from app.models.enums import Marketplace
+from app.services.common.marketplace_presentation import (
+    marketplace_logo_html,
+    marketplace_title,
+)
 from app.services.ozon.commissions.ozon_commission_source_monitor_service import (
     OzonCommissionSourceMonitorService,
 )
@@ -510,7 +514,7 @@ def _wb_card(version: MarketplaceCommissionVersion | None, rate_count: int) -> s
     return (
         '<div class="band">'
         '<div class="section-head">'
-        "<h2>🟣 Wildberries</h2>"
+        f"<h2>{marketplace_logo_html(Marketplace.WB, size='md', css_class='marketplace-logo-inline')} Wildberries</h2>"
         '<form action="/web/admin/commissions/sync-wb" method="post">'
         '<button type="submit" class="button primary">🔄 Обновить комиссии WB</button>'
         "</form></div>"
@@ -594,7 +598,7 @@ def _ozon_card(
     return (
         '<div class="band">'
         '<div class="section-head">'
-        "<h2>🔵 Ozon</h2>"
+        f"<h2>{marketplace_logo_html(Marketplace.OZON, size='md', css_class='marketplace-logo-inline')} Ozon</h2>"
         '<form action="/web/admin/commissions/check-ozon" method="post">'
         '<button type="submit" class="button">🔍 Проверить страницу Ozon</button>'
         "</form></div>"
@@ -641,7 +645,7 @@ def _versions_table(versions: list[MarketplaceCommissionVersion]) -> str:
         effective_to = v.effective_to.isoformat() if v.effective_to else "—"
         rows += (
             "<tr>"
-            f'<td><span class="marketplace-badge {mp_class}">{v.marketplace.value}</span></td>'
+            f'<td><span class="marketplace-badge {mp_class}">{marketplace_logo_html(v.marketplace, size="sm")}{escape(marketplace_title(v.marketplace))}</span></td>'
             f"<td>{escape(v.version_label)}</td>"
             f"<td>{v.effective_from.isoformat()}</td>"
             f"<td>{effective_to}</td>"

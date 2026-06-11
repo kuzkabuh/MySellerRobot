@@ -23,10 +23,14 @@ from app.models.domain import (
     User,
     UserCompanyProfile,
 )
-from app.models.enums import PaymentStatus, UserStatus
+from app.models.enums import Marketplace, PaymentStatus, UserStatus
 from app.models.subscriptions import Payment, SubscriptionTier
 from app.services.admin.audit_log_service import AuditLogService
 from app.services.alerts.notification_event_service import NotificationEventService
+from app.services.common.marketplace_presentation import (
+    marketplace_logo_html as _marketplace_logo_html,
+    marketplace_title as _marketplace_title,
+)
 from app.services.payments.payment_service import PaymentService
 from app.services.account.profile_service import ProfileService, ProfileValidationError
 from app.services.subscriptions.subscription_service import SubscriptionService
@@ -231,11 +235,11 @@ async def admin_user_detail_page(
     )
 
     account_rows = "".join(
-        f"<tr><td>{_h(a.marketplace.value)}</td><td>{_h(a.name)}</td><td>{_badge(a.status)}</td><td>{_dt(a.last_success_sync_at)}</td><td>{_h(a.last_error_message)}</td></tr>"
+        f"<tr><td>{_marketplace_logo_html(a.marketplace, size='sm')} {_h(_marketplace_title(a.marketplace))}</td><td>{_h(a.name)}</td><td>{_badge(a.status)}</td><td>{_dt(a.last_success_sync_at)}</td><td>{_h(a.last_error_message)}</td></tr>"
         for a in accounts
     )
     order_rows = "".join(
-        f"<tr><td>{_dt(o.order_date)}</td><td>{_h(o.marketplace.value)}</td><td>{_h(o.order_external_id)}</td><td>{_h(o.status)}</td></tr>"
+        f"<tr><td>{_dt(o.order_date)}</td><td>{_marketplace_logo_html(o.marketplace, size='sm')} {_h(_marketplace_title(o.marketplace))}</td><td>{_h(o.order_external_id)}</td><td>{_h(o.status)}</td></tr>"
         for o in orders
     )
     payment_rows = "".join(
@@ -1093,7 +1097,7 @@ async def cabinet_health_page(
     )
     active_sub = await SubscriptionService(session).get_active_subscription(user.id)
     account_rows = "".join(
-        f"<tr><td>{_h(a.marketplace.value)}</td><td>{_h(a.name)}</td><td>{_badge('success' if not a.last_error_message else 'failed')}</td><td>{_dt(a.last_orders_sync_at)}</td><td>{_dt(a.last_sales_sync_at)}</td><td>{_dt(a.last_products_sync_at)}</td><td>{_dt(a.last_stocks_sync_at)}</td><td>{_h(a.last_error_message)}</td></tr>"
+        f"<tr><td>{_marketplace_logo_html(a.marketplace, size='sm')} {_h(_marketplace_title(a.marketplace))}</td><td>{_h(a.name)}</td><td>{_badge('success' if not a.last_error_message else 'failed')}</td><td>{_dt(a.last_orders_sync_at)}</td><td>{_dt(a.last_sales_sync_at)}</td><td>{_dt(a.last_products_sync_at)}</td><td>{_dt(a.last_stocks_sync_at)}</td><td>{_h(a.last_error_message)}</td></tr>"
         for a in accounts
     )
     run_rows = "".join(

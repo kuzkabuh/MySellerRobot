@@ -21,6 +21,7 @@ from app.models.subscriptions import SubscriptionTier
 from app.services.common.data_quality_service import DataQualityReport
 from app.services.common.marketplace_presentation import (
     marketplace_css_class,
+    marketplace_logo_html,
     marketplace_title,
     order_status_tone,
     sale_model_title,
@@ -130,8 +131,8 @@ def _percent_optional(value: Decimal | int | float | str | None) -> str:
 
 def _marketplace_label(value: Marketplace | str | None) -> str:
     css_class = marketplace_css_class(value)
-    logo = {"wb": "WB", "ozon": "OZ"}.get(css_class)
-    logo_html = f'<span class="mp-logo">{logo}</span>' if logo else ""
+    logo_svg = marketplace_logo_html(value, size="sm")
+    logo_html = f'<span class="mp-logo">{logo_svg}</span>'
     return (
         f'<span class="marketplace-badge {css_class}">'
         f"{logo_html}{escape(marketplace_title(value))}</span>"

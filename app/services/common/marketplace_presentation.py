@@ -1,13 +1,47 @@
 """Shared seller-facing labels for marketplaces, order states, and sources."""
 
+from html import escape
+
 from app.models.enums import Marketplace, SaleModel, SourceEventType
+
+_MARKETPLACE_LOGO_URLS: dict[str, str] = {
+    "wb": "/static/img/marketplaces/wildberries.svg",
+    "ozon": "/static/img/marketplaces/ozon.svg",
+}
+
+_MARKETPLACE_LOGO_DEFAULT = "/static/img/marketplaces/default_marketplace.svg"
+
+
+def _normalize_marketplace_key(value: object | None) -> str | None:
+    raw = str(_raw(value or "")).strip().lower() if value else ""
+    if raw in ("wb", "wildberries", "wilberries"):
+        return "wb"
+    if raw in ("ozon", "oz"):
+        return "ozon"
+    return None
+
+
+def marketplace_logo_url(value: Marketplace | str | None) -> str:
+    key = _normalize_marketplace_key(value)
+    if key:
+        return _MARKETPLACE_LOGO_URLS[key]
+    return _MARKETPLACE_LOGO_DEFAULT
+
+
+def marketplace_logo_html(value: Marketplace | str | None, *, size: str = "sm", css_class: str = "") -> str:
+    url = marketplace_logo_url(value)
+    title = marketplace_title(value)
+    cls = f"marketplace-logo marketplace-logo-{size}"
+    if css_class:
+        cls += f" {css_class}"
+    return f'<img src="{escape(url)}" alt="{escape(title)}" class="{cls}" loading="lazy">'
 
 
 def marketplace_title(value: Marketplace | str | None) -> str:
     raw = _raw(value)
-    if raw == Marketplace.WB.value:
+    if raw == Marketplace.WB.value or _normalize_marketplace_key(value) == "wb":
         return "Wildberries"
-    if raw == Marketplace.OZON.value:
+    if raw == Marketplace.OZON.value or _normalize_marketplace_key(value) == "ozon":
         return "Ozon"
     return str(raw or "Маркетплейс")
 

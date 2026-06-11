@@ -990,6 +990,18 @@ def _css() -> str:
     .badge.action { background: var(--accent-soft); color: var(--accent); border-color: var(--info-border); }
     .badge.wb { background: var(--wb-soft); color: var(--wb); border-color: var(--wb-border); }
     .badge.ozon { background: var(--ozon-soft); color: var(--ozon); border-color: var(--ozon-border); }
+    .marketplace-logo {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      object-fit: contain;
+      vertical-align: middle;
+      flex-shrink: 0;
+    }
+    .marketplace-logo-sm { width: 18px; height: 18px; }
+    .marketplace-logo-md { width: 28px; height: 28px; }
+    .marketplace-logo-lg { width: 40px; height: 40px; }
+    .marketplace-logo-inline { margin-right: 4px; }
     .marketplace-badge {
       display: inline-flex;
       align-items: center;
@@ -1012,7 +1024,9 @@ def _css() -> str:
       font-size: 9px;
       font-weight: 900;
       line-height: 1;
+      overflow: hidden;
     }
+    .mp-logo img { width: 100%; height: 100%; display: block; }
     .marketplace-badge.wb .mp-logo { background: linear-gradient(135deg, var(--wb), #6d28d9); }
     .marketplace-badge.ozon .mp-logo { background: linear-gradient(135deg, var(--ozon), #1d4ed8); }
     .marketplace-badge.wb { background: var(--wb-soft); color: #6d28d9; border-color: var(--wb-border); }

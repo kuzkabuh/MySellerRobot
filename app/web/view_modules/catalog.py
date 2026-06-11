@@ -14,6 +14,7 @@ from app.models.enums import Marketplace
 from app.services.common.data_quality_service import DataQualityReport
 from app.services.common.marketplace_presentation import (
     marketplace_css_class,
+    marketplace_logo_html,
     marketplace_title,
 )
 from app.services.unit_economics.master_product_service import (
@@ -71,7 +72,8 @@ def _status_badge(status: str, level: str) -> str:
 
 def _mp_badge_short(mp: str) -> str:
     css = marketplace_css_class(mp)
-    return f'<span class="marketplace-badge {css}"><span class="mp-logo">{mp[:2].upper()}</span></span>'
+    logo_svg = marketplace_logo_html(mp, size="sm")
+    return f'<span class="marketplace-badge {css}"><span class="mp-logo">{logo_svg}</span></span>'
 
 
 def _filter_rows(
