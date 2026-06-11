@@ -10,12 +10,18 @@ DEFAULT_TIMEZONE = "Europe/Moscow"
 USER_DATETIME_FORMAT = "%d.%m.%Y %H:%M"
 
 
-def get_user_timezone(timezone_name: str | None) -> ZoneInfo:
-    """Return a safe user timezone with Moscow fallback."""
+def get_user_timezone(timezone_name: str | None = None) -> ZoneInfo:
+    """Return a safe user timezone with Moscow fallback.
 
+    Accepts only string timezone names (e.g. 'Europe/Moscow').
+    Falls back to DEFAULT_TIMEZONE if timezone_name is None, not a string,
+    or if ZoneInfo cannot parse it.
+    """
+    if not isinstance(timezone_name, str) or not timezone_name.strip():
+        timezone_name = DEFAULT_TIMEZONE
     try:
-        return ZoneInfo(timezone_name or DEFAULT_TIMEZONE)
-    except ZoneInfoNotFoundError:
+        return ZoneInfo(timezone_name)
+    except (ZoneInfoNotFoundError, ValueError):
         return ZoneInfo(DEFAULT_TIMEZONE)
 
 

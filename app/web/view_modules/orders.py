@@ -698,7 +698,7 @@ def _order_detail_economics(detail: OrderDetail) -> str:
     """
 
 
-def _order_detail_financial_rows(detail: OrderDetail) -> str:
+def _order_detail_financial_rows(detail: OrderDetail, timezone_name: str | None = None) -> str:
     rows = detail.ozon_fact.rows if detail.ozon_fact else []
     if detail.wb_fact and (detail.wb_fact.linked_rows or detail.wb_fact.unlinked_product_rows):
         all_wb_rows = list(detail.wb_fact.linked_rows)
@@ -714,7 +714,7 @@ def _order_detail_financial_rows(detail: OrderDetail) -> str:
                 sale_dt = getattr(r, "sale_dt", None)
                 wb_table_rows.append(
                     "<tr>"
-                    f"<td>{escape(format_datetime_for_user(sale_dt, detail.order.order_date.tzinfo) if sale_dt else '—')}</td>"
+                    f"<td>{escape(format_datetime_for_user(sale_dt, timezone_name) if sale_dt else '—')}</td>"
                     f"<td>Отчёт WB</td>"
                     f"<td>—</td>"
                     f"<td class=\"num\">{_rub(getattr(r, 'retail_amount', None))}</td>"
@@ -751,7 +751,7 @@ def _order_detail_financial_rows(detail: OrderDetail) -> str:
     if rows:
         ozon_rows = "".join(
             "<tr>"
-            f"<td>{escape(format_datetime_for_user(r.operation_date, detail.order.order_date.tzinfo) if r.operation_date else '—')}</td>"
+            f"<td>{escape(format_datetime_for_user(r.operation_date, timezone_name) if r.operation_date else '—')}</td>"
             f"<td>{escape(r.operation_type or '—')}</td>"
             f"<td>{escape(r.operation_category or '—')}</td>"
             f"<td class=\"num\">{_rub(r.amount)}</td>"
@@ -934,7 +934,7 @@ def _order_detail_content(detail: OrderDetail, timezone: str, is_admin: bool = F
     """
 
     # Financial rows
-    fin_rows = _order_detail_financial_rows(detail)
+    fin_rows = _order_detail_financial_rows(detail, timezone)
 
     # Marketplace data (with tabs)
     mp_data = _order_detail_marketplace_data(detail, is_admin=is_admin)
