@@ -25,10 +25,10 @@ NAV_GROUPS = [
         [
             ("Товары", "/web/products"),
             ("Сопоставление", "/web/product-matching"),
-            ("Остатки", "/web/stocks"),
             ("Себестоимость", "/web/costs"),
+            ("Остатки", "/web/stocks"),
+            ("Проблемы данных", "/web/data-quality"),
             ("Алерты", "/web/alerts"),
-            ("Качество данных", "/web/data-quality"),
         ],
     ),
     (
@@ -124,7 +124,7 @@ SECTION_PREFIXES: dict[str, list[str]] = {
     "Остатки": ["/web/stocks"],
     "Себестоимость": ["/web/costs"],
     "Алерты": ["/web/alerts"],
-    "Качество данных": ["/web/data-quality"],
+    "Проблемы данных": ["/web/data-quality"],
     "Прибыль": ["/web/profit$"],
     "План/факт": ["/web/plan-fact"],
     "Безубыточность": ["/web/break-even"],
@@ -172,10 +172,10 @@ NAV_SUBGROUPS: dict[str, list[tuple[str, str, str]]] = {
     ],
     "products": [
         ("products", "Товары", "/web/products"),
-        ("stocks", "Остатки", "/web/stocks"),
-        ("costs", "Себестоимость", "/web/costs"),
         ("product_matching", "Сопоставление", "/web/product-matching"),
-        ("data_quality", "Качество данных", "/web/data-quality"),
+        ("costs", "Себестоимость", "/web/costs"),
+        ("stocks", "Остатки", "/web/stocks"),
+        ("data_quality", "Проблемы данных", "/web/data-quality"),
         ("alerts", "Алерты", "/web/alerts"),
     ],
     "finance": [
@@ -244,10 +244,10 @@ NAV_SUBGROUPS["legacy"] = [
     ("plan_fact", "План/факт", "/web/plan-fact"),
     ("break_even", "Безубыточность", "/web/break-even"),
     ("products", "Товары", "/web/products"),
-    ("stocks", "Остатки", "/web/stocks"),
-    ("costs", "Себестоимость", "/web/costs"),
     ("product_matching", "Сопоставление", "/web/product-matching"),
-    ("data_quality", "Качество данных", "/web/data-quality"),
+    ("costs", "Себестоимость", "/web/costs"),
+    ("stocks", "Остатки", "/web/stocks"),
+    ("data_quality", "Проблемы данных", "/web/data-quality"),
     ("alerts", "Алерты", "/web/alerts"),
 ]
 

@@ -133,13 +133,13 @@ async def data_quality_page(
             <a class="btn btn-primary" href="/web/settings?tab=subscription">Перейти к подписке</a>
         </div>"""
         return page(
-            "Качество данных", _user_display_name(user), locked, active_path="/web/data-quality"
+            "Проблемы данных", _user_display_name(user), locked, active_path="/web/data-quality"
         )
 
     report = await DataQualityService(session).report(user_id=user.id)
     content = _data_quality_content(report)
     return page(
-        "Качество данных",
+        "Проблемы данных",
         user.first_name or user.username or str(user.telegram_id),
         content,
         active_path="/web/data-quality",

@@ -45,10 +45,27 @@ router = APIRouter()
 async def products_page(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
+    search: str = Query(default=""),
+    sku: str = Query(default=""),
+    marketplace: str = Query(default="all"),
+    status_filter: str = Query(default="all", alias="status"),
+    brand: str = Query(default=""),
+    category: str = Query(default=""),
+    period: str = Query(default="all"),
+    sort: str = Query(default="profit_desc"),
 ) -> str:
     rows = await MasterProductService(session).list_analytics(user.id)
     await session.commit()
-    content = _products_content(rows)
+    content = _products_content(
+        rows,
+        search=search,
+        sku=sku,
+        marketplace=marketplace,
+        status_filter=status_filter,
+        brand=brand,
+        category=category,
+        sort=sort,
+    )
     return page(
         "Товары",
         user.first_name or user.username or str(user.telegram_id),
@@ -62,6 +79,8 @@ async def product_detail_page(
     master_product_id: int,
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
+    mp_tab: str = Query(default="all", alias="mp"),
+    tab: str = Query(default="overview"),
 ) -> str:
     detail = await MasterProductService(session).detail(user.id, master_product_id)
     if detail is None:
@@ -69,7 +88,7 @@ async def product_detail_page(
     return page(
         "Карточка товара",
         user.first_name or user.username or str(user.telegram_id),
-        _master_product_detail_content(detail),
+        _master_product_detail_content(detail, active_tab=tab, mp_filter=mp_tab),
         active_path="/web/products",
     )
 
@@ -157,4 +176,36 @@ async def stocks_page(
         user.first_name or user.username or str(user.telegram_id),
         content,
         active_path="/web/stocks",
+    )
+
+
+@router.get("/products/issues", response_class=HTMLResponse)
+async def product_issues_page(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> str:
+    access = await FeatureAccessService(session).can_use_feature(user.id, FeatureCode.DATA_QUALITY)
+    if not access.allowed:
+        from html import escape as _esc
+        reason = _esc(access.reason or "") if access.reason else ""
+        required = _esc(access.required_plan or "Pro")
+        locked = f"""
+        <div class="locked-feature">
+            <h2>🔒 Раздел недоступен</h2>
+            <p>{reason}</p>
+            <p>Для доступа обновите тариф до <b>{required}</b> или выше.</p>
+            <a class="btn btn-primary" href="/web/settings?tab=subscription">Перейти к подписке</a>
+        </div>"""
+        return page(
+            "Проблемы данных", _user_display_name(user), locked, active_path="/web/products/issues"
+        )
+
+    rows = await MasterProductService(session).list_analytics(user.id)
+    report = await DataQualityService(session).report(user_id=user.id)
+    content = _product_issues_content(rows, report)
+    return page(
+        "Проблемы данных",
+        user.first_name or user.username or str(user.telegram_id),
+        content,
+        active_path="/web/products/issues",
     )

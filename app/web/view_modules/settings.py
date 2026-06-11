@@ -413,7 +413,7 @@ def _control_content(data: ControlPageData) -> str:
         or "<li>Открытых алертов сейчас нет.</li>"
     )
     return f"""
-      {_page_header("Контроль ошибок", "Что требует внимания прямо сейчас.", "/web/data-quality", "Качество данных")}
+      {_page_header("Контроль ошибок", "Что требует внимания прямо сейчас.", "/web/data-quality", "Проблемы данных")}
       <section class="kpi-grid">
         {_simple_kpi("Качество данных", str(data.report.score), "good" if data.report.score >= 80 else "warn")}
         {_simple_kpi("Без себестоимости", str(data.missing_cost_products), "warn" if data.missing_cost_products else "neutral")}
@@ -483,7 +483,7 @@ def _data_quality_content(report: DataQualityReport) -> str:
         {_simple_kpi("Индекс качества данных", str(report.score), tone)}
       </section>
       <section class="band" style="margin-top:14px">
-        <h2>Качество данных</h2>
+        <h2>Проблемы данных</h2>
         <div class="table-wrap">
           <table class="table">
         <thead>

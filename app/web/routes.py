@@ -44,6 +44,7 @@ from app.web.route_modules.account_settings import (
 from app.web.route_modules.auth import login
 from app.web.route_modules.catalog import (
     product_detail_page,
+    product_issues_page,
     product_matching_page,
     products_page,
     stocks_page,
@@ -97,6 +98,7 @@ __all__ = [
     "plan_fact_page",
     "pricing_page",
     "product_detail_page",
+    "product_issues_page",
     "product_matching_page",
     "products_page",
     "profile_page",

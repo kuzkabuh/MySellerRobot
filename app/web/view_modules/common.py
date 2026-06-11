@@ -111,7 +111,7 @@ def _placeholder_page(section: str, user: User) -> str:
         "products": "Товары",
         "stocks": "Остатки",
         "alerts": "Алерты",
-        "data-quality": "Качество данных",
+        "data-quality": "Проблемы данных",
         "analytics": "Аналитика",
         "control": "Контроль",
         "costs": "Себестоимость",

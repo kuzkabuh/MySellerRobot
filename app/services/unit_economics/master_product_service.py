@@ -4,9 +4,11 @@ updated: 2026-05-15
 """
 
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import Any
 
-from sqlalchemy import delete, desc, func, select
+from sqlalchemy import Date, delete, desc, distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -55,6 +57,10 @@ class MasterProductAnalyticsRow:
     estimated_profit: Decimal
     stock_quantity: int
     marketplace_products: tuple[MarketplaceProductInfo, ...]
+    status: str = ""
+    status_level: str = "neutral"
+    updated_at: datetime | None = None
+    total_cost: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -84,6 +90,8 @@ class CostHistoryPoint:
     cost_price: Decimal
     package_cost: Decimal
     additional_cost: Decimal
+    tax_rate: Decimal | None = None
+    comment: str | None = None
 
 
 @dataclass(frozen=True)
@@ -108,6 +116,11 @@ class MasterProductDetail:
     price_history: tuple[PriceHistoryPoint, ...] = ()
     cost_history: tuple[CostHistoryPoint, ...] = ()
     stock_history: tuple[StockHistoryPoint, ...] = ()
+    status: str = ""
+    status_level: str = "neutral"
+    updated_at: datetime | None = None
+    has_wb: bool = False
+    has_ozon: bool = False
 
 
 @dataclass(frozen=True)
@@ -189,6 +202,8 @@ class MasterProductService:
         order_metrics = await self._order_metrics_by_product(all_product_ids)
         sales_counts = await self._sales_count_by_product(all_product_ids)
         stock_quantities = await self._latest_stock_quantity_by_product(all_product_ids)
+        latest_updates = await self._latest_product_update_batch(all_product_ids)
+        total_costs = await self._total_costs_batch(all_product_ids)
         rows: list[MasterProductAnalyticsRow] = []
         for master in masters:
             products = [link.product for link in master.links if link.product is not None]
@@ -213,6 +228,8 @@ class MasterProductService:
             )
             sales = sum(sales_counts.get(product_id, 0) for product_id in product_ids)
             stock_quantity = sum(stock_quantities.get(product_id, 0) for product_id in product_ids)
+            has_wb = any(p.marketplace == Marketplace.WB for p in products)
+            has_ozon = any(p.marketplace == Marketplace.OZON for p in products)
             marketplace_products = tuple(
                 MarketplaceProductInfo(
                     product_id=product.id,
@@ -224,6 +241,23 @@ class MasterProductService:
                 )
                 for product in products
             )
+            updated_at = max(
+                (latest_updates.get(pid) for pid in product_ids if latest_updates.get(pid)),
+                default=None,
+            )
+            total_cost = sum(
+                (total_costs.get(pid, Decimal("0")) for pid in product_ids),
+                Decimal("0"),
+            )
+            has_cost = total_cost > 0
+            status, status_level = compute_product_status(
+                has_cost=has_cost,
+                profit=estimated_profit,
+                stock=stock_quantity,
+                has_wb=has_wb,
+                has_ozon=has_ozon,
+                updated_at=updated_at,
+            )
             rows.append(
                 MasterProductAnalyticsRow(
                     master_product_id=master.id,
@@ -234,18 +268,18 @@ class MasterProductService:
                     or _first_present([product.category for product in products]),
                     image_url=master.image_url
                     or _first_present([product.image_url for product in products]),
-                    wb_products=sum(
-                        1 for product in products if product.marketplace == Marketplace.WB
-                    ),
-                    ozon_products=sum(
-                        1 for product in products if product.marketplace == Marketplace.OZON
-                    ),
+                    wb_products=int(has_wb),
+                    ozon_products=int(has_ozon),
                     orders=orders,
                     sales=sales,
                     revenue=revenue,
                     estimated_profit=estimated_profit,
                     stock_quantity=stock_quantity,
                     marketplace_products=marketplace_products,
+                    status=status,
+                    status_level=status_level,
+                    updated_at=updated_at,
+                    total_cost=total_cost,
                 )
             )
         return rows
@@ -303,6 +337,25 @@ class MasterProductService:
         price_history = await self._price_history(product_ids_flat)
         cost_history = await self._cost_history(product_ids_flat)
         stock_history = await self._stock_history(product_ids_flat)
+        has_wb = any(p.marketplace == Marketplace.WB for p in products)
+        has_ozon = any(p.marketplace == Marketplace.OZON for p in products)
+        has_cost = any(c.cost_price > 0 for c in cost_history)
+        total_revenue = sum((c.revenue for c in comparison), Decimal("0"))
+        total_profit = sum((c.estimated_profit for c in comparison), Decimal("0"))
+        total_stock = sum((c.stock_quantity for c in comparison))
+        total_orders = sum((c.orders for c in comparison))
+        updated_at = max(
+            (p.updated_at for p in products if p.updated_at),
+            default=None,
+        )
+        status, status_level = compute_product_status(
+            has_cost=has_cost,
+            profit=total_profit,
+            stock=total_stock,
+            has_wb=has_wb,
+            has_ozon=has_ozon,
+            updated_at=updated_at,
+        )
         return MasterProductDetail(
             master_product_id=master.id,
             canonical_sku=master.canonical_sku,
@@ -317,6 +370,11 @@ class MasterProductService:
             price_history=price_history,
             cost_history=cost_history,
             stock_history=stock_history,
+            status=status,
+            status_level=status_level,
+            updated_at=updated_at,
+            has_wb=has_wb,
+            has_ozon=has_ozon,
         )
 
     async def matching_candidates(self, user_id: int) -> list[ProductMatchingCandidate]:
@@ -543,20 +601,27 @@ class MasterProductService:
             return ()
         result = await self.session.execute(
             select(ProductCostHistory)
+            .distinct(ProductCostHistory.valid_from, ProductCostHistory.cost_price, ProductCostHistory.package_cost, ProductCostHistory.additional_cost)
             .where(ProductCostHistory.product_id.in_(product_ids))
             .order_by(ProductCostHistory.valid_from.desc())
             .limit(100)
         )
-        return tuple(
-            CostHistoryPoint(
-                valid_from=c.valid_from.strftime("%d.%m.%Y") if c.valid_from else "н/д",
-                valid_to=c.valid_to.strftime("%d.%m.%Y") if c.valid_to else "текущая",
-                cost_price=c.cost_price,
-                package_cost=c.package_cost,
-                additional_cost=c.additional_cost,
-            )
-            for c in result.scalars().all()
-        )
+        seen: set[tuple] = set()
+        points: list[CostHistoryPoint] = []
+        for c in result.scalars().all():
+            key = (c.valid_from, c.cost_price, c.package_cost, c.additional_cost)
+            if key not in seen:
+                seen.add(key)
+                points.append(CostHistoryPoint(
+                    valid_from=c.valid_from.strftime("%d.%m.%Y") if c.valid_from else "н/д",
+                    valid_to=c.valid_to.strftime("%d.%m.%Y") if c.valid_to else "текущая",
+                    cost_price=c.cost_price,
+                    package_cost=c.package_cost,
+                    additional_cost=c.additional_cost,
+                    tax_rate=c.tax_rate,
+                    comment=c.comment,
+                ))
+        return tuple(points)
 
     async def _stock_history(
         self,
@@ -597,6 +662,91 @@ class MasterProductService:
             .where(ProfitSnapshot.calculation_type == CalculationType.ACTUAL)
         )
         return Decimal(str(result.scalar_one() or 0))
+
+    async def _latest_product_update(self, product_ids: list[int]) -> datetime | None:
+        if not product_ids:
+            return None
+        result = await self.session.execute(
+            select(func.max(Product.updated_at)).where(Product.id.in_(product_ids))
+        )
+        return result.scalar_one_or_none()
+
+    async def _latest_product_update_batch(self, product_ids: list[int]) -> dict[int, datetime]:
+        if not product_ids:
+            return {}
+        result = await self.session.execute(
+            select(Product.id, Product.updated_at).where(Product.id.in_(product_ids))
+        )
+        return {int(row[0]): row[1] for row in result.all() if row[0] is not None and row[1] is not None}
+
+    async def _total_costs_batch(self, product_ids: list[int]) -> dict[int, Decimal]:
+        if not product_ids:
+            return {}
+        from datetime import UTC
+        now = datetime.now(tz=UTC)
+        result = await self.session.execute(
+            select(
+                ProductCostHistory.product_id,
+                func.coalesce(
+                    func.sum(ProductCostHistory.cost_price + ProductCostHistory.package_cost + ProductCostHistory.additional_cost), 0
+                ),
+            )
+            .where(ProductCostHistory.product_id.in_(product_ids))
+            .where(ProductCostHistory.valid_from <= now)
+            .where(
+                (ProductCostHistory.valid_to.is_(None))
+                | (ProductCostHistory.valid_to >= now)
+            )
+            .group_by(ProductCostHistory.product_id)
+        )
+        return {int(row[0]): Decimal(str(row[1])) for row in result.all() if row[0] is not None}
+
+    async def _total_cost_for_products(self, product_ids: list[int]) -> Decimal | None:
+        if not product_ids:
+            return None
+        from datetime import UTC
+        now = datetime.now(tz=UTC)
+        result = await self.session.execute(
+            select(
+                func.coalesce(
+                    func.sum(ProductCostHistory.cost_price + ProductCostHistory.package_cost + ProductCostHistory.additional_cost), 0
+                )
+            )
+            .where(ProductCostHistory.product_id.in_(product_ids))
+            .where(ProductCostHistory.valid_from <= now)
+            .where(
+                (ProductCostHistory.valid_to.is_(None))
+                | (ProductCostHistory.valid_to >= now)
+            )
+        )
+        total = result.scalar_one_or_none()
+        return Decimal(str(total)) if total else None
+
+
+def compute_product_status(
+    has_cost: bool,
+    profit: Decimal,
+    stock: int,
+    has_wb: bool,
+    has_ozon: bool,
+    updated_at: datetime | None = None,
+) -> tuple[str, str]:
+    """Return (status_label, status_level) for a master product."""
+    now = datetime.now(tz=UTC)
+
+    if updated_at and (now - updated_at) > timedelta(hours=72):
+        return "Требует проверки", "warn"
+    if not has_cost:
+        return "Нет себестоимости", "warn"
+    if profit < 0:
+        return "В минусе", "bad"
+    if stock <= 0:
+        return "Нет остатков", "warn"
+    if has_wb and has_ozon:
+        return "В норме", "good"
+    if has_wb or has_ozon:
+        return "Не сопоставлен", "warn"
+    return "В норме", "good"
 
 
 def _first_present(values: list[str | None]) -> str:
