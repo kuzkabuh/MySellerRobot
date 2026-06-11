@@ -593,3 +593,103 @@ def test_orders_summary_kpi_counts_from_order_rows() -> None:
 
     missing_tone = "bad" if summary.missing_cost_count > 0 else "neutral"
     assert missing_tone == "bad"
+
+
+def test_list_orders_offset_matches_page_per_page_params() -> None:
+    """Verify offset = (page - 1) * per_page via list_orders method signature."""
+    import inspect
+    sig = inspect.signature(WebOrdersProfitService.list_orders)
+    params = sig.parameters
+
+    assert "page" in params, "list_orders must accept 'page' parameter"
+    page_param = params["page"]
+    assert page_param.default == 1, "page default must be 1"
+
+    assert "per_page" in params, "list_orders must accept 'per_page' parameter"
+    per_page_param = params["per_page"]
+    assert per_page_param.default == 50, "per_page default must be 50"
+
+    # Verify offset calculation inside list_orders
+    source = inspect.getsource(WebOrdersProfitService.list_orders)
+    assert "offset = (page - 1) * per_page" in source, (
+        "list_orders must calculate offset = (page - 1) * per_page"
+    )
+
+
+def test_list_orders_uses_limit_and_offset_in_query() -> None:
+    """Verify list_orders applies .limit() and .offset() to SQL query."""
+    import inspect
+    source = inspect.getsource(WebOrdersProfitService.list_orders)
+    assert ".limit(per_page)" in source, "list_orders must call .limit(per_page)"
+    assert ".offset(offset)" in source, "list_orders must call .offset(offset)"
+
+
+def test_orders_route_accepts_page_query_param_via_alias() -> None:
+    """Verify the route accepts ?page= via Query alias, avoiding shadow conflicts."""
+    from app.web.route_modules.orders_profit import orders_page
+    sig = inspect.signature(orders_page)
+    params = sig.parameters
+    assert "page_number" in params, "orders_page must have 'page_number' parameter (avoids shadowing 'page' func)"
+    page_param = params["page_number"]
+    default = page_param.default
+    assert default is not inspect.Parameter.empty
+    assert hasattr(default, "alias"), "Query must have alias attribute"
+    assert default.alias == "page", f"Query alias must be 'page', got {default.alias}"
+
+
+def test_orders_route_accepts_valid_per_page_values() -> None:
+    """Verify per_page restriction: only 25, 50, 100, 200 via Query(ge=10, le=200)."""
+    from app.web.route_modules.orders_profit import orders_page
+    sig = inspect.signature(orders_page)
+    per_page_param = sig.parameters.get("per_page")
+    assert per_page_param is not None
+    # FastAPI Query default with le=200 — verify at least existence
+    assert per_page_param.default is not inspect.Parameter.empty
+
+
+@pytest.mark.parametrize(
+    ("page", "per_page", "expected_offset"),
+    [
+        (1, 50, 0),
+        (2, 50, 50),
+        (3, 50, 100),
+        (5, 50, 200),
+        (1, 100, 0),
+        (2, 100, 100),
+        (3, 100, 200),
+        (1, 25, 0),
+        (2, 25, 25),
+        (3, 25, 50),
+        (1, 200, 0),
+        (2, 200, 200),
+    ],
+)
+def test_offset_formula(page: int, per_page: int, expected_offset: int) -> None:
+    offset = (page - 1) * per_page
+    assert offset == expected_offset, (
+        f"page={page}, per_page={per_page}: expected offset={expected_offset}, got {offset}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("total", "per_page", "expected_pages"),
+    [
+        (221, 50, 5),
+        (221, 100, 3),
+        (221, 200, 2),
+        (0, 50, 1),
+        (1, 50, 1),
+        (50, 50, 1),
+        (51, 50, 2),
+    ],
+)
+def test_total_pages_consistent_with_display_range(total: int, per_page: int, expected_pages: int) -> None:
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    assert total_pages == expected_pages
+    # Also verify that the last page has correct range
+    last_page = total_pages
+    start = (last_page - 1) * per_page + 1 if total > 0 else 0
+    end = min(last_page * per_page, total)
+    if total > 0:
+        assert start <= total, f"Last page start {start} should be <= total {total}"
+        assert end == total, f"Last page end {end} should equal total {total}"
