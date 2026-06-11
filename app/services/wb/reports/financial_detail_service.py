@@ -710,10 +710,12 @@ class WbDailyFinancialDetailService:
         return_cost = Decimal("0")
         other_marketplace_costs = Decimal("0")
         additional_payment = Decimal("0")
+        deduct_costs = Decimal("0")
 
         for row in report_rows:
             op_type = self._determine_operation_type(row).lower()
-            if row.get("forPay") is not None:
+            has_fp = row.get("forPay") is not None
+            if has_fp:
                 expected_payout += _safe_decimal(row.get("forPay"))
                 has_for_pay = True
 
@@ -732,15 +734,21 @@ class WbDailyFinancialDetailService:
                 if acq2 > 0:
                     acquiring_cost += acq2
 
+                if not has_fp:
+                    deduct_costs += commission + acq + acq2
+
             elif any(kw in op_type for kw in ("возврат", "return")):
                 return_cost += _safe_decimal(row.get("returnAmount", 0))
                 if row.get("retailAmount"):
                     gross_revenue -= _safe_decimal(row["retailAmount"])
 
             elif any(kw in op_type for kw in ("логист", "delivery", "logistic")):
-                logistics_cost += _safe_decimal(row.get("deliveryAmount", 0))
-                logistics_cost += _safe_decimal(row.get("deliveryService", 0))
-                logistics_cost += _safe_decimal(row.get("rebillLogisticCost", 0))
+                dlv = _safe_decimal(row.get("deliveryAmount", 0))
+                dsv = _safe_decimal(row.get("deliveryService", 0))
+                rlc = _safe_decimal(row.get("rebillLogisticCost", 0))
+                logistics_cost += dlv + dsv + rlc
+                if not has_fp:
+                    deduct_costs += dlv + dsv + rlc
 
             elif any(kw in op_type for kw in ("комисс", "commission", "reward")):
                 val = _safe_decimal(row.get("ppvzSalesCommission", 0))
@@ -749,27 +757,46 @@ class WbDailyFinancialDetailService:
                 if val == 0:
                     val = _safe_decimal(row.get("kvw", 0))
                 marketplace_commission += val
+                if not has_fp:
+                    deduct_costs += val
 
             elif any(kw in op_type for kw in ("штраф", "penalty", "fine")):
-                other_marketplace_costs += _safe_decimal(row.get("penalty", 0))
+                val = _safe_decimal(row.get("penalty", 0))
+                other_marketplace_costs += val
+                if not has_fp:
+                    deduct_costs += val
 
             elif any(kw in op_type for kw in ("хранен", "storage")):
-                storage_cost += _safe_decimal(row.get("paidStorage", 0))
+                val = _safe_decimal(row.get("paidStorage", 0))
+                storage_cost += val
+                if not has_fp:
+                    deduct_costs += val
 
             elif any(kw in op_type for kw in ("удержан", "deduction", "удержание")):
-                other_marketplace_costs += _safe_decimal(row.get("deduction", 0))
+                val = _safe_decimal(row.get("deduction", 0))
+                other_marketplace_costs += val
+                if not has_fp:
+                    deduct_costs += val
 
             elif any(kw in op_type for kw in ("приемк", "приёмк", "acceptance")):
-                other_marketplace_costs += _safe_decimal(row.get("paidAcceptance", 0))
+                val = _safe_decimal(row.get("paidAcceptance", 0))
+                other_marketplace_costs += val
+                if not has_fp:
+                    deduct_costs += val
 
             elif any(kw in op_type for kw in ("доплат", "additional")):
                 additional_payment += _safe_decimal(row.get("additionalPayment", 0))
 
             elif any(kw in op_type for kw in ("эквайринг", "acquiring")):
-                acquiring_cost += _safe_decimal(row.get("acquiringFee", 0))
-                acquiring_cost += _safe_decimal(row.get("paymentProcessing", 0))
+                acq3 = _safe_decimal(row.get("acquiringFee", 0))
+                pp = _safe_decimal(row.get("paymentProcessing", 0))
+                acquiring_cost += acq3 + pp
+                if not has_fp:
+                    deduct_costs += acq3 + pp
 
-        if not has_for_pay:
+        if has_for_pay:
+            expected_payout = expected_payout + additional_payment - deduct_costs
+        else:
             total_expenses = (
                 marketplace_commission
                 + logistics_cost
@@ -779,8 +806,7 @@ class WbDailyFinancialDetailService:
                 + other_marketplace_costs
             )
             expected_payout = gross_revenue - total_expenses
-
-        expected_payout += additional_payment
+            expected_payout += additional_payment
 
         return {
             "gross_revenue": gross_revenue,

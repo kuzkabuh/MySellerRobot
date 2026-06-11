@@ -263,6 +263,7 @@ class OrderProfitReconciliationService:
         return_cost = ZERO
         other_marketplace_costs = ZERO
         compensation = ZERO
+        deduct_costs = ZERO
         warnings: list[str] = []
 
         # Aggregate from FinancialReportRow (API source)
@@ -283,18 +284,25 @@ class OrderProfitReconciliationService:
                 has_for_pay = True
             elif op_cat in ("commission",) or "комисс" in op_type:
                 marketplace_commission += abs(amt)
+                deduct_costs += abs(amt)
             elif op_cat in ("logistics",) or "логист" in op_type or "delivery" in op_type:
                 logistics_cost += abs(amt)
+                deduct_costs += abs(amt)
             elif op_cat in ("acquiring",) or "эквайринг" in op_type:
                 acquiring_cost += abs(amt)
+                deduct_costs += abs(amt)
             elif op_cat in ("storage",) or "хранен" in op_type:
                 storage_cost += abs(amt)
+                deduct_costs += abs(amt)
             elif op_cat in ("penalty",) or "штраф" in op_type:
                 other_marketplace_costs += abs(amt)
+                deduct_costs += abs(amt)
             elif op_cat in ("deduction",) or "удержан" in op_type:
                 other_marketplace_costs += abs(amt)
+                deduct_costs += abs(amt)
             elif op_cat in ("acceptance",) or "приемк" in op_type or "приёмк" in op_type:
                 other_marketplace_costs += abs(amt)
+                deduct_costs += abs(amt)
             elif op_cat in ("compensation",) or "доплат" in op_type:
                 compensation += abs(amt)
             elif op_cat in ("additional_payment",):
@@ -317,8 +325,9 @@ class OrderProfitReconciliationService:
         # Aggregate from WbDailyReportRow (file source)
         for row in report_rows:
             op_type = (row.doc_type_name or "").lower() + " " + (row.payment_reason or "").lower()
+            has_fp = row.for_pay is not None and row.for_pay != ZERO
 
-            if row.for_pay is not None and row.for_pay != ZERO:
+            if has_fp:
                 expected_payout += row.for_pay
                 has_for_pay = True
 
@@ -341,18 +350,32 @@ class OrderProfitReconciliationService:
                     gross_revenue -= row.retail_amount
             elif any(kw in op_type for kw in ("логист", "delivery")):
                 logistics_cost += row.delivery_rub or ZERO
+                if not has_fp:
+                    deduct_costs += row.delivery_rub or ZERO
             elif any(kw in op_type for kw in ("комисс", "commission")):
                 marketplace_commission += row.commission_rub or ZERO
+                if not has_fp:
+                    deduct_costs += row.commission_rub or ZERO
             elif any(kw in op_type for kw in ("штраф", "penalty")):
                 other_marketplace_costs += row.penalty or ZERO
+                if not has_fp:
+                    deduct_costs += row.penalty or ZERO
             elif any(kw in op_type for kw in ("хранен", "storage")):
                 storage_cost += row.storage_fee or ZERO
+                if not has_fp:
+                    deduct_costs += row.storage_fee or ZERO
             elif any(kw in op_type for kw in ("удержан", "deduction")):
                 other_marketplace_costs += row.deduction or ZERO
+                if not has_fp:
+                    deduct_costs += row.deduction or ZERO
             elif any(kw in op_type for kw in ("приемк", "приёмк", "acceptance")):
                 other_marketplace_costs += row.acceptance or ZERO
+                if not has_fp:
+                    deduct_costs += row.acceptance or ZERO
 
-        if not has_for_pay:
+        if has_for_pay:
+            expected_payout = expected_payout + compensation - deduct_costs
+        else:
             total_expenses = (
                 marketplace_commission
                 + logistics_cost
@@ -365,8 +388,7 @@ class OrderProfitReconciliationService:
             warnings.append(
                 "forPay не найден, выплата рассчитана как выручка минус расходы МП"
             )
-
-        expected_payout += compensation
+            expected_payout += compensation
 
         return {
             "gross_revenue": gross_revenue,

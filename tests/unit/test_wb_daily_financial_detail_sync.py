@@ -476,7 +476,9 @@ class TestActualProfitCalculation:
         assert aggregated["logistics_cost"] == Decimal("50")
         assert aggregated["other_marketplace_costs"] == Decimal("30")
         assert aggregated["storage_cost"] == Decimal("10")
-        assert aggregated["expected_payout"] == Decimal("1000")
+        # costs from rows without forPay (50 logistics + 30 penalty + 10 storage = 90)
+        # deducted from forPay (1000): expected_payout = 1000 - 90 = 910
+        assert aggregated["expected_payout"] == Decimal("910")
 
     def test_actual_profit_uses_for_pay_without_double_subtracting_wb_costs(self) -> None:
         mock_session = AsyncMock()
@@ -536,6 +538,112 @@ class TestActualProfitCalculation:
         assert aggregated["gross_revenue"] == Decimal("0")
         assert aggregated["expected_payout"] == Decimal("0")
         assert aggregated["return_cost"] == Decimal("1490")
+
+    def test_wb_profit_example_1(self) -> None:
+        """Control example 1: forPay=445, logistics=48, acceptance=15, compensation=1
+        cost=172, package=10, tax=26
+        Expected: receipt=383, profit=175
+        """
+        mock_session = AsyncMock()
+        service = WbDailyFinancialDetailService(mock_session)
+        item = _make_order_item()
+
+        rows = [
+            {
+                "rrdId": 1,
+                "docTypeName": "Продажа",
+                "retailAmount": 500,
+                "forPay": 445,
+            },
+            {
+                "rrdId": 2,
+                "docTypeName": "Логистика",
+                "deliveryAmount": 48,
+            },
+            {
+                "rrdId": 3,
+                "docTypeName": "Приёмка",
+                "paidAcceptance": 15,
+            },
+            {
+                "rrdId": 4,
+                "docTypeName": "Доплата",
+                "additionalPayment": 1,
+            },
+        ]
+
+        aggregated = service._aggregate_report_rows(rows, item)
+        result = service.calculator.calculate(
+            ProfitInput(
+                gross_revenue=aggregated["gross_revenue"],
+                expected_payout=aggregated["expected_payout"],
+                marketplace_commission=aggregated["marketplace_commission"],
+                logistics_cost=aggregated["logistics_cost"],
+                storage_cost=aggregated["storage_cost"],
+                other_marketplace_costs=aggregated["other_marketplace_costs"],
+                cost=CostInput(
+                    cost_price=Decimal("172"),
+                    package_cost=Decimal("10"),
+                    tax_rate=Decimal("0"),
+                ),
+                tax_base=Decimal("0"),
+            )
+        )
+        tax_amount = Decimal("26")
+        final_profit = result.profit - tax_amount
+
+        assert aggregated["expected_payout"] == Decimal("383")
+        assert final_profit == Decimal("175")
+
+    def test_wb_profit_example_2(self) -> None:
+        """Control example 2: forPay=419, logistics=53, acceptance=15
+        cost=159, package=10, tax=32
+        Expected: receipt=351, profit=150
+        """
+        mock_session = AsyncMock()
+        service = WbDailyFinancialDetailService(mock_session)
+        item = _make_order_item()
+
+        rows = [
+            {
+                "rrdId": 1,
+                "docTypeName": "Продажа",
+                "retailAmount": 500,
+                "forPay": 419,
+            },
+            {
+                "rrdId": 2,
+                "docTypeName": "Логистика",
+                "deliveryAmount": 53,
+            },
+            {
+                "rrdId": 3,
+                "docTypeName": "Приёмка",
+                "paidAcceptance": 15,
+            },
+        ]
+
+        aggregated = service._aggregate_report_rows(rows, item)
+        result = service.calculator.calculate(
+            ProfitInput(
+                gross_revenue=aggregated["gross_revenue"],
+                expected_payout=aggregated["expected_payout"],
+                marketplace_commission=aggregated["marketplace_commission"],
+                logistics_cost=aggregated["logistics_cost"],
+                other_marketplace_costs=aggregated["other_marketplace_costs"],
+                cost=CostInput(
+                    cost_price=Decimal("159"),
+                    package_cost=Decimal("10"),
+                    tax_rate=Decimal("0"),
+                ),
+                tax_base=Decimal("0"),
+            )
+        )
+        tax_amount = Decimal("32")
+        final_profit = result.profit - tax_amount
+
+        assert aggregated["expected_payout"] == Decimal("351")
+        assert final_profit == Decimal("150")
 
 
 class TestSnapshotUpsert:
