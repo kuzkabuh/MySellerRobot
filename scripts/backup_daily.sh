@@ -263,11 +263,48 @@ cleanup_retention() {
 # ── Archive project files ──────────────────────────────────────────────
 archive_project_files() {
   local target="$1"
-  local exclude_env=()
-  if [[ "${BACKUP_ENCRYPTION_ENABLED:-0}" != "1" && "${BACKUP_ALLOW_PLAINTEXT_SECRETS:-0}" != "1" ]]; then
-    exclude_env=("--exclude=.env")
+
+  local -a backup_paths=(
+    "app"
+    "alembic"
+    "alembic.ini"
+    "scripts"
+    "deploy"
+    "templates"
+    "static"
+    "nginx"
+    "uploads"
+    "storage"
+    "docker-compose.prod.yml"
+    "Dockerfile"
+    "pyproject.toml"
+    "requirements.txt"
+    ".env.example"
+  )
+
+  local -a existing_paths=()
+  local item
+
+  for item in "${backup_paths[@]}"; do
+    if [[ -e "$item" ]]; then
+      existing_paths+=("$item")
+    else
+      log_warn "Skipping missing backup path: ${item}"
+    fi
+  done
+
+  if [[ -f ".env" ]]; then
+    if [[ "${BACKUP_ENCRYPTION_ENABLED:-0}" == "1" || "${BACKUP_ALLOW_PLAINTEXT_SECRETS:-0}" == "1" ]]; then
+      existing_paths+=(".env")
+    fi
   fi
-  if ! tar \
+
+  if [[ "${#existing_paths[@]}" -eq 0 ]]; then
+    fail "Archive project files" "no existing project paths found to archive"
+  fi
+
+  set +e
+  tar \
     --exclude='.git' \
     --exclude='.venv' \
     --exclude='venv' \
@@ -284,12 +321,15 @@ archive_project_files() {
     --exclude='*.pyc' \
     --exclude='postgres_data' \
     --exclude='redis_data' \
-    "${exclude_env[@]}" \
     -czf "$target" \
     -C "$PROJECT_DIR" \
-    .env docker-compose.prod.yml deploy nginx uploads storage runtime 2>&1; then
+    "${existing_paths[@]}"
+  local tar_exit="$?"
+  set -e
+
+  if [[ "$tar_exit" -ne 0 ]]; then
     rm -f "$target"
-    fail "Archive project files" "tar failed"
+    fail "Archive project files" "tar failed with exit code ${tar_exit}"
   fi
 }
 
@@ -390,7 +430,16 @@ main() {
   fi
 
   # Verify: contains PostgreSQL dump signature
-  if ! zcat "$db_backup_tmp" 2>/dev/null | head -n 20 | grep -qE '(PostgreSQL database dump|CREATE TABLE|Dumped from database version)'; then
+  if ! gzip -cd "$db_backup_tmp" 2>/dev/null | awk '
+/PostgreSQL database dump/ { found = 1 }
+/Dumped from database version/ { found = 1 }
+/Dumped by pg_dump/ { found = 1 }
+/SET statement_timeout/ { found = 1 }
+/CREATE TYPE/ { found = 1 }
+/CREATE TABLE/ { found = 1 }
+/COPY / { found = 1 }
+END { exit found ? 0 : 1 }
+'; then
     rm -f "$db_backup_tmp"
     fail "PostgreSQL dump" "file does not contain PostgreSQL dump signatures"
   fi
