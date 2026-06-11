@@ -402,18 +402,24 @@ class WebOrdersProfitService:
         ozon_fact = await self._ozon_order_fact(order) if order.marketplace == Marketplace.OZON else None
         missing_cost = any(item.cost_price_used is None for item in order.items)
 
-        # Compute wb_fact_income from linked WbDailyReportRow (not from ProfitSnapshot)
+        # Compute wb_fact_income from linked + unlinked WbDailyReportRow (filtered by srid)
         wb_fact_income: Decimal | None = None
         corrected_actual_profit: Decimal | None = None
-        if wb_fact is not None and wb_fact.linked_rows:
-            linked = wb_fact.linked_rows
-            total_for_pay = sum((r.for_pay or ZERO) for r in linked)
-            total_delivery = sum((r.delivery_rub or ZERO) for r in linked if r.for_pay is None)
-            total_storage = sum((r.storage_fee or ZERO) for r in linked if r.for_pay is None)
-            total_acceptance = sum((r.acceptance or ZERO) for r in linked if r.for_pay is None)
-            total_penalty = sum((r.penalty or ZERO) for r in linked if r.for_pay is None)
-            total_deduction = sum((r.deduction or ZERO) for r in linked if r.for_pay is None)
-            total_reimbursement = sum((r.reimbursement_amount or ZERO) for r in linked if r.for_pay is None)
+        if wb_fact is not None and (wb_fact.linked_rows or wb_fact.unlinked_product_rows):
+            all_relevant = list(wb_fact.linked_rows)
+            # Include unlinked product rows that share the same srid (logistics, acceptance, etc.)
+            if order.srid:
+                srid_filtered = [r for r in wb_fact.unlinked_product_rows if r.srid == order.srid]
+                all_relevant.extend(srid_filtered)
+            else:
+                all_relevant.extend(wb_fact.unlinked_product_rows)
+            total_for_pay = sum((r.for_pay or ZERO) for r in all_relevant)
+            total_delivery = sum((r.delivery_rub or ZERO) for r in all_relevant if r.for_pay is None)
+            total_storage = sum((r.storage_fee or ZERO) for r in all_relevant if r.for_pay is None)
+            total_acceptance = sum((r.acceptance or ZERO) for r in all_relevant if r.for_pay is None)
+            total_penalty = sum((r.penalty or ZERO) for r in all_relevant if r.for_pay is None)
+            total_deduction = sum((r.deduction or ZERO) for r in all_relevant if r.for_pay is None)
+            total_reimbursement = sum((r.reimbursement_amount or ZERO) for r in all_relevant if r.for_pay is None)
             wb_fact_income = (
                 total_for_pay
                 - total_delivery - total_storage - total_acceptance

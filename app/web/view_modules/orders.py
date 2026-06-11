@@ -123,6 +123,8 @@ def _wb_assembly_id(order: Any) -> str | None:
     payload_id = getattr(order, "raw_payload", {}).get("id")
     if payload_id:
         return str(payload_id)
+    if order.order_external_id:
+        return str(order.order_external_id)
     return None
 
 

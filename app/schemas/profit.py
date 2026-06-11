@@ -28,6 +28,7 @@ class ProfitInput(BaseModel):
     other_marketplace_costs: Decimal = Decimal("0")
     cost: CostInput | None = None
     tax_base: Decimal | None = None
+    fixed_tax_amount: Decimal | None = None
     calculation_source: str = "estimated"
 
 

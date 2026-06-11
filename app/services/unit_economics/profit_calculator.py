@@ -46,9 +46,12 @@ class ProfitCalculator:
         if seller_payout is None:
             seller_payout = data.gross_revenue - marketplace_expenses
 
-        # Налоговая база = выручка продавца, а не цена покупателя!
-        tax_base = data.tax_base if data.tax_base is not None else seller_payout
-        tax_amount = money(tax_base * cost.tax_rate)
+        # Налог
+        if data.fixed_tax_amount is not None:
+            tax_amount = money(data.fixed_tax_amount)
+        else:
+            tax_base = data.tax_base if data.tax_base is not None else seller_payout
+            tax_amount = money(tax_base * cost.tax_rate)
 
         # Расходы продавца
         seller_expenses = cost.cost_price + cost.package_cost + cost.additional_cost + tax_amount

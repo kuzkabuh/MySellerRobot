@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.domain import (
@@ -21,6 +21,7 @@ from app.models.domain import (
     ProfitSnapshot,
     WbDailyReportRow,
 )
+from app.models.enums import Marketplace
 from app.models.enums import CalculationType, ReconciliationStatus
 from app.repositories.orders import OrderRepository
 from app.schemas.profit import CostInput, ProfitInput
@@ -218,6 +219,10 @@ class OrderProfitReconciliationService:
         if cost is None:
             cost = _make_cost_from_item(item)
 
+        fixed_tax = None
+        if item.tax_amount_estimated is not None and item.tax_amount_estimated > 0:
+            fixed_tax = item.tax_amount_estimated
+
         result = self.calculator.calculate(
             ProfitInput(
                 gross_revenue=aggregated["gross_revenue"],
@@ -238,6 +243,7 @@ class OrderProfitReconciliationService:
                     if cost
                     else None
                 ),
+                fixed_tax_amount=fixed_tax,
                 calculation_source="order_profit_reconciliation",
             )
         )
@@ -457,13 +463,24 @@ class OrderProfitReconciliationService:
     ) -> list[FinancialReportRow]:
         if not order.order_external_id:
             return []
+        base_conditions = [
+            FinancialReportRow.marketplace_account_id == order.marketplace_account_id,
+            FinancialReportRow.marketplace == order.marketplace,
+        ]
+        by_order_id = and_(
+            *base_conditions,
+            FinancialReportRow.order_external_id == order.order_external_id,
+        )
+        conditions = [by_order_id]
+        if order.marketplace == Marketplace.WB and order.srid:
+            by_srid = and_(
+                *base_conditions,
+                FinancialReportRow.raw_payload["srid"] == order.srid,
+            )
+            conditions.append(by_srid)
         result = await self.session.execute(
             select(FinancialReportRow)
-            .where(
-                FinancialReportRow.marketplace_account_id == order.marketplace_account_id,
-                FinancialReportRow.marketplace == order.marketplace,
-                FinancialReportRow.order_external_id == order.order_external_id,
-            )
+            .where(or_(*conditions))
             .limit(500)
         )
         return list(result.scalars().all())
