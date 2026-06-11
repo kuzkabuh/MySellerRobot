@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # version: 1.0.0
-# description: Restore MP Control PostgreSQL dump and optional config files from a backup archive.
+# description: Restore MP Control PostgreSQL dump and optional config files from a backup archive (full .tar.gz or direct .sql.gz[.enc]).
 # updated: 2026-06-07
 
 set -Eeuo pipefail
@@ -57,25 +57,49 @@ find_first() {
 
 decrypt_if_needed() {
   local path="$1"
-  if [[ "$path" != *.gpg ]]; then
-    echo "$path"
+  local password output
+  password="${BACKUP_ENCRYPTION_PASSWORD:-$(env_value BACKUP_ENCRYPTION_PASSWORD)}"
+
+  # Openssl .enc format (produced by backup_daily.sh)
+  if [[ "$path" == *.enc ]]; then
+    if [[ -z "$password" ]]; then
+      log_error "Encrypted (.enc) backup found, but BACKUP_ENCRYPTION_PASSWORD is empty."
+      exit 1
+    fi
+    if ! command -v openssl >/dev/null 2>&1; then
+      log_error "Encrypted (.enc) backup found, but openssl is not installed."
+      exit 1
+    fi
+    output="${path%.enc}"
+    if ! openssl enc -d -aes-256-cbc -pbkdf2 -salt \
+      -in "$path" -out "$output" \
+      -pass "pass:${password}" 2>/dev/null; then
+      log_error "Openssl decryption failed for ${path}"
+      exit 1
+    fi
+    chmod 600 "$output"
+    echo "$output"
     return 0
   fi
 
-  local password output
-  password="${BACKUP_ENCRYPTION_PASSWORD:-$(env_value BACKUP_ENCRYPTION_PASSWORD)}"
-  if [[ -z "$password" ]]; then
-    log_error "Encrypted backup found, but BACKUP_ENCRYPTION_PASSWORD is empty."
-    exit 1
+  # GnuPG .gpg format
+  if [[ "$path" == *.gpg ]]; then
+    if [[ -z "$password" ]]; then
+      log_error "Encrypted (.gpg) backup found, but BACKUP_ENCRYPTION_PASSWORD is empty."
+      exit 1
+    fi
+    if ! command -v gpg >/dev/null 2>&1; then
+      log_error "Encrypted (.gpg) backup found, but gpg is not installed."
+      exit 1
+    fi
+    output="${path%.gpg}"
+    gpg --batch --yes --decrypt --passphrase "$password" --output "$output" "$path" >/dev/null
+    chmod 600 "$output"
+    echo "$output"
+    return 0
   fi
-  if ! command -v gpg >/dev/null 2>&1; then
-    log_error "Encrypted backup found, but gpg is not installed."
-    exit 1
-  fi
-  output="${path%.gpg}"
-  gpg --batch --yes --decrypt --passphrase "$password" --output "$output" "$path" >/dev/null
-  chmod 600 "$output"
-  echo "$output"
+
+  echo "$path"
 }
 
 main() {
@@ -83,38 +107,66 @@ main() {
   require_confirmation
   cd "$PROJECT_DIR"
 
-  WORK_DIR="$(mktemp -d)"
-  log_info "Extracting backup archive to ${WORK_DIR}."
-  tar -xzf "$BACKUP_PATH" -C "$WORK_DIR"
-
   local db_dump files_archive pg_user pg_db safety_name
-  db_dump="$(find_first '*.sql.gz')"
-  if [[ -z "$db_dump" ]]; then
-    db_dump="$(find_first '*.sql.gz.gpg')"
-  fi
-  files_archive="$(find_first 'mpcontrol_files_*.tar.gz')"
-  if [[ -z "$files_archive" ]]; then
-    files_archive="$(find_first 'mpcontrol_files_*.tar.gz.gpg')"
-  fi
   pg_user="$(env_value POSTGRES_USER)"
   pg_db="$(env_value POSTGRES_DB)"
   pg_user="${pg_user:-seller_bot}"
   pg_db="${pg_db:-seller_profit_bot}"
 
-  if [[ -z "$db_dump" ]]; then
-    log_error "No PostgreSQL .sql.gz dump found inside backup archive."
+  # Determine if BACKUP_PATH is a full archive (.tar.gz) or direct .sql.gz[.enc]
+  if [[ "$BACKUP_PATH" == *.tar.gz ]]; then
+    WORK_DIR="$(mktemp -d)"
+    log_info "Extracting backup archive to ${WORK_DIR}."
+    tar -xzf "$BACKUP_PATH" -C "$WORK_DIR"
+
+    db_dump="$(find_first 'mpcontrol_db_*.sql.gz')"
+    if [[ -z "$db_dump" ]]; then
+      db_dump="$(find_first 'mpcontrol_db_*.sql.gz.enc')"
+    fi
+    if [[ -z "$db_dump" ]]; then
+      db_dump="$(find_first 'mpcontrol_db_*.sql.gz.gpg')"
+    fi
+    files_archive="$(find_first 'mpcontrol_files_*.tar.gz')"
+    if [[ -z "$files_archive" ]]; then
+      files_archive="$(find_first 'mpcontrol_files_*.tar.gz.enc')"
+    fi
+    if [[ -z "$files_archive" ]]; then
+      files_archive="$(find_first 'mpcontrol_files_*.tar.gz.gpg')"
+    fi
+
+    if [[ -z "$db_dump" ]]; then
+      log_error "No PostgreSQL .sql.gz dump found inside backup archive."
+      exit 1
+    fi
+    db_dump="$(decrypt_if_needed "$db_dump")"
+    if [[ -n "$files_archive" ]]; then
+      files_archive="$(decrypt_if_needed "$files_archive")"
+    fi
+  elif [[ "$BACKUP_PATH" == *.sql.gz* ]]; then
+    db_dump="$(decrypt_if_needed "$BACKUP_PATH")"
+    log_info "Using direct SQL dump: ${db_dump}"
+  else
+    log_error "Unrecognized backup format: ${BACKUP_PATH}"
+    log_error "Expected: *.tar.gz (full archive) or *.sql.gz[.enc|.gpg] (direct dump)"
     exit 1
-  fi
-  db_dump="$(decrypt_if_needed "$db_dump")"
-  if [[ -n "$files_archive" ]]; then
-    files_archive="$(decrypt_if_needed "$files_archive")"
   fi
 
   log_info "Creating safety backup before restore."
   safety_name="${PROJECT_DIR}/backups/restore/safety_before_restore_$(date '+%Y-%m-%d_%H-%M-%S').sql.gz"
   mkdir -p "$(dirname "$safety_name")"
+  local pg_dump_exit gzip_exit
+  set +e
   docker compose -f "$COMPOSE_FILE" exec -T postgres pg_dump \
-    -U "$pg_user" -d "$pg_db" --format=plain --no-owner --no-privileges | gzip > "$safety_name"
+    -U "$pg_user" -d "$pg_db" --format=plain --no-owner --no-privileges \
+    2>/dev/null | gzip > "$safety_name"
+  pg_dump_exit="${PIPESTATUS[0]}"
+  gzip_exit="${PIPESTATUS[1]}"
+  set -e
+  if [[ "$pg_dump_exit" -ne 0 || "$gzip_exit" -ne 0 ]]; then
+    log_error "Safety backup creation failed (pg_dump exit=${pg_dump_exit}, gzip exit=${gzip_exit})"
+    rm -f "$safety_name"
+    exit 1
+  fi
   chmod 600 "$safety_name"
 
   log_info "Restoring PostgreSQL database ${pg_db} from $(basename "$db_dump")."

@@ -79,7 +79,36 @@ main() {
   metadata_target="${BACKUP_DIR}/meta/backup_${timestamp}.json"
 
   log_info "Creating PostgreSQL backup: ${db_target}"
-  docker compose -f "$COMPOSE_FILE" exec -T postgres pg_dump -U "$db_user" "$db_name" | gzip > "$db_target"
+  local pg_exit gzip_exit
+  set +e
+  docker compose -f "$COMPOSE_FILE" exec -T postgres pg_dump \
+    -U "$db_user" "$db_name" \
+    2>"${BACKUP_DIR}/db/pg_dump_${timestamp}.stderr" \
+    | gzip > "$db_target"
+  pg_exit="${PIPESTATUS[0]}"
+  gzip_exit="${PIPESTATUS[1]}"
+  set -e
+
+  if [[ "$pg_exit" -ne 0 ]]; then
+    if [[ -f "${BACKUP_DIR}/db/pg_dump_${timestamp}.stderr" ]]; then
+      log_error "pg_dump stderr:"
+      cat "${BACKUP_DIR}/db/pg_dump_${timestamp}.stderr" >&2
+    fi
+    rm -f "$db_target" "${BACKUP_DIR}/db/pg_dump_${timestamp}.stderr" 2>/dev/null || true
+    log_error "pg_dump failed with exit code ${pg_exit}"
+    exit 1
+  fi
+  if [[ "$gzip_exit" -ne 0 ]]; then
+    rm -f "$db_target" "${BACKUP_DIR}/db/pg_dump_${timestamp}.stderr" 2>/dev/null || true
+    log_error "gzip failed with exit code ${gzip_exit}"
+    exit 1
+  fi
+  rm -f "${BACKUP_DIR}/db/pg_dump_${timestamp}.stderr" 2>/dev/null || true
+
+  if [[ ! -s "$db_target" ]]; then
+    log_error "Backup file is empty: ${db_target}"
+    exit 1
+  fi
 
   if [[ -f "${PROJECT_DIR}/.env" ]]; then
     log_info "Copying .env backup: ${env_target}"
