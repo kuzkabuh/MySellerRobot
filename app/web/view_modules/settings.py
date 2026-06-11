@@ -357,11 +357,12 @@ def _profile_content(user: User, subscription: SubscriptionPageData) -> str:
     # Display name and username using unified functions
     display_name = _get_user_display_name(user)
     telegram_username = _get_telegram_username(user)
-    username_display = telegram_username if telegram_username else "Username не указан"
-    
-    # Determine if username is from Telegram
-    if not user.username:
+    if telegram_username:
+        username_display = telegram_username
+    elif not user.username:
         username_display = "Не получен из Telegram"
+    else:
+        username_display = "Username не указан"
     
     # Account status
     account_status = "Активен" if user.status.value == "ACTIVE" else user.status.value
@@ -575,92 +576,6 @@ def _profile_content(user: User, subscription: SubscriptionPageData) -> str:
       </section>
       
       <div id="save-notification" class="notification-container"></div>
-      
-      <script>
-        // Profile save notification
-        function showSaveNotification(message, isSuccess = true) {
-          const container = document.getElementById('save-notification');
-          const notification = document.createElement('div');
-          notification.className = `notification ${isSuccess ? 'success' : 'error'}${isSuccess ? 'show' : ''}`;
-          notification.textContent = message;
-          container.innerHTML = '';
-          container.appendChild(notification);
-          if (isSuccess) {
-            setTimeout(() => {
-              notification.classList.remove('show');
-              setTimeout(() => container.innerHTML = '', 300);
-            }, 3000);
-          }
-        }
-        
-        // Profile saving
-        async function saveProfile() {
-          const formData = {
-            first_name: document.getElementById('first_name').value,
-            last_name: document.getElementById('last_name').value,
-            phone: document.getElementById('phone').value,
-            email: document.getElementById('email').value,
-            company_name: '{escape(user.company_name or '')}',
-            inn: '{escape(user.inn or '')}',
-            ogrn: '{escape(user.ogrn or '')}',
-            timezone: document.getElementById('timezone').value,
-          };
-          
-          try {
-            const response = await fetch('/web/settings/profile', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(formData)
-            });
-            
-            if (response.ok) {
-              showSaveNotification('Профиль успешно сохранен');
-            } else {
-              const error = await response.text();
-              showSaveNotification(`Ошибка при сохранении: ${error}`, false);
-            }
-          } catch (error) {
-            showSaveNotification(`Ошибка при сохранении: ${error}`, false);
-          }
-        }
-        
-        // Navigation functions
-        function openNotifications() {
-          window.location.href = '/web/settings?tab=notifications';
-        }
-        
-        function openSecurity() {
-          window.location.href = '/web/settings?tab=security';
-        }
-        
-        function openCompanySettings() {
-          window.location.href = '/web/settings?tab=company';
-        }
-        
-        function openTariffManagement() {
-          window.location.href = '/web/settings?tab=subscription';
-        }
-        
-        function openSecuritySettings() {
-          window.location.href = '/web/settings?tab=security';
-        }
-        
-        function openNotifications() {
-          window.location.href = '/web/settings?tab=notifications';
-        }
-        
-        function openCompanySettings() {
-          window.location.href = '/web/settings?tab=company';
-        }
-        
-        function openTariffManagement() {
-          window.location.href = '/web/settings?tab=subscription';
-        }
-        
-        function openSecuritySettings() {
-          window.location.href = '/web/settings?tab=security';
-        }
-      </script>
     """
 
 def _control_content(data: ControlPageData) -> str:

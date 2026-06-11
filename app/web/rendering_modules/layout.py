@@ -46,6 +46,14 @@ def page(
             if user_role is None:
                 user_role = "user"
     safe_title = escape(title)
+    # Use display name from context_user if available and user_name looks like a raw fallback
+    if not user_name or user_name == "селлер":
+        try:
+            from app.web.view_modules.formatting import _get_user_display_name
+            if hasattr(context_user, "telegram_id"):
+                user_name = _get_user_display_name(context_user)
+        except Exception:
+            pass
     safe_user = escape(user_name or "селлер")
     show_admin_nav = bool(is_admin)
     return f"""<!doctype html>

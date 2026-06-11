@@ -1,6 +1,6 @@
-"""version: 1.1.0
-description: Browser scripts for MP Control web rendering.
-updated: 2026-06-09
+"""version: 1.2.0
+description: Browser scripts for MP Control web rendering – added profile page JS.
+updated: 2026-06-11
 """
 
 # ruff: noqa: E501
@@ -125,4 +125,60 @@ def _js() -> str:
         }
       }, 2000);
     })();
+    /* ── Profile Page ── */
+    function showProfileToast(message, type) {
+      var existing = document.querySelector('.profile-notification');
+      if (existing) { existing.remove(); }
+      var toast = document.createElement('div');
+      toast.className = 'profile-notification ' + (type || 'success');
+      toast.textContent = message;
+      document.body.appendChild(toast);
+      setTimeout(function() {
+        toast.style.animation = 'profileToastOut 0.3s ease-in forwards';
+        setTimeout(function() { toast.remove(); }, 300);
+      }, 3000);
+    }
+    function validateEmail(email) {
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    }
+    function validatePhone(phone) {
+      return !phone || /^\+?[\d\s\-()]{10,20}$/.test(phone);
+    }
+    async function saveProfile() {
+      var data = {};
+      var firstName = document.getElementById('pf_first_name');
+      var lastName = document.getElementById('pf_last_name');
+      var phone = document.getElementById('pf_phone');
+      var email = document.getElementById('pf_email');
+      var timezone = document.getElementById('pf_timezone');
+      if (firstName) data.first_name = firstName.value;
+      if (lastName) data.last_name = lastName.value;
+      if (phone) data.phone = phone.value;
+      if (email) data.email = email.value;
+      if (timezone) data.timezone = timezone.value;
+      if (data.email && data.email.trim() && !validateEmail(data.email.trim())) {
+        showProfileToast('Некорректный формат email', 'error');
+        return;
+      }
+      if (data.phone && data.phone.trim() && !validatePhone(data.phone.trim())) {
+        showProfileToast('Некорректный формат телефона', 'error');
+        return;
+      }
+      try {
+        var resp = await fetch('/web/settings/profile', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(data)
+        });
+        if (resp.ok) {
+          showProfileToast('Профиль успешно сохранён', 'success');
+        } else {
+          var err = await resp.text();
+          showProfileToast('Ошибка: ' + err, 'error');
+        }
+      } catch (e) {
+        showProfileToast('Ошибка сети: ' + e.message, 'error');
+      }
+    }
+    function navigateTo(url) { window.location.href = url; }
     """

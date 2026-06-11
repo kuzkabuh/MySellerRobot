@@ -106,31 +106,35 @@ def _dt(value: datetime | None, timezone: str = "Europe/Moscow") -> str:
     return format_datetime_for_user(value, timezone)
 
 def _user_display_name(user: User) -> str:
-    return user.first_name or user.username or str(user.telegram_id)
+    return _get_user_display_name(user)
 
 
 def _get_user_display_name(user: User) -> str:
-    """
-    Get display name for user.
-    
-    Uses the unified logic: full_name or first_name or username or telegram_username or ID.
-    """
-    display_name = (
-        f"{user.first_name or ''} {user.last_name or ''}".strip()
-        or user.username
-        or getattr(user, 'telegram_username', None)
-        or str(user.telegram_id)
-    )
-    return display_name
+    """Unified display name: full_name (first + last) > username > telegram_username > ID."""
+    first = getattr(user, 'first_name', None) or ''
+    last = getattr(user, 'last_name', None) or ''
+    full = f"{first} {last}".strip()
+    if full:
+        return full
+    username = getattr(user, 'username', None)
+    if username:
+        return username
+    tg_username = getattr(user, 'telegram_username', None)
+    if tg_username:
+        return tg_username
+    return str(getattr(user, 'telegram_id', '?'))
 
 
 def _get_telegram_username(user: User) -> str | None:
     """
-    Get telegram username with proper format.
-    
-    Returns "@username" if username exists, otherwise None.
+    Get Telegram username with @ prefix if available.
+    Checks both `username` and `telegram_username` fields.
+    Returns "@username" or None.
     """
-    return f"@{user.username}" if user.username else None
+    raw = getattr(user, 'username', None) or getattr(user, 'telegram_username', None)
+    if raw:
+        return f"@{raw}"
+    return None
 
 def _rub(value: object | None) -> str:
     if value is None:

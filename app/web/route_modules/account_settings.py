@@ -5,7 +5,8 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse
+from starlette.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -134,14 +135,8 @@ async def save_product_cost_legacy_double_web(
 async def profile_page(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
-) -> str:
-    subscription = await WebCabinetService(session).subscription_page(user.id, user.timezone)
-    return page(
-        "Профиль",
-        _user_display_name(user),
-        _profile_content(user, subscription),
-        active_path="/web/settings",
-    )
+) -> RedirectResponse:
+    return RedirectResponse(url="/web/settings?tab=profile", status_code=302)
 
 
 @router.post("/profile")
@@ -149,10 +144,21 @@ async def save_profile_settings(
     request: Request,
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
-) -> RedirectResponse:
-    form = await _urlencoded_form(request)
+) -> Response:
     db_user = await session.get(User, user.id)
-    if db_user is not None:
+    if db_user is None:
+        return Response(status_code=404, content="Пользователь не найден")
+
+    # Support both JSON (AJAX) and form-encoded submissions
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        body = await request.json()
+        if body.get("timezone") is not None:
+            db_user.timezone = str(body["timezone"])[:64]
+        if body.get("notifications_enabled") is not None:
+            db_user.notifications_enabled = bool(body["notifications_enabled"])
+    else:
+        form = await _urlencoded_form(request)
         db_user.timezone = _form_value(form, "timezone", "Europe/Moscow")[:64]
         db_user.notifications_enabled = _form_value(form, "notifications_enabled", "off") == "on"
         db_user.low_margin_threshold_percent = _decimal_from_query(

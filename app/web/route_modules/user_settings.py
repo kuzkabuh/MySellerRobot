@@ -10,7 +10,7 @@ from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,6 +41,7 @@ from app.utils.client_ip import get_client_ip
 from app.utils.datetime import format_datetime_for_user
 from app.web.dependencies import CURRENT_WEB_USER_DEPENDENCY, SESSION_DEPENDENCY
 from app.web.rendering import page
+from app.web.view_modules.formatting import _get_user_display_name, _get_telegram_username
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -92,108 +93,272 @@ def _subscription_status_russian(status_value: str) -> str:
     return mapping.get(status_value.upper(), status_value)
 
 
-def _profile_tab(user: User, subscription_data: object | None = None) -> str:
-    first_name = getattr(user, "first_name", None)
-    last_name = getattr(user, "last_name", None)
-    username = getattr(user, "username", None)
-    timezone = getattr(user, "timezone", "Europe/Moscow")
-    display_name = first_name or last_name or username or str(user.telegram_id)
+def _profile_tab(
+    user: User,
+    subscription_data: object | None = None,
+    *,
+    saved_message: str | None = None,
+    error_message: str | None = None,
+) -> str:
+    # ── User display helpers (use getattr for test compatibility) ──
+    tz = getattr(user, "timezone", "Europe/Moscow")
+    display_name = _get_user_display_name(user)
+    tg_username = _get_telegram_username(user)
+    user_id = getattr(user, "telegram_id", "?")
+    uname = getattr(user, "username", None)
+    tg_uname = getattr(user, "telegram_username", None)
+    first_name = getattr(user, "first_name", None) or ''
+    last_name = getattr(user, "last_name", None) or ''
+    phone = getattr(user, "phone", None) or ''
+    email = getattr(user, "email", None) or ''
+    company_name = getattr(user, "company_name", None) or ''
+    user_inn = getattr(user, "inn", None) or ''
+    user_ogrn = getattr(user, "ogrn", None) or ''
+    user_timezone = getattr(user, "timezone", "Europe/Moscow") or "Europe/Moscow"
+    notifications_enabled = getattr(user, "notifications_enabled", True)
+    status_attr = getattr(user, "status", None)
+    status_raw = status_attr.value if hasattr(status_attr, "value") else (status_attr or "ACTIVE")
+    created_at = getattr(user, "created_at", None)
+    last_activity_at = getattr(user, "last_activity_at", None)
+    last_login_at = getattr(user, "last_login_at", None)
+    last_login_ip = getattr(user, "last_login_ip", None)
 
+    # ── Username display ──
+    if uname:
+        username_display = f"@{escape(uname)}"
+    elif tg_uname:
+        username_display = f"@{escape(tg_uname)}"
+    else:
+        username_display = "Username не указан"
+
+    # ── Avatar initials ──
+    avatar_letter = (display_name[0] if display_name else "?").upper()
+
+    # ── Status ──
+    account_status_label = "Активен" if status_raw == "ACTIVE" else str(status_raw)
+    account_status_cls = "good" if status_raw == "ACTIVE" else "warn"
+
+    # ── Registration & activity ──
+    reg_date = _dt(created_at, tz)
+    last_activity = _dt(last_activity_at, tz)
+
+    # ── Subscription / Tariff ──
     if subscription_data is not None:
         tier = getattr(subscription_data, "tier", None)
         tier_name = getattr(tier, "name", "Free") if tier else "Free"
+        tier_code = getattr(tier, "code", "free") if tier else "free"
         active_sub = getattr(subscription_data, "active_subscription", None)
         from app.services.account.web_cabinet_service import subscription_status
-
-        raw_status = subscription_status(active_sub)
-        status_label = _subscription_status_russian(raw_status)
+        raw_sub_status = subscription_status(active_sub)
+        sub_status_label = _subscription_status_russian(raw_sub_status)
+        sub_status_cls = "good" if raw_sub_status == "ACTIVE" else "warn" if raw_sub_status in ("TRIAL", "PENDING") else "bad"
         expires_at = getattr(active_sub, "expires_at", None) if active_sub else None
         expires_label = (
-            format_datetime_for_user(expires_at, timezone, "%d.%m.%Y")
-            if expires_at
-            else "бессрочно"
+            format_datetime_for_user(expires_at, tz, "%d.%m.%Y")
+            if expires_at else "бессрочно"
         )
         used_accounts = getattr(subscription_data, "used_accounts", 0)
         max_accounts = getattr(tier, "max_marketplace_accounts", 1) if tier else 1
         used_orders = getattr(subscription_data, "used_orders_month", 0)
         max_orders = getattr(tier, "max_orders_per_month", None) if tier else None
-        max_orders_label = str(max_orders) if max_orders else "без ограничений"
+        max_orders_label = "без ограничений" if max_orders is None else str(max_orders)
         used_products = getattr(subscription_data, "used_products", 0)
         max_products = getattr(tier, "max_products", None) if tier else None
-        max_products_label = str(max_products) if max_products else "без ограничений"
-        tariff_block = f"""
-            <span>Тариф</span><strong>{escape(tier_name)}</strong>
-            <span>Статус</span><strong>{escape(status_label)}</strong>
-            <span>Действует до</span><strong>{escape(expires_label)}</strong>
-            <span>Кабинеты</span><strong>{used_accounts} / {max_accounts}</strong>
-            <span>Заказы за месяц</span><strong>{used_orders} / {max_orders_label}</strong>
-            <span>SKU</span><strong>{used_products} / {max_products_label}</strong>
-            <span>Уведомления</span><strong>{"включены" if getattr(user, "notifications_enabled", True) else "выключены"}</strong>
-        """
+        max_products_label = "без ограничений" if max_products is None else str(max_products)
+        notif_label = "включены" if notifications_enabled else "выключены"
     else:
-        tariff_block = f"""
-            <span>Тариф</span><strong>Не удалось загрузить данные тарифа</strong>
-            <span>Уведомления</span><strong>{"включены" if getattr(user, "notifications_enabled", True) else "выключены"}</strong>
-        """
+        tier_name = "Free"
+        tier_code = "free"
+        sub_status_label = "Активен"
+        sub_status_cls = "good"
+        expires_label = "бессрочно"
+        used_accounts = max_accounts = 0
+        used_orders = 0
+        max_orders_label = "без ограничений"
+        used_products = 0
+        max_products_label = "без ограничений"
+        notif_label = "включены"
+
+    # ── Limit progress helpers ──
+    def _limit_progress(current: int, maximum: int | None) -> str:
+        if maximum is None or maximum <= 0:
+            return '<span class="profile-unlimited-badge">Без ограничений</span>'
+        pct = min(current / maximum * 100, 100)
+        cls = "bad" if pct >= 90 else "warn" if pct >= 70 else ""
+        return f'<div class="profile-progress"><div class="profile-progress-fill {cls}" style="width:{pct:.0f}%"></div></div>'
+
+    def _limit_row(label: str, current: int, maximum: int | None) -> str:
+        max_str = "∞" if maximum is None else str(maximum)
+        return f"""
+        <div class="profile-limit-item">
+          <div class="profile-limit-header">
+            <span class="limit-label">{escape(label)}</span>
+            <span class="limit-value">{current} / {max_str}</span>
+          </div>
+          {_limit_progress(current, maximum)}
+        </div>"""
+
+    def _unlimited_badge() -> str:
+        return '<span class="profile-unlimited-badge">Без ограничений</span>'
+
+    # ── Last Login IP ──
+    last_ip = getattr(user, "last_login_ip", None)
+    if last_ip and last_ip.startswith(("172.", "10.", "192.168.", "127.")):
+        last_ip = "IP скрыт (внутренняя сеть)"
+    elif last_ip:
+        last_ip = escape(last_ip)
+    else:
+        last_ip = "н/д"
+
+    last_login = _dt(getattr(user, "last_login_at", None), tz)
+
+    # ── Notification status ──
+    saved_html = ""
+    if saved_message:
+        saved_html = f'<div class="notice success">{escape(saved_message)}</div>'
+    if error_message:
+        saved_html += f'<div class="notice danger">{escape(error_message)}</div>'
 
     return f"""
       {_settings_tabs("profile")}
-      <section class="detail-grid">
-        <section class="band">
-          <h2>Данные профиля</h2>
-          <form method="post" action="/web/settings/profile">
-            <div class="kv" style="margin-bottom:14px">
-              <span>Telegram ID</span><strong>{user.telegram_id}</strong>
-              <span>Username</span><strong>{escape("@" + username if username else "н/д")}</strong>
-              <span>Дата регистрации</span><strong>{_dt(getattr(user, "created_at", None), timezone)}</strong>
-              <span>Последняя активность</span><strong>{_dt(getattr(user, "last_activity_at", None), timezone)}</strong>
-            </div>
-            <div class="filters">
-              <div>
-                <label for="first_name">Имя</label>
-                <input id="first_name" name="first_name" value="{escape(first_name or "")}">
-              </div>
-              <div>
-                <label for="last_name">Фамилия</label>
-                <input id="last_name" name="last_name" value="{escape(last_name or "")}">
-              </div>
-              <div>
-                <label for="phone">Телефон</label>
-                <input id="phone" name="phone" value="{escape(getattr(user, "phone", None) or "")}" placeholder="+7 900 123-45-67">
-              </div>
-              <div>
-                <label for="email">Email</label>
-                <input id="email" name="email" type="email" value="{escape(getattr(user, "email", None) or "")}">
-              </div>
-              <div>
-                <label for="company_name">Компания</label>
-                <input id="company_name" name="company_name" value="{escape(getattr(user, "company_name", None) or "")}">
-              </div>
-              <div>
-                <label for="inn">ИНН</label>
-                <input id="inn" name="inn" value="{escape(getattr(user, "inn", None) or "")}" placeholder="10 или 12 цифр">
-              </div>
-              <div>
-                <label for="ogrn">ОГРН / ОГРНИП</label>
-                <input id="ogrn" name="ogrn" value="{escape(getattr(user, "ogrn", None) or "")}" placeholder="13 или 15 цифр">
-              </div>
-              <div>
-                <label for="timezone">Часовой пояс</label>
-                <input id="timezone" name="timezone" value="{escape(timezone)}">
+      {saved_html}
+      <div class="profile-grid">
+        <!-- ── Block 1: Profile header ── -->
+        <div class="profile-card" style="grid-column:1/-1">
+          <div class="profile-card-header">
+            <div class="profile-avatar profile-avatar-lg">{avatar_letter}</div>
+            <div class="profile-user-info">
+              <h2>{escape(display_name)}</h2>
+              <div class="profile-user-meta">
+                <span class="profile-meta-item">Telegram ID: <strong>{user_id}</strong></span>
+                <span class="profile-meta-item">Username: <strong><span style="color:var(--text-muted);font-weight:400">{username_display}</span></strong></span>
+                <span class="profile-meta-item">Статус: <span class="profile-badge {account_status_cls}">{account_status_label}</span></span>
+                <span class="profile-meta-item">Тариф: <span class="profile-badge tier-{escape(tier_code)}">{escape(tier_name)}</span></span>
+                <span class="profile-meta-item">Регистрация: <strong>{reg_date}</strong></span>
+                <span class="profile-meta-item">Последняя активность: <strong>{last_activity}</strong></span>
               </div>
             </div>
-            <button class="btn btn-primary" type="submit">Сохранить</button>
-          </form>
-        </section>
-        <section class="band">
-          <h2>Текущий тариф</h2>
-          <div class="kv">
-            {tariff_block}
           </div>
-          <p style="margin-top:14px"><a class="btn btn-primary" href="/web/settings?tab=subscription">Управление тарифом</a></p>
-          <p><a class="btn" href="/web/settings?tab=notifications">Настроить уведомления</a></p>
-        </section>
-      </section>
+          <div class="profile-actions">
+            <button class="button primary" onclick="saveProfile()">💾 Сохранить профиль</button>
+            <button class="button" onclick="navigateTo('/web/settings?tab=notifications')">🔔 Уведомления</button>
+            <button class="button" onclick="navigateTo('/web/settings?tab=security')">🔒 Безопасность</button>
+          </div>
+        </div>
+
+        <!-- ── Block 2: Personal data ── -->
+        <div class="profile-card">
+          <h2>👤 Личные данные</h2>
+          <div class="profile-form-grid">
+            <div class="profile-form-group">
+              <label for="pf_first_name">Имя</label>
+              <input id="pf_first_name" name="first_name" type="text" value="{escape(first_name)}" placeholder="Введите ваше имя">
+              <span class="field-hint">Как к вам обращаться</span>
+            </div>
+            <div class="profile-form-group">
+              <label for="pf_last_name">Фамилия</label>
+              <input id="pf_last_name" name="last_name" type="text" value="{escape(last_name)}" placeholder="Введите фамилию">
+            </div>
+            <div class="profile-form-group">
+              <label for="pf_phone">Телефон</label>
+              <input id="pf_phone" name="phone" type="tel" value="{escape(phone)}" placeholder="+7 900 123-45-67">
+              <span class="field-hint">Для уведомлений и восстановления доступа</span>
+            </div>
+            <div class="profile-form-group">
+              <label for="pf_email">Email</label>
+              <input id="pf_email" name="email" type="email" value="{escape(email)}" placeholder="seller@example.com">
+              <span class="field-hint">Для отправки отчётов</span>
+            </div>
+            <div class="profile-form-group">
+              <label for="pf_timezone">Часовой пояс</label>
+              <select id="pf_timezone" name="timezone">
+                <option value="Europe/Kaliningrad" {"selected" if user_timezone == "Europe/Kaliningrad" else ""}>Калининград (UTC+2)</option>
+                <option value="Europe/Moscow" {"selected" if user_timezone in ("Europe/Moscow", "") or not user_timezone else ""}>Москва (UTC+3)</option>
+                <option value="Europe/Samara" {"selected" if user_timezone == "Europe/Samara" else ""}>Самара (UTC+4)</option>
+                <option value="Asia/Yekaterinburg" {"selected" if user_timezone == "Asia/Yekaterinburg" else ""}>Екатеринбург (UTC+5)</option>
+                <option value="Asia/Omsk" {"selected" if user_timezone == "Asia/Omsk" else ""}>Омск (UTC+6)</option>
+                <option value="Asia/Krasnoyarsk" {"selected" if user_timezone == "Asia/Krasnoyarsk" else ""}>Красноярск (UTC+7)</option>
+                <option value="Asia/Irkutsk" {"selected" if user_timezone == "Asia/Irkutsk" else ""}>Иркутск (UTC+8)</option>
+                <option value="Asia/Yakutsk" {"selected" if user_timezone == "Asia/Yakutsk" else ""}>Якутск (UTC+9)</option>
+                <option value="Asia/Vladivostok" {"selected" if user_timezone == "Asia/Vladivostok" else ""}>Владивосток (UTC+10)</option>
+                <option value="Asia/Magadan" {"selected" if user_timezone == "Asia/Magadan" else ""}>Магадан (UTC+11)</option>
+                <option value="Asia/Kamchatka" {"selected" if user_timezone == "Asia/Kamchatka" else ""}>Камчатка (UTC+12)</option>
+              </select>
+              <span class="field-hint">Даты и время будут отображаться в этом часовом поясе</span>
+            </div>
+          </div>
+          <div class="profile-actions">
+            <button class="button primary" onclick="saveProfile()">💾 Сохранить</button>
+          </div>
+        </div>
+
+        <!-- ── Block 3: Tariff & Limits ── -->
+        <div class="profile-card">
+          <h2>📊 Тариф и лимиты</h2>
+          <div class="profile-tariff-header">
+            <h3>{escape(tier_name)}</h3>
+            <span class="profile-badge {sub_status_cls}">{escape(sub_status_label)}</span>
+            <span class="profile-meta-item" style="font-size:12px">Действует до: <strong>{escape(expires_label)}</strong></span>
+          </div>
+          <div class="profile-limit-list">
+            {_limit_row("Кабинеты", used_accounts, max_accounts)}
+            {_limit_row("Заказы за месяц", used_orders, max_orders if max_orders else None)}
+            {_limit_row("SKU", used_products, max_products if max_products else None)}
+            <div class="profile-limit-item">
+              <div class="profile-limit-header">
+                <span class="limit-label">Уведомления</span>
+                <span class="limit-value">{notif_label}</span>
+              </div>
+            </div>
+          </div>
+          <div class="profile-actions">
+            <a class="button primary" href="/web/settings?tab=subscription">⚙️ Управление тарифом</a>
+          </div>
+        </div>
+
+        <!-- ── Block 4: Company data ── -->
+        <div class="profile-card">
+          <h2>🏢 Данные компании</h2>
+          <div class="profile-company-detail">
+            <div class="cd-item"><div class="cd-label">Компания / ИП</div><div class="cd-value">{escape(company_name or "Не указано")}</div></div>
+            <div class="cd-item"><div class="cd-label">ИНН</div><div class="cd-value">{escape(user_inn or "Не указан")}</div></div>
+            <div class="cd-item"><div class="cd-label">ОГРН / ОГРНИП</div><div class="cd-value">{escape(user_ogrn or "Не указан")}</div></div>
+            <div class="cd-item"><div class="cd-label">Юридический статус</div><div class="cd-value">ИП / ООО</div></div>
+          </div>
+          <div class="profile-actions">
+            <a class="button" href="/web/settings?tab=company">✏️ Редактировать данные компании</a>
+          </div>
+        </div>
+
+        <!-- ── Block 5: Security ── -->
+        <div class="profile-card">
+          <h2>🔒 Безопасность аккаунта</h2>
+          <div class="profile-security-grid">
+            <div class="profile-security-item"><span class="sec-label">Telegram ID</span><span class="sec-value">{user_id}</span></div>
+            <div class="profile-security-item"><span class="sec-label">Последний IP</span><span class="sec-value">{last_ip}</span></div>
+            <div class="profile-security-item"><span class="sec-label">Последняя активность</span><span class="sec-value">{last_activity}</span></div>
+            <div class="profile-security-item"><span class="sec-label">Дата регистрации</span><span class="sec-value">{reg_date}</span></div>
+            <div class="profile-security-item" style="grid-column:1/-1"><span class="sec-label">Статус аккаунта</span><span class="sec-value"><span class="profile-badge {account_status_cls}">{account_status_label}</span></span></div>
+          </div>
+          <div class="profile-actions">
+            <a class="button" href="/web/settings?tab=security">🔐 Открыть безопасность</a>
+          </div>
+        </div>
+
+        <!-- ── Block 6: Quick actions ── -->
+        <div class="profile-card" style="grid-column:1/-1">
+          <h2>⚡ Быстрые действия</h2>
+          <div class="profile-quick-actions">
+            <a class="profile-quick-action" href="/web/settings?tab=marketplaces"><span class="qa-icon">🛒</span> Маркетплейсы</a>
+            <a class="profile-quick-action" href="/web/settings?tab=subscription"><span class="qa-icon">📊</span> Тариф</a>
+            <a class="profile-quick-action" href="/web/settings?tab=notifications"><span class="qa-icon">🔔</span> Уведомления</a>
+            <a class="profile-quick-action" href="/web/settings?tab=sync"><span class="qa-icon">🔄</span> Синхронизация</a>
+            <a class="profile-quick-action" href="/web/settings?tab=company"><span class="qa-icon">🏢</span> Данные компании</a>
+            <a class="profile-quick-action" href="/web/settings?tab=security"><span class="qa-icon">🔒</span> Безопасность</a>
+            <a class="profile-quick-action" href="/web/settings?tab=support"><span class="qa-icon">💬</span> Поддержка</a>
+          </div>
+        </div>
+      </div>
     """
 
 
@@ -511,6 +676,14 @@ def _sync_tab(sync_statuses: list[Any], timezone: str) -> str:
     """
 
 
+def _format_ip(ip: str | None) -> str:
+    if not ip:
+        return "н/д"
+    if ip.startswith(("172.", "10.", "192.168.", "127.", "0.")):
+        return "IP скрыт (внутренняя сеть)"
+    return escape(ip)
+
+
 def _security_tab(user: User, activity_logs: list[Any], timezone: str) -> str:
     if not activity_logs:
         log_rows = '<tr><td colspan="4"><div class="empty-state">Действий пока не зафиксировано.</div></td></tr>'
@@ -520,7 +693,7 @@ def _security_tab(user: User, activity_logs: list[Any], timezone: str) -> str:
             f"<td>{_dt(log.created_at, timezone)}</td>"
             f"<td>{escape(action_label(log.action))}</td>"
             f"<td>{escape(log.entity_type or '—')}</td>"
-            f"<td>{escape(log.ip_address or '—')}</td>"
+            f"<td>{_format_ip(log.ip_address)}</td>"
             "</tr>"
             for log in activity_logs[:30]
         )
@@ -536,7 +709,7 @@ def _security_tab(user: User, activity_logs: list[Any], timezone: str) -> str:
           <h2>Последний вход</h2>
           <div class="kv">
             <span>Дата</span><strong>{_dt(getattr(user, "last_login_at", None), timezone)}</strong>
-            <span>IP-адрес</span><strong>{escape(getattr(user, "last_login_ip", None) or "н/д")}</strong>
+            <span>IP-адрес</span><strong>{_format_ip(getattr(user, "last_login_ip", None))}</strong>
             <span>User-Agent</span><strong style="word-break:break-all;font-size:12px">{escape((getattr(user, "last_login_user_agent", None) or "н/д")[:120])}</strong>
             <span>Вход по паролю</span><strong>{password_status}</strong>
             <span>Пароль обновлён</span><strong>{password_updated}</strong>
@@ -654,7 +827,7 @@ async def settings_profile_page(
 ) -> str:
     active_tab = "subscription" if tab == "tariff" else tab
     active_path = f"/web/settings?tab={active_tab}"
-    display_name = user.first_name or user.username or str(user.telegram_id)
+    display_name = _get_user_display_name(user)
     if active_tab == "marketplaces":
         stmt = select(MarketplaceAccount).where(
             MarketplaceAccount.user_id == user.id,
@@ -724,10 +897,12 @@ async def settings_profile_page(
         )
 
     subscription_data = await WebCabinetService(session).subscription_page(user.id, user.timezone)
+    saved_msg = request.query_params.get("saved")
+    err_msg = request.query_params.get("error")
     return page(
         "Настройки — Профиль",
         display_name,
-        _profile_tab(user, subscription_data),
+        _profile_tab(user, subscription_data, saved_message=saved_msg, error_message=err_msg),
         active_path="/web/settings?tab=profile",
     )
 
@@ -782,29 +957,53 @@ async def save_profile(
     request: Request,
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
-) -> RedirectResponse:
-    form = await request.form()
-    try:
-        await ProfileService(session).update_profile(
-            user.id,
-            ProfileUpdateData(
-                first_name=_form_str(form, "first_name"),
-                last_name=_form_str(form, "last_name"),
-                phone=_form_str(form, "phone"),
-                email=_form_str(form, "email"),
-                company_name=_form_str(form, "company_name"),
-                inn=_form_str(form, "inn"),
-                ogrn=_form_str(form, "ogrn"),
-                timezone=_form_str(form, "timezone"),
-            ),
+) -> Response:
+    # Support both JSON (AJAX) and form-encoded submissions
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        body = await request.json()
+        data = ProfileUpdateData(
+            first_name=body.get("first_name"),
+            last_name=body.get("last_name"),
+            phone=body.get("phone"),
+            email=body.get("email"),
+            company_name=body.get("company_name"),
+            inn=body.get("inn"),
+            ogrn=body.get("ogrn"),
+            timezone=body.get("timezone"),
         )
-        await UserActivityService(session).log_activity(
-            user.id, "profile_update", ip_address=get_client_ip(request)
-        )
-        await session.commit()
-    except ProfileValidationError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return RedirectResponse(url="/web/settings?tab=profile&saved=1", status_code=303)
+        try:
+            await ProfileService(session).update_profile(user.id, data)
+            await UserActivityService(session).log_activity(
+                user.id, "profile_update", ip_address=get_client_ip(request)
+            )
+            await session.commit()
+            return Response(status_code=200, content="OK")
+        except ProfileValidationError as exc:
+            return Response(status_code=400, content=str(exc))
+    else:
+        form = await request.form()
+        try:
+            await ProfileService(session).update_profile(
+                user.id,
+                ProfileUpdateData(
+                    first_name=_form_str(form, "first_name"),
+                    last_name=_form_str(form, "last_name"),
+                    phone=_form_str(form, "phone"),
+                    email=_form_str(form, "email"),
+                    company_name=_form_str(form, "company_name"),
+                    inn=_form_str(form, "inn"),
+                    ogrn=_form_str(form, "ogrn"),
+                    timezone=_form_str(form, "timezone"),
+                ),
+            )
+            await UserActivityService(session).log_activity(
+                user.id, "profile_update", ip_address=get_client_ip(request)
+            )
+            await session.commit()
+        except ProfileValidationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return RedirectResponse(url="/web/settings?tab=profile&saved=1", status_code=303)
 
 
 @router.get("/settings/marketplaces", response_class=HTMLResponse)
@@ -926,7 +1125,7 @@ async def settings_company_page(
     )
     return page(
         "Настройки — Данные компании",
-        user.first_name or user.username or str(user.telegram_id),
+        _get_user_display_name(user),
         content,
         active_path="/web/settings?tab=company",
     )
@@ -950,7 +1149,7 @@ async def settings_company_lookup(
         content = _company_tab(user, profile, error=str(exc) or INN_ERROR_MESSAGE)
         return page(
             "Настройки — Данные компании",
-            user.first_name or user.username or str(user.telegram_id),
+            _get_user_display_name(user),
             content,
             active_path="/web/settings?tab=company",
         )
@@ -963,7 +1162,7 @@ async def settings_company_lookup(
     )
     return page(
         "Настройки — Данные компании",
-        user.first_name or user.username or str(user.telegram_id),
+        _get_user_display_name(user),
         content,
         active_path="/web/settings?tab=company",
     )
@@ -1076,7 +1275,7 @@ async def settings_security_page(
     logs = await UserActivityService(session).get_recent_activity(user.id)
     return page(
         "Настройки — Безопасность",
-        user.first_name or user.username or str(user.telegram_id),
+        _get_user_display_name(user),
         _security_tab(user, logs, user.timezone),
         active_path="/web/settings?tab=security",
     )
@@ -1090,7 +1289,7 @@ async def settings_support_page(
     tickets = await SupportService(session).get_user_tickets(user.id)
     return page(
         "Настройки — Поддержка",
-        user.first_name or user.username or str(user.telegram_id),
+        _get_user_display_name(user),
         _support_tab(tickets, user.timezone),
         active_path="/web/settings?tab=support",
     )
