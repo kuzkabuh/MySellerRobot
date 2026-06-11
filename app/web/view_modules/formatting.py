@@ -1,6 +1,6 @@
-"""version: 1.0.0
+"""version: 1.0.1
 description: Formatting and badge helpers for MP Control web cabinet views.
-updated: 2026-06-09
+updated: 2026-06-11
 """
 
 # ruff: noqa: E501, F401, E402, F811, I001
@@ -8,7 +8,7 @@ updated: 2026-06-09
 import json
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from html import escape
 from typing import Any
 from urllib.parse import parse_qs
@@ -119,10 +119,14 @@ def _rub_optional(value: Decimal | None) -> str:
         return "н/д"
     return _rub(value)
 
-def _percent_optional(value: Decimal | None) -> str:
+def _percent_optional(value: Decimal | int | float | str | None) -> str:
     if value is None:
-        return "н/д"
-    return f"{value.quantize(Decimal('0.1'))}%"
+        return "—"
+    try:
+        decimal_value = value if isinstance(value, Decimal) else Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        return "—"
+    return f"{decimal_value.quantize(Decimal('0.1'))}%"
 
 def _marketplace_label(value: Marketplace | str | None) -> str:
     css_class = marketplace_css_class(value)

@@ -170,7 +170,12 @@ def _product_table_row(row: MasterProductAnalyticsRow) -> str:
         badges += _mp_badge_short("wb")
     if row.ozon_products:
         badges += _mp_badge_short("ozon")
-    buyout = _percent_optional(row.sales / row.orders * 100 if row.orders else None)
+    buyout_value = (
+        Decimal(str(row.sales)) / Decimal(str(row.orders)) * Decimal("100")
+        if row.orders
+        else None
+    )
+    buyout = _percent_optional(buyout_value)
     profit_tone = "tone-bad" if row.estimated_profit < 0 else "tone-good" if row.estimated_profit > 0 else ""
     margin = (
         _percent_optional((row.estimated_profit / row.revenue * Decimal("100")).quantize(Decimal("0.1")))
@@ -289,7 +294,12 @@ def _summary_kpis(d: MasterProductDetail) -> str:
     total_revenue = sum(c.revenue for c in d.marketplace_comparison)
     total_profit = sum(c.estimated_profit for c in d.marketplace_comparison)
     total_stock = sum(c.stock_quantity for c in d.marketplace_comparison)
-    buyout = _percent_optional(total_sales / total_orders * 100 if total_orders else None)
+    buyout_value = (
+        Decimal(str(total_sales)) / Decimal(str(total_orders)) * Decimal("100")
+        if total_orders
+        else None
+    )
+    buyout = _percent_optional(buyout_value)
     margin = _percent_optional((total_profit / total_revenue * Decimal("100")).quantize(Decimal("0.1"))) if total_revenue else "\u2014"
     avg_price = _rub(total_revenue / total_orders) if total_orders else "\u2014"
     return f"""      <section class="kpi-grid" style="grid-template-columns:repeat(4,1fr)">
