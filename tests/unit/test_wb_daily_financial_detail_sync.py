@@ -1045,3 +1045,155 @@ class TestDedupFinancialReportRow:
 
         added = mock_session.add.call_args[0][0]
         assert added.external_row_id == "REP-2026-001"
+
+
+class TestOperationTypePriority:
+    """_determine_operation_type must match _best_name priority:
+    sellerOperName > docTypeName > bonusTypeName."""
+
+    def test_seller_oper_takes_priority_over_doc_type(self) -> None:
+        row = {
+            "sellerOperName": "Логистика до склада",
+            "docTypeName": "Продажа",
+        }
+        result = WbDailyFinancialDetailService._determine_operation_type(row)
+        assert "логистик" in result.lower()
+
+    def test_doc_type_fallback_when_no_seller_oper(self) -> None:
+        row = {
+            "docTypeName": "Продажа",
+        }
+        result = WbDailyFinancialDetailService._determine_operation_type(row)
+        assert "продажа" in result.lower()
+
+    def test_bonus_type_last_fallback(self) -> None:
+        row = {
+            "bonusTypeName": "Штраф",
+        }
+        result = WbDailyFinancialDetailService._determine_operation_type(row)
+        assert "штраф" in result.lower()
+
+
+class TestClassifierUsesDedicatedClassifier:
+    """_classify_operation_category should use the dedicated
+    operation_classifier.classify_financial_operation as primary."""
+
+    def test_classify_sale(self) -> None:
+        row = {"docTypeName": "Продажа", "sellerOperName": "Продажа товара"}
+        op_type = WbDailyFinancialDetailService._determine_operation_type(row)
+        cat = WbDailyFinancialDetailService._classify_operation_category(row, op_type)
+        assert cat == "sale"
+
+    def test_classify_logistics(self) -> None:
+        row = {"docTypeName": "Продажа", "sellerOperName": "Логистика до склада"}
+        op_type = WbDailyFinancialDetailService._determine_operation_type(row)
+        cat = WbDailyFinancialDetailService._classify_operation_category(row, op_type)
+        assert cat == "logistics"
+
+    def test_classify_compensation(self) -> None:
+        row = {
+            "docTypeName": "Прочее",
+            "sellerOperName": "Возмещение издержек по перевозке/по складским операциям с товаром",
+        }
+        op_type = WbDailyFinancialDetailService._determine_operation_type(row)
+        cat = WbDailyFinancialDetailService._classify_operation_category(row, op_type)
+        assert cat == "compensation"
+
+    def test_classify_acceptance(self) -> None:
+        row = {"sellerOperName": "Платная приемка FBS"}
+        op_type = WbDailyFinancialDetailService._determine_operation_type(row)
+        cat = WbDailyFinancialDetailService._classify_operation_category(row, op_type)
+        assert cat == "acceptance"
+
+    def test_classify_keyword_fallback_when_classifier_unknown(self) -> None:
+        row = {"docTypeName": "Продажа"}
+        op_type = WbDailyFinancialDetailService._determine_operation_type(row)
+        cat = WbDailyFinancialDetailService._classify_operation_category(row, op_type)
+        assert cat == "sale"
+
+
+class TestAggregationCompensationTracking:
+    """_aggregate_report_rows must return compensation_amount and
+    paid_acceptance_amount for display in order cards."""
+
+    def test_compensation_in_aggregation_output(self) -> None:
+        mock_session = AsyncMock()
+        service = WbDailyFinancialDetailService(mock_session)
+        item = _make_order_item()
+
+        rows = [
+            {
+                "rrdId": 1,
+                "docTypeName": "Продажа",
+                "retailAmount": 500,
+                "forPay": Decimal("444.57"),
+            },
+            {
+                "rrdId": 2,
+                "docTypeName": "Логистика",
+                "deliveryAmount": Decimal("47.85"),
+            },
+            {
+                "rrdId": 3,
+                "docTypeName": "Платная приёмка",
+                "paidAcceptance": Decimal("15"),
+            },
+            {
+                "rrdId": 4,
+                "docTypeName": "Доплата",
+                "additionalPayment": Decimal("1.47"),
+            },
+        ]
+
+        aggregated = service._aggregate_report_rows(rows, item)
+        assert "compensation_amount" in aggregated
+        assert aggregated["compensation_amount"] == Decimal("1.47")
+
+
+class TestForPayDetectionInReconciliation:
+    """Verify that the reconciliation service detects forPay
+    from raw_payload for every row, not just as a fallback."""
+
+    @pytest.mark.asyncio
+    async def test_forpay_detected_from_raw_payload(self) -> None:
+        from app.services.unit_economics.order_profit_reconciliation_service import (
+            OrderProfitReconciliationService,
+        )
+
+        mock_session = AsyncMock()
+        service = OrderProfitReconciliationService(mock_session)
+        item = _make_order_item()
+
+        row1 = FinancialReportRow(
+            id=1,
+            user_id=10,
+            marketplace_account_id=1,
+            marketplace=Marketplace.WB,
+            external_row_id="1",
+            operation_type="Продажа",
+            operation_category="sale",
+            amount=Decimal("500"),
+            operation_date=datetime(2026, 3, 17, tzinfo=UTC),
+            raw_payload={"forPay": Decimal("444.57")},
+        )
+        row2 = FinancialReportRow(
+            id=2,
+            user_id=10,
+            marketplace_account_id=1,
+            marketplace=Marketplace.WB,
+            external_row_id="2",
+            operation_type="Логистика",
+            operation_category="logistics",
+            amount=Decimal("47.85"),
+            operation_date=datetime(2026, 3, 17, tzinfo=UTC),
+            raw_payload={},
+        )
+
+        aggregated = service._aggregate_financial_rows(
+            item=item,
+            financial_rows=[row1, row2],
+            report_rows=[],
+        )
+
+        assert aggregated["expected_payout"] > 0
+        assert "compensation_amount" in aggregated

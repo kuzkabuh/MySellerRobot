@@ -27,6 +27,7 @@ from app.schemas.profit import CostInput, ProfitInput, ProfitResult
 from app.services.common.sync_status_service import SyncStatusService
 from app.services.unit_economics.cost_service import CostService
 from app.services.unit_economics.profit_calculator import ProfitCalculator
+from app.services.wb.reports.operation_classifier import classify_financial_operation
 
 logger = logging.getLogger(__name__)
 
@@ -416,36 +417,68 @@ class WbDailyFinancialDetailService:
         row: dict[str, Any],
         operation_type: str,
     ) -> str:
-        type_lower = operation_type.lower()
-        doc_type = str(row.get("docTypeName") or "").lower()
+        """Classify a financial row using the dedicated classifier, with fallback.
 
-        if any(kw in type_lower or kw in doc_type for kw in ("продажа", "sale", "реализация")):
+        Category names are mapped to be compatible with the
+        reconciliation service (order_profit_reconciliation_service).
+        """
+        seller_oper = str(row.get("sellerOperName") or "") or None
+        doc_type = str(row.get("docTypeName") or "") or None
+        bonus_type = str(row.get("bonusTypeName") or "") or None
+
+        op_type_name, category = classify_financial_operation(
+            seller_oper_name=seller_oper,
+            doc_type_name=doc_type,
+            bonus_type_name=bonus_type,
+        )
+
+        # Map dedicated classifier categories to reconciliation-compatible names
+        CATEGORY_MAP = {
+            "revenue": "sale",
+            "paid_acceptance": "acceptance",
+        }
+        mapped = CATEGORY_MAP.get(category, category)
+
+        # If classifier returned a known category, use the mapped name
+        if mapped != "other":
+            return mapped
+
+        # Fallback: keyword matching on raw fields
+        type_lower = operation_type.lower()
+        doc_type_lower = str(row.get("docTypeName") or "").lower()
+
+        if any(kw in type_lower or kw in doc_type_lower
+               for kw in ("продажа", "sale", "реализация")):
             return "sale"
-        if any(kw in type_lower or kw in doc_type for kw in ("возврат", "return")):
+        if any(kw in type_lower or kw in doc_type_lower for kw in ("возврат", "return")):
             return "return"
-        if any(kw in type_lower or kw in doc_type for kw in ("логист", "delivery", "logistic")):
+        if any(kw in type_lower or kw in doc_type_lower
+               for kw in ("логист", "delivery", "logistic")):
             return "logistics"
-        if any(kw in type_lower or kw in doc_type for kw in ("комисс", "commission", "reward")):
+        if any(kw in type_lower or kw in doc_type_lower
+               for kw in ("комисс", "commission", "reward")):
             return "commission"
-        if any(kw in type_lower or kw in doc_type for kw in ("штраф", "penalty", "fine")):
+        if any(kw in type_lower or kw in doc_type_lower for kw in ("штраф", "penalty", "fine")):
             return "penalty"
-        if any(kw in type_lower or kw in doc_type for kw in ("хранен", "storage")):
+        if any(kw in type_lower or kw in doc_type_lower for kw in ("хранен", "storage")):
             return "storage"
-        if any(kw in type_lower or kw in doc_type for kw in ("удержан", "deduction", "удержание")):
+        if any(kw in type_lower or kw in doc_type_lower
+               for kw in ("удержан", "deduction", "удержание")):
             return "deduction"
-        if any(kw in type_lower or kw in doc_type for kw in ("приемк", "приёмк", "acceptance")):
+        if any(kw in type_lower or kw in doc_type_lower
+               for kw in ("приемк", "приёмк", "acceptance")):
             return "acceptance"
-        if any(kw in type_lower or kw in doc_type
+        if any(kw in type_lower or kw in doc_type_lower
                for kw in ("доплат", "additional", "additionalPayment")):
             return "compensation"
-        if any(kw in type_lower or kw in doc_type
+        if any(kw in type_lower or kw in doc_type_lower
                for kw in ("эквайринг", "acquiring", "paymentProcessing")):
             return "acquiring"
 
-        # Check raw payload for forPay
         forPay = row.get("forPay")
         if forPay is not None:
             return "payout"
+
         return "other"
 
     @staticmethod
@@ -460,14 +493,18 @@ class WbDailyFinancialDetailService:
 
     @staticmethod
     def _determine_operation_type(row: dict[str, Any]) -> str:
-        doc_type = str(row.get("docTypeName") or "").strip()
-        seller_oper = str(row.get("sellerOperName") or "").strip()
-        bonus_type = str(row.get("bonusTypeName") or "").strip()
+        """Get the best operation description from available fields.
 
-        if doc_type:
-            return doc_type
+        Priority: sellerOperName > docTypeName > bonusTypeName.
+        This matches operation_classifier._best_name priority.
+        """
+        seller_oper = str(row.get("sellerOperName") or "").strip()
         if seller_oper:
             return seller_oper
+        doc_type = str(row.get("docTypeName") or "").strip()
+        if doc_type:
+            return doc_type
+        bonus_type = str(row.get("bonusTypeName") or "").strip()
         if bonus_type:
             return bonus_type
         return "unknown"
@@ -823,6 +860,8 @@ class WbDailyFinancialDetailService:
             "storage_cost": storage_cost,
             "return_cost": return_cost,
             "other_marketplace_costs": other_marketplace_costs,
+            "compensation_amount": additional_payment,
+            "paid_acceptance_amount": other_marketplace_costs,
         }
 
     async def _upsert_actual_snapshot(
@@ -854,6 +893,7 @@ class WbDailyFinancialDetailService:
             "tax_amount": str(result.tax_amount),
             "profit": str(result.profit),
             "margin_percent": str(result.margin_percent),
+            "calculation_source": "wb_daily_financial_detail",
         }
 
         if snapshot is None:

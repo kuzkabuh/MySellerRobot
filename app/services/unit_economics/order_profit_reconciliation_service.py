@@ -279,9 +279,6 @@ class OrderProfitReconciliationService:
                 return_cost += abs(amt)
                 if amt < 0:
                     gross_revenue += amt
-            elif op_cat == "payout":
-                expected_payout += amt
-                has_for_pay = True
             elif op_cat in ("commission",) or "комисс" in op_type:
                 marketplace_commission += abs(amt)
                 deduct_costs += abs(amt)
@@ -307,20 +304,13 @@ class OrderProfitReconciliationService:
                 compensation += abs(amt)
             elif op_cat in ("additional_payment",):
                 compensation += abs(amt)
-            elif row.raw_payload and isinstance(row.raw_payload, dict):
+
+            # Always check raw_payload for forPay — this is the primary payout indicator
+            if row.raw_payload and isinstance(row.raw_payload, dict):
                 fp = row.raw_payload.get("forPay")
                 if fp is not None:
-                    expected_payout += abs(_safe_decimal(fp))
+                    expected_payout += _safe_decimal(fp)
                     has_for_pay = True
-
-        # Fallback: if raw_payload has forPay, use it
-        if not has_for_pay:
-            for row in financial_rows:
-                if row.raw_payload and isinstance(row.raw_payload, dict):
-                    fp = row.raw_payload.get("forPay")
-                    if fp is not None:
-                        expected_payout += _safe_decimal(fp)
-                        has_for_pay = True
 
         # Aggregate from WbDailyReportRow (file source)
         for row in report_rows:
@@ -399,6 +389,7 @@ class OrderProfitReconciliationService:
             "storage_cost": storage_cost,
             "return_cost": return_cost,
             "other_marketplace_costs": other_marketplace_costs,
+            "compensation_amount": compensation,
             "warnings": warnings,
         }
 
