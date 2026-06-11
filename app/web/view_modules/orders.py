@@ -102,13 +102,43 @@ def _order_identifiers(row: OrderRow) -> str:
     mp = row.marketplace
     parts = []
     order_label = _marketplace_id_label(mp)
-    parts.append(f"<strong>{order_label}:</strong> {escape(row.order_external_id)}")
+    if mp == Marketplace.WB and row.assembly_id:
+        parts.append(f"<strong>{order_label}:</strong> {escape(row.assembly_id)}")
+        if row.order_external_id and getattr(row, 'srid', None) != row.order_external_id:
+            parts.append(f'<div class="muted">SRID: {escape(row.order_external_id)}</div>')
+    else:
+        parts.append(f"<strong>{order_label}:</strong> {escape(row.order_external_id)}")
     if row.posting_number:
         posting_label = _marketplace_posting_label(mp)
         parts.append(f'<div class="muted">{posting_label}: {escape(row.posting_number)}</div>')
-    if mp == Marketplace.WB and hasattr(row, 'srid') and row.srid:
+    if mp == Marketplace.WB and hasattr(row, 'srid') and row.srid and row.srid != row.order_external_id:
         parts.append(f'<div class="muted">SRID: {escape(row.srid)}</div>')
     return "".join(parts)
+
+
+def _order_main_id(order: Any) -> str:
+    if order.marketplace == Marketplace.WB and order.assembly_id:
+        return escape(order.assembly_id)
+    return escape(order.order_external_id)
+
+
+def _order_extra_ids(order: Any) -> str:
+    parts = []
+    if order.marketplace == Marketplace.WB and order.assembly_id:
+        srid_text = order.srid or order.order_external_id
+        if srid_text != order.assembly_id:
+            parts.append(f'<div class="muted">SRID: {escape(srid_text)}</div>')
+    if order.posting_number:
+        label = "Отправление" if order.marketplace == Marketplace.WB else "Отправление Ozon"
+        parts.append(f'<div class="muted">{label}: {escape(order.posting_number)}</div>')
+    return "".join(parts)
+
+
+def _wb_fact_income_row(detail: OrderDetail) -> str:
+    income = getattr(detail, "wb_fact_income", None)
+    if income is None:
+        return ""
+    return f'<span>Факт к получению от WB</span><strong>{_rub(income)}</strong>'
 
 
 def _economy_status_badge(economy_confidence: str | None, missing_cost: bool, profit: Decimal | None) -> str:
@@ -463,7 +493,8 @@ def _order_detail_content(detail: OrderDetail, timezone: str, is_admin: bool = F
             <span>Статус сверки</span><strong>{_reconciliation_badge(getattr(detail, "reconciliation_status", None))}</strong>
             <span>Дата заказа</span><strong>{order_date}</strong>
             <span>Дедлайн</span><strong>{deadline}</strong>
-            <span>{marketplace_id_label}</span><strong>{escape(order.order_external_id)}</strong>
+            <span>{marketplace_id_label}</span><strong>{_order_main_id(order)}</strong>
+            {_order_extra_ids(order)}
           </div>
         </section>
         <section class="band">
@@ -473,6 +504,7 @@ def _order_detail_content(detail: OrderDetail, timezone: str, is_admin: bool = F
             <span>Фактическая прибыль</span><strong>{_rub_optional(detail.actual_profit)}</strong>
             <span>Отклонение</span><strong>{_rub_optional(detail.deviation)}</strong>
             <span>Статус сверки</span><strong>{_reconciliation_badge(getattr(detail, "reconciliation_status", None))}</strong>
+            {_wb_fact_income_row(detail)}
           </div>
         </section>
       </section>

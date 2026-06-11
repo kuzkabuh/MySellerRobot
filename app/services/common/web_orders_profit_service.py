@@ -62,6 +62,7 @@ class OrderRow:
     marketplace: Marketplace
     sale_model: SaleModel | None
     order_external_id: str
+    assembly_id: str | None
     posting_number: str | None
     srid: str | None
     title: str
@@ -129,6 +130,7 @@ class OrderDetail:
     is_financial_only: bool = False
     has_missing_cost_price: bool = False
     economy_confidence: str = "PRELIMINARY"
+    wb_fact_income: Decimal | None = None
 
 
 @dataclass(slots=True)
@@ -230,6 +232,7 @@ class WebOrdersProfitService:
                 Order.marketplace,
                 Order.sale_model,
                 Order.order_external_id,
+                Order.assembly_id,
                 Order.posting_number,
                 Order.srid,
                 OrderItem.title,
@@ -290,6 +293,7 @@ class WebOrdersProfitService:
                 marketplace_value,
                 sale_model_value,
                 order_external_id,
+                assembly_id,
                 posting_number,
                 srid,
                 title,
@@ -318,6 +322,7 @@ class WebOrdersProfitService:
                     marketplace=marketplace_value,
                     sale_model=sale_model_value,
                     order_external_id=str(order_external_id),
+                    assembly_id=str(assembly_id) if assembly_id else None,
                     posting_number=posting_number,
                     srid=str(srid) if srid else None,
                     title=title or "Без названия",
@@ -418,6 +423,21 @@ class WebOrdersProfitService:
                 order_confidence = ic
         order_confidence = order_confidence or "PRELIMINARY"
 
+        wb_fact_income: Decimal | None = None
+        if order.marketplace == Marketplace.WB and has_actual:
+            total = ZERO
+            for item in order.items:
+                actual_snap = _latest_snapshot(item.snapshots, CalculationType.ACTUAL)
+                if actual_snap is not None:
+                    total += (
+                        actual_snap.profit
+                        + actual_snap.cost_price
+                        + actual_snap.package_cost
+                        + actual_snap.additional_seller_cost
+                        + actual_snap.tax_amount
+                    )
+            wb_fact_income = total
+
         return OrderDetail(
             order=order,
             items=items,
@@ -430,6 +450,7 @@ class WebOrdersProfitService:
             is_financial_only=is_financial_only,
             has_missing_cost_price=missing_cost,
             economy_confidence=order_confidence,
+            wb_fact_income=wb_fact_income,
         )
 
     async def _wb_order_fact(self, order: Order) -> WbOrderFact:
