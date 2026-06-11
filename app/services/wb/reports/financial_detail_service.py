@@ -589,6 +589,12 @@ class WbDailyFinancialDetailService:
                 order = await self.order_repo.get_with_items(order_id)
                 if order is None or not order.items:
                     continue
+                if order.assembly_id is None:
+                    for row in matched_rows:
+                        order_id_val = row.get("orderId")
+                        if order_id_val is not None:
+                            order.assembly_id = str(order_id_val)
+                            break
                 await self._calculate_actual_for_order(order, matched_rows, counters)
                 counters.orders_reconciled += 1
             except Exception as exc:

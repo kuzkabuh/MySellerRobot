@@ -102,31 +102,44 @@ def _order_identifiers(row: OrderRow) -> str:
     mp = row.marketplace
     parts = []
     order_label = _marketplace_id_label(mp)
-    if mp == Marketplace.WB and row.assembly_id:
-        parts.append(f"<strong>{order_label}:</strong> {escape(row.assembly_id)}")
-        if row.order_external_id and getattr(row, 'srid', None) != row.order_external_id:
-            parts.append(f'<div class="muted">SRID: {escape(row.order_external_id)}</div>')
+    display_id = row.assembly_id if mp == Marketplace.WB and row.assembly_id else None
+    if display_id:
+        parts.append(f"<strong>{order_label}:</strong> {escape(display_id)}")
     else:
         parts.append(f"<strong>{order_label}:</strong> {escape(row.order_external_id)}")
     if row.posting_number:
         posting_label = _marketplace_posting_label(mp)
         parts.append(f'<div class="muted">{posting_label}: {escape(row.posting_number)}</div>')
-    if mp == Marketplace.WB and hasattr(row, 'srid') and row.srid and row.srid != row.order_external_id:
-        parts.append(f'<div class="muted">SRID: {escape(row.srid)}</div>')
+    if mp == Marketplace.WB:
+        srid_val = getattr(row, 'srid', None) or (row.order_external_id if not display_id else None)
+        if srid_val and srid_val != display_id:
+            parts.append(f'<div class="muted">SRID: {escape(srid_val)}</div>')
     return "".join(parts)
 
 
+def _wb_assembly_id(order: Any) -> str | None:
+    if order.assembly_id:
+        return order.assembly_id
+    payload_id = getattr(order, "raw_payload", {}).get("id")
+    if payload_id:
+        return str(payload_id)
+    return None
+
+
 def _order_main_id(order: Any) -> str:
-    if order.marketplace == Marketplace.WB and order.assembly_id:
-        return escape(order.assembly_id)
+    if order.marketplace == Marketplace.WB:
+        aid = _wb_assembly_id(order)
+        if aid:
+            return escape(aid)
     return escape(order.order_external_id)
 
 
 def _order_extra_ids(order: Any) -> str:
     parts = []
-    if order.marketplace == Marketplace.WB and order.assembly_id:
+    aid = _wb_assembly_id(order) if order.marketplace == Marketplace.WB else None
+    if aid:
         srid_text = order.srid or order.order_external_id
-        if srid_text != order.assembly_id:
+        if srid_text != aid:
             parts.append(f'<div class="muted">SRID: {escape(srid_text)}</div>')
     if order.posting_number:
         label = "Отправление" if order.marketplace == Marketplace.WB else "Отправление Ozon"
@@ -424,7 +437,11 @@ def _order_detail_content(detail: OrderDetail, timezone: str, is_admin: bool = F
         estimated = item_detail.estimated_snapshot
         actual = item_detail.actual_snapshot
         estimated_profit = estimated.profit if estimated else item.profit_estimated
-        actual_profit = actual.profit if actual else None
+        actual_profit = (
+            item_detail.corrected_actual_profit
+            if item_detail.corrected_actual_profit is not None
+            else actual.profit if actual else None
+        )
         confidence = (
             estimated.economy_confidence
             if estimated and estimated.economy_confidence

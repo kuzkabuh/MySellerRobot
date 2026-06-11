@@ -595,6 +595,62 @@ class TestActualProfitCalculation:
         assert aggregated["expected_payout"] == Decimal("383")
         assert final_profit == Decimal("175")
 
+    def test_wb_profit_control_example_user(self) -> None:
+        """Control example from user report:
+        srid=ecC.i36dab086c760dc4958fd02cc8099d43a.0.0
+        forPay=444.57, logistics=47.85, acceptance=15, compensation=1.47
+        cost=172, package=10, tax=26
+        Expected: wb_fact_income=383.19, profit=175.19
+        """
+        mock_session = AsyncMock()
+        service = WbDailyFinancialDetailService(mock_session)
+        item = _make_order_item()
+        rows = [
+            {
+                "rrdId": 1,
+                "docTypeName": "Продажа",
+                "retailAmount": 500,
+                "forPay": Decimal("444.57"),
+            },
+            {
+                "rrdId": 2,
+                "docTypeName": "Логистика",
+                "deliveryAmount": Decimal("47.85"),
+            },
+            {
+                "rrdId": 3,
+                "docTypeName": "Платная приёмка",
+                "paidAcceptance": Decimal("15"),
+            },
+            {
+                "rrdId": 4,
+                "docTypeName": "Доплата",
+                "additionalPayment": Decimal("1.47"),
+            },
+        ]
+        aggregated = service._aggregate_report_rows(rows, item)
+        result = service.calculator.calculate(
+            ProfitInput(
+                gross_revenue=aggregated["gross_revenue"],
+                expected_payout=aggregated["expected_payout"],
+                marketplace_commission=aggregated["marketplace_commission"],
+                logistics_cost=aggregated["logistics_cost"],
+                storage_cost=aggregated["storage_cost"],
+                other_marketplace_costs=aggregated["other_marketplace_costs"],
+                cost=CostInput(
+                    cost_price=Decimal("172"),
+                    package_cost=Decimal("10"),
+                    tax_rate=Decimal("0"),
+                ),
+                tax_base=Decimal("0"),
+            )
+        )
+        tax_amount = Decimal("26")
+        final_profit = result.profit - tax_amount
+
+        assert aggregated["expected_payout"] == Decimal("383.19")
+        assert final_profit == Decimal("175.19")
+
     def test_wb_profit_example_2(self) -> None:
         """Control example 2: forPay=419, logistics=53, acceptance=15
         cost=159, package=10, tax=32

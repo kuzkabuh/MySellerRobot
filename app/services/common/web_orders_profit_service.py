@@ -85,6 +85,7 @@ class OrderDetailItem:
     item: OrderItem
     estimated_snapshot: ProfitSnapshot | None
     actual_snapshot: ProfitSnapshot | None
+    corrected_actual_profit: Decimal | None = None
 
 
 @dataclass(slots=True)
@@ -400,6 +401,48 @@ class WebOrdersProfitService:
         wb_fact = await self._wb_order_fact(order) if order.marketplace == Marketplace.WB else None
         ozon_fact = await self._ozon_order_fact(order) if order.marketplace == Marketplace.OZON else None
         missing_cost = any(item.cost_price_used is None for item in order.items)
+
+        # Compute wb_fact_income from linked WbDailyReportRow (not from ProfitSnapshot)
+        wb_fact_income: Decimal | None = None
+        corrected_actual_profit: Decimal | None = None
+        if wb_fact is not None and wb_fact.linked_rows:
+            linked = wb_fact.linked_rows
+            total_for_pay = sum((r.for_pay or ZERO) for r in linked)
+            total_delivery = sum((r.delivery_rub or ZERO) for r in linked if r.for_pay is None)
+            total_storage = sum((r.storage_fee or ZERO) for r in linked if r.for_pay is None)
+            total_acceptance = sum((r.acceptance or ZERO) for r in linked if r.for_pay is None)
+            total_penalty = sum((r.penalty or ZERO) for r in linked if r.for_pay is None)
+            total_deduction = sum((r.deduction or ZERO) for r in linked if r.for_pay is None)
+            total_reimbursement = sum((r.reimbursement_amount or ZERO) for r in linked if r.for_pay is None)
+            wb_fact_income = (
+                total_for_pay
+                - total_delivery - total_storage - total_acceptance
+                - total_penalty - total_deduction
+                + total_reimbursement
+            )
+            # Recompute actual profit from source data: wb_fact_income - seller costs
+            if has_actual:
+                seller_cost_price = sum(
+                    (_latest_snapshot(item.snapshots, CalculationType.ACTUAL).cost_price or ZERO)
+                    for item in order.items
+                    if _latest_snapshot(item.snapshots, CalculationType.ACTUAL) is not None
+                )
+                seller_package_cost = sum(
+                    (_latest_snapshot(item.snapshots, CalculationType.ACTUAL).package_cost or ZERO)
+                    for item in order.items
+                    if _latest_snapshot(item.snapshots, CalculationType.ACTUAL) is not None
+                )
+                seller_additional_cost = sum(
+                    (_latest_snapshot(item.snapshots, CalculationType.ACTUAL).additional_seller_cost or ZERO)
+                    for item in order.items
+                    if _latest_snapshot(item.snapshots, CalculationType.ACTUAL) is not None
+                )
+                seller_tax = sum(
+                    (_latest_snapshot(item.snapshots, CalculationType.ACTUAL).tax_amount or ZERO)
+                    for item in order.items
+                    if _latest_snapshot(item.snapshots, CalculationType.ACTUAL) is not None
+                )
+                corrected_actual_profit = wb_fact_income - seller_cost_price - seller_package_cost - seller_additional_cost - seller_tax
         reconciliation_status = (
             ReconciliationStatus.MANUAL_REVIEW
             if missing_cost
@@ -423,20 +466,13 @@ class WebOrdersProfitService:
                 order_confidence = ic
         order_confidence = order_confidence or "PRELIMINARY"
 
-        wb_fact_income: Decimal | None = None
-        if order.marketplace == Marketplace.WB and has_actual:
-            total = ZERO
-            for item in order.items:
-                actual_snap = _latest_snapshot(item.snapshots, CalculationType.ACTUAL)
-                if actual_snap is not None:
-                    total += (
-                        actual_snap.profit
-                        + actual_snap.cost_price
-                        + actual_snap.package_cost
-                        + actual_snap.additional_seller_cost
-                        + actual_snap.tax_amount
-                    )
-            wb_fact_income = total
+        # Override actual_profit and deviation with corrected values
+        if corrected_actual_profit is not None:
+            actual_profit = corrected_actual_profit
+            deviation = corrected_actual_profit - estimated_total
+            # For single-item orders, propagate corrected profit to item level
+            if len(items) == 1:
+                items[0].corrected_actual_profit = corrected_actual_profit
 
         return OrderDetail(
             order=order,
