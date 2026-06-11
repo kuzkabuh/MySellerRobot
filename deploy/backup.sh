@@ -85,9 +85,10 @@ main() {
     -U "$db_user" "$db_name" \
     2>"${BACKUP_DIR}/db/pg_dump_${timestamp}.stderr" \
     | gzip > "$db_target"
-  pg_exit="${PIPESTATUS[0]}"
-  gzip_exit="${PIPESTATUS[1]}"
+  local -a pipe_status=("${PIPESTATUS[@]}")
   set -e
+  pg_exit="${pipe_status[0]}"
+  gzip_exit="${pipe_status[1]:-0}"
 
   if [[ "$pg_exit" -ne 0 ]]; then
     if [[ -f "${BACKUP_DIR}/db/pg_dump_${timestamp}.stderr" ]]; then

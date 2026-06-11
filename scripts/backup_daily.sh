@@ -362,9 +362,10 @@ main() {
     --no-privileges \
     2>"${BACKUP_TMP_DIR}/pg_dump_${TIMESTAMP}.stderr" \
     | gzip > "$db_backup_tmp"
-  pg_exit="${PIPESTATUS[0]}"
-  gzip_exit="${PIPESTATUS[1]}"
+  local -a pipe_status=("${PIPESTATUS[@]}")
   set -e
+  pg_exit="${pipe_status[0]}"
+  gzip_exit="${pipe_status[1]:-0}"
 
   if [[ "$pg_exit" -ne 0 ]]; then
     if [[ -f "${BACKUP_TMP_DIR}/pg_dump_${TIMESTAMP}.stderr" ]]; then

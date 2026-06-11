@@ -159,9 +159,10 @@ main() {
   docker compose -f "$COMPOSE_FILE" exec -T postgres pg_dump \
     -U "$pg_user" -d "$pg_db" --format=plain --no-owner --no-privileges \
     2>/dev/null | gzip > "$safety_name"
-  pg_dump_exit="${PIPESTATUS[0]}"
-  gzip_exit="${PIPESTATUS[1]}"
+  local -a pipe_status=("${PIPESTATUS[@]}")
   set -e
+  pg_dump_exit="${pipe_status[0]}"
+  gzip_exit="${pipe_status[1]:-0}"
   if [[ "$pg_dump_exit" -ne 0 || "$gzip_exit" -ne 0 ]]; then
     log_error "Safety backup creation failed (pg_dump exit=${pg_dump_exit}, gzip exit=${gzip_exit})"
     rm -f "$safety_name"
