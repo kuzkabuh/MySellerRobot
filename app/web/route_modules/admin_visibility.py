@@ -57,7 +57,8 @@ def _require_admin(user: User) -> None:
 
 
 def _name(user: User) -> str:
-    return user.first_name or user.username or str(user.telegram_id)
+    from app.web.view_modules.formatting import _get_user_display_name
+    return _get_user_display_name(user)
 
 
 def _h(value: object) -> str:

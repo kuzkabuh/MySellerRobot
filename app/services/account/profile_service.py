@@ -1,5 +1,6 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: User profile management service.
+updated: 2026-06-11
 """
 
 import logging
@@ -65,7 +66,9 @@ class ProfileService:
         if user is None:
             raise ProfileValidationError("Пользователь не найден")
 
-        display_name = user.first_name or user.last_name or user.username or str(user.telegram_id)
+        # Use unified display logic
+        from app.web.view_modules.formatting import _get_user_display_name
+        display_name = _get_user_display_name(user)
 
         subscription_service = SubscriptionService(self.session)
         subscription = await subscription_service.get_user_current_subscription(user.id)

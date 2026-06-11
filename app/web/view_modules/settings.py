@@ -1,6 +1,6 @@
-"""version: 1.0.0
+"""version: 1.2.0
 description: Settings, account, profile, subscription, and control HTML view helpers.
-updated: 2026-06-09
+updated: 2026-06-11
 """
 
 # ruff: noqa: E501, F401, E402, F811, I001
@@ -79,7 +79,7 @@ SYNC_FRESHNESS_PROFILE_HOURS = 48
 
 from app.web.view_modules.common import _page_header, _section_subnav_products, _web_tier_card
 from app.web.view_modules.components import _simple_kpi
-from app.web.view_modules.formatting import _account_status_badge, _dt, _limit, _marketplace_label, _rub
+from app.web.view_modules.formatting import _account_status_badge, _dt, _get_user_display_name, _get_telegram_username, _limit, _marketplace_label, _rub
 from app.web.view_modules.reports import _wb_reports_web
 
 __all__ = [
@@ -349,52 +349,318 @@ def _profile_content(user: User, subscription: SubscriptionPageData) -> str:
     max_orders_label = str(max_orders) if max_orders else "без ограничений"
     max_products = subscription.tier.max_products
     max_products_label = str(max_products) if max_products else "без ограничений"
+    
+    # Format last activity
+    last_activity = _dt(user.last_activity_at, user.timezone) if user.last_activity_at else "н/д"
+    registration_date = _dt(user.created_at, user.timezone) if user.created_at else "н/д"
+    
+    # Display name and username using unified functions
+    display_name = _get_user_display_name(user)
+    telegram_username = _get_telegram_username(user)
+    username_display = telegram_username if telegram_username else "Username не указан"
+    
+    # Determine if username is from Telegram
+    if not user.username:
+        username_display = "Не получен из Telegram"
+    
+    # Account status
+    account_status = "Активен" if user.status.value == "ACTIVE" else user.status.value
+    
+    # Tariff and limits
+    tier_name = subscription.tier.name
+    tier_status = status_label
+    tariff_expires = expires
+    
+    # Fast actions
+    fast_actions = (
+        '<div class="button-group">'
+        f'<a class="button primary" href="/web/settings?tab=marketplaces">Маркетплейсы</a>'
+        f'<a class="button" href="/web/settings?tab=subscription">Тариф</a>'
+        f'<a class="button" href="/web/settings?tab=notifications">Уведомления</a>'
+        f'<a class="button" href="/web/settings?tab=sync">Синхронизация</a>'
+        f'<a class="button" href="/web/settings?tab=company">Данные компании</a>'
+        f'<a class="button" href="/web/settings?tab=security">Безопасность</a>'
+        f'<a class="button" href="/web/support">Поддержка</a>'
+        '</div>'
+    )
+    
     return f"""
       {_page_header("Профиль", "Управляйте настройками пользователя, уведомлениями и подпиской.", "/web/settings?tab=subscription", "Подписка")}
       <section class="detail-grid">
-        <section class="band">
-          <h2>Данные Telegram</h2>
-          <div class="kv">
-            <span>Имя</span><strong>{escape(user.first_name or "н/д")}</strong>
-            <span>Username</span><strong>{escape("@" + user.username if user.username else "н/д")}</strong>
-            <span>Telegram ID</span><strong>{user.telegram_id}</strong>
-            <span>Язык</span><strong>{escape(user.language)}</strong>
-            <span>Статус</span><strong>{escape(user.status.value)}</strong>
-            <span>Регистрация</span><strong>{_dt(user.created_at, user.timezone)}</strong>
+        <section class="card">
+          <div class="card-header">
+            <div class="avatar">
+              <div class="avatar-initials">{display_name[0].upper() if display_name else '?'}</div>
+            </div>
+            <div class="user-info">
+              <h2>{display_name}</h2>
+              <div class="user-meta">
+                <span class="meta-item">Telegram ID: {user.telegram_id}</span>
+                <span class="meta-item">Username: {username_display}</span>
+                <span class="meta-item">Статус: {account_status}</span>
+                <span class="meta-item">Тариф: {tier_name}</span>
+                <span class="meta-item">Регистрация: {registration_date}</span>
+                <span class="meta-item">Последняя активность: {last_activity}</span>
+              </div>
+            </div>
+          </div>
+          <div class="card-actions">
+            <button class="button primary" onclick="saveProfile()">Сохранить профиль</button>
+            <button class="button" onclick="openNotifications()">Уведомления</button>
+            <button class="button" onclick="openSecurity()">Безопасность</button>
           </div>
         </section>
-        <section class="band">
-          <h2>Текущий тариф</h2>
-          <div class="kv">
-            <span>Тариф</span><strong>{escape(subscription.tier.name)}</strong>
-            <span>Статус</span><strong>{escape(status_label)}</strong>
-            <span>Действует до</span><strong>{escape(expires)}</strong>
-            <span>Кабинеты</span><strong>{subscription.used_accounts} / {subscription.tier.max_marketplace_accounts}</strong>
-            <span>Заказы за месяц</span><strong>{subscription.used_orders_month} / {max_orders_label}</strong>
-            <span>SKU</span><strong>{subscription.used_products} / {max_products_label}</strong>
-            <span>Уведомления</span><strong>{"включены" if user.notifications_enabled else "выключены"}</strong>
+        
+        <section class="card">
+          <h2>Личные данные</h2>
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="first_name">Имя</label>
+              <input id="first_name" name="first_name" type="text" 
+                     value="{escape(user.first_name or '')}" 
+                     placeholder="Введите ваше имя">
+            </div>
+            <div class="form-group">
+              <label for="last_name">Фамилия</label>
+              <input id="last_name" name="last_name" type="text" 
+                     value="{escape(user.last_name or '')}" 
+                     placeholder="Введите вашу фамилию">
+            </div>
+            <div class="form-group">
+              <label for="phone">Телефон</label>
+              <input id="phone" name="phone" type="tel" 
+                     value="{escape(user.phone or '')}" 
+                     placeholder="+7 900 123-45-67">
+            </div>
+            <div class="form-group">
+              <label for="email">Email</label>
+              <input id="email" name="email" type="email" 
+                     value="{escape(user.email or '')}" 
+                     placeholder="example@mail.com">
+            </div>
+            <div class="form-group">
+              <label for="timezone">Часовой пояс</label>
+              <select id="timezone" name="timezone">
+                <option value="Europe/Moscow" {"selected" if user.timezone == "Europe/Moscow" else ""}>Москва</option>
+                <option value="Europe/Samara" {"selected" if user.timezone == "Europe/Samara" else ""}>Самара</option>
+                <option value="Asia/Yekaterinburg" {"selected" if user.timezone == "Asia/Yekaterinburg" else ""}>Екатеринбург</option>
+                <option value="Asia/Omsk" {"selected" if user.timezone == "Asia/Omsk" else ""}>Омск</option>
+                <option value="Asia/Krasnoyarsk" {"selected" if user.timezone == "Asia/Krasnoyarsk" else ""}>Красноярск</option>
+                <option value="Asia/Irkutsk" {"selected" if user.timezone == "Asia/Irkutsk" else ""}>Иркутск</option>
+                <option value="Asia/Yakutsk" {"selected" if user.timezone == "Asia/Yakutsk" else ""}>Якутск</option>
+                <option value="Asia/Vladivostok" {"selected" if user.timezone == "Asia/Vladivostok" else ""}>Владивосток</option>
+              </select>
+            </div>
           </div>
-          <p><a class="button primary" href="/web/settings?tab=subscription">Управление подпиской</a></p>
+          <div class="form-actions">
+            <button class="button primary" onclick="saveProfile()">Сохранить</button>
+            <div id="profile-save-notification" class="notification" style="display: none;"></div>
+          </div>
+        </section>
+        
+        <section class="card">
+          <h2>Данные компании</h2>
+          <div class="company-info">
+            <div class="company-field">
+              <label>Название компании / ИП:</label>
+              <div class="field-value">{escape(user.company_name or "Не указано")}</div>
+            </div>
+            <div class="company-field">
+              <label>ИНН:</label>
+              <div class="field-value">{escape(user.inn or "Не указан")}</div>
+            </div>
+            <div class="company-field">
+              <label>ОГРН / ОГРНИП:</label>
+              <div class="field-value">{escape(user.ogrn or "Не указан")}</div>
+            </div>
+            <div class="company-field">
+              <label>Юридический статус:</label>
+              <div class="field-value">ИП</div>
+            </div>
+            <div class="company-field">
+              <label>Налоговый режим:</label>
+              <div class="field-value">ОСНО</div>
+            </div>
+            <div class="company-field">
+              <label>Регион:</label>
+              <div class="field-value">Московская область</div>
+            </div>
+          </div>
+          <div class="company-actions">
+            <button class="button" onclick="openCompanySettings()">Редактировать</button>
+          </div>
+        </section>
+        
+        <section class="card">
+          <h2>Тариф и лимиты</h2>
+          <div class="tariff-info">
+            <div class="tariff-header">
+              <h3>{tier_name}</h3>
+              <span class="status-badge {"good" if status_label == "Активен" else "warn"}">{tier_status}</span>
+            </div>
+            <div class="tariff-details">
+              <div class="limit-item">
+                <div class="limit-header">
+                  <span>Кабинеты</span>
+                  <span class="limit-value">{subscription.used_accounts} / {subscription.tier.max_marketplace_accounts}</span>
+                </div>
+                <div class="progress-bar">
+                  <div class="progress-fill" style="width: {subscription.used_accounts / subscription.tier.max_marketplace_accounts * 100 if subscription.tier.max_marketplace_accounts > 0 else 0}%"></div>
+                </div>
+              </div>
+              <div class="limit-item">
+                <div class="limit-header">
+                  <span>Заказы за месяц</span>
+                  <span class="limit-value">{subscription.used_orders_month} / {max_orders_label}</span>
+                </div>
+                <div class="progress-bar">
+                  <div class="progress-fill" style="width: {subscription.used_orders_month / max(int(max_orders) if max_orders and max_orders != "без ограничений" else 1000) * 100 if max_orders and max_orders != "без ограничений" else 0}%"></div>
+                </div>
+              </div>
+              <div class="limit-item">
+                <div class="limit-header">
+                  <span>SKU</span>
+                  <span class="limit-value">{subscription.used_products} / {max_products_label}</span>
+                </div>
+                <div class="progress-bar">
+                  <div class="progress-fill" style="width: {subscription.used_products / max(int(max_products) if max_products and max_products != "без ограничений" else 1000) * 100 if max_products and max_products != "без ограничений" else 0}%"></div>
+                </div>
+              </div>
+              <div class="limit-item">
+                <div class="limit-header">
+                  <span>Уведомления</span>
+                  <span class="limit-value">{"включены" if user.notifications_enabled else "выключены"}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="tariff-actions">
+            <button class="button primary" onclick="openTariffManagement()">Управление тарифом</button>
+          </div>
+        </section>
+        
+        <section class="card">
+          <h2>Безопасность аккаунта</h2>
+          <div class="security-info">
+            <div class="security-field">
+              <label>Telegram ID:</label>
+              <div class="field-value">{user.telegram_id}</div>
+            </div>
+            <div class="security-field">
+              <label>Последний IP:</label>
+              <div class="field-value" id="last-login-ip">{_dt(getattr(user, 'last_login_ip', None) or 'н/д', user.timezone)}</div>
+            </div>
+            <div class="security-field">
+              <label>Последняя активность:</label>
+              <div class="field-value">{last_activity}</div>
+            </div>
+            <div class="security-field">
+              <label>Дата регистрации:</label>
+              <div class="field-value">{registration_date}</div>
+            </div>
+            <div class="security-field">
+              <label>Статус аккаунта:</label>
+              <div class="field-value">{account_status}</div>
+            </div>
+          </div>
+          <div class="security-actions">
+            <button class="button" onclick="openSecuritySettings()">Открыть настройки безопасности</button>
+          </div>
         </section>
       </section>
-      <section class="band" style="margin-top:14px">
-        <h2>Настройки профиля</h2>
-        <form class="filters" method="post" action="/web/settings/profile">
-          <div>
-            <label for="timezone">Часовой пояс</label>
-            <input id="timezone" name="timezone" value="{escape(user.timezone)}">
-          </div>
-          <div>
-            <label for="low_margin_threshold_percent">Порог низкой маржи, %</label>
-            <input id="low_margin_threshold_percent" name="low_margin_threshold_percent" type="number" step="0.01" value="{user.low_margin_threshold_percent}">
-          </div>
-          <div>
-            <label for="notifications_enabled">Уведомления</label>
-            <label class="status-chip"><input id="notifications_enabled" name="notifications_enabled" type="checkbox"{checked}> включены</label>
-          </div>
-          <button class="button primary" type="submit">Сохранить</button>
-        </form>
+      
+      <section class="card">
+        <h2>Быстрые действия</h2>
+        {fast_actions}
       </section>
+      
+      <div id="save-notification" class="notification-container"></div>
+      
+      <script>
+        // Profile save notification
+        function showSaveNotification(message, isSuccess = true) {
+          const container = document.getElementById('save-notification');
+          const notification = document.createElement('div');
+          notification.className = `notification ${isSuccess ? 'success' : 'error'}${isSuccess ? 'show' : ''}`;
+          notification.textContent = message;
+          container.innerHTML = '';
+          container.appendChild(notification);
+          if (isSuccess) {
+            setTimeout(() => {
+              notification.classList.remove('show');
+              setTimeout(() => container.innerHTML = '', 300);
+            }, 3000);
+          }
+        }
+        
+        // Profile saving
+        async function saveProfile() {
+          const formData = {
+            first_name: document.getElementById('first_name').value,
+            last_name: document.getElementById('last_name').value,
+            phone: document.getElementById('phone').value,
+            email: document.getElementById('email').value,
+            company_name: '{escape(user.company_name or '')}',
+            inn: '{escape(user.inn or '')}',
+            ogrn: '{escape(user.ogrn or '')}',
+            timezone: document.getElementById('timezone').value,
+          };
+          
+          try {
+            const response = await fetch('/web/settings/profile', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(formData)
+            });
+            
+            if (response.ok) {
+              showSaveNotification('Профиль успешно сохранен');
+            } else {
+              const error = await response.text();
+              showSaveNotification(`Ошибка при сохранении: ${error}`, false);
+            }
+          } catch (error) {
+            showSaveNotification(`Ошибка при сохранении: ${error}`, false);
+          }
+        }
+        
+        // Navigation functions
+        function openNotifications() {
+          window.location.href = '/web/settings?tab=notifications';
+        }
+        
+        function openSecurity() {
+          window.location.href = '/web/settings?tab=security';
+        }
+        
+        function openCompanySettings() {
+          window.location.href = '/web/settings?tab=company';
+        }
+        
+        function openTariffManagement() {
+          window.location.href = '/web/settings?tab=subscription';
+        }
+        
+        function openSecuritySettings() {
+          window.location.href = '/web/settings?tab=security';
+        }
+        
+        function openNotifications() {
+          window.location.href = '/web/settings?tab=notifications';
+        }
+        
+        function openCompanySettings() {
+          window.location.href = '/web/settings?tab=company';
+        }
+        
+        function openTariffManagement() {
+          window.location.href = '/web/settings?tab=subscription';
+        }
+        
+        function openSecuritySettings() {
+          window.location.href = '/web/settings?tab=security';
+        }
+      </script>
     """
 
 def _control_content(data: ControlPageData) -> str:

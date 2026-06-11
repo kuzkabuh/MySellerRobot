@@ -82,6 +82,8 @@ __all__ = [
     "_limit",
     "_dt",
     "_user_display_name",
+    "_get_user_display_name",
+    "_get_telegram_username",
     "_rub",
     "_rub_optional",
     "_percent_optional",
@@ -105,6 +107,30 @@ def _dt(value: datetime | None, timezone: str = "Europe/Moscow") -> str:
 
 def _user_display_name(user: User) -> str:
     return user.first_name or user.username or str(user.telegram_id)
+
+
+def _get_user_display_name(user: User) -> str:
+    """
+    Get display name for user.
+    
+    Uses the unified logic: full_name or first_name or username or telegram_username or ID.
+    """
+    display_name = (
+        f"{user.first_name or ''} {user.last_name or ''}".strip()
+        or user.username
+        or getattr(user, 'telegram_username', None)
+        or str(user.telegram_id)
+    )
+    return display_name
+
+
+def _get_telegram_username(user: User) -> str | None:
+    """
+    Get telegram username with proper format.
+    
+    Returns "@username" if username exists, otherwise None.
+    """
+    return f"@{user.username}" if user.username else None
 
 def _rub(value: object | None) -> str:
     if value is None:
