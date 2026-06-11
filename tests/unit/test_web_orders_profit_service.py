@@ -434,3 +434,162 @@ async def test_profit_merge_does_not_double_count_actual_snapshot_profit() -> No
 
     assert rows[0].payout == Decimal("2400")
     assert rows[0].actual_profit == Decimal("575")
+
+
+def test_order_pagination_dto_has_next_prev() -> None:
+    from app.services.common.web_orders_profit_service import OrderPaginationDTO
+
+    p1 = OrderPaginationDTO(page=1, per_page=50, total=221, total_pages=5, has_next=True, has_prev=False)
+    assert p1.has_next is True
+    assert p1.has_prev is False
+    assert p1.page == 1
+    assert p1.total_pages == 5
+
+    p3 = OrderPaginationDTO(page=3, per_page=50, total=221, total_pages=5, has_next=True, has_prev=True)
+    assert p3.has_next is True
+    assert p3.has_prev is True
+
+    p5 = OrderPaginationDTO(page=5, per_page=50, total=221, total_pages=5, has_next=False, has_prev=True)
+    assert p5.has_next is False
+    assert p5.has_prev is True
+    assert p5.total == 221
+
+
+def test_order_summary_dto_defaults() -> None:
+    from app.services.common.web_orders_profit_service import OrderSummaryDTO
+
+    s = OrderSummaryDTO()
+    assert s.total_orders == 0
+    assert s.total_revenue == Decimal("0")
+    assert s.missing_cost_count == 0
+    assert s.loss_count == 0
+
+    s2 = OrderSummaryDTO(
+        total_orders=221,
+        total_revenue=Decimal("500000"),
+        total_estimated_profit=Decimal("75000"),
+        missing_cost_count=5,
+        loss_count=3,
+        cancelled_count=12,
+    )
+    assert s2.total_orders == 221
+    assert s2.total_revenue == Decimal("500000")
+    assert s2.average_margin is None
+    assert s2.missing_cost_count == 5
+    assert s2.loss_count == 3
+    assert s2.cancelled_count == 12
+
+
+def test_order_web_filters_new_status() -> None:
+    filters = build_order_web_filters(
+        timezone="Europe/Moscow",
+        period="7d",
+        marketplace="all",
+        sale_model="all",
+        date_from=None,
+        date_to=None,
+        economy="all",
+        status="new",
+        sku="",
+        sort="date",
+        direction="desc",
+    )
+    assert filters.status == "new"
+
+    filters_delivered = build_order_web_filters(
+        timezone="Europe/Moscow",
+        period="7d",
+        marketplace="all",
+        sale_model="all",
+        date_from=None,
+        date_to=None,
+        economy="all",
+        status="delivered",
+        sku="",
+        sort="date",
+        direction="desc",
+    )
+    assert filters_delivered.status == "delivered"
+
+    filters_return = build_order_web_filters(
+        timezone="Europe/Moscow",
+        period="7d",
+        marketplace="all",
+        sale_model="all",
+        date_from=None,
+        date_to=None,
+        economy="all",
+        status="return",
+        sku="",
+        sort="date",
+        direction="desc",
+    )
+    assert filters_return.status == "return"
+
+    filters_unknown = build_order_web_filters(
+        timezone="Europe/Moscow",
+        period="7d",
+        marketplace="all",
+        sale_model="all",
+        date_from=None,
+        date_to=None,
+        economy="all",
+        status="unknown_status",
+        sku="",
+        sort="date",
+        direction="desc",
+    )
+    assert filters_unknown.status == "all"
+
+
+def test_order_web_filters_allowed_status_values() -> None:
+    allowed = {"all", "active", "cancelled", "new", "delivered", "return",
+               "action_required", "fact_missing", "fact_partial", "fact_complete", "match_problem"}
+    for status in allowed:
+        f = build_order_web_filters(
+            timezone="Europe/Moscow",
+            period="30d",
+            marketplace="all",
+            sale_model="all",
+            date_from=None,
+            date_to=None,
+            economy="all",
+            status=status,
+            sku="",
+            sort="date",
+            direction="desc",
+        )
+        assert f.status == status, f"Status {status} should be allowed"
+
+
+def test_orders_summary_kpi_counts_from_order_rows() -> None:
+    from app.services.common.web_orders_profit_service import OrderSummaryDTO
+
+    summary = OrderSummaryDTO(
+        total_orders=221,
+        total_items=350,
+        total_revenue=Decimal("1250000"),
+        total_estimated_profit=Decimal("185000"),
+        average_margin=Decimal("14.8"),
+        missing_cost_count=12,
+        loss_count=5,
+        cancelled_count=18,
+    )
+    assert summary.total_orders == 221
+    assert summary.total_revenue == Decimal("1250000")
+    assert summary.average_margin == Decimal("14.8")
+    assert float(summary.average_margin) == 14.8
+    assert summary.missing_cost_count == 12
+    assert summary.loss_count == 5
+
+    revenue_tone = "good" if summary.total_revenue > 0 else ""
+    assert revenue_tone == "good"
+
+    profit_tone = "good" if summary.total_estimated_profit > 0 else "" if summary.total_estimated_profit == 0 else "bad"
+    assert profit_tone == "good"
+
+    margin_tone = "good" if summary.average_margin and summary.average_margin >= 10 else "" if summary.average_margin and summary.average_margin >= 0 else "bad"
+    assert margin_tone == "good"
+
+    missing_tone = "bad" if summary.missing_cost_count > 0 else "neutral"
+    assert missing_tone == "bad"

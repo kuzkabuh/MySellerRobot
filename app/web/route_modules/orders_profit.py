@@ -45,7 +45,7 @@ router = APIRouter()
 async def orders_page(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
-    period: str = Query(default="today"),
+    period: str = Query(default="30d"),
     marketplace: str = Query(default="all"),
     sale_model: str = Query(default="all"),
     economy: str = Query(default="all"),
@@ -58,7 +58,8 @@ async def orders_page(
     page_number: int = Query(default=1, ge=1),
     per_page: int = Query(default=50, ge=10, le=200),
 ) -> str:
-    result = await WebOrdersProfitService(session).list_orders(
+    svc = WebOrdersProfitService(session)
+    result = await svc.list_orders(
         user_id=user.id,
         timezone=user.timezone,
         period=period,
@@ -74,8 +75,21 @@ async def orders_page(
         page=page_number,
         per_page=per_page,
     )
+    summary = await svc.orders_summary(
+        user_id=user.id,
+        timezone=user.timezone,
+        period=period,
+        marketplace=marketplace,
+        sale_model=sale_model,
+        date_from=date_from,
+        date_to=date_to,
+        economy=economy,
+        status=status,
+        sku=sku,
+    )
     last_poll_info = await _get_last_poll_info(session, user.id)
-    content = _orders_content(result, user.timezone, last_poll_info=last_poll_info)
+    sync_stats = await _get_sync_order_counts(session, user.id)
+    content = _orders_content(result, user.timezone, summary=summary, last_poll_info=last_poll_info, sync_stats=sync_stats)
     return render_page(
         "Заказы",
         user.first_name or user.username or str(user.telegram_id),
@@ -102,6 +116,47 @@ async def _get_last_poll_info(
     last_poll_at = rows[0][1]
     accounts_info = [{"marketplace": mp.value, "last_poll_at": ts} for mp, ts in rows]
     return {"last_poll_at": last_poll_at, "accounts": accounts_info}
+
+
+async def _get_sync_order_counts(
+    session: AsyncSession,
+    user_id: int,
+) -> dict[str, object]:
+    from sqlalchemy import func as sa_func
+    from app.models.orders import Order as OrderModel
+    from app.models.marketplaces import MarketplaceAccount as MAAccount
+    from app.models.enums import Marketplace as MarketplaceEnum
+
+    result = {}
+    for mp in MarketplaceEnum:
+        accounts = await session.execute(
+            select(MAAccount.id).where(
+                MAAccount.user_id == user_id,
+                MAAccount.is_active.is_(True),
+                MAAccount.marketplace == mp,
+            )
+        )
+        account_ids = [r[0] for r in accounts.all()]
+        if not account_ids:
+            result[mp.value] = {"count": 0, "last_poll": None}
+            continue
+        order_count = await session.execute(
+            select(sa_func.count(OrderModel.id))
+            .where(OrderModel.user_id == user_id)
+            .where(OrderModel.marketplace == mp)
+            .where(OrderModel.marketplace_account_id.in_(account_ids))
+        )
+        count = order_count.scalar() or 0
+        last_poll = await session.execute(
+            select(MAAccount.last_order_poll_at)
+            .where(MAAccount.id.in_(account_ids))
+            .where(MAAccount.last_order_poll_at.is_not(None))
+            .order_by(MAAccount.last_order_poll_at.desc())
+            .limit(1)
+        )
+        poll_ts = last_poll.scalar_one_or_none()
+        result[mp.value] = {"count": int(count), "last_poll": poll_ts}
+    return result
 
 
 @router.get("/orders/{order_id}", response_class=HTMLResponse)

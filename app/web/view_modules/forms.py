@@ -61,6 +61,7 @@ from app.services.common.web_dashboard_service import (
 from app.services.common.web_orders_profit_service import (
     OrderDetail,
     OrderRow,
+    OrderSummaryDTO,
     OrderWebFilters,
     ProfitPageData,
     localized_order_date,
@@ -239,8 +240,11 @@ def _shared_order_filters(
             "Статус",
             {
                 "all": "Все",
+                "new": "Новый",
                 "active": "Активные",
                 "cancelled": "Отменённые",
+                "delivered": "Доставлен / Выкуплен",
+                "return": "Возврат",
                 "action_required": "Требуют действия",
                 "fact_missing": "Без факта",
                 "fact_partial": "Частичный факт",

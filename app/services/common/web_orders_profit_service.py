@@ -188,6 +188,33 @@ class ProfitPageData:
     rows: list[ProfitSkuRow]
 
 
+@dataclass(slots=True)
+class OrderSummaryDTO:
+    total_orders: int = 0
+    total_items: int = 0
+    total_revenue: Decimal = ZERO
+    total_estimated_profit: Decimal = ZERO
+    total_actual_profit: Decimal | None = None
+    average_margin: Decimal | None = None
+    missing_cost_count: int = 0
+    loss_count: int = 0
+    cancelled_count: int = 0
+    new_count: int = 0
+    delivered_count: int = 0
+    return_count: int = 0
+    calculation_error_count: int = 0
+
+
+@dataclass(slots=True)
+class OrderPaginationDTO:
+    page: int
+    per_page: int
+    total: int
+    total_pages: int
+    has_next: bool
+    has_prev: bool
+
+
 class WebOrdersProfitService:
     """Build web order and profit pages from normalized marketplace data."""
 
@@ -355,6 +382,14 @@ class WebOrdersProfitService:
                     ),
                 )
             )
+        pagination = OrderPaginationDTO(
+            page=page,
+            per_page=per_page,
+            total=total_count,
+            total_pages=total_pages,
+            has_next=page < total_pages,
+            has_prev=page > 1,
+        )
         return OrderPageResult(
             filters=filters,
             rows=rows,
@@ -363,6 +398,150 @@ class WebOrdersProfitService:
             per_page=per_page,
             total_pages=total_pages,
         )
+
+    async def orders_summary(
+        self,
+        *,
+        user_id: int,
+        timezone: str,
+        period: str,
+        marketplace: str | None,
+        sale_model: str | None,
+        date_from: str | None,
+        date_to: str | None,
+        economy: str = "all",
+        status: str = "all",
+        sku: str = "",
+    ) -> OrderSummaryDTO:
+        filters = build_order_web_filters(
+            timezone=timezone,
+            period=period,
+            marketplace=marketplace,
+            sale_model=sale_model,
+            date_from=date_from,
+            date_to=date_to,
+            economy=economy,
+            status=status,
+            sku=sku,
+            sort="date",
+            direction="desc",
+        )
+        # Total counts from orders
+        count_query = (
+            select(
+                func.count(func.distinct(Order.id)),
+                func.count(func.distinct(Order.id)).filter(
+                    func.lower(func.coalesce(Order.normalized_status, Order.status, "")).in_(
+                        ("cancelled", "canceled", "cancel")
+                    )
+                ),
+            )
+            .select_from(Order)
+            .join(OrderItem, OrderItem.order_id == Order.id)
+            .where(Order.user_id == user_id)
+            .where(Order.deleted_at.is_(None))
+            .where(Order.order_date >= filters.date_from)
+            .where(Order.order_date <= filters.date_to)
+        )
+        count_query = _apply_order_page_filters(count_query, filters, count_distinct=True)
+        count_result = await self.session.execute(count_query)
+        total_orders, cancelled_count = count_result.one()
+        total_orders = int(total_orders or 0)
+        cancelled_count = int(cancelled_count or 0)
+
+        # Aggregated financial data
+        agg_query = (
+            select(
+                func.coalesce(func.sum(OrderItem.quantity), 0),
+                func.coalesce(func.sum(OrderItem.discounted_price * OrderItem.quantity), 0),
+                func.coalesce(func.sum(OrderItem.profit_estimated), 0),
+                func.coalesce(func.avg(OrderItem.margin_percent_estimated), 0),
+                func.count(OrderItem.id).filter(OrderItem.cost_price_used.is_(None)),
+                func.count(OrderItem.id).filter(OrderItem.profit_estimated < 0),
+            )
+            .select_from(Order)
+            .join(OrderItem, OrderItem.order_id == Order.id)
+            .where(Order.user_id == user_id)
+            .where(Order.deleted_at.is_(None))
+            .where(Order.order_date >= filters.date_from)
+            .where(Order.order_date <= filters.date_to)
+        )
+        agg_query = _apply_order_page_filters(agg_query, filters)
+        agg_result = await self.session.execute(agg_query)
+        total_qty, total_revenue, total_profit, avg_margin, missing_cost, loss_count = agg_result.one()
+
+        # Actual profit via snapshots
+        latest_actual = (
+            select(
+                ProfitSnapshot.order_item_id,
+                ProfitSnapshot.profit,
+                func.row_number()
+                .over(
+                    partition_by=ProfitSnapshot.order_item_id,
+                    order_by=(ProfitSnapshot.calculated_at.desc(), ProfitSnapshot.id.desc()),
+                )
+                .label("rn"),
+            )
+            .where(ProfitSnapshot.calculation_type == CalculationType.ACTUAL)
+            .subquery()
+        )
+        actual_query = (
+            select(func.coalesce(func.sum(latest_actual.c.profit), 0))
+            .select_from(Order)
+            .join(OrderItem, OrderItem.order_id == Order.id)
+            .outerjoin(
+                latest_actual,
+                (latest_actual.c.order_item_id == OrderItem.id) & (latest_actual.c.rn == 1),
+            )
+            .where(Order.user_id == user_id)
+            .where(Order.deleted_at.is_(None))
+            .where(Order.order_date >= filters.date_from)
+            .where(Order.order_date <= filters.date_to)
+        )
+        actual_query = _apply_order_page_filters(actual_query, filters)
+        actual_result = await self.session.execute(actual_query)
+        total_actual_profit = Decimal(str(actual_result.scalar() or 0))
+
+        margin = None
+        if total_revenue and Decimal(str(total_revenue)) > 0:
+            margin = (Decimal(str(total_profit)) / Decimal(str(total_revenue)) * Decimal("100")).quantize(Decimal("0.1"))
+
+        return OrderSummaryDTO(
+            total_orders=total_orders,
+            total_items=int(total_qty or 0),
+            total_revenue=Decimal(str(total_revenue or 0)),
+            total_estimated_profit=Decimal(str(total_profit or 0)),
+            total_actual_profit=Decimal(str(total_actual_profit)) if total_actual_profit else None,
+            average_margin=margin,
+            missing_cost_count=int(missing_cost or 0),
+            loss_count=int(loss_count or 0),
+            cancelled_count=cancelled_count,
+        )
+
+    async def order_financial_rows(
+        self,
+        *,
+        user_id: int,
+        order_id: int,
+    ) -> list[FinancialReportRow]:
+        order_result = await self.session.execute(
+            select(Order).where(Order.id == order_id, Order.user_id == user_id)
+        )
+        order = order_result.scalar_one_or_none()
+        if order is None:
+            return []
+        if order.marketplace == Marketplace.OZON:
+            result = await self.session.execute(
+                select(FinancialReportRow)
+                .where(
+                    FinancialReportRow.marketplace_account_id == order.marketplace_account_id,
+                    FinancialReportRow.marketplace == Marketplace.OZON,
+                    FinancialReportRow.order_external_id == order.order_external_id,
+                )
+                .order_by(FinancialReportRow.operation_date.desc())
+            )
+            return list(result.scalars().all())
+        return []
 
     async def order_detail(self, *, user_id: int, order_id: int) -> OrderDetail | None:
         result = await self.session.execute(
@@ -1027,6 +1206,9 @@ def build_order_web_filters(
                 "all",
                 "active",
                 "cancelled",
+                "new",
+                "delivered",
+                "return",
                 "action_required",
                 "fact_missing",
                 "fact_partial",
@@ -1078,6 +1260,22 @@ def _apply_order_page_filters(
             ~func.lower(func.coalesce(Order.normalized_status, Order.status, "")).in_(
                 ("cancelled", "canceled", "cancel")
             )
+        )
+    elif filters.status == "new":
+        query = query.where(
+            func.lower(func.coalesce(Order.normalized_status, Order.status, "")).in_(
+                ("new", "new_order", "created", "accepted")
+            )
+        )
+    elif filters.status == "delivered":
+        query = query.where(
+            func.lower(func.coalesce(Order.normalized_status, Order.status, "")).in_(
+                ("delivered", "completed", "sold", "sale")
+            )
+        )
+    elif filters.status == "return":
+        query = query.where(
+            func.lower(func.coalesce(Order.normalized_status, Order.status, "")).like("%return%")
         )
     elif filters.status == "action_required":
         query = query.where(Order.requires_seller_action.is_(True))

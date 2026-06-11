@@ -7,7 +7,9 @@ from app.services.common.web_orders_profit_service import (  # noqa: F401
     OrderDetail,
     OrderDetailItem,
     OrderPageResult,
+    OrderPaginationDTO,
     OrderRow,
+    OrderSummaryDTO,
     OrderWebFilters,
     ProfitPageData,
     ProfitSkuRow,
@@ -21,4 +23,4 @@ from app.services.common.web_orders_profit_service import (  # noqa: F401
     roi_percent,
 )
 
-__all__ = ['OrderDetail', 'OrderDetailItem', 'OrderPageResult', 'OrderRow', 'OrderWebFilters', 'ProfitPageData', 'ProfitSkuRow', 'ProfitSummary', 'WbFactArticleState', 'WbOrderFact', 'WebOrdersProfitService', 'build_order_web_filters', 'localized_order_date', 'order_state_label', 'roi_percent']
+__all__ = ['OrderDetail', 'OrderDetailItem', 'OrderPageResult', 'OrderPaginationDTO', 'OrderRow', 'OrderSummaryDTO', 'OrderWebFilters', 'ProfitPageData', 'ProfitSkuRow', 'ProfitSummary', 'WbFactArticleState', 'WbOrderFact', 'WebOrdersProfitService', 'build_order_web_filters', 'localized_order_date', 'order_state_label', 'roi_percent']

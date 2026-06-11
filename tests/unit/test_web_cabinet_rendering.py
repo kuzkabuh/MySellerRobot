@@ -224,6 +224,7 @@ def test_orders_content_links_are_canonical() -> None:
         marketplace_article="MP-42",
         order_external_id="WB-123",
         posting_number=None,
+        srid=None,
         quantity=1,
         revenue=Decimal("1000.00"),
         estimated_profit=Decimal("200.00"),
@@ -260,7 +261,7 @@ def test_orders_content_links_are_canonical() -> None:
     html = routes._orders_content(page_result, "Europe/Moscow")
 
     assert 'href="/web/orders/42"' in html
-    assert "Факт полный" in html
+    assert "Подробнее" in html
     assert 'href="/web/web/' not in html
 
 

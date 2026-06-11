@@ -299,6 +299,9 @@ def _render_pagination(
 
     from urllib.parse import urlencode
 
+    has_next = page < total_pages
+    has_prev = page > 1
+
     base_params = {
         "period": filters.period,
         "marketplace": filters.marketplace.value if filters.marketplace else "all",
@@ -320,12 +323,14 @@ def _render_pagination(
 
     pages: list[str] = []
 
-    pages.append(f'<a href="{page_url(1)}" class="button {"primary disabled" if page == 1 else ""}" {"disabled" if page == 1 else ""}>«</a>')
-    if page > 1:
-        pages.append(f'<a href="{page_url(page - 1)}" class="button">←</a>')
+    # First / Prev
+    pages.append(f'<a href="{page_url(1)}" class="button {"disabled" if page == 1 else ""}" {"disabled" if page == 1 else ""} aria-label="Первая">«</a>')
+    if has_prev:
+        pages.append(f'<a href="{page_url(page - 1)}" class="button" aria-label="Назад">←</a>')
     else:
-        pages.append(f'<span class="button disabled">←</span>')
+        pages.append(f'<span class="button disabled" aria-label="Назад">←</span>')
 
+    # Page numbers with window
     window = 2
     start = max(1, page - window)
     end = min(total_pages, page + window)
@@ -346,13 +351,14 @@ def _render_pagination(
             pages.append('<span class="muted" style="padding:0 4px">…</span>')
         pages.append(f'<a href="{page_url(total_pages)}" class="button">{total_pages}</a>')
 
-    if page < total_pages:
-        pages.append(f'<a href="{page_url(page + 1)}" class="button">→</a>')
+    # Next / Last
+    if has_next:
+        pages.append(f'<a href="{page_url(page + 1)}" class="button" aria-label="Вперёд">→</a>')
     else:
-        pages.append(f'<span class="button disabled">→</span>')
-    pages.append(f'<a href="{page_url(total_pages)}" class="button {"primary disabled" if page == total_pages else ""}" {"disabled" if page == total_pages else ""}>»</a>')
+        pages.append(f'<span class="button disabled" aria-label="Вперёд">→</span>')
+    pages.append(f'<a href="{page_url(total_pages)}" class="button {"disabled" if page == total_pages else ""}" {"disabled" if page == total_pages else ""} aria-label="Последняя">»</a>')
 
-    per_page_options = [25, 50, 100]
+    per_page_options = [25, 50, 100, 200]
     per_page_html = '<span class="muted" style="font-size:12px;margin-left:auto">На странице: '
     per_page_links = []
     for opt in per_page_options:
