@@ -14,14 +14,14 @@ def test_user_menu_has_all_buttons():
     kb = user_menu()
     texts = [btn.text for row in kb.inline_keyboard for btn in row]
     assert "👤 Профиль" in texts
-    assert "💳 Мой тариф" in texts
+    assert "💳 Тариф" in texts
     assert "🔑 API-ключи" in texts
     assert "🔔 Уведомления" in texts
-    assert "🛒 Кабинеты МП" in texts
+    assert "🏪 Кабинеты МП" in texts
     assert "🎁 Промокод" in texts
     assert "⚙️ Настройки" in texts
     assert "🆘 Поддержка" in texts
-    assert "Назад" in texts
+    assert "🏠 Главное меню" in texts
 
 
 def test_user_profile_menu():
@@ -50,16 +50,13 @@ def test_user_api_keys_menu():
     assert "Обновить Ozon ключ" in texts
 
 
-def test_user_notifications_menu_enabled():
-    kb = user_notifications_menu(enabled=True)
-    texts = [btn.text for row in kb.inline_keyboard for btn in row]
-    assert "Отключить уведомления" in texts
-
-
-def test_user_notifications_menu_disabled():
-    kb = user_notifications_menu(enabled=False)
-    texts = [btn.text for row in kb.inline_keyboard for btn in row]
-    assert "Включить уведомления" in texts
+def test_user_notifications_menu_toggle():
+    kb_enabled = user_notifications_menu(enabled=True)
+    texts_enabled = [btn.text for row in kb_enabled.inline_keyboard for btn in row]
+    kb_disabled = user_notifications_menu(enabled=False)
+    texts_disabled = [btn.text for row in kb_disabled.inline_keyboard for btn in row]
+    assert any("Выключить" in t for t in texts_enabled)
+    assert any("Включить" in t for t in texts_disabled)
 
 
 def test_user_support_menu():

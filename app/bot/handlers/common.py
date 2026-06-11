@@ -1,6 +1,6 @@
-"""version: 2.0.0
+"""version: 2.1.0
 description: Common Telegram menu, analytics, alerts, settings, and admin handlers.
-updated: 2026-05-17
+updated: 2026-06-11
 """
 
 import logging
@@ -37,15 +37,19 @@ from app.bot.keyboards.main import (
     confirm_deploy_update,
     control_menu,
     costs_menu,
+    finances_menu,
     low_margin_threshold_menu,
     main_menu,
+    marketplaces_menu,
     notification_settings_menu,
     orders_menu,
+    products_menu,
     profile_menu,
     profit_menu,
     sale_notification_settings_menu,
     settings_menu,
     summary_menu,
+    support_menu,
     sync_menu,
     timezone_menu,
     web_cabinet_link,
@@ -281,6 +285,14 @@ async def callback_handler(callback: CallbackQuery, state: FSMContext) -> None:
                 await message.answer(await _break_even_text(user_id))
             else:
                 await message.answer(await _profit_text(user_id))
+    elif data == "finances_menu":
+        await _safe_edit_text(message, "💰 Финансы", reply_markup=finances_menu())
+    elif data == "products_menu":
+        await _safe_edit_text(message, "📦 Товары", reply_markup=products_menu())
+    elif data == "marketplaces_menu":
+        await _safe_edit_text(message, "🏪 Кабинеты МП", reply_markup=marketplaces_menu())
+    elif data == "support_menu":
+        await _safe_edit_text(message, "🆘 Поддержка", reply_markup=support_menu())
     elif data == "products_costs_menu":
         await _safe_edit_text(message, "📦 Товары и себестоимость", reply_markup=costs_menu())
     elif data == "stocks":
@@ -394,14 +406,6 @@ async def callback_handler(callback: CallbackQuery, state: FSMContext) -> None:
         await message.answer(
             _help_text(),
             reply_markup=main_menu(is_admin=_is_admin_telegram(callback.from_user.id)),
-        )
-    elif data.startswith("mrc:"):
-        logger.warning(
-            "unknown_mrc_callback",
-            extra={"callback_data": data, "telegram_id": callback.from_user.id},
-        )
-        await message.answer(
-            "Действие раздела МРЦ пока не обработано. Обновите меню и попробуйте ещё раз."
         )
     else:
         logger.warning(

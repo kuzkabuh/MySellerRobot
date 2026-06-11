@@ -1,6 +1,6 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: Global Telegram navigation commands that reset active FSM scenarios.
-updated: 2026-05-17
+updated: 2026-06-11
 """
 
 from aiogram import Router
@@ -8,7 +8,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
-from app.bot.keyboards.main import main_menu, user_menu
+from app.bot.keyboards.main import main_menu
 from app.core.config import get_settings
 from app.core.db import AsyncSessionFactory
 from app.repositories.users import UserRepository
@@ -51,7 +51,7 @@ async def start_or_menu_handler(message: Message, state: FSMContext) -> None:
 
 @router.message(Command("usermenu"))
 async def user_menu_handler(message: Message, state: FSMContext) -> None:
-    """Open the user menu."""
+    """Open the user menu (redirects to main menu)."""
 
     await state.clear()
     if message.from_user is None:
@@ -66,9 +66,8 @@ async def user_menu_handler(message: Message, state: FSMContext) -> None:
         )
         await session.commit()
     await message.answer(
-        "👤 <b>Меню пользователя</b>\n\nВыберите раздел:",
-        reply_markup=user_menu(),
-        parse_mode="HTML",
+        WELCOME_TEXT,
+        reply_markup=main_menu(is_admin=_is_admin_telegram(message.from_user.id)),
     )
 
 

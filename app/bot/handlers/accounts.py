@@ -214,7 +214,7 @@ async def account_action_handler(callback: CallbackQuery) -> None:
                 f"Период: последние {days} дней.\n"
                 f"Задача: #{job.id}.\n\n"
                 "Когда данные будут готовы, бот сообщит об этом.",
-                account_actions(account.id, account.is_active),
+                account_actions(account),
             )
             return
         if action == "seller" and account is not None:
@@ -226,7 +226,7 @@ async def account_action_handler(callback: CallbackQuery) -> None:
             await _edit_or_answer(
                 callback,
                 _format_seller_profile(profile.account, profile.balance, user.timezone),
-                account_actions(account.id, account.is_active),
+                account_actions(account),
             )
             await callback.answer()
             return
@@ -240,7 +240,7 @@ async def account_action_handler(callback: CallbackQuery) -> None:
             await _edit_or_answer(
                 callback,
                 _format_wb_reports(account, reports, states),
-                account_actions(account.id, account.is_active),
+                account_actions(account),
             )
             await callback.answer()
             return
@@ -263,7 +263,7 @@ async def account_action_handler(callback: CallbackQuery) -> None:
         await _edit_or_answer(
             callback,
             _format_account_card(account),
-            account_actions(account.id, account.is_active),
+            account_actions(account),
         )
     await callback.answer()
 

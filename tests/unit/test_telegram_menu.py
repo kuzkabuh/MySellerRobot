@@ -14,16 +14,20 @@ from app.bot.keyboards.main import (
     admin_tariff_select_menu,
     control_menu,
     costs_menu,
+    finances_menu,
     low_margin_threshold_menu,
     main_menu,
+    marketplaces_menu,
     mrc_menu,
     notification_settings_menu,
     orders_menu,
+    products_menu,
     profile_menu,
     profit_menu,
     sale_notification_settings_menu,
     settings_menu,
     summary_menu,
+    support_menu,
     sync_menu,
     timezone_menu,
     web_cabinet_link,
@@ -45,10 +49,18 @@ def test_main_menu_contains_admin_button_for_admin() -> None:
     assert "🛠 Администрирование" in texts
 
 
-def test_main_menu_contains_mrc_button() -> None:
+def test_main_menu_contains_finances_products_control_mp() -> None:
     texts = [button.text for row in main_menu().inline_keyboard for button in row]
 
-    assert "💰 МРЦ и акции WB" in texts
+    assert "💰 Финансы" in texts
+    assert "📦 Товары" in texts
+    assert "🔔 Контроль" in texts
+    assert "🏪 Кабинеты МП" in texts
+    assert "⚙️ Настройки" in texts
+    assert "🆘 Поддержка" in texts
+    assert "🌐 Web-кабинет" in texts
+    assert "📊 Сводка" in texts
+    assert "🛒 Заказы" in texts
 
 
 def test_admin_menu_contains_deploy_section() -> None:
@@ -84,11 +96,13 @@ def test_admin_deploy_menu_contains_required_actions() -> None:
     assert "💾 Последние backup" in texts
 
 
-def test_profit_menu_contains_plan_fact_report() -> None:
-    texts = [button.text for row in profit_menu().inline_keyboard for button in row]
+def test_finances_menu_contains_report_items() -> None:
+    texts = [button.text for row in finances_menu().inline_keyboard for button in row]
 
-    assert "План/факт и отклонения" in texts
+    assert "План/факт" in texts
     assert "Безубыточная цена" in texts
+    assert "Убыточные заказы" in texts
+    assert "Прибыль за сегодня" in texts
 
 
 def test_control_menu_contains_stockout_and_quality_actions() -> None:
@@ -145,6 +159,10 @@ def test_known_callback_buttons_have_common_handler_contract() -> None:
         main_menu(is_admin=True),
         summary_menu(),
         orders_menu(),
+        finances_menu(),
+        products_menu(),
+        marketplaces_menu(),
+        support_menu(),
         profit_menu(),
         control_menu(),
         costs_menu(),
@@ -166,6 +184,10 @@ def test_known_callback_buttons_have_common_handler_contract() -> None:
         "summary",
         "orders_menu",
         "profit_menu",
+        "finances_menu",
+        "products_menu",
+        "marketplaces_menu",
+        "support_menu",
         "products_costs_menu",
         "profile",
         "sync_menu",
@@ -174,6 +196,9 @@ def test_known_callback_buttons_have_common_handler_contract() -> None:
         "notifications",
         "settings:notifications",
         "notifications:toggle",
+        "notifications:orders",
+        "notifications:returns",
+        "notifications:test",
         "sale_notifications",
         "sale_notifications:toggle",
         "web_cabinet",
@@ -192,6 +217,7 @@ def test_known_callback_buttons_have_common_handler_contract() -> None:
         "cost_template",
         "cost_upload",
         "subscription_menu",
+        "subscription:payments",
         "admin_tariff_menu",
         "mrc_menu",
     }
@@ -210,6 +236,7 @@ def test_known_callback_buttons_have_common_handler_contract() -> None:
         "sync:",
         "mrc:",
         "user:",
+        "account:",
     )
 
     unknown = {

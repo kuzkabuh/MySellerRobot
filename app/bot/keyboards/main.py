@@ -1,6 +1,6 @@
-"""version: 1.5.0
-description: Main Telegram inline keyboards and control settings menus.
-updated: 2026-05-15
+"""version: 2.0.0
+description: Main Telegram inline keyboards with unified menu structure.
+updated: 2026-06-11
 """
 
 from collections.abc import Sequence
@@ -9,6 +9,7 @@ from decimal import Decimal
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.models.domain import MarketplaceAccount
+from app.models.enums import Marketplace
 from app.models.subscriptions import SubscriptionTier
 
 TIMEZONE_OPTIONS: tuple[tuple[str, str], ...] = (
@@ -33,29 +34,19 @@ def main_menu(is_admin: bool = False) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🛒 Заказы", callback_data="orders_menu"),
         ],
         [
-            InlineKeyboardButton(text="💰 Прибыль", callback_data="profit_menu"),
-            InlineKeyboardButton(
-                text="📦 Товары и себестоимость",
-                callback_data="products_costs_menu",
-            ),
+            InlineKeyboardButton(text="💰 Финансы", callback_data="finances_menu"),
+            InlineKeyboardButton(text="📦 Товары", callback_data="products_menu"),
         ],
         [
-            InlineKeyboardButton(text="💰 МРЦ и акции WB", callback_data="mrc_menu"),
-            InlineKeyboardButton(text="⚠ Контроль и уведомления", callback_data="control_menu"),
+            InlineKeyboardButton(text="🔔 Контроль", callback_data="control_menu"),
+            InlineKeyboardButton(text="🏪 Кабинеты МП", callback_data="marketplaces_menu"),
         ],
         [
+            InlineKeyboardButton(text="⚙️ Настройки", callback_data="settings"),
             InlineKeyboardButton(text="🌐 Web-кабинет", callback_data="web_cabinet"),
-            InlineKeyboardButton(text="💎 Подписка и тарифы", callback_data="subscription_menu"),
         ],
         [
-            InlineKeyboardButton(text="⚙ Настройки", callback_data="settings"),
-            InlineKeyboardButton(text="👤 Профиль", callback_data="profile"),
-        ],
-        [
-            InlineKeyboardButton(text="🔄 Синхронизация", callback_data="sync_menu"),
-        ],
-        [
-            InlineKeyboardButton(text="🆘 Поддержка / Обращение", callback_data="user:support"),
+            InlineKeyboardButton(text="🆘 Поддержка", callback_data="support_menu"),
         ],
     ]
     if is_admin:
@@ -115,19 +106,87 @@ def profit_menu() -> InlineKeyboardMarkup:
     )
 
 
+def finances_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Прибыль за сегодня", callback_data="profit:today")],
+            [InlineKeyboardButton(text="Прибыль за 7 дней", callback_data="profit:7d")],
+            [InlineKeyboardButton(text="Убыточные заказы", callback_data="profit:loss")],
+            [InlineKeyboardButton(text="План/факт", callback_data="profit:plan_fact")],
+            [InlineKeyboardButton(text="Безубыточная цена", callback_data="profit:break_even")],
+            [
+                InlineKeyboardButton(
+                    text="Заказы без себестоимости",
+                    callback_data="profit:missing_cost",
+                )
+            ],
+            [InlineKeyboardButton(text="💎 Подписка и тариф", callback_data="subscription_menu")],
+            [InlineKeyboardButton(text="📜 История платежей", callback_data="subscription:payments")],
+            [InlineKeyboardButton(text="🌐 Web-аналитика", callback_data="web_cabinet")],
+            [InlineKeyboardButton(text="Назад", callback_data="back_main")],
+        ]
+    )
+
+
+def products_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Синхронизировать товары", callback_data="products_sync")],
+            [
+                InlineKeyboardButton(
+                    text="Указать себестоимость вручную",
+                    callback_data="cost_manual",
+                )
+            ],
+            [InlineKeyboardButton(text="Скачать Excel-шаблон", callback_data="cost_template")],
+            [InlineKeyboardButton(text="Загрузить Excel-файл", callback_data="cost_upload")],
+            [InlineKeyboardButton(text="💰 МРЦ и акции WB", callback_data="mrc_menu")],
+            [InlineKeyboardButton(text="📦 Остатки", callback_data="stocks")],
+            [InlineKeyboardButton(text="🌐 Web-кабинет", callback_data="web_cabinet")],
+            [InlineKeyboardButton(text="Назад", callback_data="back_main")],
+        ]
+    )
+
+
+def marketplaces_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Мои кабинеты", callback_data="accounts")],
+            [InlineKeyboardButton(text="Подключить Wildberries", callback_data="connect_wb")],
+            [InlineKeyboardButton(text="Подключить Ozon", callback_data="connect_ozon")],
+            [InlineKeyboardButton(text="Проверить WB ключ", callback_data="user:check_wb")],
+            [InlineKeyboardButton(text="Проверить Ozon ключ", callback_data="user:check_ozon")],
+            [InlineKeyboardButton(text="🔄 Загрузить историю", callback_data="sync_menu")],
+            [InlineKeyboardButton(text="👤 Продавец и баланс", callback_data="sync:wb-profile")],
+            [InlineKeyboardButton(text="Назад", callback_data="back_main")],
+        ]
+    )
+
+
+def support_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Написать в поддержку", callback_data="user:support_new")],
+            [InlineKeyboardButton(text="Мои обращения", callback_data="user:support_list")],
+            [InlineKeyboardButton(text="🌐 Web-кабинет", callback_data="web_cabinet")],
+            [InlineKeyboardButton(text="❓ Помощь", callback_data="help")],
+            [InlineKeyboardButton(text="Назад", callback_data="back_main")],
+        ]
+    )
+
+
 def control_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Уведомления о заказах", callback_data="notifications")],
+            [InlineKeyboardButton(text="🔔 Уведомления", callback_data="notifications")],
             [
                 InlineKeyboardButton(
-                    text="Уведомления о выкупах", callback_data="sale_notifications"
+                    text="Выкупы и продажи",
+                    callback_data="sale_notifications",
                 )
             ],
             [InlineKeyboardButton(text="FBS/rFBS контроль", callback_data="control:fbs")],
-            [InlineKeyboardButton(text="Остатки", callback_data="stocks")],
             [InlineKeyboardButton(text="Прогноз out-of-stock", callback_data="control:stockout")],
-            [InlineKeyboardButton(text="Убыточные заказы", callback_data="profit:loss")],
             [InlineKeyboardButton(text="Низкая маржа", callback_data="control:low_margin")],
             [
                 InlineKeyboardButton(
@@ -136,6 +195,7 @@ def control_menu() -> InlineKeyboardMarkup:
                 )
             ],
             [InlineKeyboardButton(text="Качество данных", callback_data="control:data_quality")],
+            [InlineKeyboardButton(text="🔄 Запустить синхронизацию", callback_data="sync_menu")],
             [InlineKeyboardButton(text="Назад", callback_data="back_main")],
         ]
     )
@@ -257,17 +317,15 @@ def web_cabinet_link(url: str) -> InlineKeyboardMarkup:
 def settings_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Подключить Wildberries", callback_data="connect_wb")],
-            [InlineKeyboardButton(text="Подключить Ozon", callback_data="connect_ozon")],
-            [InlineKeyboardButton(text="Подключённые магазины", callback_data="accounts")],
-            [InlineKeyboardButton(text="Профиль", callback_data="profile")],
-            [InlineKeyboardButton(text="Запустить синхронизацию", callback_data="sync_menu")],
-            [InlineKeyboardButton(text="Товары и себестоимость", callback_data="costs")],
-            [InlineKeyboardButton(text="Настройки уведомлений", callback_data="notifications")],
-            [InlineKeyboardButton(text="Время ежедневных отчётов", callback_data="report_time")],
-            [InlineKeyboardButton(text="Часовой пояс", callback_data="timezone")],
+            [InlineKeyboardButton(text="👤 Профиль", callback_data="profile")],
+            [InlineKeyboardButton(text="🔑 API-ключи", callback_data="user:api_keys")],
+            [InlineKeyboardButton(text="🔔 Уведомления", callback_data="notifications")],
+            [InlineKeyboardButton(text="🕒 Часовой пояс", callback_data="timezone")],
+            [InlineKeyboardButton(text="⏰ Время отчёта", callback_data="report_time")],
+            [InlineKeyboardButton(text="💎 Подписка и тариф", callback_data="subscription_menu")],
+            [InlineKeyboardButton(text="🎁 Промокод", callback_data="user:promo")],
             [InlineKeyboardButton(text="🌐 Web-кабинет", callback_data="web_cabinet")],
-            [InlineKeyboardButton(text="Помощь / инструкция", callback_data="help")],
+            [InlineKeyboardButton(text="❓ Помощь", callback_data="help")],
             [InlineKeyboardButton(text="Назад", callback_data="back_main")],
         ]
     )
@@ -304,21 +362,21 @@ def user_menu() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="👤 Профиль", callback_data="user:profile"),
-                InlineKeyboardButton(text="💳 Мой тариф", callback_data="user:tariff"),
+                InlineKeyboardButton(text="💳 Тариф", callback_data="subscription:current"),
             ],
             [
                 InlineKeyboardButton(text="🔑 API-ключи", callback_data="user:api_keys"),
-                InlineKeyboardButton(text="🔔 Уведомления", callback_data="user:notifications"),
+                InlineKeyboardButton(text="🔔 Уведомления", callback_data="notifications"),
             ],
             [
-                InlineKeyboardButton(text="🛒 Кабинеты МП", callback_data="user:marketplaces"),
+                InlineKeyboardButton(text="🏪 Кабинеты МП", callback_data="accounts"),
                 InlineKeyboardButton(text="🎁 Промокод", callback_data="user:promo"),
             ],
             [
-                InlineKeyboardButton(text="⚙️ Настройки", callback_data="user:settings"),
+                InlineKeyboardButton(text="⚙️ Настройки", callback_data="settings"),
                 InlineKeyboardButton(text="🆘 Поддержка", callback_data="user:support"),
             ],
-            [InlineKeyboardButton(text="Назад", callback_data="back_main")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="back_main")],
         ]
     )
 
@@ -387,22 +445,43 @@ def user_support_menu() -> InlineKeyboardMarkup:
     )
 
 
+def profit_menu() -> InlineKeyboardMarkup:
+    return finances_menu()
+
+
+def user_notifications_menu(enabled: bool) -> InlineKeyboardMarkup:
+    return notification_settings_menu(enabled)
+
+
 def notification_settings_menu(enabled: bool) -> InlineKeyboardMarkup:
-    text = "Отключить уведомления" if enabled else "Включить уведомления"
+    toggle_text = "🔇 Выключить уведомления" if enabled else "🔔 Включить уведомления"
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=text, callback_data="notifications:toggle")],
+            [InlineKeyboardButton(text=toggle_text, callback_data="notifications:toggle")],
+            [InlineKeyboardButton(text="🛒 Новые заказы", callback_data="notifications:orders")],
+            [InlineKeyboardButton(text="✅ Продажи/выкупы", callback_data="sale_notifications")],
+            [InlineKeyboardButton(text="↩️ Возвраты", callback_data="notifications:returns")],
+            [InlineKeyboardButton(text="⚠️ Ошибки синхронизации", callback_data="control:sync_errors")],
+            [InlineKeyboardButton(text="📉 Низкая маржа", callback_data="control:low_margin")],
+            [InlineKeyboardButton(text="📦 Остатки заканчиваются", callback_data="control:stockout")],
+            [InlineKeyboardButton(text="📊 Ежедневная сводка", callback_data="report_time")],
+            [
+                InlineKeyboardButton(
+                    text="🧪 Тестовое уведомление",
+                    callback_data="notifications:test",
+                )
+            ],
             [InlineKeyboardButton(text="Назад", callback_data="control_menu")],
         ]
     )
 
 
 def sale_notification_settings_menu(enabled: bool) -> InlineKeyboardMarkup:
-    text = "Отключить уведомления о выкупах" if enabled else "Включить уведомления о выкупах"
+    text = "🔇 Выключить уведомления о выкупах" if enabled else "🔔 Включить уведомления о выкупах"
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=text, callback_data="sale_notifications:toggle")],
-            [InlineKeyboardButton(text="Назад", callback_data="control_menu")],
+            [InlineKeyboardButton(text="Назад", callback_data="notifications")],
         ]
     )
 
@@ -450,7 +529,7 @@ def accounts_menu() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="Подключить Wildberries", callback_data="connect_wb")],
             [InlineKeyboardButton(text="Подключить Ozon", callback_data="connect_ozon")],
             [InlineKeyboardButton(text="Мои кабинеты", callback_data="accounts")],
-            [InlineKeyboardButton(text="Назад", callback_data="settings")],
+            [InlineKeyboardButton(text="Назад", callback_data="back_main")],
         ]
     )
 
@@ -471,15 +550,18 @@ def accounts_list_menu(accounts: list[MarketplaceAccount]) -> InlineKeyboardMark
         [
             [InlineKeyboardButton(text="Подключить Wildberries", callback_data="connect_wb")],
             [InlineKeyboardButton(text="Подключить Ozon", callback_data="connect_ozon")],
-            [InlineKeyboardButton(text="Назад", callback_data="settings")],
+            [InlineKeyboardButton(text="Назад", callback_data="back_main")],
         ]
     )
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def account_actions(account_id: int, is_active: bool) -> InlineKeyboardMarkup:
+def account_actions(
+    account: MarketplaceAccount,
+) -> InlineKeyboardMarkup:
     buttons: list[list[InlineKeyboardButton]] = []
-    if is_active:
+    account_id = account.id
+    if account.is_active:
         buttons.append(
             [
                 InlineKeyboardButton(
@@ -496,14 +578,15 @@ def account_actions(account_id: int, is_active: bool) -> InlineKeyboardMarkup:
                 )
             ]
         )
-        buttons.append(
-            [
-                InlineKeyboardButton(
-                    text="📄 Отчёты WB",
-                    callback_data=f"account:{account_id}:reports",
-                )
-            ]
-        )
+        if account.marketplace == Marketplace.WB:
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        text="📄 Отчёты WB",
+                        callback_data=f"account:{account_id}:reports",
+                    )
+                ]
+            )
         buttons.append(
             [
                 InlineKeyboardButton(
@@ -558,7 +641,7 @@ def confirm_delete_account(account_id: int) -> InlineKeyboardMarkup:
 
 def back_to_settings() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="Назад", callback_data="settings")]]
+        inline_keyboard=[[InlineKeyboardButton(text="Назад", callback_data="back_main")]]
     )
 
 
@@ -574,7 +657,7 @@ def costs_menu() -> InlineKeyboardMarkup:
             ],
             [InlineKeyboardButton(text="Скачать Excel-шаблон", callback_data="cost_template")],
             [InlineKeyboardButton(text="Загрузить Excel-файл", callback_data="cost_upload")],
-            [InlineKeyboardButton(text="Назад", callback_data="settings")],
+            [InlineKeyboardButton(text="Назад", callback_data="back_main")],
         ]
     )
 
