@@ -5,8 +5,8 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,19 +15,19 @@ from app.models.enums import FeatureCode, Marketplace
 from app.models.subscriptions import SubscriptionTier
 from app.repositories.products import ProductCostRepository
 from app.schemas.products import CostUpdate
-from app.services.unit_economics.cost_management_service import CostManagementError
-from app.services.common.data_quality_service import DataQualityService
-from app.services.subscriptions.feature_access_service import FeatureAccessService
-from app.services.unit_economics.master_product_service import MasterProductService
-from app.services.unit_economics.plan_fact_service import PlanFactService
-from app.services.unit_economics.stock_forecast_service import StockForecastService
-from app.services.subscriptions.subscription_service import SubscriptionService
-from app.services.unit_economics.unit_economics_service import UnitEconomicsService
 from app.services.account.web_auth_service import WEB_SESSION_COOKIE, WebAuthService
 from app.services.account.web_cabinet_service import WebCabinetService
+from app.services.common.data_quality_service import DataQualityService
 from app.services.common.web_dashboard_service import WebDashboardService
 from app.services.common.web_orders_profit_service import WebOrdersProfitService
 from app.services.common.web_sync_service import WebSyncService
+from app.services.subscriptions.feature_access_service import FeatureAccessService
+from app.services.subscriptions.subscription_service import SubscriptionService
+from app.services.unit_economics.cost_management_service import CostManagementError
+from app.services.unit_economics.master_product_service import MasterProductService
+from app.services.unit_economics.plan_fact_service import PlanFactService
+from app.services.unit_economics.stock_forecast_service import StockForecastService
+from app.services.unit_economics.unit_economics_service import UnitEconomicsService
 from app.web.dependencies import (
     CURRENT_WEB_USER_DEPENDENCY,
     SESSION_DEPENDENCY,
@@ -168,17 +168,185 @@ async def break_even_page(
             active_path="/web/break-even",
         )
 
-    rows = await UnitEconomicsService(session).rows(
-        user_id=user.id,
-        target_margin_percent=_decimal_from_query(target_margin, Decimal("20")),
-        price_delta_percent=_decimal_from_query(price_delta, Decimal("0")),
-    )
-    content = _break_even_content(rows, target_margin, price_delta)
+    content = _break_even_content([], target_margin, price_delta)
     return page(
         "Безубыточная цена",
         user.first_name or user.username or str(user.telegram_id),
         content,
         active_path="/web/break-even",
+    )
+
+
+@router.get("/break-even/api/summary")
+async def break_even_summary_api(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+    target_margin: str = Query(default="20"),
+) -> JSONResponse:
+    await _ensure_break_even_access(session, user.id)
+    summary = await UnitEconomicsService(session).summary(
+        user_id=user.id,
+        target_margin_percent=_decimal_from_query(target_margin, Decimal("20")),
+    )
+    return JSONResponse(
+        {
+            "total_products": summary.total_products,
+            "loss_products": summary.loss_products,
+            "risky_products": summary.risky_products,
+            "profitable_products": summary.profitable_products,
+            "high_margin_products": summary.high_margin_products,
+            "average_margin_percent": str(summary.average_margin_percent),
+            "average_profit": str(summary.average_profit),
+            "potential_lost_profit": str(summary.potential_lost_profit),
+            "additional_profit_after_optimization": str(
+                summary.additional_profit_after_optimization
+            ),
+        }
+    )
+
+
+@router.get("/break-even/api/products")
+async def break_even_products_api(
+    request: Request,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> JSONResponse:
+    await _ensure_break_even_access(session, user.id)
+    params = request.query_params
+    draw = _optional_int(params.get("draw")) or 1
+    service = UnitEconomicsService(session)
+    result = await service.table(
+        user_id=user.id,
+        target_margin_percent=_decimal_from_query(params.get("target_margin"), Decimal("20")),
+        price_delta_percent=_decimal_from_query(params.get("price_delta"), Decimal("0")),
+        search=params.get("search[value]") or params.get("q") or "",
+        marketplace=params.get("marketplace") or "all",
+        status=params.get("status") or "all",
+        category=params.get("category") or "",
+        brand=params.get("brand") or "",
+        min_profit=_optional_decimal(params.get("min_profit") or ""),
+        max_profit=_optional_decimal(params.get("max_profit") or ""),
+        min_margin=_optional_decimal(params.get("min_margin") or ""),
+        max_margin=_optional_decimal(params.get("max_margin") or ""),
+        min_price=_optional_decimal(params.get("min_price") or ""),
+        max_price=_optional_decimal(params.get("max_price") or ""),
+        start=max(0, _optional_int(params.get("start")) or 0),
+        length=min(200, max(10, _optional_int(params.get("length")) or 50)),
+    )
+    return JSONResponse(
+        {
+            "draw": draw,
+            "recordsTotal": result.total_count,
+            "recordsFiltered": result.filtered_count,
+            "data": [service.row_to_dict(row) for row in result.rows],
+        }
+    )
+
+
+@router.get("/break-even/api/products/{product_id}")
+async def break_even_product_detail_api(
+    product_id: int,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+    target_margin: str = Query(default="20"),
+) -> JSONResponse:
+    await _ensure_break_even_access(session, user.id)
+    detail = await UnitEconomicsService(session).detail(
+        user_id=user.id,
+        product_id=product_id,
+        target_margin_percent=_decimal_from_query(target_margin, Decimal("20")),
+    )
+    if not detail:
+        raise HTTPException(status_code=404, detail="Товар не найден")
+    return JSONResponse(detail)
+
+
+@router.post("/break-even/expenses")
+async def save_break_even_expenses(
+    request: Request,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+    scope: str = Form("global"),
+    category: str = Form(""),
+    product_id: str = Form(""),
+    tax_rate: str = Form("6"),
+    acquiring_rate: str = Form("1.5"),
+    advertising_rate: str = Form("5"),
+    packaging_cost: str = Form("0"),
+    storage_cost: str = Form("0"),
+    other_cost: str = Form("0"),
+) -> RedirectResponse:
+    await _ensure_break_even_access(session, user.id)
+    row = await UnitEconomicsService(session).save_expense_setting(
+        user_id=user.id,
+        scope=scope,
+        category=category,
+        product_id=_optional_int(product_id),
+        tax_rate=_decimal_from_query(tax_rate, Decimal("6")),
+        acquiring_rate=_decimal_from_query(acquiring_rate, Decimal("1.5")),
+        advertising_rate=_decimal_from_query(advertising_rate, Decimal("5")),
+        packaging_cost=_decimal_from_query(packaging_cost, Decimal("0")),
+        storage_cost=_decimal_from_query(storage_cost, Decimal("0")),
+        other_cost=_decimal_from_query(other_cost, Decimal("0")),
+    )
+    try:
+        from app.services.admin.audit_log_service import AuditLogService
+
+        await AuditLogService(session).log(
+            "break_even_expenses_saved",
+            user_id=user.id,
+            actor_user_id=user.id,
+            entity_type="break_even_expense_setting",
+            entity_id=row.id,
+            details={"scope": row.scope, "category": row.category, "product_id": row.product_id},
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
+    except Exception:
+        logger.exception("break_even_expense_audit_failed")
+    await session.commit()
+    return RedirectResponse(url="/web/break-even?expenses_saved=1", status_code=303)
+
+
+@router.get("/break-even/export.csv")
+async def break_even_export_csv(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> Response:
+    await _ensure_break_even_access(session, user.id)
+    content = await UnitEconomicsService(session).export_csv(user_id=user.id)
+    return Response(
+        content=content.encode("utf-8-sig"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="break_even.csv"'},
+    )
+
+
+@router.get("/break-even/export.xlsx")
+async def break_even_export_xlsx(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> Response:
+    await _ensure_break_even_access(session, user.id)
+    content = await UnitEconomicsService(session).export_xlsx(user_id=user.id)
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="break_even.xlsx"'},
+    )
+
+
+@router.get("/break-even/export.pdf")
+async def break_even_export_pdf(
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> Response:
+    await _ensure_break_even_access(session, user.id)
+    content = await UnitEconomicsService(session).export_pdf(user_id=user.id)
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="break_even.pdf"'},
     )
 
 
@@ -198,5 +366,11 @@ def _feature_locked_html(access: Any) -> str:
 
 async def _ensure_plan_fact_access(session: AsyncSession, user_id: int) -> None:
     access = await FeatureAccessService(session).can_use_feature(user_id, FeatureCode.PLAN_FACT)
+    if not access.allowed:
+        raise HTTPException(status_code=403, detail=access.reason or "Раздел недоступен")
+
+
+async def _ensure_break_even_access(session: AsyncSession, user_id: int) -> None:
+    access = await FeatureAccessService(session).can_use_feature(user_id, FeatureCode.BREAK_EVEN)
     if not access.allowed:
         raise HTTPException(status_code=403, detail=access.reason or "Раздел недоступен")

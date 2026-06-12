@@ -148,6 +148,34 @@ class ProductCostHistory(TimestampMixin, Base):
 
     product: Mapped[Product] = relationship(back_populates="costs")
 
+class BreakEvenExpenseSetting(TimestampMixin, Base):
+    __tablename__ = "break_even_expense_settings"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "scope",
+            "category",
+            "product_id",
+            name="uq_break_even_expense_scope",
+        ),
+        Index("ix_break_even_expense_user_scope", "user_id", "scope"),
+        Index("ix_break_even_expense_product", "product_id"),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    scope: Mapped[str] = mapped_column(String(32), default="global")
+    category: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    product_id: Mapped[int | None] = mapped_column(
+        ForeignKey("products.id", ondelete="CASCADE"), nullable=True
+    )
+    tax_rate: Mapped[Decimal] = mapped_column(Numeric(7, 4), default=Decimal("0.0600"))
+    acquiring_rate: Mapped[Decimal] = mapped_column(Numeric(7, 4), default=Decimal("0.0150"))
+    advertising_rate: Mapped[Decimal] = mapped_column(Numeric(7, 4), default=Decimal("0.0500"))
+    packaging_cost: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    storage_cost: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+    other_cost: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"))
+
 class StockSnapshot(TimestampMixin, Base):
     __tablename__ = "stock_snapshots"
     __table_args__ = (Index("ix_stock_snapshots_product_date", "product_id", "snapshot_at"),)

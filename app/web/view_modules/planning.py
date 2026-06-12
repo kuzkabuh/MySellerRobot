@@ -226,60 +226,241 @@ def _break_even_content(
     target_margin: str,
     price_delta: str,
 ) -> str:
-    body = "".join(
-        "<tr>"
-        f'<td>{escape(row.title)}<div class="muted">{escape(row.seller_article)}</div></td>'
-        f"<td>{_marketplace_label(row.marketplace)}</td>"
-        f'<td class="num">{_rub(row.current_price)}</td>'
-        f'<td class="num">{_rub(row.break_even_price)}</td>'
-        f'<td class="num">{_rub(row.target_margin_price)}</td>'
-        f'<td class="num">{row.commission_rate}%</td>'
-        f'<td class="num">{_rub(row.logistics_cost)}</td>'
-        f'<td class="num">{_rub(row.simulated_price)}</td>'
-        f'<td class="num">{_rub(row.simulated_profit)}</td>'
-        f'<td class="num">{row.simulated_margin_percent}%</td>'
-        f"<td>{escape(row.recommendation)}</td>"
-        "</tr>"
-        for row in rows
-    )
-    if not body:
-        body = (
-            '<tr><td colspan="11" class="muted">'
-            "Недостаточно заказов с экономикой для расчёта безубыточности.</td></tr>"
-        )
     return f"""
       {_section_subnav_finance("break_even")}
-      <form class="filters" method="get" action="/web/break-even">
-        <div>
-          <label for="target_margin">Целевая маржа, %</label>
-          <input id="target_margin" name="target_margin" type="number"
-                 value="{escape(target_margin)}">
-        </div>
-        <div>
-          <label for="price_delta">Симуляция цены, %</label>
-          <input id="price_delta" name="price_delta" type="number" value="{escape(price_delta)}">
-        </div>
-        <button class="button primary" type="submit">Пересчитать</button>
-      </form>
+      <link rel="stylesheet" href="https://cdn.datatables.net/2.0.8/css/dataTables.dataTables.min.css">
+      <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+      <script src="https://cdn.datatables.net/2.0.8/js/dataTables.min.js"></script>
+      <style>
+        .be-toolbar {{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:10px;align-items:end;margin:12px 0}}
+        .be-toolbar input,.be-toolbar select {{width:100%;min-height:38px}}
+        .be-kpis {{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin:14px 0}}
+        .be-kpi {{border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--surface)}}
+        .be-kpi strong {{display:block;font-size:22px;line-height:1.1}}
+        .be-status {{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 8px;font-weight:700;font-size:12px}}
+        .be-status.loss {{background:#fee2e2;color:#991b1b}}
+        .be-status.risk {{background:#fef3c7;color:#92400e}}
+        .be-status.profit {{background:#dcfce7;color:#166534}}
+        .be-status.high {{background:#dbeafe;color:#1d4ed8}}
+        .be-thumb {{width:44px;height:44px;border-radius:6px;object-fit:cover;background:var(--muted-bg)}}
+        .be-actions {{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}}
+        .be-panel-grid {{display:grid;grid-template-columns:1.1fr .9fr;gap:14px}}
+        .be-modal {{position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:50;display:none;align-items:center;justify-content:center;padding:20px}}
+        .be-modal.open {{display:flex}}
+        .be-modal-body {{background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:8px;max-width:1120px;width:100%;max-height:90vh;overflow:auto;padding:18px}}
+        .be-detail-head {{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:10px}}
+        .be-expense-list {{display:grid;gap:6px}}
+        .be-expense-line {{display:grid;grid-template-columns:1fr 90px 70px;gap:10px;align-items:center}}
+        .be-table-wrap {{overflow:auto;max-height:70vh;border:1px solid var(--border);border-radius:8px}}
+        #breakEvenTable th {{white-space:nowrap;position:sticky;top:0;z-index:2}}
+        @media (max-width:900px) {{.be-toolbar,.be-panel-grid {{grid-template-columns:1fr}}}}
+      </style>
+
       <section class="band">
-        <h2>Безубыточная цена и симулятор</h2>
-        <p class="muted">
-          Расчёт использует средние комиссию, логистику, налог и себестоимость из последних
-          заказов. Прогнозные значения не считаются фактическим финансовым отчётом.
-        </p>
-        <div class="table-wrap">
-          <table class="table">
+        <form class="be-toolbar" method="get" action="/web/break-even" id="breakEvenFilters">
+          <div><label for="target_margin">Целевая маржа, %</label><input id="target_margin" name="target_margin" type="number" step="0.1" value="{escape(target_margin)}"></div>
+          <div><label for="price_delta">Симуляция цены, %</label><input id="price_delta" name="price_delta" type="number" step="0.1" value="{escape(price_delta)}"></div>
+          <div><label for="beMarketplace">Маркетплейс</label><select id="beMarketplace" name="marketplace"><option value="all">Все</option><option value="wb">Wildberries</option><option value="ozon">Ozon</option></select></div>
+          <div><label for="beStatus">Статус</label><select id="beStatus" name="status"><option value="all">Все</option><option value="loss">Убыток</option><option value="risk">Риск</option><option value="profit">Прибыль</option><option value="high">Высокая маржа</option></select></div>
+          <div><label for="beCategory">Категория</label><input id="beCategory" name="category" type="search"></div>
+          <div><button class="button primary" type="submit">Применить</button></div>
+        </form>
+
+        <div class="be-kpis" id="breakEvenKpis">
+          <div class="be-kpi"><span class="muted">Всего товаров</span><strong data-kpi="total_products">0</strong></div>
+          <div class="be-kpi"><span class="muted">Убыточных</span><strong data-kpi="loss_products">0</strong></div>
+          <div class="be-kpi"><span class="muted">Рискованных</span><strong data-kpi="risky_products">0</strong></div>
+          <div class="be-kpi"><span class="muted">Прибыльных</span><strong data-kpi="profitable_products">0</strong></div>
+          <div class="be-kpi"><span class="muted">Средняя маржа</span><strong data-kpi="average_margin_percent">0%</strong></div>
+          <div class="be-kpi"><span class="muted">Средняя прибыль</span><strong data-kpi="average_profit">0 ₽</strong></div>
+          <div class="be-kpi"><span class="muted">Потерянная прибыль</span><strong data-kpi="potential_lost_profit">0 ₽</strong></div>
+          <div class="be-kpi"><span class="muted">После оптимизации</span><strong data-kpi="additional_profit_after_optimization">0 ₽</strong></div>
+        </div>
+
+        <div class="be-actions">
+          <button class="button" type="button" data-quick-status="loss">Ниже безубыточности</button>
+          <button class="button" type="button" data-quick-status="risk">Низкая прибыль</button>
+          <button class="button" type="button" id="beThemeToggle">Тема</button>
+          <a class="button" href="/web/break-even/export.xlsx">Excel</a>
+          <a class="button" href="/web/break-even/export.csv">CSV</a>
+          <a class="button" href="/web/break-even/export.pdf">PDF</a>
+        </div>
+
+        <div class="be-table-wrap">
+          <table class="table" id="breakEvenTable">
             <thead>
               <tr>
-                <th>Товар</th><th>МП</th><th class="num">Текущая цена</th>
-                <th class="num">Безубыток</th><th class="num">Цена для цели</th>
-                <th class="num">Комиссия</th><th class="num">Логистика</th>
-                <th class="num">Цена симуляции</th><th class="num">Прибыль</th>
-                <th class="num">Маржа</th><th>Рекомендация</th>
+                <th>Фото</th><th>Артикул продавца</th><th>SKU</th><th>Бренд</th><th>Название</th>
+                <th>Маркетплейс</th><th>Категория</th><th class="num">Текущая цена</th>
+                <th class="num">Цена со скидкой</th><th class="num">Себестоимость</th>
+                <th class="num">Комиссия MP</th><th class="num">Логистика</th><th class="num">Реклама</th>
+                <th class="num">Налоги</th><th class="num">Прочие расходы</th><th class="num">Безубыточная цена</th>
+                <th class="num">Мин. прибыльная</th><th class="num">Маржа %</th><th class="num">Прибыль</th>
+                <th class="num">Рекоменд. цена</th><th>Статус</th>
               </tr>
             </thead>
-            <tbody>{body}</tbody>
           </table>
         </div>
       </section>
+
+      <section class="band" style="margin-top:14px">
+        <h2>Центр расходов</h2>
+        <form class="filters" method="post" action="/web/break-even/expenses">
+          <div><label for="beScope">Уровень</label><select id="beScope" name="scope"><option value="global">Глобально</option><option value="category">Категория</option><option value="product">Товар</option></select></div>
+          <div><label for="beExpenseCategory">Категория</label><input id="beExpenseCategory" name="category" type="text"></div>
+          <div><label for="beExpenseProduct">ID товара</label><input id="beExpenseProduct" name="product_id" type="number"></div>
+          <div><label for="beTax">Налог, %</label><input id="beTax" name="tax_rate" type="number" step="0.01" value="6"></div>
+          <div><label for="beAcquiring">Эквайринг, %</label><input id="beAcquiring" name="acquiring_rate" type="number" step="0.01" value="1.5"></div>
+          <div><label for="beAds">Реклама, %</label><input id="beAds" name="advertising_rate" type="number" step="0.01" value="5"></div>
+          <div><label for="bePack">Упаковка, ₽</label><input id="bePack" name="packaging_cost" type="number" step="0.01" value="0"></div>
+          <div><label for="beStorage">Хранение, ₽</label><input id="beStorage" name="storage_cost" type="number" step="0.01" value="0"></div>
+          <div><label for="beOther">Прочие, ₽</label><input id="beOther" name="other_cost" type="number" step="0.01" value="0"></div>
+          <button class="button primary" type="submit">Сохранить</button>
+        </form>
+      </section>
+
+      <div class="be-modal" id="breakEvenModal">
+        <div class="be-modal-body">
+          <div class="be-detail-head">
+            <div><h2 id="beDetailTitle">Товар</h2><p class="muted" id="beDetailMeta"></p></div>
+            <button class="button" type="button" id="beCloseDetail">Закрыть</button>
+          </div>
+          <div class="be-panel-grid">
+            <div>
+              <h3>Финансовая структура</h3>
+              <canvas id="beExpenseChart" height="160"></canvas>
+              <div class="be-expense-list" id="beExpenseList"></div>
+            </div>
+            <div>
+              <h3>Анализ прибыли</h3>
+              <div class="be-kpis" id="beProfitAnalysis"></div>
+              <h3>Калькулятор цены</h3>
+              <div class="filters">
+                <div><label for="calcProfit">Желаемая прибыль</label><input id="calcProfit" type="number" value="300"></div>
+                <div><label for="calcMargin">Желаемая маржа, %</label><input id="calcMargin" type="number" value="{escape(target_margin)}"></div>
+                <div><label for="calcRoi">ROI, %</label><input id="calcRoi" type="number" value="100"></div>
+                <div><label for="calcAds">Реклама, %</label><input id="calcAds" type="number" value="5"></div>
+              </div>
+              <div class="be-kpis" id="beCalcResult"></div>
+            </div>
+          </div>
+          <h3>Чувствительность цены</h3>
+          <canvas id="beSensitivityChart" height="110"></canvas>
+        </div>
+      </div>
+
+      <script>
+      (function() {{
+        const fmtMoney = v => (Number(v || 0)).toLocaleString('ru-RU') + ' ₽';
+        const fmtPct = v => (Number(v || 0)).toLocaleString('ru-RU') + '%';
+        const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[ch]));
+        const filters = document.getElementById('breakEvenFilters');
+        const table = new DataTable('#breakEvenTable', {{
+          serverSide: true,
+          processing: true,
+          pageLength: 50,
+          scrollX: true,
+          ajax: {{
+            url: '/web/break-even/api/products',
+            data: function(d) {{
+              d.target_margin = document.getElementById('target_margin').value;
+              d.price_delta = document.getElementById('price_delta').value;
+              d.marketplace = document.getElementById('beMarketplace').value;
+              d.status = document.getElementById('beStatus').value;
+              d.category = document.getElementById('beCategory').value;
+            }}
+          }},
+          columns: [
+            {{data:'image_url', orderable:false, render:v=>v ? '<img class="be-thumb" src="'+esc(v)+'" alt="">' : '<div class="be-thumb"></div>'}},
+            {{data:'seller_article', render:esc}}, {{data:'sku', render:esc}}, {{data:'brand', render:esc}}, {{data:'title', render:esc}},
+            {{data:'marketplace', render:esc}}, {{data:'category', render:esc}},
+            {{data:'current_price', className:'num', render:fmtMoney}},
+            {{data:'discounted_price', className:'num', render:fmtMoney}},
+            {{data:'cost_price', className:'num', render:fmtMoney}},
+            {{data:'commission_amount', className:'num', render:fmtMoney}},
+            {{data:'logistics_cost', className:'num', render:fmtMoney}},
+            {{data:'advertising_cost', className:'num', render:fmtMoney}},
+            {{data:'tax_amount', className:'num', render:fmtMoney}},
+            {{data:'other_cost', className:'num', render:fmtMoney}},
+            {{data:'break_even_price', className:'num', render:fmtMoney}},
+            {{data:'min_profitable_price', className:'num', render:fmtMoney}},
+            {{data:'current_margin_percent', className:'num', render:fmtPct}},
+            {{data:'current_profit', className:'num', render:fmtMoney}},
+            {{data:'recommended_price', className:'num', render:fmtMoney}},
+            {{data:'status_label', render:(v,t,row)=>'<button class="be-status '+esc(row.status)+'" type="button" data-product="'+esc(row.product_id)+'">'+esc(v)+'</button>'}}
+          ],
+          language: {{url: 'https://cdn.datatables.net/plug-ins/2.0.8/i18n/ru.json'}}
+        }});
+        function reloadSummary() {{
+          const target = document.getElementById('target_margin').value;
+          fetch('/web/break-even/api/summary?target_margin=' + encodeURIComponent(target))
+            .then(r => r.json()).then(data => {{
+              Object.entries(data).forEach(([k,v]) => {{
+                const el = document.querySelector('[data-kpi="'+k+'"]');
+                if (!el) return;
+                el.textContent = k.includes('margin') ? fmtPct(v) : (k.includes('profit') ? fmtMoney(v) : v);
+              }});
+            }});
+        }}
+        filters.addEventListener('submit', e => {{ e.preventDefault(); table.ajax.reload(); reloadSummary(); }});
+        document.querySelectorAll('[data-quick-status]').forEach(btn => btn.addEventListener('click', () => {{
+          document.getElementById('beStatus').value = btn.dataset.quickStatus;
+          table.ajax.reload(); reloadSummary();
+        }}));
+        document.getElementById('beThemeToggle').addEventListener('click', () => document.documentElement.classList.toggle('theme-dark'));
+        let expenseChart, sensitivityChart, currentDetail;
+        document.getElementById('breakEvenTable').addEventListener('click', e => {{
+          const btn = e.target.closest('[data-product]');
+          if (!btn || !btn.dataset.product) return;
+          fetch('/web/break-even/api/products/' + btn.dataset.product + '?target_margin=' + encodeURIComponent(document.getElementById('target_margin').value))
+            .then(r => r.json()).then(showDetail);
+        }});
+        document.getElementById('beCloseDetail').addEventListener('click', () => document.getElementById('breakEvenModal').classList.remove('open'));
+        function showDetail(data) {{
+          currentDetail = data.row;
+          document.getElementById('beDetailTitle').textContent = data.row.title;
+          document.getElementById('beDetailMeta').textContent = data.row.seller_article + ' · ' + data.row.marketplace + ' · ' + data.row.category;
+          document.getElementById('beProfitAnalysis').innerHTML =
+            '<div class="be-kpi"><span class="muted">Прибыль</span><strong>'+fmtMoney(data.row.current_profit)+'</strong></div>' +
+            '<div class="be-kpi"><span class="muted">Маржинальность</span><strong>'+fmtPct(data.row.current_margin_percent)+'</strong></div>' +
+            '<div class="be-kpi"><span class="muted">ROI</span><strong>'+fmtPct(data.row.roi_percent)+'</strong></div>' +
+            '<div class="be-kpi"><span class="muted">Валовая прибыль</span><strong>'+fmtMoney(data.row.gross_profit)+'</strong></div>';
+          document.getElementById('beExpenseList').innerHTML = data.expense_structure.map(x =>
+            '<div class="be-expense-line"><span>'+esc(x.label)+'</span><strong>'+fmtMoney(x.amount)+'</strong><span>'+fmtPct(x.percent)+'</span></div>'
+          ).join('');
+          if (expenseChart) expenseChart.destroy();
+          expenseChart = new Chart(document.getElementById('beExpenseChart'), {{
+            type:'doughnut',
+            data: {{labels:data.expense_structure.map(x=>x.label), datasets:[{{data:data.expense_structure.map(x=>Number(x.amount))}}]}}
+          }});
+          if (sensitivityChart) sensitivityChart.destroy();
+          sensitivityChart = new Chart(document.getElementById('beSensitivityChart'), {{
+            type:'line',
+            data: {{labels:data.sensitivity.map(x=>x.price), datasets:[{{label:'Прибыль', data:data.sensitivity.map(x=>x.profit), tension:.25}}]}},
+            options: {{plugins:{{annotation:false}}}}
+          }});
+          recalc();
+          document.getElementById('breakEvenModal').classList.add('open');
+        }}
+        function recalc() {{
+          if (!currentDetail) return;
+          const desiredProfit = Number(document.getElementById('calcProfit').value || 0);
+          const desiredMargin = Number(document.getElementById('calcMargin').value || 0) / 100;
+          const ads = Number(document.getElementById('calcAds').value || 0) / 100;
+          const current = Number(currentDetail.discounted_price || currentDetail.current_price || 0);
+          const fixed = Number(currentDetail.cost_price) + Number(currentDetail.logistics_cost) + Number(currentDetail.storage_cost) + Number(currentDetail.other_cost);
+          const variable = current > 0 ? (Number(currentDetail.commission_amount) + Number(currentDetail.acquiring_cost) + Number(currentDetail.tax_amount)) / current + ads : ads;
+          const priceForProfit = (fixed + desiredProfit) / Math.max(.01, 1 - variable);
+          const priceForMargin = fixed / Math.max(.01, 1 - variable - desiredMargin);
+          const required = Math.max(priceForProfit, priceForMargin);
+          const profit = required - required * variable - fixed;
+          document.getElementById('beCalcResult').innerHTML =
+            '<div class="be-kpi"><span class="muted">Цена продажи</span><strong>'+fmtMoney(required)+'</strong></div>' +
+            '<div class="be-kpi"><span class="muted">Ожидаемая прибыль</span><strong>'+fmtMoney(profit)+'</strong></div>' +
+            '<div class="be-kpi"><span class="muted">Ожидаемая маржа</span><strong>'+fmtPct(required ? profit / required * 100 : 0)+'</strong></div>';
+        }}
+        ['calcProfit','calcMargin','calcRoi','calcAds'].forEach(id => document.getElementById(id).addEventListener('input', recalc));
+        reloadSummary();
+      }})();
+      </script>
     """
