@@ -1428,6 +1428,7 @@ def _prices_styles() -> str:
   z-index: 1000; display: flex; align-items: center; justify-content: center;
   padding: 20px;
 }
+.modal-overlay[hidden] { display: none; }
 .modal-box {
   background: var(--bg-card); border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg); width: 100%; max-width: 480px;
