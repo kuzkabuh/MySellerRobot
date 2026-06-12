@@ -6,16 +6,16 @@ description: Полноценный модуль управления ценам
 - ozon_current_prices: текущие цены Ozon (аналог wb_product_prices)
 - price_change_log: единый журнал ручных изменений цен (WB + Ozon)
 
-Revision ID: 20260613_0067
-Revises: 20260612_0066
+Revision ID: 20260613_0068
+Revises: 20260613_0067
 Create Date: 2026-06-13
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "20260613_0067"
-down_revision = "20260612_0066"
+revision = "20260613_0068"
+down_revision = "20260613_0067"
 branch_labels = None
 depends_on = None
 
