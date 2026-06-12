@@ -117,16 +117,15 @@ class OzonPriceSyncService:
                 )
                 break
 
-            items = response.get("result", {}).get("items", []) or []
+            items = response.get("items", []) or []
             stats.prices_fetched += len(items)
 
             if items:
                 await self._upsert_prices(account, items, products_by_offer)
                 stats.prices_upserted += len(items)
 
-            last_id = response.get("result", {}).get("last_id", "")
-            cursor = last_id
-            if not items or not last_id:
+            cursor = response.get("cursor", "")
+            if not items or not cursor:
                 break
 
         return stats
