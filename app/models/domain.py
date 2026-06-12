@@ -44,6 +44,8 @@ from app.models.ozon_reports import (
 from app.models.products import (
     MasterProduct,
     MasterProductLink,
+    OzonCurrentPrice,
+    PriceChangeLog,
     Product,
     ProductCostHistory,
     StockSnapshot,
@@ -99,6 +101,8 @@ __all__ = [
     "ProductCostHistory",
     "StockSnapshot",
     "WbProductPrice",
+    "OzonCurrentPrice",
+    "PriceChangeLog",
     "Order",
     "OrderItem",
     "SalesEvent",

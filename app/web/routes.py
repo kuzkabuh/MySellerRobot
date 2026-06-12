@@ -22,6 +22,7 @@ from app.web.route_modules import (
     operations,
     orders_profit,
     planning,
+    prices,
     pricing,
     promocodes_admin,
     support_admin,
@@ -72,6 +73,7 @@ from app.web.route_modules.operations import (
 )
 from app.web.route_modules.orders_profit import order_detail_page, orders_page, profit_page
 from app.web.route_modules.planning import break_even_page, plan_fact_page
+from app.web.route_modules.prices import prices_page
 from app.web.route_modules.pricing import pricing_page
 
 __all__ = [
@@ -93,6 +95,7 @@ __all__ = [
     "import_ozon_commissions_web",
     "login",
     "mrc_pricing_page",
+    "prices_page",
     "order_detail_page",
     "orders_page",
     "plan_fact_page",
@@ -121,6 +124,7 @@ for module_router in (
     orders_profit.router,
     planning.router,
     operations.router,
+    prices.router,
     pricing.router,
     catalog.router,
     account_settings.router,

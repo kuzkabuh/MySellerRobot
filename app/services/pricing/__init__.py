@@ -1,5 +1,6 @@
 """Pricing services for marketplace price calculations."""
 
+from app.services.pricing.price_management_service import PriceManagementService
 from app.services.wb.pricing.wb_mrc_price_service import WbMrcPriceResult, WbMrcPriceService
 
-__all__ = ["WbMrcPriceResult", "WbMrcPriceService"]
+__all__ = ["PriceManagementService", "WbMrcPriceResult", "WbMrcPriceService"]
