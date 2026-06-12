@@ -1,6 +1,6 @@
-"""version: 1.0.0
+"""version: 1.1.0
 description: Common HTML helpers for MP Control web cabinet views.
-updated: 2026-06-09
+updated: 2026-06-12
 """
 
 # ruff: noqa: E501, F401, E402, F811, I001
@@ -293,44 +293,49 @@ def _render_pagination(
     total_pages: int,
     per_page: int,
     total_count: int,
+    action: str = "/web/orders",
+    extra_params: dict | None = None,
 ) -> str:
-    if total_pages <= 1:
-        return ""
-
+    """Render a pagination bar. `action` is the base URL (e.g. /web/orders or /web/sales).
+    `extra_params` allows passing additional query params (e.g. sku for sales page).
+    """
     from urllib.parse import urlencode
 
-    has_next = page < total_pages
-    has_prev = page > 1
+    if total_count == 0:
+        return ""
 
-    base_params = {
+    page = max(1, min(page, max(1, total_pages)))
+    has_next = page < total_pages
+
+    base_params: dict[str, str | int] = {
         "period": filters.period,
         "marketplace": filters.marketplace.value if filters.marketplace else "all",
-        "sale_model": filters.sale_model.value if filters.sale_model else "all",
-        "economy": filters.economy,
-        "status": filters.status,
-        "sku": filters.sku,
-        "sort": filters.sort,
-        "direction": filters.direction,
         "per_page": per_page,
     }
+    # Include optional filter fields when present on OrderWebFilters but not DashboardFilters
+    for attr in ("sale_model", "economy", "status", "sku", "sort", "direction"):
+        val = getattr(filters, attr, None)
+        if val is not None:
+            base_params[attr] = val.value if hasattr(val, "value") else val
     if filters.period == "custom":
         base_params["date_from"] = filters.local_date_from.isoformat()
         base_params["date_to"] = filters.local_date_to.isoformat()
+    if extra_params:
+        base_params.update(extra_params)
 
     def page_url(p: int) -> str:
         params = {**base_params, "page": p}
-        return f"/web/orders?{urlencode(params)}"
+        return f"{action}?{urlencode(params)}"
 
     pages: list[str] = []
 
-    # First / Prev
-    pages.append(f'<a href="{page_url(1)}" class="button {"disabled" if page == 1 else ""}" {"disabled" if page == 1 else ""} aria-label="Первая">«</a>')
-    if has_prev:
-        pages.append(f'<a href="{page_url(page - 1)}" class="button" aria-label="Назад">←</a>')
+    if page == 1:
+        pages.append('<span class="button disabled" aria-label="Первая">«</span>')
+        pages.append('<span class="button disabled" aria-label="Назад">←</span>')
     else:
-        pages.append(f'<span class="button disabled" aria-label="Назад">←</span>')
+        pages.append(f'<a href="{page_url(1)}" class="button" aria-label="Первая">«</a>')
+        pages.append(f'<a href="{page_url(page - 1)}" class="button" aria-label="Назад">←</a>')
 
-    # Page numbers with window
     window = 2
     start = max(1, page - window)
     end = min(total_pages, page + window)
@@ -351,27 +356,36 @@ def _render_pagination(
             pages.append('<span class="muted" style="padding:0 4px">…</span>')
         pages.append(f'<a href="{page_url(total_pages)}" class="button">{total_pages}</a>')
 
-    # Next / Last
-    if has_next:
-        pages.append(f'<a href="{page_url(page + 1)}" class="button" aria-label="Вперёд">→</a>')
+    if page >= total_pages:
+        pages.append('<span class="button disabled" aria-label="Вперёд">→</span>')
+        pages.append('<span class="button disabled" aria-label="Последняя">»</span>')
     else:
-        pages.append(f'<span class="button disabled" aria-label="Вперёд">→</span>')
-    pages.append(f'<a href="{page_url(total_pages)}" class="button {"disabled" if page == total_pages else ""}" {"disabled" if page == total_pages else ""} aria-label="Последняя">»</a>')
+        pages.append(f'<a href="{page_url(page + 1)}" class="button" aria-label="Вперёд">→</a>')
+        pages.append(f'<a href="{page_url(total_pages)}" class="button" aria-label="Последняя">»</a>')
+
+    range_start = (page - 1) * per_page + 1
+    range_end = min(page * per_page, total_count)
+    range_text = f"Показано {range_start}–{range_end} из {total_count}"
 
     per_page_options = [25, 50, 100, 200]
-    per_page_html = '<span class="muted" style="font-size:12px;margin-left:auto">На странице: '
     per_page_links = []
     for opt in per_page_options:
         if opt == per_page:
             per_page_links.append(f"<strong>{opt}</strong>")
         else:
             params = {**base_params, "page": 1, "per_page": opt}
-            per_page_links.append(f'<a href="/web/orders?{urlencode(params)}">{opt}</a>')
-    per_page_html += " · ".join(per_page_links) + "</span>"
+            per_page_links.append(f'<a href="{action}?{urlencode(params)}">{opt}</a>')
+    per_page_html = (
+        '<span class="muted" style="font-size:12px">На странице: '
+        + " · ".join(per_page_links)
+        + "</span>"
+    )
 
     return (
+        f'<div class="pagination-info" style="text-align:center;font-size:12px;color:var(--text-muted);margin-bottom:6px">{range_text}</div>'
         '<div class="pagination-bar" style="display:flex;justify-content:center;align-items:center;flex-wrap:wrap;'
-        f'gap:6px;margin-top:16px;padding:12px 0">{" ".join(pages)}{per_page_html}</div>'
+        f'gap:6px;padding:8px 0 4px">{" ".join(pages)}</div>'
+        f'<div style="text-align:center;padding:4px 0 12px">{per_page_html}</div>'
     )
 
 def _page_header(title: str, description: str, href: str, action: str) -> str:

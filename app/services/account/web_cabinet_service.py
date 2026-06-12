@@ -78,6 +78,10 @@ class SalesPageData:
     partial_fact_count: int
     pending_fact_count: int
     no_report_count: int
+    page: int = 1
+    per_page: int = 50
+    total_count: int = 0
+    total_pages: int = 1
 
 
 @dataclass(slots=True)
@@ -248,6 +252,8 @@ class WebCabinetService:
         sku: str,
         date_from: str | None,
         date_to: str | None,
+        page: int = 1,
+        per_page: int = 50,
     ) -> SalesPageData:
         filters = build_dashboard_filters(
             timezone=timezone,
@@ -257,22 +263,38 @@ class WebCabinetService:
             date_from=date_from,
             date_to=date_to,
         )
-        query = (
-            select(SalesEvent)
-            .where(SalesEvent.user_id == user_id)
-            .where(SalesEvent.event_date >= filters.date_from)
-            .where(SalesEvent.event_date <= filters.date_to)
-            .order_by(SalesEvent.event_date.desc())
-            .limit(100)
-        )
+        page = max(1, page)
+        per_page = max(10, min(per_page, 200))
+
+        base_where = [
+            SalesEvent.user_id == user_id,
+            SalesEvent.event_date >= filters.date_from,
+            SalesEvent.event_date <= filters.date_to,
+        ]
         if filters.marketplace is not None:
-            query = query.where(SalesEvent.marketplace == filters.marketplace)
+            base_where.append(SalesEvent.marketplace == filters.marketplace)
         if sku.strip():
             pattern = f"%{sku.strip()}%"
-            query = query.where(
+            base_where.append(
                 (SalesEvent.seller_article.ilike(pattern))
                 | (SalesEvent.marketplace_article.ilike(pattern))
             )
+
+        count_result = await self.session.execute(
+            select(func.count(SalesEvent.id)).where(*base_where)
+        )
+        total_count = int(count_result.scalar() or 0)
+        total_pages = max(1, (total_count + per_page - 1) // per_page)
+        page = min(page, total_pages)
+        offset = (page - 1) * per_page
+
+        query = (
+            select(SalesEvent)
+            .where(*base_where)
+            .order_by(SalesEvent.event_date.desc())
+            .limit(per_page)
+            .offset(offset)
+        )
         result = await self.session.execute(query)
         events = list(result.scalars().all())
 
@@ -481,6 +503,10 @@ class WebCabinetService:
             partial_fact_count=partial_fact_count,
             pending_fact_count=pending_fact_count,
             no_report_count=no_report_count,
+            page=page,
+            per_page=per_page,
+            total_count=total_count,
+            total_pages=total_pages,
         )
 
     async def returns_page(

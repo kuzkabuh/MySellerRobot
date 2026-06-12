@@ -78,6 +78,13 @@ class OrderRow:
     missing_cost: bool
     economy_confidence: str
     reconciliation_status: ReconciliationStatus
+    # Financial detail fields (estimated/plan values from OrderItem)
+    seller_payout_estimated: Decimal | None = None
+    commission_estimated: Decimal | None = None
+    logistics_estimated: Decimal | None = None
+    cost_price_used: Decimal | None = None
+    package_cost_used: Decimal | None = None
+    other_expenses_estimated: Decimal | None = None
 
 
 @dataclass(slots=True)
@@ -350,6 +357,11 @@ class WebOrdersProfitService:
                 _order_has_wb_fact_row().label("has_wb_fact"),
                 _order_has_wb_missing_fact_state().label("has_wb_missing_fact"),
                 _order_has_wb_match_problem().label("has_wb_match_problem"),
+                OrderItem.seller_payout_estimated,
+                OrderItem.commission_estimated,
+                OrderItem.logistics_estimated,
+                OrderItem.package_cost_used,
+                OrderItem.other_marketplace_expenses_estimated,
             )
             .join(OrderItem, OrderItem.order_id == Order.id)
             .where(Order.user_id == user_id)
@@ -411,6 +423,11 @@ class WebOrdersProfitService:
                 has_wb_fact,
                 has_wb_missing_fact,
                 has_wb_match_problem,
+                seller_payout_est,
+                commission_est,
+                logistics_est,
+                package_cost,
+                other_expenses_est,
             ) = row
             missing_cost = cost_price_used is None
             rows.append(
@@ -451,6 +468,12 @@ class WebOrdersProfitService:
                         has_wb_missing_fact=bool(has_wb_missing_fact),
                         has_wb_match_problem=bool(has_wb_match_problem),
                     ),
+                    seller_payout_estimated=_decimal(seller_payout_est) if seller_payout_est is not None else None,
+                    commission_estimated=_decimal(commission_est) if commission_est is not None else None,
+                    logistics_estimated=_decimal(logistics_est) if logistics_est is not None else None,
+                    cost_price_used=_decimal(cost_price_used) if cost_price_used is not None else None,
+                    package_cost_used=_decimal(package_cost) if package_cost is not None else None,
+                    other_expenses_estimated=_decimal(other_expenses_est) if other_expenses_est is not None else None,
                 )
             )
         pagination = OrderPaginationDTO(
