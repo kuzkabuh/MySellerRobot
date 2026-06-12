@@ -1,6 +1,6 @@
-"""version: 1.2.0
-description: CSS styles for MP Control web rendering – premium redesign + profile page.
-updated: 2026-06-11
+"""version: 1.3.0
+description: CSS styles for MP Control web rendering – premium redesign + tariff admin.
+updated: 2026-06-12
 """
 
 # ruff: noqa: E501
@@ -361,6 +361,8 @@ def _css() -> str:
     .btn-sm { height: 30px; padding: 0 10px; font-size: 12px; }
     .btn-danger, .danger-button { background: linear-gradient(135deg, var(--danger), #b91c1c); border-color: var(--danger); color: #fff; }
     .btn-danger:hover, .danger-button:hover { background: linear-gradient(135deg, #b91c1c, #991b1b); }
+    .btn-warning { background: linear-gradient(135deg, var(--warning), #b45309); border-color: var(--warning); color: #fff; box-shadow: 0 1px 3px rgb(217 119 6 / 0.2); }
+    .btn-warning:hover { background: linear-gradient(135deg, #b45309, #92400e); border-color: #b45309; box-shadow: 0 2px 6px rgb(217 119 6 / 0.3); }
     .secondary-button { background: var(--bg-card); }
 
     /* ── Page Header ── */
