@@ -1,6 +1,6 @@
-"""version: 3.0.0
+"""version: 3.1.0
 description: Professional order list, order detail, sales, and returns HTML views.
-updated: 2026-06-11
+updated: 2026-06-12
 """
 
 # ruff: noqa: E501, F401, E402, F811, I001
@@ -271,6 +271,7 @@ def _orders_content(
             problem_badges.append('<span class="badge bad" title="Убыток">!</span>')
         problems = "".join(problem_badges)
 
+        reconciliation_html = _reconciliation_badge(row.reconciliation_status)
         table_rows.append(
             "<tr>"
             f"<td class=\"cell-date\">{localized_order_date(row.order_date, timezone)}</td>"
@@ -285,9 +286,15 @@ def _orders_content(
             f"</td>"
             f"<td class=\"num\">{row.quantity}</td>"
             f"<td class=\"num\">{_rub(row.revenue)}</td>"
+            f"<td class=\"num\">{_rub_optional(row.seller_payout_estimated)}</td>"
+            f"<td class=\"num muted\">{_rub_optional(row.commission_estimated)}</td>"
+            f"<td class=\"num muted\">{_rub_optional(row.logistics_estimated)}</td>"
+            f"<td class=\"num muted\">{_rub_optional(row.package_cost_used)}</td>"
+            f"<td class=\"num {'warn' if row.missing_cost else ''}\">{_rub_optional(row.cost_price_used)}</td>"
             f"{profit_cell}"
             f"{margin_cell}"
             f"<td>{_order_status_badge(row.status, row.requires_action)}</td>"
+            f"<td>{reconciliation_html}</td>"
             f"<td>{problems}</td>"
             f"<td><a class=\"button-tiny\" href=\"/web/orders/{row.order_id}\">Подробнее</a></td>"
             f"</tr>"
@@ -301,7 +308,7 @@ def _orders_content(
         f"Показано {range_start}–{range_end} из {total_count}" if total_count > 0 else "Нет заказов"
     )
 
-    pagination_html = _render_pagination(filters, page, total_pages, per_page, total_count)
+    pagination_html = _render_pagination(filters, page, total_pages, per_page, total_count, action="/web/orders")
     sync_html = _sync_freshness_bar(last_poll_info, sync_stats, timezone)
     kpi_html = _orders_kpi_html(summary) if summary else ""
 
@@ -362,9 +369,17 @@ def _orders_table_html(body: str, rows: list) -> str:
               <tr>
                 <th>Дата</th><th>МП</th><th>Модель</th><th>Заказ</th>
                 <th>Товар</th><th class="num">Кол-во</th>
-                <th class="num">Цена</th><th class="num">План. прибыль</th>
-                <th class="num">Маржа</th><th>Статус</th>
-                <th>Проблемы</th><th></th>
+                <th class="num">Цена</th>
+                <th class="num" title="Плановая сумма к перечислению">К оплате</th>
+                <th class="num muted" title="Комиссия МП">Комиссия</th>
+                <th class="num muted" title="Логистика МП">Логистика</th>
+                <th class="num muted" title="Стоимость упаковки">Упаковка</th>
+                <th class="num" title="Себестоимость">Себест.</th>
+                <th class="num">Прибыль</th>
+                <th class="num">Маржа</th>
+                <th>Статус</th>
+                <th title="Статус финансовой сверки">Финансы</th>
+                <th>!</th><th></th>
               </tr>
             </thead>
             <tbody>{body}</tbody>
@@ -476,52 +491,6 @@ def _economy_status_badge(economy_confidence: str | None, missing_cost: bool, pr
     if economy_confidence == "ESTIMATED":
         return '<span class="badge warn">Оценка</span>'
     return '<span class="badge">План (предв.)</span>'
-    from datetime import UTC, datetime
-
-    last_poll_at = last_poll_info.get("last_poll_at")
-    if not last_poll_at:
-        return '<div class="sync-bar warn">Синхронизация: не выполнялась</div>'
-
-    now = datetime.now(tz=UTC)
-    poll_dt = last_poll_at
-    if not isinstance(poll_dt, datetime):
-        return ""
-    if poll_dt.tzinfo is None:
-        poll_dt = poll_dt.replace(tzinfo=UTC)
-    age_minutes = int((now - poll_dt).total_seconds() / 60)
-
-    tone = "good" if age_minutes < 10 else "warn" if age_minutes < 30 else "bad"
-    action_link = '<a class="button-tiny" href="/web/sync-center?tab=sync">Центр синхронизации</a>'
-
-    accounts = last_poll_info.get("accounts", [])
-    acc_details = []
-    if isinstance(accounts, list):
-        for acc in accounts[:4]:
-            if not isinstance(acc, dict):
-                continue
-            mp = acc.get("marketplace", "?")
-            ts = acc.get("last_poll_at")
-            if isinstance(ts, datetime):
-                if ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=UTC)
-                acc_age = int((now - ts).total_seconds() / 60)
-                acc_details.append(f"{mp}: {acc_age} мин")
-
-    hint = " · ".join(acc_details) if acc_details else ""
-
-    last_update_str = format_datetime_for_user(poll_dt, timezone) if hasattr(poll_dt, 'tzinfo') else str(poll_dt)
-
-    return f"""
-      <div class="sync-bar {tone}">
-        <span class="sync-bar-main">
-          <span class="badge {tone}">Синхронизация: {age_minutes} мин назад</span>
-          <span class="muted" style="font-size:12px">Последнее обновление: {last_update_str}</span>
-        </span>
-        <span class="sync-bar-acc">
-          {"<span class='muted' style='font-size:12px'>" + escape(hint) + "</span>" if hint else ""}
-          {action_link}
-        </span>
-      </div>"""
 
 
 def _order_detail_item_economics_rows(detail: OrderDetail) -> str:
@@ -1190,56 +1159,85 @@ def _wb_link_status_text(row: Any) -> str:
 
 
 def _sales_content(data: SalesPageData, timezone: str, sku: str) -> str:
-    rows = "".join(
-        "<tr>"
-        f"<td>{localized_order_date(row.event_date, timezone)}</td>"
-        f"<td>{_marketplace_label(row.marketplace)}</td>"
-        f"<td>{_sale_model_badge(row.sale_model) if row.sale_model else '—'}</td>"
-        f"<td>{escape(row.event_type)}</td>"
-        f"<td>"
-        f'  <div>{escape(row.product_name or row.seller_article)}</div>'
-        f'  <div class="muted">{escape(row.marketplace_article)}</div>'
-        f"</td>"
-        f'<td class="num">{row.quantity}</td>'
-        f'<td class="num">{_rub(row.amount)}</td>'
-        f'<td class="num">{_rub_optional(row.estimated_profit)}</td>'
-        f'<td class="num">{_rub_optional(row.actual_profit)}</td>'
-        f"<td>{_fact_status_badge(row.fact_status, row.fact_status_label)}</td>"
-        f"<td>{_order_link(row.order_id, row.order_external_id)}</td>"
-        f"<td>{_wb_report_link(row.wb_report_number, row.wb_report_type, row.wb_report_import_id)}</td>"
-        f"<td>{_sales_actions(row.order_id, row.wb_report_import_id)}</td>"
-        "</tr>"
-        for row in data.rows
-    )
-    if not rows:
-        rows = (
-            '<tr><td colspan="13"><div class="empty-state">'
-            "Продаж за выбранный период пока нет. Дождитесь синхронизации выкупов WB/Ozon."
-            "</div></td></tr>"
+    table_rows = []
+    for row in data.rows:
+        table_rows.append(
+            "<tr>"
+            f"<td class='cell-date'>{localized_order_date(row.event_date, timezone)}</td>"
+            f"<td>{_marketplace_label(row.marketplace)}</td>"
+            f"<td>{_sale_model_badge(row.sale_model) if row.sale_model else '<span class=\"muted\">—</span>'}</td>"
+            f"<td><span class='badge'>{escape(row.event_type or '—')}</span></td>"
+            f"<td class='cell-title'>"
+            f"  <div>{escape(row.product_name or row.seller_article or '—')}</div>"
+            f"  <div class='muted'>{escape(row.marketplace_article or '—')}</div>"
+            f"</td>"
+            f"<td class='num'>{row.quantity if row.quantity else '—'}</td>"
+            f"<td class='num'>{_rub(row.amount)}</td>"
+            f"<td class='num'>{_rub_optional(row.estimated_profit)}</td>"
+            f"<td class='num'>{_rub_optional(row.actual_profit)}</td>"
+            f"<td>{_fact_status_badge(row.fact_status, row.fact_status_label)}</td>"
+            f"<td>{_order_link(row.order_id, row.order_external_id)}</td>"
+            f"<td>{_wb_report_link(row.wb_report_number, row.wb_report_type, row.wb_report_import_id)}</td>"
+            f"<td>{_sales_actions(row.order_id, row.wb_report_import_id)}</td>"
+            "</tr>"
         )
+    rows_html = "".join(table_rows)
+    if not rows_html:
+        rows_html = (
+            '<tr><td colspan="13">'
+            '<div class="empty-state">'
+            "<strong>Продаж за выбранный период не найдено.</strong>"
+            "<span>Попробуйте изменить период или фильтры, либо дождитесь синхронизации.</span>"
+            '<div style="margin-top:12px;display:flex;gap:8px;justify-content:center">'
+            '<a class="button" href="/web/sales?period=30d">За 30 дней</a>'
+            '<a class="button primary" href="/web/sync-center?tab=sync">Синхронизировать</a>'
+            "</div>"
+            "</div>"
+            "</td></tr>"
+        )
+
     avg_check = data.total_amount / Decimal(data.total_quantity) if data.total_quantity else ZERO
+    profit_tone = "good" if data.total_profit >= ZERO else "bad"
+    actual_tone = "good" if data.total_actual_profit >= ZERO else "bad"
+
+    pagination_html = _render_pagination(
+        data.filters,
+        data.page,
+        data.total_pages,
+        data.per_page,
+        data.total_count,
+        action="/web/sales",
+        extra_params={"sku": sku} if sku else None,
+    )
+
     return f"""
-      {_page_header("Продажи", "Отслеживайте выкупы и завершённые продажи WB/Ozon.", "/web/orders", "Заказы")}
+      {_page_header("Продажи", "Выкупы и завершённые продажи по маркетплейсам.", "/web/orders", "Заказы")}
       {_sales_returns_filters("/web/sales", data.filters, sku)}
       <section class="kpi-grid">
-        {_simple_kpi("Продаж", str(data.total_quantity))}
+        {_simple_kpi("Продаж", str(data.total_count))}
         {_simple_kpi("Выручка", _rub(data.total_amount))}
-        {_simple_kpi("Плановая прибыль", _rub(data.total_profit), "good" if data.total_profit >= 0 else "bad")}
-        {_simple_kpi("Факт WB", _rub(data.total_actual_profit), "good" if data.total_actual_profit >= 0 else "bad")}
+        {_simple_kpi("Плановая прибыль", _rub(data.total_profit), profit_tone)}
+        {_simple_kpi("Факт WB", _rub(data.total_actual_profit), actual_tone)}
         {_simple_kpi("Средний чек", _rub(avg_check))}
-        {_simple_kpi("Полный факт", str(data.full_fact_count), "good")}
-        {_simple_kpi("Ожидают", str(data.pending_fact_count), "warn")}
+        {_simple_kpi("Полный факт", str(data.full_fact_count), "good" if data.full_fact_count else "neutral")}
+        {_simple_kpi("Ожидают", str(data.pending_fact_count), "warn" if data.pending_fact_count else "neutral")}
         {_simple_kpi("Нет отчёта", str(data.no_report_count), "warn" if data.no_report_count else "neutral")}
       </section>
       <section class="band" style="margin-top:14px">
-        <h2>События продаж</h2>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h2 style="margin:0;font-size:16px">События продаж</h2>
+          <span class="muted" style="font-size:13px">Всего: {data.total_count}</span>
+        </div>
         <div class="table-wrap"><table class="table">
-          <thead><tr><th>Дата</th><th>МП</th><th>Модель</th><th>Операция</th><th>Товар</th>
-          <th class="num">Кол-во</th><th class="num">Цена</th><th class="num">План</th>
-          <th class="num">Факт WB</th><th>Статус факта</th><th>Заказ</th><th>Отчёт WB</th>
-          <th>Действия</th></tr></thead>
-          <tbody>{rows}</tbody>
+          <thead><tr>
+            <th>Дата</th><th>МП</th><th>Модель</th><th>Операция</th><th>Товар</th>
+            <th class="num">Кол-во</th><th class="num">Цена</th>
+            <th class="num">Прибыль план</th><th class="num">Факт WB</th>
+            <th>Статус факта</th><th>Заказ</th><th>Отчёт WB</th><th>Действия</th>
+          </tr></thead>
+          <tbody>{rows_html}</tbody>
         </table></div>
+        {pagination_html}
       </section>
     """
 

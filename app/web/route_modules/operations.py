@@ -49,6 +49,8 @@ async def sales_page(
     sku: str = Query(default=""),
     date_from: str | None = Query(default=None),
     date_to: str | None = Query(default=None),
+    page_number: int = Query(default=1, ge=1, alias="page"),
+    per_page: int = Query(default=50, ge=10, le=200),
 ) -> str:
     data = await WebCabinetService(session).sales_page(
         user_id=user.id,
@@ -58,6 +60,8 @@ async def sales_page(
         sku=sku,
         date_from=date_from,
         date_to=date_to,
+        page=page_number,
+        per_page=per_page,
     )
     return page(
         "Продажи",
