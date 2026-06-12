@@ -266,6 +266,23 @@ class OzonClient:
             ),
         )
 
+    async def set_product_prices(self, prices: list[dict[str, Any]]) -> dict[str, Any]:
+        """Update product prices on Ozon.
+
+        POST /v1/product/import/prices
+
+        Each item: {"offer_id": str, "price": str, "old_price": str, "min_price": str}
+        """
+        return cast(
+            dict[str, Any],
+            await self.client.request(
+                "POST",
+                "/v1/product/import/prices",
+                headers=self.headers,
+                json={"prices": prices},
+            ),
+        )
+
     async def get_warehouses(self, *, limit: int = 100, offset: int = 0) -> dict[str, Any]:
         return cast(
             dict[str, Any],

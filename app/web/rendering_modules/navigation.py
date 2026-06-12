@@ -43,10 +43,11 @@ NAV_GROUPS = [
     (
         "Цены и акции",
         [
-            ("Цены", "/web/pricing"),
+            ("Управление ценами", "/web/prices"),
             ("МРЦ WB", "/web/mrc-pricing"),
             ("Акции WB", "/web/wb-promotions"),
             ("Автоакции WB", "/web/auto-promo-prices"),
+            ("Анализ цен WB", "/web/pricing"),
         ],
     ),
     (
@@ -129,6 +130,8 @@ SECTION_PREFIXES: dict[str, list[str]] = {
     "План/факт": ["/web/plan-fact"],
     "Безубыточность": ["/web/break-even"],
     "Финансовый обзор": ["/web/finances"],
+    "Управление ценами": ["/web/prices"],
+    "Анализ цен WB": ["/web/pricing$"],
     "Цены": ["/web/pricing$"],
     "МРЦ WB": ["/web/mrc-pricing", "/web/auto-promo"],
     "Акции WB": ["/web/wb-promotions"],
@@ -183,6 +186,11 @@ NAV_SUBGROUPS: dict[str, list[tuple[str, str, str]]] = {
         ("plan_fact", "План/факт", "/web/plan-fact"),
         ("break_even", "Безубыточность", "/web/break-even"),
         ("finances", "Финансовый обзор", "/web/finances"),
+    ],
+    "prices": [
+        ("prices", "Таблица цен", "/web/prices"),
+        ("prices_history", "История изменений", "/web/prices/history"),
+        ("prices_analytics", "Аналитика", "/web/prices/analytics"),
     ],
     "pricing": [
         ("pricing", "Цены", "/web/pricing"),

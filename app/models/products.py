@@ -76,6 +76,8 @@ class Product(TimestampMixin, Base):
     commission_pickup: Mapped[Decimal | None] = mapped_column("commission_pickup", Numeric(7, 4))
     commission_booking: Mapped[Decimal | None] = mapped_column("commission_booking", Numeric(7, 4))
     mrc_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    min_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    max_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     costs: Mapped[list["ProductCostHistory"]] = relationship(back_populates="product")
@@ -220,6 +222,109 @@ class WbProductPrice(Base):
     synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=sa.func.now()
     )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+        onupdate=sa.func.now(),
+    )
+
+
+class OzonCurrentPrice(Base):
+    """Current Ozon prices — upserted on every sync, one row per offer_id per account."""
+
+    __tablename__ = "ozon_current_prices"
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "marketplace_account_id",
+            "offer_id",
+            name="uq_ozon_current_prices_account_offer",
+        ),
+        Index("ix_ozon_current_prices_account", "marketplace_account_id"),
+        Index("ix_ozon_current_prices_offer", "offer_id"),
+        Index("ix_ozon_current_prices_product", "product_id"),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    marketplace_account_id: Mapped[int] = mapped_column(
+        ForeignKey("marketplace_accounts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    product_id: Mapped[int | None] = mapped_column(
+        ForeignKey("products.id", ondelete="SET NULL"), nullable=True
+    )
+    ozon_product_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    offer_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    old_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    marketing_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    min_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    currency_code: Mapped[str] = mapped_column(String(16), nullable=False, default="RUB")
+    raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+        onupdate=sa.func.now(),
+    )
+
+
+class PriceChangeLog(Base):
+    """Unified price change log for manual edits on WB and Ozon."""
+
+    __tablename__ = "price_change_log"
+    __table_args__ = (
+        Index("ix_price_change_log_account", "marketplace_account_id"),
+        Index("ix_price_change_log_product", "product_id"),
+        Index("ix_price_change_log_marketplace", "marketplace"),
+        Index("ix_price_change_log_created", "created_at"),
+        Index(
+            "ix_price_change_log_external_id",
+            "marketplace_account_id",
+            "external_product_id",
+        ),
+    )
+
+    id: Mapped[int_pk]
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    marketplace_account_id: Mapped[int] = mapped_column(
+        ForeignKey("marketplace_accounts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    product_id: Mapped[int | None] = mapped_column(
+        ForeignKey("products.id", ondelete="SET NULL"), nullable=True
+    )
+    marketplace: Mapped[str] = mapped_column(String(32), nullable=False)
+    external_product_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    seller_article: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    old_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    new_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    old_discount: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    new_discount: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    wb_price_sent: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    wb_discount_sent: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    wb_upload_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    source: Mapped[str] = mapped_column(String(64), nullable=False, default="manual")
+    reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    changed_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    changed_by_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dry_run: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    raw_response: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=sa.func.now()
     )
