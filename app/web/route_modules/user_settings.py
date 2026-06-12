@@ -1,6 +1,6 @@
 # ruff: noqa: E501, F841
-"""version: 1.0.0
-description: User settings web routes with tabs.
+"""version: 1.1.0
+description: User settings web routes with tabs. Sync tab overhauled 2026-06-12.
 """
 
 import logging
@@ -10,11 +10,11 @@ from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from sqlalchemy import select
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.domain import MarketplaceAccount, User
+from app.models.domain import MarketplaceAccount, SyncRun, User
 from app.models.enums import Marketplace, NotificationType
 from app.services.account.api_key_validation_service import ApiKeyValidationService
 from app.services.account.company_lookup_service import (
@@ -36,6 +36,8 @@ from app.services.admin.support_service import TICKET_CATEGORIES, TICKET_STATUS_
 from app.services.admin.user_activity_service import UserActivityService, action_label
 from app.services.common.user_sync_status_service import SYNC_STATUS_LABELS, UserSyncStatusService
 from app.services.account.web_cabinet_service import WebCabinetService
+from app.services.common.web_sync_run_service import SYNC_TYPE_MAP, WebSyncRunService
+from app.web.view_modules.settings_sync import _sync_tab as _sync_tab_view
 from app.services.account.web_password_auth_service import WebPasswordAuthError, WebPasswordAuthService
 from app.utils.client_ip import get_client_ip
 from app.utils.datetime import format_datetime_for_user
@@ -638,42 +640,6 @@ def _notifications_tab(
     """
 
 
-def _sync_tab(sync_statuses: list[Any], timezone: str) -> str:
-    if not sync_statuses:
-        rows = '<tr><td colspan="5"><div class="empty-state">Синхронизации ещё не запускались.</div></td></tr>'
-    else:
-        row_parts = []
-        for s in sync_statuses:
-            status_label = SYNC_STATUS_LABELS.get(s.status, s.status)
-            status_cls = (
-                "good" if s.status == "success" else "bad" if s.status == "error" else "warn"
-            )
-            row_parts.append(
-                "<tr>"
-                f"<td>{escape(s.sync_type_label)}</td>"
-                f'<td><span class="badge {status_cls}">{status_label}</span></td>'
-                f"<td>{_dt(s.last_run_at, timezone)}</td>"
-                f"<td>{_dt(s.last_success_at, timezone)}</td>"
-                f"<td>{escape(s.last_error_message or '—')}</td>"
-                "</tr>"
-            )
-        rows = "".join(row_parts)
-
-    return f"""
-      {_settings_tabs("sync")}
-      <section class="band">
-        <h2>Статус синхронизаций</h2>
-        <p class="muted">Частота синхронизации зависит от вашего тарифа. Ручной запуск доступен через Telegram-бота или страницу «Кабинеты МП».</p>
-        <div class="table-wrap">
-          <table class="table">
-            <thead>
-              <tr><th>Тип данных</th><th>Статус</th><th>Последний запуск</th><th>Последний успех</th><th>Последняя ошибка</th></tr>
-            </thead>
-            <tbody>{rows}</tbody>
-          </table>
-        </div>
-      </section>
-    """
 
 
 def _format_ip(ip: str | None) -> str:
@@ -860,10 +826,23 @@ async def settings_profile_page(
         )
     if active_tab == "sync":
         statuses = await UserSyncStatusService(session).get_statuses(user.id)
+        stmt_acc = select(MarketplaceAccount).where(
+            MarketplaceAccount.user_id == user.id,
+            MarketplaceAccount.is_active.is_(True),
+        )
+        acc_result = await session.execute(stmt_acc)
+        accounts = list(acc_result.scalars().all())
+        subscription_data = await WebCabinetService(session).subscription_page(user.id, user.timezone)
         return page(
             "Настройки — Синхронизация",
             display_name,
-            _sync_tab(statuses, user.timezone),
+            _sync_tab_view(
+                statuses,
+                user.timezone,
+                tabs_html=_settings_tabs("sync"),
+                accounts=accounts,
+                subscription_data=subscription_data,
+            ),
             active_path=active_path,
         )
     if active_tab == "company":
@@ -1108,6 +1087,123 @@ async def settings_sync_page(
     user: User = CURRENT_WEB_USER_DEPENDENCY,
 ) -> RedirectResponse:
     return RedirectResponse(url="/web/settings?tab=sync", status_code=302)
+
+
+# Mapping from UserSyncStatusService type → list of sync_type values stored in sync_runs
+_SYNC_HISTORY_TYPE_MAP: dict[str, list[str]] = {
+    "orders":           ["orders", "wb_fbs_assembly_orders", "wb_orders_stats"],
+    "sales":            ["sales", "returns"],
+    "stocks":           ["stocks"],
+    "products":         ["products"],
+    "prices":           ["products"],
+    "commissions":      ["logistics"],
+    "financial_reports":["finances", "wb_financial_details", "reports"],
+    "auto_promotions":  ["wb_promotions"],
+    "reviews":          [],
+}
+
+# Mapping from UserSyncStatusService type → SYNC_TYPE_MAP trigger key
+_SYNC_TRIGGER_MAP: dict[str, str] = {
+    "orders":           "orders",
+    "sales":            "sales",
+    "stocks":           "stocks",
+    "products":         "products",
+    "financial_reports":"finances",
+    "auto_promotions":  "wb_promotions",
+}
+
+
+@router.get("/settings/sync/history")
+async def settings_sync_history(
+    sync_key: str = Query(...),
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> JSONResponse:
+    """Return recent SyncRun records for the given sync type (used by history modal)."""
+    run_types = _SYNC_HISTORY_TYPE_MAP.get(sync_key, [sync_key])
+    if not run_types:
+        return JSONResponse({"ok": True, "runs": []})
+
+    stmt = (
+        select(SyncRun)
+        .where(SyncRun.user_id == user.id, SyncRun.sync_type.in_(run_types))
+        .order_by(desc(SyncRun.created_at))
+        .limit(25)
+    )
+    result = await session.execute(stmt)
+    runs = result.scalars().all()
+
+    return JSONResponse({
+        "ok": True,
+        "runs": [
+            {
+                "id": r.id,
+                "marketplace": r.marketplace,
+                "sync_type": r.sync_type,
+                "status": r.status,
+                "started_at": r.started_at.isoformat() if r.started_at else None,
+                "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+                "duration_seconds": float(r.duration_seconds) if r.duration_seconds else None,
+                "records_loaded": r.records_loaded,
+                "error_message": r.error_message,
+            }
+            for r in runs
+        ],
+    })
+
+
+@router.post("/settings/sync/run/{trigger_key}")
+async def settings_sync_run(
+    trigger_key: str,
+    user: User = CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> JSONResponse:
+    """Queue a manual sync for all active accounts. Delegates to WebSyncRunService."""
+    if trigger_key not in SYNC_TYPE_MAP:
+        return JSONResponse(
+            {"ok": False, "message": "Ручной запуск для этого типа данных не поддерживается."},
+            status_code=400,
+        )
+
+    stmt = select(MarketplaceAccount).where(
+        MarketplaceAccount.user_id == user.id,
+        MarketplaceAccount.is_active.is_(True),
+    )
+    result = await session.execute(stmt)
+    accounts = list(result.scalars().all())
+
+    if not accounts:
+        return JSONResponse(
+            {"ok": False, "message": "Нет активных кабинетов маркетплейсов. Подключите кабинет через Telegram-бота."},
+            status_code=400,
+        )
+
+    svc = WebSyncRunService(session)
+    queued = 0
+    last_message = ""
+    for account in accounts:
+        try:
+            res = await svc.trigger_sync(user.id, account, trigger_key)
+            if res.get("ok"):
+                queued += 1
+            else:
+                last_message = res.get("message", "")
+        except Exception as exc:
+            logger.warning("settings_sync_run_failed", extra={"account_id": account.id, "trigger_key": trigger_key, "error": str(exc)})
+
+    try:
+        await session.commit()
+    except Exception:
+        await session.rollback()
+
+    if queued == 0:
+        return JSONResponse(
+            {"ok": False, "message": last_message or "Не удалось поставить синхронизацию в очередь. Возможно, она уже выполняется."},
+            status_code=409,
+        )
+
+    suffix = "кабинета" if queued in (2, 3, 4) else "кабинет" if queued == 1 else "кабинетов"
+    return JSONResponse({"ok": True, "message": f"Синхронизация поставлена в очередь для {queued} {suffix}."})
 
 
 @router.get("/settings/company", response_class=HTMLResponse)

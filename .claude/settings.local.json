@@ -4,7 +4,10 @@
       "Bash(python *)",
       "Bash(pip install *)",
       "Bash(ruff check *)",
-      "Bash(mypy app/ --no-error-summary)"
+      "Bash(mypy app/ --no-error-summary)",
+      "Bash(Get-ChildItem -Path \"D:\\\\Python\\\\Bots\\\\MySellerRobot\" -Directory)",
+      "Bash(Select-Object Name)",
+      "PowerShell(Set-Location \"D:\\\\Python\\\\Bots\\\\MySellerRobot\"; Get-ChildItem -Name | Where-Object { $_ -match 'venv|env|\\\\.venv' })"
     ]
   }
 }
