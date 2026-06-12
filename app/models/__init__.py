@@ -51,6 +51,7 @@ from app.models.ozon_reports import (
     OzonPromoProduct,
 )
 from app.models.products import (
+    BreakEvenExpenseSetting,
     MasterProduct,
     MasterProductLink,
     Product,
@@ -108,6 +109,7 @@ __all__ = [
     "ApiRequestLog",
     "AuditLog",
     "Base",
+    "BreakEvenExpenseSetting",
     "DailyReport",
     "FboDigestQueue",
     "FinancialReportRow",

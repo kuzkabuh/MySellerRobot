@@ -42,6 +42,7 @@ from app.models.ozon_reports import (
     OzonPromoProduct,
 )
 from app.models.products import (
+    BreakEvenExpenseSetting,
     MasterProduct,
     MasterProductLink,
     Product,
@@ -94,6 +95,7 @@ __all__ = [
     "MarketplaceAccount",
     "MarketplaceWarehouse",
     "Product",
+    "BreakEvenExpenseSetting",
     "MasterProduct",
     "MasterProductLink",
     "ProductCostHistory",
