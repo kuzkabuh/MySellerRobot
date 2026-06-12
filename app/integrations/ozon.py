@@ -250,10 +250,12 @@ class OzonClient:
         limit: int = 1000,
         cursor: str = "",
     ) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "filter": {"offer_id": offer_ids or [], "product_id": product_ids or []},
-            "limit": limit,
-        }
+        filter_body: dict[str, Any] = {"visibility": "ALL"}
+        if offer_ids:
+            filter_body["offer_id"] = offer_ids
+        if product_ids:
+            filter_body["product_id"] = product_ids
+        payload: dict[str, Any] = {"filter": filter_body, "limit": limit}
         if cursor:
             payload["cursor"] = cursor
         return cast(
