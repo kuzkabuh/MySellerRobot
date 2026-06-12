@@ -285,6 +285,7 @@ def _break_even_content(
           <a class="button" href="/web/break-even/export.csv">CSV</a>
           <a class="button" href="/web/break-even/export.pdf">PDF</a>
         </div>
+        <div class="alert warn" id="breakEvenError" style="display:none;margin:10px 0"></div>
 
         <div class="be-table-wrap">
           <table class="table" id="breakEvenTable">
@@ -299,6 +300,9 @@ def _break_even_content(
                 <th class="num">Рекоменд. цена</th><th>Статус</th>
               </tr>
             </thead>
+            <tbody>
+              <tr><td colspan="21" class="muted">Загрузка товаров...</td></tr>
+            </tbody>
           </table>
         </div>
       </section>
@@ -355,57 +359,125 @@ def _break_even_content(
         const fmtPct = v => (Number(v || 0)).toLocaleString('ru-RU') + '%';
         const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[ch]));
         const filters = document.getElementById('breakEvenFilters');
-        const table = new DataTable('#breakEvenTable', {{
-          serverSide: true,
-          processing: true,
-          pageLength: 50,
-          scrollX: true,
-          ajax: {{
-            url: '/web/break-even/api/products',
-            data: function(d) {{
-              d.target_margin = document.getElementById('target_margin').value;
-              d.price_delta = document.getElementById('price_delta').value;
-              d.marketplace = document.getElementById('beMarketplace').value;
-              d.status = document.getElementById('beStatus').value;
-              d.category = document.getElementById('beCategory').value;
-            }}
-          }},
-          columns: [
-            {{data:'image_url', orderable:false, render:v=>v ? '<img class="be-thumb" src="'+esc(v)+'" alt="">' : '<div class="be-thumb"></div>'}},
-            {{data:'seller_article', render:esc}}, {{data:'sku', render:esc}}, {{data:'brand', render:esc}}, {{data:'title', render:esc}},
-            {{data:'marketplace', render:esc}}, {{data:'category', render:esc}},
-            {{data:'current_price', className:'num', render:fmtMoney}},
-            {{data:'discounted_price', className:'num', render:fmtMoney}},
-            {{data:'cost_price', className:'num', render:fmtMoney}},
-            {{data:'commission_amount', className:'num', render:fmtMoney}},
-            {{data:'logistics_cost', className:'num', render:fmtMoney}},
-            {{data:'advertising_cost', className:'num', render:fmtMoney}},
-            {{data:'tax_amount', className:'num', render:fmtMoney}},
-            {{data:'other_cost', className:'num', render:fmtMoney}},
-            {{data:'break_even_price', className:'num', render:fmtMoney}},
-            {{data:'min_profitable_price', className:'num', render:fmtMoney}},
-            {{data:'current_margin_percent', className:'num', render:fmtPct}},
-            {{data:'current_profit', className:'num', render:fmtMoney}},
-            {{data:'recommended_price', className:'num', render:fmtMoney}},
-            {{data:'status_label', render:(v,t,row)=>'<button class="be-status '+esc(row.status)+'" type="button" data-product="'+esc(row.product_id)+'">'+esc(v)+'</button>'}}
-          ],
-          language: {{url: 'https://cdn.datatables.net/plug-ins/2.0.8/i18n/ru.json'}}
-        }});
+        const errorBox = document.getElementById('breakEvenError');
+        let table = null;
+        function showError(message, detail) {{
+          console.error('[break-even]', message, detail || '');
+          errorBox.style.display = 'block';
+          errorBox.textContent = detail ? message + ': ' + detail : message;
+        }}
+        function clearError() {{
+          errorBox.style.display = 'none';
+          errorBox.textContent = '';
+        }}
+        function apiParams(extra) {{
+          const params = new URLSearchParams(extra || {{}});
+          params.set('target_margin', document.getElementById('target_margin').value);
+          params.set('price_delta', document.getElementById('price_delta').value);
+          params.set('marketplace', document.getElementById('beMarketplace').value);
+          params.set('status', document.getElementById('beStatus').value);
+          params.set('category', document.getElementById('beCategory').value);
+          return params;
+        }}
+        function renderRows(rows) {{
+          const tbody = document.querySelector('#breakEvenTable tbody');
+          if (!rows.length) {{
+            tbody.innerHTML = '<tr><td colspan="21" class="muted">Товары не найдены</td></tr>';
+            return;
+          }}
+          tbody.innerHTML = rows.map(row => '<tr>' +
+            '<td>' + (row.image_url ? '<img class="be-thumb" src="'+esc(row.image_url)+'" alt="">' : '<div class="be-thumb"></div>') + '</td>' +
+            '<td>'+esc(row.seller_article)+'</td><td>'+esc(row.sku)+'</td><td>'+esc(row.brand)+'</td><td>'+esc(row.title)+'</td>' +
+            '<td>'+esc(row.marketplace)+'</td><td>'+esc(row.category || 'Не задано')+'</td>' +
+            '<td class="num">'+fmtMoney(row.current_price)+'</td><td class="num">'+fmtMoney(row.discounted_price)+'</td>' +
+            '<td class="num">'+fmtMoney(row.cost_price)+'</td><td class="num">'+fmtMoney(row.commission_amount)+'</td>' +
+            '<td class="num">'+fmtMoney(row.logistics_cost)+'</td><td class="num">'+fmtMoney(row.advertising_cost)+'</td>' +
+            '<td class="num">'+fmtMoney(row.tax_amount)+'</td><td class="num">'+fmtMoney(row.other_cost)+'</td>' +
+            '<td class="num">'+fmtMoney(row.break_even_price)+'</td><td class="num">'+fmtMoney(row.min_profitable_price)+'</td>' +
+            '<td class="num">'+fmtPct(row.current_margin_percent)+'</td><td class="num">'+fmtMoney(row.current_profit)+'</td>' +
+            '<td class="num">'+fmtMoney(row.recommended_price)+'</td>' +
+            '<td><button class="be-status '+esc(row.status)+'" type="button" data-product="'+esc(row.product_id)+'">'+esc(row.status_label)+'</button></td>' +
+          '</tr>').join('');
+        }}
+        function fallbackLoad() {{
+          clearError();
+          const params = apiParams({{start: 0, length: 100}});
+          fetch('/web/break-even/api/products?' + params.toString())
+            .then(async r => {{
+              const data = await r.json();
+              if (!r.ok || data.error) throw new Error(data.detail || data.error || r.statusText);
+              renderRows(data.data || []);
+            }})
+            .catch(err => {{
+              renderRows([]);
+              showError('Не удалось загрузить товары', err.message);
+            }});
+        }}
+        if (window.DataTable) {{
+          table = new DataTable('#breakEvenTable', {{
+            serverSide: true,
+            processing: true,
+            pageLength: 50,
+            scrollX: true,
+            ajax: {{
+              url: '/web/break-even/api/products',
+              data: function(d) {{
+                const params = apiParams();
+                for (const [key, value] of params.entries()) d[key] = value;
+              }},
+              error: function(xhr, _text, err) {{
+                showError('Не удалось загрузить товары', xhr.responseJSON?.detail || err);
+              }}
+            }},
+            columns: [
+              {{data:'image_url', orderable:false, render:v=>v ? '<img class="be-thumb" src="'+esc(v)+'" alt="">' : '<div class="be-thumb"></div>'}},
+              {{data:'seller_article', render:esc}}, {{data:'sku', render:esc}}, {{data:'brand', render:esc}}, {{data:'title', render:esc}},
+              {{data:'marketplace', render:esc}}, {{data:'category', render:v=>esc(v || 'Не задано')}},
+              {{data:'current_price', className:'num', render:fmtMoney}},
+              {{data:'discounted_price', className:'num', render:fmtMoney}},
+              {{data:'cost_price', className:'num', render:fmtMoney}},
+              {{data:'commission_amount', className:'num', render:fmtMoney}},
+              {{data:'logistics_cost', className:'num', render:fmtMoney}},
+              {{data:'advertising_cost', className:'num', render:fmtMoney}},
+              {{data:'tax_amount', className:'num', render:fmtMoney}},
+              {{data:'other_cost', className:'num', render:fmtMoney}},
+              {{data:'break_even_price', className:'num', render:fmtMoney}},
+              {{data:'min_profitable_price', className:'num', render:fmtMoney}},
+              {{data:'current_margin_percent', className:'num', render:fmtPct}},
+              {{data:'current_profit', className:'num', render:fmtMoney}},
+              {{data:'recommended_price', className:'num', render:fmtMoney}},
+              {{data:'status_label', render:(v,t,row)=>'<button class="be-status '+esc(row.status)+'" type="button" data-product="'+esc(row.product_id)+'">'+esc(v)+'</button>'}}
+            ],
+            language: {{url: 'https://cdn.datatables.net/plug-ins/2.0.8/i18n/ru.json'}}
+          }});
+        }} else {{
+          showError('DataTables не загрузился, включён резервный режим таблицы');
+          fallbackLoad();
+        }}
         function reloadSummary() {{
           const target = document.getElementById('target_margin').value;
           fetch('/web/break-even/api/summary?target_margin=' + encodeURIComponent(target))
-            .then(r => r.json()).then(data => {{
+            .then(async r => {{
+              const data = await r.json();
+              if (!r.ok || data.error) throw new Error(data.detail || data.error || r.statusText);
+              return data;
+            }}).then(data => {{
               Object.entries(data).forEach(([k,v]) => {{
                 const el = document.querySelector('[data-kpi="'+k+'"]');
                 if (!el) return;
                 el.textContent = k.includes('margin') ? fmtPct(v) : (k.includes('profit') ? fmtMoney(v) : v);
               }});
-            }});
+            }}).catch(err => showError('Не удалось загрузить KPI', err.message));
         }}
-        filters.addEventListener('submit', e => {{ e.preventDefault(); table.ajax.reload(); reloadSummary(); }});
+        function reloadTable() {{
+          clearError();
+          if (table) table.ajax.reload();
+          else fallbackLoad();
+        }}
+        filters.addEventListener('submit', e => {{ e.preventDefault(); reloadTable(); reloadSummary(); }});
         document.querySelectorAll('[data-quick-status]').forEach(btn => btn.addEventListener('click', () => {{
           document.getElementById('beStatus').value = btn.dataset.quickStatus;
-          table.ajax.reload(); reloadSummary();
+          reloadTable(); reloadSummary();
         }}));
         document.getElementById('beThemeToggle').addEventListener('click', () => document.documentElement.classList.toggle('theme-dark'));
         let expenseChart, sensitivityChart, currentDetail;

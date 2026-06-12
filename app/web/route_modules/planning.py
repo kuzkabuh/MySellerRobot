@@ -184,10 +184,17 @@ async def break_even_summary_api(
     target_margin: str = Query(default="20"),
 ) -> JSONResponse:
     await _ensure_break_even_access(session, user.id)
-    summary = await UnitEconomicsService(session).summary(
-        user_id=user.id,
-        target_margin_percent=_decimal_from_query(target_margin, Decimal("20")),
-    )
+    try:
+        summary = await UnitEconomicsService(session).summary(
+            user_id=user.id,
+            target_margin_percent=_decimal_from_query(target_margin, Decimal("20")),
+        )
+    except Exception as exc:
+        logger.exception("break_even_summary_api_failed", extra={"user_id": user.id})
+        return JSONResponse(
+            {"error": "Не удалось загрузить сводку безубыточности", "detail": str(exc)},
+            status_code=500,
+        )
     return JSONResponse(
         {
             "total_products": summary.total_products,
@@ -215,24 +222,55 @@ async def break_even_products_api(
     params = request.query_params
     draw = _optional_int(params.get("draw")) or 1
     service = UnitEconomicsService(session)
-    result = await service.table(
-        user_id=user.id,
-        target_margin_percent=_decimal_from_query(params.get("target_margin"), Decimal("20")),
-        price_delta_percent=_decimal_from_query(params.get("price_delta"), Decimal("0")),
-        search=params.get("search[value]") or params.get("q") or "",
-        marketplace=params.get("marketplace") or "all",
-        status=params.get("status") or "all",
-        category=params.get("category") or "",
-        brand=params.get("brand") or "",
-        min_profit=_optional_decimal(params.get("min_profit") or ""),
-        max_profit=_optional_decimal(params.get("max_profit") or ""),
-        min_margin=_optional_decimal(params.get("min_margin") or ""),
-        max_margin=_optional_decimal(params.get("max_margin") or ""),
-        min_price=_optional_decimal(params.get("min_price") or ""),
-        max_price=_optional_decimal(params.get("max_price") or ""),
-        start=max(0, _optional_int(params.get("start")) or 0),
-        length=min(200, max(10, _optional_int(params.get("length")) or 50)),
-    )
+    filters = {
+        "target_margin": params.get("target_margin"),
+        "price_delta": params.get("price_delta"),
+        "search": params.get("search[value]") or params.get("q") or "",
+        "marketplace": params.get("marketplace") or "all",
+        "status": params.get("status") or "all",
+        "category": params.get("category") or "",
+        "brand": params.get("brand") or "",
+        "start": max(0, _optional_int(params.get("start")) or 0),
+        "length": min(200, max(10, _optional_int(params.get("length")) or 50)),
+    }
+    logger.info("break_even_products_api_requested", extra={"user_id": user.id, **filters})
+    try:
+        result = await service.table(
+            user_id=user.id,
+            target_margin_percent=_decimal_from_query(
+                filters["target_margin"], Decimal("20")
+            ),
+            price_delta_percent=_decimal_from_query(filters["price_delta"], Decimal("0")),
+            search=str(filters["search"]),
+            marketplace=str(filters["marketplace"]),
+            status=str(filters["status"]),
+            category=str(filters["category"]),
+            brand=str(filters["brand"]),
+            min_profit=_optional_decimal(params.get("min_profit") or ""),
+            max_profit=_optional_decimal(params.get("max_profit") or ""),
+            min_margin=_optional_decimal(params.get("min_margin") or ""),
+            max_margin=_optional_decimal(params.get("max_margin") or ""),
+            min_price=_optional_decimal(params.get("min_price") or ""),
+            max_price=_optional_decimal(params.get("max_price") or ""),
+            start=int(filters["start"]),
+            length=int(filters["length"]),
+        )
+    except Exception as exc:
+        logger.exception(
+            "break_even_products_api_failed",
+            extra={"user_id": user.id, "filters": filters},
+        )
+        return JSONResponse(
+            {
+                "draw": draw,
+                "recordsTotal": 0,
+                "recordsFiltered": 0,
+                "data": [],
+                "error": "Не удалось загрузить товары для безубыточности",
+                "detail": str(exc),
+            },
+            status_code=500,
+        )
     return JSONResponse(
         {
             "draw": draw,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from io import BytesIO, StringIO
@@ -27,6 +28,7 @@ RATE = Decimal("0.0001")
 ZERO = Decimal("0")
 DEFAULT_YELLOW_PROFIT = Decimal("100")
 DEFAULT_BLUE_MARGIN = Decimal("35")
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -145,6 +147,7 @@ class UnitEconomicsService:
         start: int = 0,
         length: int = 50,
     ) -> BreakEvenPageResult:
+        marketplace = _normalize_marketplace_filter(marketplace)
         total_count = await self._count_products(user_id=user_id)
         base_filtered_count = await self._count_filtered_products(
             user_id=user_id,
@@ -169,18 +172,25 @@ class UnitEconomicsService:
         ozon_prices = await self._latest_ozon_prices(product_ids)
         settings = await self._expense_settings(user_id=user_id, products=products)
 
-        rows = [
-            self._row_from_product(
-                product=product,
-                latest_cost=cost_by_product.get(product.id),
-                order_economics=economics_by_product.get(product.id, {}),
-                current_price=self._current_price(product, wb_prices, ozon_prices),
-                expense_profile=self._expense_profile_for(product, settings),
-                target_margin_percent=target_margin_percent,
-                price_delta_percent=price_delta_percent,
-            )
-            for product in products
-        ]
+        rows: list[BreakEvenRow] = []
+        for product in products:
+            try:
+                rows.append(
+                    self._row_from_product(
+                        product=product,
+                        latest_cost=cost_by_product.get(product.id),
+                        order_economics=economics_by_product.get(product.id, {}),
+                        current_price=self._current_price(product, wb_prices, ozon_prices),
+                        expense_profile=self._expense_profile_for(product, settings),
+                        target_margin_percent=target_margin_percent,
+                        price_delta_percent=price_delta_percent,
+                    )
+                )
+            except Exception:
+                logger.exception(
+                    "break_even_row_calculation_failed",
+                    extra={"user_id": user_id, "product_id": product.id},
+                )
         rows = self._filter_calculated_rows(
             rows,
             status=status,
@@ -192,7 +202,7 @@ class UnitEconomicsService:
             max_price=max_price,
         )
         summary = self._summary(rows)
-        return BreakEvenPageResult(
+        result = BreakEvenPageResult(
             rows=rows,
             summary=summary,
             total_count=total_count,
@@ -210,6 +220,23 @@ class UnitEconomicsService:
                 else base_filtered_count
             ),
         )
+        logger.info(
+            "break_even_products_loaded",
+            extra={
+                "user_id": user_id,
+                "total_count": total_count,
+                "base_filtered_count": base_filtered_count,
+                "page_products": len(products),
+                "calculated_rows": len(rows),
+                "marketplace": marketplace,
+                "status": status,
+                "category": category,
+                "search": search,
+                "start": start,
+                "length": length,
+            },
+        )
+        return result
 
     async def summary(
         self,
@@ -518,10 +545,7 @@ class UnitEconomicsService:
         return int(
             (
                 await self.session.execute(
-                    select(func.count(Product.id)).where(
-                        Product.user_id == user_id,
-                        Product.is_active.is_(True),
-                    )
+                    select(func.count(Product.id)).where(Product.user_id == user_id)
                 )
             ).scalar_one()
             or 0
@@ -538,7 +562,6 @@ class UnitEconomicsService:
     ) -> int:
         query = select(func.count(Product.id)).where(
             Product.user_id == user_id,
-            Product.is_active.is_(True),
         )
         query = self._apply_product_filters(
             query,
@@ -560,7 +583,7 @@ class UnitEconomicsService:
         start: int,
         length: int,
     ) -> list[Product]:
-        query = select(Product).where(Product.user_id == user_id, Product.is_active.is_(True))
+        query = select(Product).where(Product.user_id == user_id)
         query = self._apply_product_filters(
             query,
             search=search,
@@ -584,8 +607,15 @@ class UnitEconomicsService:
         category: str,
         brand: str,
     ) -> Any:
+        marketplace = _normalize_marketplace_filter(marketplace)
         if marketplace != "all":
-            query = query.where(Product.marketplace == Marketplace(marketplace))
+            try:
+                query = query.where(Product.marketplace == Marketplace(marketplace))
+            except ValueError:
+                logger.warning(
+                    "break_even_invalid_marketplace_filter",
+                    extra={"marketplace": marketplace},
+                )
         if category:
             query = query.where(Product.category.ilike(f"%{category}%"))
         if brand:
@@ -1088,6 +1118,16 @@ def _rate_from_percent(value: Decimal) -> Decimal:
 
 def _json_money(value: Decimal) -> str:
     return str(_money(value))
+
+
+def _normalize_marketplace_filter(value: str | None) -> str:
+    normalized = (value or "all").strip()
+    if normalized.lower() == "all":
+        return "all"
+    upper = normalized.upper()
+    if upper in {Marketplace.WB.value, Marketplace.OZON.value}:
+        return upper
+    return "all"
 
 
 def _has_calculated_filters(
