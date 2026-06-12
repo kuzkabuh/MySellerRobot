@@ -119,6 +119,13 @@ SYNC_TYPE_MAP: dict[str, dict[str, Any]] = {
         "label": "Обогащение каталога Ozon",
         "description": "Синхронизация каталога Ozon",
     },
+    "wb_financial_backfill": {
+        "task_wb": "backfill_wb_daily_financial_details",
+        "task_ozon": None,
+        "label": "Дозагрузка финансов WB",
+        "description": "Перезагружает финансовые данные Wildberries за выбранный период для исправления расхождений.",
+        "is_global": True,
+    },
     "wb_promotions": {
         "task_wb": "sync_wb_daily_promotions",
         "task_ozon": None,
@@ -655,6 +662,42 @@ class WebSyncRunService:
             "limit_max_range_days": limits.max_range_days,
             "effective_max_days": effective_max_days,
         }
+
+    async def trigger_global_backfill(self, user_id: int, days: int = 15) -> dict[str, Any]:
+        """Enqueue backfill_wb_daily_financial_details as a global (non-account-specific) task."""
+        from app.workers.tasks_main import WB_FINANCIAL_BACKFILL_ALLOWED_PERIODS
+        if days not in WB_FINANCIAL_BACKFILL_ALLOWED_PERIODS:
+            return {
+                "ok": False,
+                "status": "invalid_days",
+                "message": f"Недопустимый период дозагрузки: {days}. Допустимые значения: {WB_FINANCIAL_BACKFILL_ALLOWED_PERIODS}",
+            }
+        try:
+            queue = await create_pool(_redis_settings())
+            try:
+                await queue.enqueue_job(
+                    "backfill_wb_daily_financial_details",
+                    days=days,
+                    triggered_by_user_id=user_id,
+                    source="web_settings",
+                )
+            finally:
+                await queue.close()
+        except Exception as exc:
+            logger.error(
+                "Failed to enqueue global backfill task",
+                extra={"user_id": user_id, "days": days, "error": str(exc)},
+            )
+            return {
+                "ok": False,
+                "status": "enqueue_failed",
+                "message": "Не удалось поставить задачу в очередь. Попробуйте позже.",
+            }
+        logger.info(
+            "Global WB financial backfill triggered",
+            extra={"user_id": user_id, "days": days},
+        )
+        return {"ok": True, "days": days}
 
     async def verify_api_key(
         self,
