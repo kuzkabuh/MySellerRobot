@@ -716,6 +716,49 @@ def _sd_css() -> str:
   .sd-stream { padding: 14px 16px; }
   .sd-schedule-grid { grid-template-columns: 1fr 1fr; }
 }
+
+/* Backfill section */
+.sd-backfill {
+  background: #fff;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: var(--radius-lg, 14px);
+  padding: 24px;
+  margin-bottom: 20px;
+  box-shadow: var(--shadow-xs, 0 1px 2px rgba(15,23,42,.04));
+}
+.sd-backfill-desc {
+  font-size: 13px;
+  color: var(--text-secondary, #475569);
+  margin: 0 0 16px;
+  line-height: 1.6;
+}
+.sd-backfill-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.sd-backfill-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text, #0b1a33);
+  white-space: nowrap;
+}
+.sd-backfill-select {
+  padding: 8px 12px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: var(--radius, 10px);
+  font-size: 14px;
+  background: #fff;
+  color: var(--text, #0b1a33);
+  cursor: pointer;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+.sd-backfill-select:focus {
+  border-color: var(--accent, #2563eb);
+  box-shadow: 0 0 0 3px var(--accent-soft, #dbeafe);
+}
 </style>"""
 
 
@@ -919,6 +962,38 @@ window.sdRunSync = function (btn, triggerKey) {
   });
 };
 
+/* ── WB financial backfill trigger ── */
+window.sdRunBackfill = function (btn) {
+  var daysEl = document.getElementById('sdBackfillDays');
+  var days = daysEl ? parseInt(daysEl.value, 10) : 15;
+  var orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Запускаю…';
+
+  fetch('/web/settings/sync/run/wb_financial_backfill', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ days: days })
+  })
+  .then(function (r) { return r.json(); })
+  .then(function (data) {
+    if (data.ok) {
+      btn.textContent = 'Запущено!';
+      sdToast(data.message || 'Дозагрузка поставлена в очередь', 'success');
+      setTimeout(function () { btn.textContent = orig; btn.disabled = false; }, 3500);
+    } else {
+      btn.textContent = orig;
+      btn.disabled = false;
+      sdToast(data.message || 'Не удалось запустить дозагрузку', 'error');
+    }
+  })
+  .catch(function () {
+    btn.textContent = orig;
+    btn.disabled = false;
+    sdToast('Ошибка соединения. Попробуйте позже.', 'error');
+  });
+};
+
 /* ── Toast notification ── */
 function sdToast(msg, type) {
   var t = document.createElement('div');
@@ -952,6 +1027,31 @@ function esc(s) {
 
 
 # ── Main view function ───────────────────────────────────────────────────────
+
+def _backfill_section(has_wb: bool) -> str:
+    """Render the WB financial data backfill panel (only shown when WB is connected)."""
+    if not has_wb:
+        return ""
+    return """
+    <div class="sd-backfill">
+      <h2 class="sd-section-title">🔄 Дозагрузка финансовых данных WB</h2>
+      <p class="sd-backfill-desc">
+        Повторно загружает финансовые данные Wildberries за выбранный период.
+        Используйте для исправления расхождений в выкупах, возвратах и логистике.
+      </p>
+      <div class="sd-backfill-controls">
+        <span class="sd-backfill-label">Период дозагрузки:</span>
+        <select id="sdBackfillDays" class="sd-backfill-select">
+          <option value="15" selected>15 дней</option>
+          <option value="30">30 дней</option>
+          <option value="45">45 дней</option>
+          <option value="60">60 дней</option>
+          <option value="90">90 дней</option>
+        </select>
+        <button class="sd-btn sd-btn-primary" style="width:auto" onclick="sdRunBackfill(this)">Запустить дозагрузку</button>
+      </div>
+    </div>"""
+
 
 def _sync_tab(
     sync_statuses: list[Any],
@@ -1144,6 +1244,8 @@ def _sync_tab(
     active_str  = str(running_count) if running_count else "Нет"
     error_str   = str(error_count)   if error_count   else "Нет"
 
+    backfill_html = _backfill_section(has_wb)
+
     return f"""\
 {_sd_css()}
 {tabs_html}
@@ -1216,6 +1318,8 @@ def _sync_tab(
 <div class="sd-streams" id="sdStreams">
 {stream_cards}
 </div>
+
+{backfill_html}
 
 {schedule_html}
 

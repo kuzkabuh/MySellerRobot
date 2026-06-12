@@ -1155,6 +1155,7 @@ async def settings_sync_history(
 @router.post("/settings/sync/run/{trigger_key}")
 async def settings_sync_run(
     trigger_key: str,
+    request: Request,
     user: User = CURRENT_WEB_USER_DEPENDENCY,
     session: AsyncSession = SESSION_DEPENDENCY,
 ) -> JSONResponse:
@@ -1164,6 +1165,22 @@ async def settings_sync_run(
             {"ok": False, "message": "Ручной запуск для этого типа данных не поддерживается."},
             status_code=400,
         )
+
+    # Parse optional JSON body (e.g. {"days": 30} for wb_financial_backfill)
+    body: dict = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+
+    # Global (non-account-specific) tasks are triggered once, not per account
+    if trigger_key == "wb_financial_backfill":
+        days = int(body.get("days", 15))
+        svc = WebSyncRunService(session)
+        result = await svc.trigger_global_backfill(user.id, days)
+        if result.get("ok"):
+            return JSONResponse({"ok": True, "message": f"Дозагрузка за {days} дней поставлена в очередь."})
+        return JSONResponse({"ok": False, "message": result.get("message", "Не удалось запустить дозагрузку.")}, status_code=400)
 
     stmt = select(MarketplaceAccount).where(
         MarketplaceAccount.user_id == user.id,

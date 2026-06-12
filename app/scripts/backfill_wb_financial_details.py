@@ -23,7 +23,7 @@ logging.basicConfig(
 logger = logging.getLogger("backfill_wb_financial")
 
 
-_DEFAULT_DAYS = 50  # соответствует WB_FINANCIAL_BACKFILL_DAYS в tasks_main.py
+_DEFAULT_DAYS = 15  # соответствует WB_FINANCIAL_BACKFILL_DAYS в tasks_main.py
 
 
 async def main() -> None:
@@ -46,7 +46,7 @@ async def main() -> None:
     logger.info(f"Period: last {args.days} days")
     logger.info("=" * 60)
 
-    result = await backfill_wb_daily_financial_details({"days": args.days})
+    result = await backfill_wb_daily_financial_details({}, days=args.days)
 
     logger.info("=" * 60)
     logger.info("Backfill Results:")

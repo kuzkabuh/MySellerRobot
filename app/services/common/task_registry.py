@@ -218,7 +218,7 @@ TASK_REGISTRY: dict[str, dict[str, object]] = {
     },
     "backfill_wb_daily_financial_details": {
         "title": "Дозагрузка финансов WB",
-        "description": "Перезагружает финансовые данные Wildberries за последние 50 дней для исправления расхождений.",
+        "description": "Перезагружает финансовые данные Wildberries за выбранный период (15–90 дней) для исправления расхождений.",
         "category": "wb",
         "is_key": False,
         "expected_interval": "раз в день",
