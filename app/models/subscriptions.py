@@ -1,6 +1,6 @@
-"""version: 1.2.0
-description: Subscription and payment models — legacy SubscriptionPlan/Subscription removed.
-updated: 2026-06-09
+"""version: 1.3.0
+description: Subscription and payment models — extended tariff fields for admin dashboard.
+updated: 2026-06-12
 """
 
 from datetime import datetime
@@ -69,7 +69,14 @@ class SubscriptionTier(TimestampMixin, Base):
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_public: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_featured: Mapped[bool] = mapped_column(Boolean, default=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Расширенные поля для admin billing dashboard
+    badge_text: Mapped[str | None] = mapped_column(String(64))
+    trial_days: Mapped[int | None] = mapped_column(Integer)
+    is_custom_price: Mapped[bool] = mapped_column(Boolean, default=False)
+    internal_note: Mapped[str | None] = mapped_column(Text)
 
     subscriptions: Mapped[list["UserSubscription"]] = relationship(back_populates="tier")
 
