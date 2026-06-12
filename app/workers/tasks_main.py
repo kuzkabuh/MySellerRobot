@@ -56,6 +56,9 @@ from app.services.wb_report_service import WbFinancialReportService
 logger = logging.getLogger(__name__)
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 MAX_API_PAGES = 1000
+# Период дозагрузки финансовых данных WB: заказ может закрыться (выкуп/возврат/логистика)
+# спустя несколько недель, поэтому нужен запас в 50 дней.
+WB_FINANCIAL_BACKFILL_DAYS = 50
 
 _PERMANENT_FAILURE_TYPES = (TelegramForbiddenError,)
 
@@ -1561,13 +1564,13 @@ async def check_auto_promo_prices(ctx: dict[str, Any], payload: dict | None = No
 async def backfill_wb_daily_financial_details(ctx: dict[str, Any], payload: dict | None = None) -> dict[str, Any]:
     """Backfill WB financial details for recent days.
 
-    Re-syncs the last 14 days of financial data for all WB accounts.
-    Useful for picking up updated/corrected report rows.
+    Re-syncs the last 50 days of financial data for all WB accounts.
+    Useful for picking up updated/corrected report rows (выкупы, возвраты, логистика).
     """
     payload = payload or {}
     moscow_tz = ZoneInfo("Europe/Moscow")
     moscow_today = datetime.now(tz=moscow_tz).date()
-    days_to_sync = ctx.get("days", 14) if ctx else 14
+    days_to_sync = ctx.get("days", WB_FINANCIAL_BACKFILL_DAYS) if ctx else WB_FINANCIAL_BACKFILL_DAYS
     async with AsyncSessionFactory() as session:
         account_refs = await _load_account_refs_wb(session)
         total_accounts = len(account_refs)
