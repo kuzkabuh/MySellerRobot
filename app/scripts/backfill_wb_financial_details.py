@@ -2,8 +2,8 @@
 """Manual trigger for WB financial details backfill.
 
 Usage:
-    python -m app.scripts.backfill_wb_financial_details --days 14
-    python -m app.scripts.backfill_wb_financial_details --days 30
+    python -m app.scripts.backfill_wb_financial_details
+    python -m app.scripts.backfill_wb_financial_details --days 50
     python -m app.scripts.backfill_wb_financial_details --days 90
 """
 
@@ -23,13 +23,16 @@ logging.basicConfig(
 logger = logging.getLogger("backfill_wb_financial")
 
 
+_DEFAULT_DAYS = 50  # соответствует WB_FINANCIAL_BACKFILL_DAYS в tasks_main.py
+
+
 async def main() -> None:
     parser = argparse.ArgumentParser(description="Backfill WB financial details")
     parser.add_argument(
         "--days",
         type=int,
-        default=14,
-        help="Number of days to backfill (default: 14)",
+        default=_DEFAULT_DAYS,
+        help=f"Number of days to backfill (default: {_DEFAULT_DAYS})",
     )
     args = parser.parse_args()
 
