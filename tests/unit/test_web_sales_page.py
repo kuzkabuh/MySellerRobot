@@ -408,6 +408,10 @@ class TestFactStatusLabels:
                 partial_fact_count=1 if status == "partial" else 0,
                 pending_fact_count=1 if status == "pending_link" else 0,
                 no_report_count=1 if status == "no_report" else 0,
+                page=1,
+                total_pages=1,
+                per_page=50,
+                total_count=1,
             )
             html = _sales_content(data, "Europe/Moscow", sku="")
             assert expected_prefix in html, (
@@ -429,6 +433,10 @@ def test_sales_page_empty_state_shows_message() -> None:
         partial_fact_count=0,
         pending_fact_count=0,
         no_report_count=0,
+        page=1,
+        total_pages=1,
+        per_page=50,
+        total_count=0,
     )
     html = _sales_content(data, "Europe/Moscow", sku="")
-    assert "Продаж за выбранный период пока нет" in html
+    assert "Продаж за выбранный период не найдено." in html

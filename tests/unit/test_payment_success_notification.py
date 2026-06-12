@@ -86,8 +86,8 @@ class TestPaymentSuccessNotification:
     ):
         """First successful payment should send notification."""
         with (
-            patch("app.services.payment_service.get_settings") as mock_settings,
-            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payments.payment_service.get_settings") as mock_settings,
+            patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
             patch("app.services.subscriptions.subscription_service.SubscriptionService"),
         ):
             settings = MagicMock()
@@ -166,8 +166,8 @@ class TestPaymentSuccessNotification:
     ):
         """After successful notification, success_notification_sent_at should be set."""
         with (
-            patch("app.services.payment_service.get_settings") as mock_settings,
-            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payments.payment_service.get_settings") as mock_settings,
+            patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
             patch("app.services.subscriptions.subscription_service.SubscriptionService"),
         ):
             settings = MagicMock()
@@ -282,8 +282,8 @@ class TestReceiptTracking:
         payment.receipt_status = "pending"
 
         with (
-            patch("app.services.payment_service.get_settings") as mock_settings,
-            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payments.payment_service.get_settings") as mock_settings,
+            patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
             patch("app.services.subscriptions.subscription_service.SubscriptionService"),
         ):
             settings = MagicMock()
@@ -326,8 +326,8 @@ class TestReceiptKeyboard:
         mock_session.flush = AsyncMock()
 
         with (
-            patch("app.services.payment_service.get_settings") as mock_settings,
-            patch("app.services.payment_service.YooKassaClient") as mock_yk_class,
+            patch("app.services.payments.payment_service.get_settings") as mock_settings,
+            patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
             patch("app.services.subscriptions.subscription_service.SubscriptionService"),
         ):
             settings = MagicMock()

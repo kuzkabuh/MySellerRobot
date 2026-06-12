@@ -4,7 +4,7 @@ description: User menu bot handlers (profile, tariff, API keys, notifications, s
 """
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from html import escape
 
 from aiogram import F, Router
@@ -26,11 +26,15 @@ from app.core.config import get_settings
 from app.core.db import get_session
 from app.models.domain import MarketplaceAccount, User
 from app.models.enums import Marketplace
-from app.services.commissions.admin_notifications import notify_admins
-from app.services.account.profile_service import ProfileService, ProfileUpdateData, ProfileValidationError
-from app.services.subscriptions.subscription_service import SubscriptionService
+from app.services.account.profile_service import (
+    ProfileService,
+    ProfileUpdateData,
+    ProfileValidationError,
+)
 from app.services.admin.support_service import SupportService
 from app.services.admin.user_activity_service import UserActivityService
+from app.services.commissions.admin_notifications import notify_admins
+from app.services.subscriptions.subscription_service import SubscriptionService
 from app.utils.datetime import format_datetime_for_user
 
 logger = logging.getLogger(__name__)
@@ -665,7 +669,7 @@ async def _notify_admins_about_ticket(
     admin_url = f"{get_settings().get_web_base_url()}/web/admin/support/{ticket_id}"
     full_name = " ".join(part for part in (user.first_name, user.last_name) if part) or "н/д"
     username = f"@{user.username}" if user.username else "н/д"
-    created = format_datetime_for_user(datetime.now(), "Europe/Moscow", "%d.%m.%Y %H:%M")
+    created = format_datetime_for_user(datetime.now(tz=UTC), "Europe/Moscow", "%d.%m.%Y %H:%M")
     text = (
         "🆘 <b>Новое обращение пользователя</b>\n\n"
         f"Номер: #{ticket_id}\n"

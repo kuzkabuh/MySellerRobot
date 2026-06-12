@@ -20,6 +20,8 @@ from app.models.enums import Marketplace, UserStatus
 from app.services.account.web_auth_service import WEB_SESSION_COOKIE
 from app.services.common.web_dashboard_service import DashboardData, build_dashboard_filters
 from app.services.common.web_orders_profit_service import (
+    OrderPageResult,
+    OrderSummaryDTO,
     ProfitPageData,
     ProfitSummary,
     build_order_web_filters,
@@ -177,7 +179,10 @@ def _patch_empty_web_pages(monkeypatch: pytest.MonkeyPatch) -> None:
             sort=kwargs.get("sort", "date"),
             direction=kwargs.get("direction", "desc"),
         )
-        return filters, []
+        return OrderPageResult(filters=filters, rows=[], total_count=0, page=1, per_page=50, total_pages=1)
+
+    async def fake_orders_summary(self, **kwargs):  # type: ignore[no-untyped-def]
+        return OrderSummaryDTO()
 
     async def fake_profit_by_sku(self, **kwargs):  # type: ignore[no-untyped-def]
         filters = build_order_web_filters(
@@ -193,18 +198,7 @@ def _patch_empty_web_pages(monkeypatch: pytest.MonkeyPatch) -> None:
             sort=kwargs.get("sort", "profit"),
             direction=kwargs.get("direction", "desc"),
         )
-        return ProfitPageData(
-            filters=filters,
-            summary=ProfitSummary(
-                estimated_profit=Decimal("0"),
-                actual_profit=Decimal("0"),
-                deviation=Decimal("0"),
-                average_unit_profit=Decimal("0"),
-                average_margin=Decimal("0"),
-                roi_percent=None,
-            ),
-            rows=[],
-        )
+        return ProfitPageData(filters=filters, summary=ProfitSummary(), rows=[])
 
     async def fake_list_analytics(self, user_id):  # type: ignore[no-untyped-def]
         return []
@@ -231,6 +225,10 @@ def _patch_empty_web_pages(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "app.services.web_orders_profit_service.WebOrdersProfitService.list_orders",
         fake_list_orders,
+    )
+    monkeypatch.setattr(
+        "app.services.web_orders_profit_service.WebOrdersProfitService.orders_summary",
+        fake_orders_summary,
     )
     monkeypatch.setattr(
         "app.services.web_orders_profit_service.WebOrdersProfitService.profit_by_sku",
@@ -560,7 +558,7 @@ def test_web_login_cookie_allows_internal_navigation_without_redirect_loop(
 
     internal_paths = [
         "/web/accounts",
-        "/web/profile",
+        "/web/settings?tab=profile",
         "/web/subscription",
         "/web/orders",
         "/web/products",
@@ -662,10 +660,13 @@ def test_web_profit_and_analytics_pages_render_with_canonical_navigation(
         date_from,
         date_to,
         economy="all",
+        status="all",
         sku="",
         sort="profit",
         direction="desc",
         limit=100,
+        page=1,
+        page_size=50,
     ):  # type: ignore[no-untyped-def]
         order_filters = build_order_web_filters(
             timezone=timezone,
@@ -682,14 +683,7 @@ def test_web_profit_and_analytics_pages_render_with_canonical_navigation(
         )
         return ProfitPageData(
             filters=order_filters,
-            summary=ProfitSummary(
-                estimated_profit=Decimal("0"),
-                actual_profit=Decimal("0"),
-                deviation=Decimal("0"),
-                average_unit_profit=Decimal("0"),
-                average_margin=Decimal("0"),
-                roi_percent=None,
-            ),
+            summary=ProfitSummary(),
             rows=[],
         )
 

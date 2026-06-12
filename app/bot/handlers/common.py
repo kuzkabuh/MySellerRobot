@@ -42,10 +42,12 @@ from app.bot.keyboards.main import (
     main_menu,
     marketplaces_menu,
     notification_settings_menu,
+    order_notification_settings_menu,
     orders_menu,
     products_menu,
     profile_menu,
     profit_menu,
+    returns_notification_settings_menu,
     sale_notification_settings_menu,
     settings_menu,
     summary_menu,
@@ -69,25 +71,25 @@ from app.models.subscriptions import Payment, UserSubscription
 from app.repositories.accounts import MarketplaceAccountRepository
 from app.repositories.orders import OrderRepository
 from app.repositories.users import UserRepository
+from app.services.account.web_auth_service import WebAuthService
 from app.services.admin.admin_service import AdminService
-from app.services.alerts.daily_report_service import DailyReportService
-from app.services.common.data_quality_service import DataQualityService
 from app.services.admin.deployment_service import DeploymentService
+from app.services.alerts.daily_report_service import DailyReportService
 from app.services.alerts.fbs_control_service import FbsControlService
+from app.services.common.data_quality_service import DataQualityService
 from app.services.common.integration_error_classifier import classify_integration_error
+from app.services.common.message_formatter import format_user_datetime, rub
+from app.services.common.web_sync_service import WebSyncService
+from app.services.subscriptions.subscription_service import SubscriptionService
 from app.services.unit_economics.marketplace_estimates import (
     PlannedEconomics,
     calculate_planned_economics,
     confidence_label,
     confidence_notes,
 )
-from app.services.common.message_formatter import format_user_datetime, rub
 from app.services.unit_economics.plan_fact_service import PlanFactService
 from app.services.unit_economics.stock_forecast_service import StockForecastService
-from app.services.subscriptions.subscription_service import SubscriptionService
 from app.services.unit_economics.unit_economics_service import UnitEconomicsService
-from app.services.account.web_auth_service import WebAuthService
-from app.services.common.web_sync_service import WebSyncService
 
 router = Router(name="common")
 logger = logging.getLogger(__name__)
@@ -352,6 +354,53 @@ async def callback_handler(callback: CallbackQuery, state: FSMContext) -> None:
                 _sale_notifications_text(enabled),
                 reply_markup=sale_notification_settings_menu(enabled),
             )
+    elif data == "notifications:orders":
+        user_id = await _get_or_create_user_id(callback)
+        if user_id:
+            enabled = await _order_notifications_enabled(user_id)
+            await _safe_edit_text(
+                message,
+                _order_notifications_text(enabled),
+                reply_markup=order_notification_settings_menu(enabled),
+            )
+    elif data == "notifications:orders:toggle":
+        user_id = await _get_or_create_user_id(callback)
+        if user_id:
+            enabled = await _toggle_order_notifications(user_id)
+            await _safe_edit_text(
+                message,
+                _order_notifications_text(enabled),
+                reply_markup=order_notification_settings_menu(enabled),
+            )
+    elif data == "notifications:returns":
+        user_id = await _get_or_create_user_id(callback)
+        if user_id:
+            enabled = await _returns_notifications_enabled(user_id)
+            await _safe_edit_text(
+                message,
+                _returns_notifications_text(enabled),
+                reply_markup=returns_notification_settings_menu(enabled),
+            )
+    elif data == "notifications:returns:toggle":
+        user_id = await _get_or_create_user_id(callback)
+        if user_id:
+            enabled = await _toggle_returns_notifications(user_id)
+            await _safe_edit_text(
+                message,
+                _returns_notifications_text(enabled),
+                reply_markup=returns_notification_settings_menu(enabled),
+            )
+    elif data == "notifications:test":
+        user_id = await _get_or_create_user_id(callback)
+        if user_id:
+            await callback.answer()
+            await message.answer(
+                "🧪 <b>Тестовое уведомление</b>\n\n"
+                "Уведомления работают корректно. "
+                "Вы получите такие сообщения при реальных событиях — заказах, выкупах и возвратах.",
+                parse_mode="HTML",
+            )
+        return
     elif data == "web_cabinet":
         user_id = await _get_or_create_user_id(callback)
         if user_id:
@@ -830,6 +879,90 @@ async def _toggle_sale_notifications(user_id: int) -> bool:
         for account in accounts:
             settings = dict(account.notification_settings or {})
             settings["SALE_COMPLETED"] = new_value
+            account.notification_settings = settings
+        await session.commit()
+        return new_value
+
+
+def _order_notifications_text(enabled: bool) -> str:
+    status = "включены" if enabled else "отключены"
+    return (
+        "🛒 <b>Уведомления о новых заказах</b>\n\n"
+        f"<b>Сейчас уведомления о заказах:</b> {status}.\n\n"
+        "Бот будет присылать сообщение при поступлении нового заказа FBS."
+    )
+
+
+async def _order_notifications_enabled(user_id: int) -> bool:
+    async with AsyncSessionFactory() as session:
+        result = await session.execute(
+            select(MarketplaceAccount).where(MarketplaceAccount.user_id == user_id)
+        )
+        accounts = list(result.scalars().all())
+        if not accounts:
+            return True
+        return all(
+            (account.notification_settings or {}).get("NEW_ORDER", True)
+            for account in accounts
+        )
+
+
+async def _toggle_order_notifications(user_id: int) -> bool:
+    async with AsyncSessionFactory() as session:
+        result = await session.execute(
+            select(MarketplaceAccount).where(MarketplaceAccount.user_id == user_id)
+        )
+        accounts = list(result.scalars().all())
+        current_enabled = all(
+            (account.notification_settings or {}).get("NEW_ORDER", True)
+            for account in accounts
+        )
+        new_value = not current_enabled
+        for account in accounts:
+            settings = dict(account.notification_settings or {})
+            settings["NEW_ORDER"] = new_value
+            account.notification_settings = settings
+        await session.commit()
+        return new_value
+
+
+def _returns_notifications_text(enabled: bool) -> str:
+    status = "включены" if enabled else "отключены"
+    return (
+        "↩️ <b>Уведомления о возвратах</b>\n\n"
+        f"<b>Сейчас уведомления о возвратах:</b> {status}.\n\n"
+        "Бот будет присылать сообщение при оформлении возврата покупателем."
+    )
+
+
+async def _returns_notifications_enabled(user_id: int) -> bool:
+    async with AsyncSessionFactory() as session:
+        result = await session.execute(
+            select(MarketplaceAccount).where(MarketplaceAccount.user_id == user_id)
+        )
+        accounts = list(result.scalars().all())
+        if not accounts:
+            return True
+        return all(
+            (account.notification_settings or {}).get("RETURN_CREATED", True)
+            for account in accounts
+        )
+
+
+async def _toggle_returns_notifications(user_id: int) -> bool:
+    async with AsyncSessionFactory() as session:
+        result = await session.execute(
+            select(MarketplaceAccount).where(MarketplaceAccount.user_id == user_id)
+        )
+        accounts = list(result.scalars().all())
+        current_enabled = all(
+            (account.notification_settings or {}).get("RETURN_CREATED", True)
+            for account in accounts
+        )
+        new_value = not current_enabled
+        for account in accounts:
+            settings = dict(account.notification_settings or {})
+            settings["RETURN_CREATED"] = new_value
             account.notification_settings = settings
         await session.commit()
         return new_value

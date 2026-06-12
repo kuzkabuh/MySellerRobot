@@ -117,12 +117,12 @@ async def test_poll_new_orders_uses_isolated_sessions() -> None:
         s = make_session()
         return FakeAsyncCM(s)
 
-    with patch("app.workers.tasks.AsyncSessionFactory", mock_factory):
-        with patch("app.workers.tasks.OrderProcessingService") as mock_service:
+    with patch("app.workers.tasks_main.AsyncSessionFactory", mock_factory):
+        with patch("app.workers.tasks_main.OrderProcessingService") as mock_service:
             mock_service.return_value.poll_account_with_stats = fake_poll_account_with_stats
 
-            with patch("app.workers.tasks.get_settings"):
-                with patch("app.workers.tasks.Bot") as mock_bot:
+            with patch("app.workers.tasks_main.get_settings"):
+                with patch("app.workers.tasks_main.Bot") as mock_bot:
                     mock_bot.return_value.session.close = AsyncMock()
 
                     from app.workers.tasks import poll_new_orders
@@ -181,11 +181,11 @@ async def test_sync_products_survives_rollback_and_continues() -> None:
         s = make_session()
         return FakeAsyncCM(s)
 
-    with patch("app.workers.tasks.AsyncSessionFactory", mock_factory):
-        with patch("app.workers.tasks.ProductSyncService") as mock_service:
+    with patch("app.workers.tasks_main.AsyncSessionFactory", mock_factory):
+        with patch("app.workers.tasks_main.ProductSyncService") as mock_service:
             mock_service.return_value.sync_account_products = fake_sync_account_products
 
-            with patch("app.workers.tasks.get_settings"):
+            with patch("app.workers.tasks_main.get_settings"):
                 from app.workers.tasks import sync_products
 
                 await sync_products({})

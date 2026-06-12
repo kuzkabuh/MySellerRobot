@@ -237,7 +237,7 @@ async def test_ozon_unfulfilled_fbs_posting_is_polled_and_deduplicated(
         def normalize_fbo_posting(self, payload: dict[str, Any]) -> NormalizedOrder:
             return _normalized_order(Marketplace.OZON, str(payload["posting_number"]))
 
-    monkeypatch.setattr("app.services.order_processing_service.OzonClient", FakeOzonClient)
+    monkeypatch.setattr("app.services.common.order_processing_service.OzonClient", FakeOzonClient)
 
     normalized = await service._fetch_orders(account)
 
@@ -265,7 +265,7 @@ async def test_wb_period_fbs_orders_are_polled_for_recovery(
         async def get_fbs_orders(self, **_: Any) -> list[dict[str, Any]]:
             return [_wb_payload(1), _wb_payload(2, status="confirm")]
 
-    monkeypatch.setattr("app.services.order_processing_service.WildberriesClient", FakeWbClient)
+    monkeypatch.setattr("app.services.common.order_processing_service.WildberriesClient", FakeWbClient)
 
     normalized = await service._fetch_orders(account)
 

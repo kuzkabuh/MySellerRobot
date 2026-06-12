@@ -13,7 +13,7 @@ from app.services.common.sales_event_sync_service import (
     SaleNotification,
     SalesEventSyncService,
 )
-from app.workers import tasks
+import app.workers.tasks_main as tasks
 from app.workers.settings import WorkerSettings
 
 

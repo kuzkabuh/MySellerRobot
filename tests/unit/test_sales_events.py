@@ -177,7 +177,7 @@ async def test_wb_regular_sync_stores_returns_separately(
     service.sales = sales  # type: ignore[assignment]
     service.returns = returns  # type: ignore[assignment]
     service.products = _FakeProducts()  # type: ignore[assignment]
-    monkeypatch.setattr("app.services.sales_event_sync_service.WildberriesClient", _FakeWbClient)
+    monkeypatch.setattr("app.services.common.sales_event_sync_service.WildberriesClient", _FakeWbClient)
 
     result = await service.sync_account(_account(), lookback_hours=72)
 
@@ -401,7 +401,7 @@ async def test_new_sale_events_not_lost_on_resync(
         is_supplier_sales_return = staticmethod(WildberriesClient.is_supplier_sales_return)
 
     monkeypatch.setattr(
-        "app.services.sales_event_sync_service.WildberriesClient",
+        "app.services.common.sales_event_sync_service.WildberriesClient",
         _FakeWbClientWithTodaySales,
     )
 
@@ -442,7 +442,7 @@ async def test_sync_does_not_crash_on_rollback_recovery(
         is_supplier_sales_return = staticmethod(WildberriesClient.is_supplier_sales_return)
 
     monkeypatch.setattr(
-        "app.services.sales_event_sync_service.WildberriesClient",
+        "app.services.common.sales_event_sync_service.WildberriesClient",
         _FailingWbClient,
     )
 

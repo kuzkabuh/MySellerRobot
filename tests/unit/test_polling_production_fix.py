@@ -320,7 +320,7 @@ class TestPartialFailureSemantics:
                 return_value="test-api-key",
             ):
                 with patch(
-                    "app.services.order_processing_service.WildberriesClient"
+                    "app.services.common.order_processing_service.WildberriesClient"
                 ) as mock_wb_class:
                     mock_wb = MagicMock()
                     mock_wb.get_new_fbs_orders = AsyncMock(return_value=[])
@@ -418,7 +418,7 @@ class TestPartialFailureSemantics:
                 "app.core.security.TokenCipher.decrypt",
                 side_effect=lambda x: f"decrypted-{x}",
             ):
-                with patch("app.services.order_processing_service.OzonClient") as mock_ozon_class:
+                with patch("app.services.common.order_processing_service.OzonClient") as mock_ozon_class:
                     mock_ozon = MagicMock()
                     mock_ozon.get_fbs_postings = AsyncMock(
                         return_value={"result": {"postings": []}}
@@ -447,16 +447,16 @@ class TestMixedAccountPolling:
         from app.workers.tasks import poll_new_orders
 
         with (
-            patch("app.workers.tasks._load_account_refs") as mock_load_refs,
-            patch("app.workers.tasks._load_account_by_id") as mock_load_account,
-            patch("app.workers.tasks.OrderProcessingService") as mock_service_class,
+            patch("app.workers.tasks_main._load_account_refs") as mock_load_refs,
+            patch("app.workers.tasks_main._load_account_by_id") as mock_load_account,
+            patch("app.workers.tasks_main.OrderProcessingService") as mock_service_class,
             patch(
-                "app.workers.tasks._deliver_new_order_notifications",
+                "app.workers.tasks_main._deliver_new_order_notifications",
                 new_callable=AsyncMock,
                 return_value=(0, 0),
             ),
-            patch("app.workers.tasks.Bot") as mock_bot_class,
-            patch("app.workers.tasks.AsyncSessionFactory"),
+            patch("app.workers.tasks_main.Bot") as mock_bot_class,
+            patch("app.workers.tasks_main.AsyncSessionFactory"),
         ):
             mock_load_refs.return_value = [
                 MagicMock(id=1, marketplace="WB", user_id=100),

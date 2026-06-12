@@ -65,7 +65,11 @@ def test_settings_accept_telegram_webhook_secret_alias() -> None:
 
 
 def test_settings_reject_missing_telegram_secret_without_insecure_mode() -> None:
-    settings = Settings(app_env="production")
+    settings = Settings(
+        app_env="production",
+        app_secret_key="a-non-default-prod-secret-key-for-test",
+        encryption_key="_Dym3qjg7jFvdKeEn_rkVNBV7Y5viBci5RLsCp1ve94=",
+    )
 
     with pytest.raises(ValueError, match="Telegram webhook secret"):
         settings.ensure_bot_webhook_secret_allowed()

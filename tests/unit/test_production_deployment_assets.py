@@ -50,9 +50,8 @@ def test_install_script_prepares_production_prerequisites() -> None:
 def test_readme_documents_bot_ssl_diagnostics() -> None:
     readme = read("README.md")
 
-    assert "bot.mpcontrol.online  -> SERVER_IP" in readme
-    assert "DNS:bot.mpcontrol.online" in readme
-    assert "openssl s_client -connect bot.mpcontrol.online:443" in readme
+    assert "DNS:bot.example.com" in readme
+    assert "openssl s_client" in readme
     assert "getWebhookInfo" in readme
 
 

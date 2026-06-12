@@ -55,7 +55,7 @@ async def test_set_price_when_current_above_required():
     mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
-        "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+        "app.services.wb.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
         return_value=mock_settings_svc,
     ):
         service = WbAutoPromoPriceService(session)
@@ -85,7 +85,7 @@ async def test_price_violation_when_required_below_lower_bound():
     mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
-        "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+        "app.services.wb.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
         return_value=mock_settings_svc,
     ):
         service = WbAutoPromoPriceService(session)
@@ -113,7 +113,7 @@ async def test_price_ok_when_current_below_required():
     mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
-        "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+        "app.services.wb.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
         return_value=mock_settings_svc,
     ):
         service = WbAutoPromoPriceService(session)
@@ -141,7 +141,7 @@ async def test_min_price_violation():
     mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
-        "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+        "app.services.wb.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
         return_value=mock_settings_svc,
     ):
         service = WbAutoPromoPriceService(session)
@@ -167,7 +167,7 @@ async def test_required_price_unknown():
     mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
-        "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+        "app.services.wb.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
         return_value=mock_settings_svc,
     ):
         service = WbAutoPromoPriceService(session)
@@ -210,7 +210,7 @@ async def test_mrc_1000_deviation_10_required_950_recommends_950():
     mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
-        "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+        "app.services.wb.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
         return_value=mock_settings_svc,
     ):
         service = WbAutoPromoPriceService(session)
@@ -248,7 +248,7 @@ async def test_auto_promo_rejects_quarantine_risk():
     mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
-        "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+        "app.services.wb.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
         return_value=mock_settings_svc,
     ):
         service = WbAutoPromoPriceService(session)
@@ -330,7 +330,7 @@ async def test_recommendation_uses_wb_product_prices_discounted_price():
     mock_settings_svc.get_settings = AsyncMock(return_value=mock_settings)
 
     with patch(
-        "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+        "app.services.wb.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
         return_value=mock_settings_svc,
     ):
         service = WbAutoPromoPriceService(session)

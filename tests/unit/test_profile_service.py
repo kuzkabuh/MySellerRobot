@@ -68,7 +68,7 @@ async def test_get_profile_returns_profile_data(mock_session, monkeypatch):
     assert profile.user_id == 1
     assert profile.first_name == "Иван"
     assert profile.last_name == "Петров"
-    assert profile.display_name == "Иван"
+    assert profile.display_name == "Иван Петров"
     assert profile.tariff == "PRO"
 
 

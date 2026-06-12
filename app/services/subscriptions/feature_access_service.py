@@ -49,22 +49,22 @@ _FEATURE_MIN_TIER: dict[FeatureCode, str] = {
 }
 
 _FEATURE_DISPLAY_NAME: dict[FeatureCode, str] = {
-    FeatureCode.WEB_DASHBOARD: "Web-РєР°Р±РёРЅРµС‚",
-    FeatureCode.ADVANCED_ANALYTICS: "Р Р°СЃС€РёСЂРµРЅРЅР°СЏ Р°РЅР°Р»РёС‚РёРєР°",
-    FeatureCode.PLAN_FACT: "РџР»Р°РЅ/С„Р°РєС‚",
-    FeatureCode.BREAK_EVEN: "Р‘РµР·СѓР±С‹С‚РѕС‡РЅРѕСЃС‚СЊ",
-    FeatureCode.MASTER_PRODUCT_ANALYTICS: "РђРЅР°Р»РёС‚РёРєР° С‚РѕРІР°СЂРѕРІ",
-    FeatureCode.STOCKOUT_FORECAST: "РџСЂРѕРіРЅРѕР· РѕСЃС‚Р°С‚РєРѕРІ",
-    FeatureCode.DATA_QUALITY: "РљР°С‡РµСЃС‚РІРѕ РґР°РЅРЅС‹С…",
-    FeatureCode.EXPORTS: "Р­РєСЃРїРѕСЂС‚ РґР°РЅРЅС‹С…",
-    FeatureCode.AI_ANALYST: "AI-Р°РЅР°Р»РёС‚РёРє",
-    FeatureCode.LONG_HISTORY: "Р”Р»РёРЅРЅР°СЏ РёСЃС‚РѕСЂРёСЏ",
-    FeatureCode.MULTI_ACCOUNT: "РњСѓР»СЊС‚Рё-Р°РєРєР°СѓРЅС‚",
-    FeatureCode.MRC_PRICING: "РњР Р¦ Рё Р°РєС†РёРё WB",
-    FeatureCode.ALERTS: "РђР»РµСЂС‚С‹",
-    FeatureCode.API_ACCESS: "API-РґРѕСЃС‚СѓРї",
-    FeatureCode.AUTO_PROMOTIONS: "РђРІС‚РѕР°РєС†РёРё WB",
-    FeatureCode.PRICE_MANAGEMENT: "РЈРїСЂР°РІР»РµРЅРёРµ С†РµРЅР°РјРё",
+    FeatureCode.WEB_DASHBOARD: "Web-кабинет",
+    FeatureCode.ADVANCED_ANALYTICS: "Расширенная аналитика",
+    FeatureCode.PLAN_FACT: "План/факт",
+    FeatureCode.BREAK_EVEN: "Безубыточность",
+    FeatureCode.MASTER_PRODUCT_ANALYTICS: "Аналитика товаров",
+    FeatureCode.STOCKOUT_FORECAST: "Прогноз остатков",
+    FeatureCode.DATA_QUALITY: "Качество данных",
+    FeatureCode.EXPORTS: "Экспорт данных",
+    FeatureCode.AI_ANALYST: "AI-аналитик",
+    FeatureCode.LONG_HISTORY: "Длинная история",
+    FeatureCode.MULTI_ACCOUNT: "Мульти-аккаунт",
+    FeatureCode.MRC_PRICING: "МРЦ и акции WB",
+    FeatureCode.ALERTS: "Алерты",
+    FeatureCode.API_ACCESS: "API-доступ",
+    FeatureCode.AUTO_PROMOTIONS: "Автоакции WB",
+    FeatureCode.PRICE_MANAGEMENT: "Управление ценами",
 }
 
 
@@ -178,9 +178,9 @@ class FeatureAccessService:
             display_name = _FEATURE_DISPLAY_NAME.get(feature, feature.value)
             required_plan = self._required_plan_for_feature(feature)
             reason = (
-                f"рџ”’ Р¤СѓРЅРєС†РёСЏ В«{display_name}В» РЅРµРґРѕСЃС‚СѓРїРЅР° РЅР° РІР°С€РµРј С‚Р°СЂРёС„Рµ.\n"
-                f"Р’Р°С€ С‚Р°СЂРёС„: {tier.name}\n"
-                f"РќСѓР¶РЅС‹Р№ С‚Р°СЂРёС„: {required_plan} РёР»Рё РІС‹С€Рµ."
+                f"🔒 Функция «{display_name}» недоступна на вашем тарифе.\n"
+                f"Ваш тариф: {tier.name}\n"
+                f"Нужный тариф: {required_plan} или выше."
             )
             logger.info(
                 "feature_access_denied",

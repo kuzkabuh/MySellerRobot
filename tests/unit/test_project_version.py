@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-EXPECTED_VERSION = "1.15.0"
+EXPECTED_VERSION = "1.15.1"
 
 
 def _read_version_from_pyproject() -> str:

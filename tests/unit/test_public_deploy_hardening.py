@@ -39,15 +39,15 @@ def test_backup_requires_encryption_for_production_file_archive() -> None:
 
     assert "BACKUP_ALLOW_PLAINTEXT_SECRETS" in source
     assert "BACKUP_ENCRYPTION_ENABLED=1" in source
-    assert "Проверка безопасности архива" in source
-    assert "бэкап содержит файлы с секретами, но шифрование отключено" in source
+    assert "Security check" in source
+    assert "Production requires encryption or explicit plaintext opt-in" in source
 
 
 def test_backup_requires_password_when_encryption_enabled() -> None:
     source = Path("scripts/backup_daily.sh").read_text(encoding="utf-8")
 
     assert '[[ "${BACKUP_ENCRYPTION_ENABLED:-0}" == "1"' in source
-    assert "BACKUP_ENCRYPTION_PASSWORD пустой" in source
+    assert "BACKUP_ENCRYPTION_PASSWORD is empty" in source
 
 
 def test_env_example_defaults_to_encrypted_backups() -> None:

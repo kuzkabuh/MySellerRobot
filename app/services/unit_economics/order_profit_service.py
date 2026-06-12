@@ -298,7 +298,9 @@ class OrderProfitService:
         if item is None:
             return None
         return ProfitResult(
-            gross_revenue=item.discounted_price * Decimal(item.quantity),
+            gross_revenue=(
+                item.discounted_price or item.seller_price or item.buyer_price or Decimal("0")
+            ) * Decimal(item.quantity),
             marketplace_commission=item.commission_estimated or Decimal("0"),
             logistics_cost=item.logistics_estimated or Decimal("0"),
             acquiring_cost=Decimal("0"),

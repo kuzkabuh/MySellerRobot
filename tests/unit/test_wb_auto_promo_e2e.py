@@ -108,7 +108,7 @@ async def test_preview_price_changes_only_set_price():
     WbPriceUpdateService(session)
 
     with patch(
-        "app.services.pricing.mrc_pricing_settings_service.MrcPricingSettingsService",
+        "app.services.wb.pricing.mrc_pricing_settings_service.MrcPricingSettingsService",
         return_value=mock_settings_svc,
     ):
         # Test the payload calculation directly
@@ -279,7 +279,7 @@ async def test_recommendation_current_price_ok():
     mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
-        "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+        "app.services.wb.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
         return_value=mock_settings_svc,
     ):
         service = WbAutoPromoPriceService(session)
@@ -305,7 +305,7 @@ async def test_recommendation_mrc_violation():
     mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
-        "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+        "app.services.wb.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
         return_value=mock_settings_svc,
     ):
         service = WbAutoPromoPriceService(session)
@@ -333,7 +333,7 @@ async def test_recommendation_min_price_violation():
     mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
-        "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+        "app.services.wb.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
         return_value=mock_settings_svc,
     ):
         service = WbAutoPromoPriceService(session)
@@ -360,7 +360,7 @@ async def test_recommendation_unknown_required_price():
     mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
-        "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+        "app.services.wb.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
         return_value=mock_settings_svc,
     ):
         service = WbAutoPromoPriceService(session)

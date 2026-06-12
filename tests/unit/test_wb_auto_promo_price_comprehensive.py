@@ -73,7 +73,7 @@ async def test_real_example_set_price():
     mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
-        "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+        "app.services.wb.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
         return_value=mock_settings_svc,
     ):
         service = WbAutoPromoPriceService(session)
@@ -107,7 +107,7 @@ async def test_auto_already_ok():
     mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
-        "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+        "app.services.wb.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
         return_value=mock_settings_svc,
     ):
         service = WbAutoPromoPriceService(session)
@@ -137,7 +137,7 @@ async def test_mrc_violation():
     mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
-        "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+        "app.services.wb.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
         return_value=mock_settings_svc,
     ):
         service = WbAutoPromoPriceService(session)
@@ -170,7 +170,7 @@ async def test_min_price_violation_before_mrc():
     mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
-        "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+        "app.services.wb.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
         return_value=mock_settings_svc,
     ):
         service = WbAutoPromoPriceService(session)
@@ -203,7 +203,7 @@ async def test_min_price_violation_takes_precedence_over_mrc():
     mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
-        "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+        "app.services.wb.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
         return_value=mock_settings_svc,
     ):
         service = WbAutoPromoPriceService(session)
@@ -234,7 +234,7 @@ async def test_auto_active_without_condition():
     mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
-        "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+        "app.services.wb.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
         return_value=mock_settings_svc,
     ):
         service = WbAutoPromoPriceService(session)
@@ -265,7 +265,7 @@ async def test_price_above_upper_bound():
     mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
-        "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+        "app.services.wb.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
         return_value=mock_settings_svc,
     ):
         service = WbAutoPromoPriceService(session)
@@ -295,7 +295,7 @@ async def test_current_below_required_is_ok():
     mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
-        "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+        "app.services.wb.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
         return_value=mock_settings_svc,
     ):
         service = WbAutoPromoPriceService(session)
@@ -342,7 +342,7 @@ async def test_required_price_zero():
     mock_settings_svc.get_settings = AsyncMock(return_value=_make_settings_result(Decimal("10")))
 
     with patch(
-        "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+        "app.services.wb.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
         return_value=mock_settings_svc,
     ):
         service = WbAutoPromoPriceService(session)

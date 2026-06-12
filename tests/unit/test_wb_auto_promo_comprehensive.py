@@ -71,7 +71,7 @@ class TestBuildRecommendationBusinessScenario:
         )
 
         with patch(
-            "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+            "app.services.wb.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
             return_value=mock_settings_svc,
         ):
             service = WbAutoPromoPriceService(session)
@@ -102,7 +102,7 @@ class TestBuildRecommendationBusinessScenario:
         )
 
         with patch(
-            "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+            "app.services.wb.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
             return_value=mock_settings_svc,
         ):
             service = WbAutoPromoPriceService(session)
@@ -131,7 +131,7 @@ class TestBuildRecommendationBusinessScenario:
         )
 
         with patch(
-            "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+            "app.services.wb.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
             return_value=mock_settings_svc,
         ):
             service = WbAutoPromoPriceService(session)
@@ -157,7 +157,7 @@ class TestBuildRecommendationBusinessScenario:
         )
 
         with patch(
-            "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+            "app.services.wb.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
             return_value=mock_settings_svc,
         ):
             service = WbAutoPromoPriceService(session)
@@ -183,7 +183,7 @@ class TestBuildRecommendationBusinessScenario:
         )
 
         with patch(
-            "app.services.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
+            "app.services.wb.pricing.wb_auto_promo_price_service.MrcPricingSettingsService",
             return_value=mock_settings_svc,
         ):
             service = WbAutoPromoPriceService(session)

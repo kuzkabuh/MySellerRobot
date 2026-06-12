@@ -98,7 +98,7 @@ class TestPaymentServiceWithReceipt:
         with (
             patch("app.services.payments.payment_service.get_settings") as mock_settings,
             patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
-            patch("app.services.payment_service.SubscriptionService"),
+            patch("app.services.payments.payment_service.SubscriptionService"),
         ):
             settings = MagicMock()
             settings.yookassa_shop_id = "test_shop"
@@ -150,7 +150,7 @@ class TestPaymentServiceWithReceipt:
         with (
             patch("app.services.payments.payment_service.get_settings") as mock_settings,
             patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
-            patch("app.services.payment_service.SubscriptionService"),
+            patch("app.services.payments.payment_service.SubscriptionService"),
         ):
             settings = MagicMock()
             settings.yookassa_shop_id = "test_shop"
@@ -198,7 +198,7 @@ class TestPaymentServiceWithReceipt:
         with (
             patch("app.services.payments.payment_service.get_settings") as mock_settings,
             patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
-            patch("app.services.payment_service.SubscriptionService"),
+            patch("app.services.payments.payment_service.SubscriptionService"),
         ):
             settings = MagicMock()
             settings.yookassa_shop_id = "test_shop"
@@ -246,7 +246,7 @@ class TestPaymentServiceWithReceipt:
         with (
             patch("app.services.payments.payment_service.get_settings") as mock_settings,
             patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
-            patch("app.services.payment_service.SubscriptionService"),
+            patch("app.services.payments.payment_service.SubscriptionService"),
         ):
             settings = MagicMock()
             settings.yookassa_shop_id = "test_shop"
@@ -292,7 +292,7 @@ class TestPaymentServiceWithReceipt:
         with (
             patch("app.services.payments.payment_service.get_settings") as mock_settings,
             patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
-            patch("app.services.payment_service.SubscriptionService"),
+            patch("app.services.payments.payment_service.SubscriptionService"),
         ):
             settings = MagicMock()
             settings.yookassa_shop_id = "test_shop"
@@ -356,7 +356,7 @@ class TestPaymentServiceWithReceipt:
         with (
             patch("app.services.payments.payment_service.get_settings") as mock_settings,
             patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
-            patch("app.services.payment_service.SubscriptionService"),
+            patch("app.services.payments.payment_service.SubscriptionService"),
         ):
             settings = MagicMock()
             settings.yookassa_shop_id = "test_shop"

@@ -227,6 +227,11 @@ def test_orders_content_links_are_canonical() -> None:
         srid=None,
         quantity=1,
         revenue=Decimal("1000.00"),
+        seller_payout_estimated=Decimal("800.00"),
+        commission_estimated=Decimal("150.00"),
+        logistics_estimated=Decimal("50.00"),
+        package_cost_used=Decimal("10.00"),
+        cost_price_used=Decimal("300.00"),
         estimated_profit=Decimal("200.00"),
         margin_percent=Decimal("20.00"),
         status="new",
@@ -286,12 +291,13 @@ def test_products_content_links_are_canonical() -> None:
         revenue=Decimal("5000"),
         estimated_profit=Decimal("1000"),
         stock_quantity=20,
+        status="",
+        status_level="neutral",
         marketplace_products=[linked],
     )
     html = routes._products_content([row])
 
     assert 'href="/web/products/1"' in html
-    assert 'href="/web/costs/5"' in html
     assert 'href="/web/web/' not in html
 
 
@@ -329,6 +335,10 @@ def test_sales_content_has_canonical_filter_form_action() -> None:
         partial_fact_count=0,
         pending_fact_count=0,
         no_report_count=0,
+        page=1,
+        total_pages=1,
+        per_page=50,
+        total_count=0,
     )
     html = routes._sales_content(data, "Europe/Moscow", sku="")
 
@@ -473,6 +483,7 @@ def test_master_product_detail_content_has_canonical_links() -> None:
         stock_quantity=10,
     )
     detail = SimpleNamespace(
+        master_product_id=1,
         title="Product",
         brand="Brand",
         category="Cat",
@@ -481,10 +492,18 @@ def test_master_product_detail_content_has_canonical_links() -> None:
         marketplace_products=[mp_product],
         marketplace_comparison=[comparison],
         recommendations=["Check pricing"],
+        price_history=(),
+        cost_history=(),
+        stock_history=(),
+        status="",
+        status_level="neutral",
+        updated_at=None,
+        has_wb=True,
+        has_ozon=False,
     )
     html = routes._master_product_detail_content(detail)
 
-    assert 'href="/web/costs/10"' in html
+    assert 'href="/web/products/1?tab=' in html
     assert 'href="/web/web/' not in html
 
 

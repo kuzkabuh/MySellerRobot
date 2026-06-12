@@ -73,7 +73,7 @@ class TestWebhookPaymentSucceeded:
         ]
 
         with (
-            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payments.payment_service.get_settings") as mock_settings,
             patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
             patch("app.bot.main.create_bot") as mock_create_bot,
         ):
@@ -141,7 +141,7 @@ class TestWebhookPaymentSucceeded:
         ]
 
         with (
-            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payments.payment_service.get_settings") as mock_settings,
             patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
             patch("app.bot.main.create_bot") as mock_create_bot,
         ):
@@ -201,7 +201,7 @@ class TestWebhookPaymentSucceeded:
         ]
 
         with (
-            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payments.payment_service.get_settings") as mock_settings,
             patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
         ):
             settings = MagicMock()
@@ -224,7 +224,7 @@ class TestWebhookPaymentSucceeded:
         ]
 
         with (
-            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payments.payment_service.get_settings") as mock_settings,
             patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
         ):
             settings = MagicMock()
@@ -259,7 +259,7 @@ class TestWebhookPaymentCanceled:
         ]
 
         with (
-            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payments.payment_service.get_settings") as mock_settings,
             patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
         ):
             settings = MagicMock()
@@ -312,7 +312,7 @@ class TestReconciliation:
         ]
 
         with (
-            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payments.payment_service.get_settings") as mock_settings,
             patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
             patch("app.bot.main.create_bot") as mock_create_bot,
         ):
@@ -366,7 +366,7 @@ class TestReconciliation:
         ]
 
         with (
-            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payments.payment_service.get_settings") as mock_settings,
             patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
         ):
             settings = MagicMock()
@@ -395,7 +395,7 @@ class TestReconciliation:
         mock_session.execute.return_value = _make_list_result([])
 
         with (
-            patch("app.services.payment_service.get_settings") as mock_settings,
+            patch("app.services.payments.payment_service.get_settings") as mock_settings,
             patch("app.services.payments.payment_service.YooKassaClient") as mock_yk_class,
         ):
             settings = MagicMock()

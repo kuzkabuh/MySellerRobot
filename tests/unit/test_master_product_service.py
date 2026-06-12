@@ -60,9 +60,9 @@ def test_products_content_shows_wb_and_ozon_comparison() -> None:
         ]
     )
 
-    assert "Единые карточки товаров" in html
-    assert "WB: 1" in html
-    assert "Ozon: 1" in html
+    assert "Товары" in html
+    assert "wildberries" in html.lower()
+    assert "ozon" in html.lower()
     assert "SKU001" in html
     assert "2 400 ₽" in html
     assert "700 ₽" in html

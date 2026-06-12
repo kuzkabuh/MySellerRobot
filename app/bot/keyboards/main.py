@@ -486,6 +486,30 @@ def sale_notification_settings_menu(enabled: bool) -> InlineKeyboardMarkup:
     )
 
 
+def order_notification_settings_menu(enabled: bool) -> InlineKeyboardMarkup:
+    text = "🔇 Выключить уведомления о заказах" if enabled else "🔔 Включить уведомления о заказах"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=text, callback_data="notifications:orders:toggle")],
+            [InlineKeyboardButton(text="Назад", callback_data="notifications")],
+        ]
+    )
+
+
+def returns_notification_settings_menu(enabled: bool) -> InlineKeyboardMarkup:
+    text = (
+        "🔇 Выключить уведомления о возвратах"
+        if enabled
+        else "🔔 Включить уведомления о возвратах"
+    )
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=text, callback_data="notifications:returns:toggle")],
+            [InlineKeyboardButton(text="Назад", callback_data="notifications")],
+        ]
+    )
+
+
 def low_margin_threshold_menu(current_threshold: Decimal) -> InlineKeyboardMarkup:
     """Build quick controls for the user's low-margin threshold."""
 

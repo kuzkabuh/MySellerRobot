@@ -7,7 +7,7 @@ import json
 import re
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.core.logging import get_logger
@@ -249,7 +249,7 @@ class LogViewerService:
 
     def archive_log(self, log_name: str) -> Path:
         log_path = self._validate_log_name(log_name)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(tz=UTC).strftime("%Y%m%d_%H%M%S")
         archive_name = f"{log_path.stem}_{timestamp}.log.gz"
         archive_path = ARCHIVE_DIR / archive_name
 

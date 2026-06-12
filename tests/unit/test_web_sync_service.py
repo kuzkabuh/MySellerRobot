@@ -1,7 +1,8 @@
 """Unit tests for web-triggered synchronization queue facade."""
 
+import app.services.common.web_sync_service as web_sync_service
+
 from app.core.redis import redis_settings_from_url
-from app.services import web_sync_service
 from app.services.common.web_sync_service import WebSyncService
 
 
