@@ -148,6 +148,25 @@ class ProductCostHistory(TimestampMixin, Base):
 
     product: Mapped[Product] = relationship(back_populates="costs")
 
+    @property
+    def purchase_price(self) -> Decimal:
+        """Semantic alias for the product purchase price."""
+        return self.cost_price or Decimal("0")
+
+    @property
+    def extra_costs(self) -> Decimal:
+        """Semantic alias for additional per-item costs."""
+        return self.additional_cost or Decimal("0")
+
+    @property
+    def fixed_costs(self) -> Decimal:
+        """Semantic alias for fixed per-item costs."""
+        return self.package_cost or Decimal("0")
+
+    @property
+    def full_cost(self) -> Decimal:
+        return self.purchase_price + self.extra_costs + self.fixed_costs
+
 class BreakEvenExpenseSetting(TimestampMixin, Base):
     __tablename__ = "break_even_expense_settings"
     __table_args__ = (

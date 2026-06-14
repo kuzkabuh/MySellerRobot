@@ -3,6 +3,7 @@
 import inspect
 from decimal import Decimal
 
+from app.models.domain import ProductCostHistory
 from app.services.ozon.pricing.ozon_price_update_service import (
     OzonPriceUpdateItem,
     OzonPriceUpdateService,
@@ -50,3 +51,26 @@ def test_ozon_price_payload_does_not_force_zero_min_price() -> None:
     source = inspect.getsource(OzonPriceUpdateService.update_prices)
 
     assert '"min_price": "0"' not in source
+
+
+def test_product_cost_history_full_cost_semantics() -> None:
+    cost = ProductCostHistory(
+        cost_price=Decimal("100"),
+        additional_cost=Decimal("15"),
+        package_cost=Decimal("7"),
+    )
+
+    assert cost.purchase_price == Decimal("100")
+    assert cost.extra_costs == Decimal("15")
+    assert cost.fixed_costs == Decimal("7")
+    assert cost.full_cost == Decimal("122")
+
+
+def test_prices_table_uses_calculated_full_cost_not_editable_cost() -> None:
+    from app.web.route_modules import prices
+
+    source = inspect.getsource(prices._render_table)
+
+    assert 'data-edit="cost"' not in source
+    assert "Себестоимость / Полная себестоимость" in source
+    assert 'data-calc="full-cost"' in source

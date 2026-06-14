@@ -112,6 +112,16 @@ def _profit(price: Decimal | None, cost: Decimal | None) -> Decimal | None:
     return price - cost
 
 
+def _full_cost(
+    purchase_price: Decimal | None,
+    extra_costs: Decimal | None,
+    fixed_costs: Decimal | None,
+) -> Decimal:
+    return (purchase_price or Decimal("0")) + (extra_costs or Decimal("0")) + (
+        fixed_costs or Decimal("0")
+    )
+
+
 def _display_price(row: Any) -> Decimal | None:
     return row.wb_discounted_price or row.wb_price or row.ozon_price
 
@@ -131,6 +141,7 @@ class PricesRow:
     ozon_min_price: Decimal | None
     ozon_synced_at: str | None
     cost_price: Decimal | None
+    purchase_price: Decimal | None
     package_cost: Decimal | None
     additional_cost: Decimal | None
     tax_rate: Decimal | None
@@ -392,7 +403,10 @@ async def _load_page_data(
         )
 
         cost_row = cost_rows.get(p.id)
-        cost = cost_row.cost_price if cost_row else None
+        purchase_price = cost_row.purchase_price if cost_row else None
+        extra_costs = cost_row.extra_costs if cost_row else None
+        fixed_costs = cost_row.fixed_costs if cost_row else None
+        cost = _full_cost(purchase_price, extra_costs, fixed_costs) if cost_row else None
         display_price = wb_discounted or wb_price or ozon_price
         profit = _profit(display_price, cost)
         margin = _margin_pct(display_price, cost)
@@ -416,8 +430,9 @@ async def _load_page_data(
                 ozon_min_price=ozon_min,
                 ozon_synced_at=ozon_synced,
                 cost_price=cost,
-                package_cost=cost_row.package_cost if cost_row else None,
-                additional_cost=cost_row.additional_cost if cost_row else None,
+                purchase_price=purchase_price,
+                package_cost=fixed_costs,
+                additional_cost=extra_costs,
                 tax_rate=cost_row.tax_rate if cost_row else None,
                 profit=profit,
                 margin_pct=margin,
@@ -587,8 +602,10 @@ async def prices_export_csv(
             "title",
             "category",
             "brand",
-            "cost_price",
+            "purchase_price",
             "additional_cost",
+            "fixed_costs",
+            "full_cost",
             "min_price",
             "max_price",
             "wb_price",
@@ -612,8 +629,10 @@ async def prices_export_csv(
                 product.title or "",
                 product.category or "",
                 product.brand or "",
-                row.cost_price or "",
+                row.purchase_price or "",
                 row.additional_cost or "",
+                row.package_cost or "",
+                row.cost_price or "",
                 product.min_price or "",
                 product.max_price or "",
                 row.wb_price or "",
@@ -1208,7 +1227,8 @@ def _has_active_filters(data: PricesPageData) -> bool:
 def _editable_number(name: str, value: Decimal | int | None) -> str:
     display_value = "" if value is None else str(value)
     return (
-        f'<input class="prices-inline-input" type="number" step="0.01" '
+        f'<input class="prices-inline-input" type="number" step="0.01" min="0" '
+        f'title="Можно редактировать" '
         f'data-edit="{name}" value="{_e(display_value)}">'
     )
 
@@ -1216,8 +1236,10 @@ def _editable_number(name: str, value: Decimal | int | None) -> str:
 def _row_status_badges(row: PricesRow) -> str:
     badges: list[str] = []
     current_price = _display_price(row)
+    if row.purchase_price is None or row.purchase_price <= 0:
+        badges.append('<span class="prices-badge prices-badge-warn">Нет закупочной цены</span>')
     if row.cost_price is None or row.cost_price <= 0:
-        badges.append('<span class="prices-badge prices-badge-warn">Нет себестоимости</span>')
+        badges.append('<span class="prices-badge prices-badge-danger">Нулевая себестоимость</span>')
     if (row.stock_quantity or 0) <= 0:
         badges.append('<span class="prices-badge prices-badge-muted">Нет остатка</span>')
     if (
@@ -1255,6 +1277,12 @@ def _render_table(data: PricesPageData) -> str:
             f'<a href="/web/prices{q}">{label}{icon}</a></th>'
         )
 
+    def _edit_th(label: str, col: str) -> str:
+        return (
+            f'<th class="prices-th prices-th-editable" data-col="{col}" '
+            f'title="Можно редактировать"><span aria-hidden="true">✎</span> {label}</th>'
+        )
+
     header = f"""
     <thead>
       <tr>
@@ -1271,23 +1299,26 @@ def _render_table(data: PricesPageData) -> str:
         <th class="prices-th" data-col="ozon_offer">Ozon offer_id</th>
         <th class="prices-th" data-col="size">Размер</th>
         {_th("Категория", "category")}
-        <th class="prices-th" data-col="cost">Себестоимость</th>
-        <th class="prices-th" data-col="purchase">Закупочная цена</th>
-        <th class="prices-th" data-col="additional">Доп. расходы</th>
-        <th class="prices-th" data-col="fixed">Постоянные, руб.</th>
-        <th class="prices-th" data-col="tax">Налог, %</th>
-        <th class="prices-th" data-col="min">Мин. цена</th>
-        <th class="prices-th" data-col="max">Макс. цена</th>
+        <th class="prices-th prices-group-start prices-group-cost" data-col="purchase_group">Себестоимость</th>
+        {_edit_th("Закупочная цена", "purchase")}
+        {_edit_th("Доп. расходы", "additional")}
+        {_edit_th("Постоянные, руб.", "fixed")}
+        <th class="prices-th prices-th-calculated" data-col="cost">Себестоимость / Полная себестоимость</th>
+        <th class="prices-th prices-group-start prices-group-settings" data-col="settings_group">Настройки</th>
+        {_edit_th("ДРР, %", "drr")}
+        {_edit_th("Налог, %", "tax")}
+        {_edit_th("Мин. цена", "min")}
+        {_edit_th("Макс. цена", "max")}
         <th class="prices-th" data-col="wb_price">Цена WB текущая</th>
         <th class="prices-th" data-col="ozon_price">Цена Ozon текущая</th>
         <th class="prices-th" data-col="system">Цена MP Control</th>
         <th class="prices-th" data-col="discounted">Цена со скидкой</th>
         <th class="prices-th" data-col="full_price">Цена без скидки</th>
         <th class="prices-th" data-col="discount">Скидка текущая</th>
-        <th class="prices-th" data-col="new_price">Новая цена</th>
-        <th class="prices-th" data-col="new_discount">Новая скидка</th>
-        <th class="prices-th" data-col="target_margin">Желаемая маржа</th>
-        <th class="prices-th" data-col="target_profit">Желаемая прибыль</th>
+        {_edit_th("Новая цена", "new_price")}
+        {_edit_th("Новая скидка", "new_discount")}
+        {_edit_th("Желаемая маржа", "target_margin")}
+        {_edit_th("Желаемая прибыль", "target_profit")}
         <th class="prices-th" data-col="new_margin">Новая маржа</th>
         <th class="prices-th" data-col="current_margin">Текущая маржа</th>
         <th class="prices-th" data-col="current_profit">Прибыль текущая</th>
@@ -1320,6 +1351,7 @@ def _render_table(data: PricesPageData) -> str:
         new_price_seed = current_price or p.min_price or Decimal("0")
         commission = p.marketplace_commission_rate or Decimal("0")
         tax_percent = (r.tax_rate * Decimal("100")) if r.tax_rate is not None else None
+        full_cost = r.cost_price or Decimal("0")
         mp_costs = None
         if current_price is not None:
             mp_costs = current_price * commission
@@ -1334,7 +1366,7 @@ def _render_table(data: PricesPageData) -> str:
 
         rows_html += f"""
       <tr class="prices-row" data-product-id="{p.id}" data-mp="{mp_val}" data-account-id="{acct_id}"
-          data-current-price="{current_price or ''}" data-cost="{r.cost_price or ''}"
+          data-current-price="{current_price or ''}" data-cost="{full_cost or ''}"
           data-additional="{r.additional_cost or ''}" data-min-price="{p.min_price or ''}"
           data-max-price="{p.max_price or ''}" data-commission="{commission or ''}">
         <td class="prices-td-check sticky-col-1" data-col="select">
@@ -1352,23 +1384,26 @@ def _render_table(data: PricesPageData) -> str:
         <td class="prices-td" data-col="ozon_offer">{_e(ozon_offer_id or '—')}</td>
         <td class="prices-td" data-col="size">{_e(p.chrt_id or '—')}</td>
         <td class="prices-td" data-col="category">{_e(p.category or '—')}</td>
-        <td class="prices-td" data-col="cost">{_editable_number("cost", r.cost_price)}</td>
-        <td class="prices-td" data-col="purchase">{_editable_number("purchase", r.cost_price)}</td>
-        <td class="prices-td" data-col="additional">{_editable_number("additional", r.additional_cost)}</td>
-        <td class="prices-td" data-col="fixed">{_editable_number("fixed", r.package_cost)}</td>
-        <td class="prices-td" data-col="tax">{_editable_number("tax", tax_percent)}</td>
-        <td class="prices-td" data-col="min">{_editable_number("min", p.min_price)}</td>
-        <td class="prices-td" data-col="max">{_editable_number("max", p.max_price)}</td>
+        <td class="prices-td prices-group-cell prices-group-cost" data-col="purchase_group">Себестоимость</td>
+        <td class="prices-td prices-td-editable" data-col="purchase">{_editable_number("purchase", r.purchase_price)}</td>
+        <td class="prices-td prices-td-editable" data-col="additional">{_editable_number("additional", r.additional_cost)}</td>
+        <td class="prices-td prices-td-editable" data-col="fixed">{_editable_number("fixed", r.package_cost)}</td>
+        <td class="prices-td prices-td-calculated prices-price" data-col="cost"><span data-calc="full-cost">{_fmt(full_cost)}</span></td>
+        <td class="prices-td prices-group-cell prices-group-settings" data-col="settings_group">Настройки</td>
+        <td class="prices-td prices-td-editable" data-col="drr">{_editable_number("drr", None)}</td>
+        <td class="prices-td prices-td-editable" data-col="tax">{_editable_number("tax", tax_percent)}</td>
+        <td class="prices-td prices-td-editable" data-col="min">{_editable_number("min", p.min_price)}</td>
+        <td class="prices-td prices-td-editable" data-col="max">{_editable_number("max", p.max_price)}</td>
         <td class="prices-td prices-price" data-col="wb_price">{wb_price_cell}</td>
         <td class="prices-td prices-price" data-col="ozon_price">{ozon_price_cell}</td>
         <td class="prices-td prices-mrc" data-col="system">{mrc_cell}</td>
         <td class="prices-td prices-price" data-col="discounted">{_fmt(r.wb_discounted_price or r.ozon_price)}</td>
         <td class="prices-td prices-price" data-col="full_price">{_fmt(r.wb_price or r.ozon_old_price)}</td>
         <td class="prices-td" data-col="discount">{wb_discount_cell}</td>
-        <td class="prices-td" data-col="new_price">{_editable_number("new-price", new_price_seed)}</td>
-        <td class="prices-td" data-col="new_discount">{_editable_number("new-discount", r.wb_discount)}</td>
-        <td class="prices-td" data-col="target_margin">{_editable_number("target-margin", None)}</td>
-        <td class="prices-td" data-col="target_profit">{_editable_number("target-profit", None)}</td>
+        <td class="prices-td prices-td-editable" data-col="new_price">{_editable_number("new-price", new_price_seed)}</td>
+        <td class="prices-td prices-td-editable" data-col="new_discount">{_editable_number("new-discount", r.wb_discount)}</td>
+        <td class="prices-td prices-td-editable" data-col="target_margin">{_editable_number("target-margin", None)}</td>
+        <td class="prices-td prices-td-editable" data-col="target_profit">{_editable_number("target-profit", None)}</td>
         <td class="prices-td prices-price" data-col="new_margin"><span data-calc="new-margin">—</span></td>
         <td class="prices-td" data-col="current_margin">{_pct(r.margin_pct)}</td>
         <td class="prices-td prices-profit" data-col="current_profit">{_fmt(r.profit)}</td>
@@ -1446,7 +1481,10 @@ def _render_modals(data: PricesPageData) -> str:
         ("category", "Категория"),
         ("brand", "Бренд"),
         ("cost", "Себестоимость"),
+        ("purchase_group", "Группа: себестоимость"),
         ("additional", "Доп. расходы"),
+        ("fixed", "Постоянные, руб."),
+        ("drr", "ДРР, %"),
         ("min", "Минимальная цена"),
         ("max", "Максимальная цена"),
         ("wb_price", "Цена WB"),
@@ -1979,6 +2017,34 @@ th.sticky-col-1, th.sticky-col-2 { z-index: 5; background: var(--bg-muted); }
   border-color: var(--accent); background: var(--accent-soft);
   box-shadow: 0 0 0 2px var(--accent-soft);
 }
+.prices-inline-input.is-error {
+  border-color: var(--danger); background: var(--danger-soft);
+  color: var(--danger);
+}
+.prices-inline-input.is-saved {
+  border-color: var(--success); background: var(--success-soft);
+}
+.prices-th-editable {
+  background: #f0fdf4 !important; color: #166534;
+}
+.prices-td-editable {
+  background: #fbfef4;
+}
+.prices-td-calculated, .prices-th-calculated {
+  background: #f8fafc; color: var(--text-secondary);
+}
+.prices-group-start {
+  border-left: 2px solid var(--accent);
+}
+.prices-group-cell {
+  font-weight: 700; color: var(--text-secondary); background: var(--bg-muted);
+}
+.prices-row.has-warning td[data-col="status"] {
+  background: var(--warning-soft);
+}
+.prices-row.has-error td[data-col="status"] {
+  background: var(--danger-soft);
+}
 .prices-badge {
   display: inline-flex; align-items: center; margin: 2px 4px 2px 0;
   padding: 3px 7px; border-radius: 999px; font-size: 11px; font-weight: 700;
@@ -2148,31 +2214,46 @@ def _prices_js() -> str:
     return value.toFixed(1) + '%';
   }
   function recalcRow(row) {
-    const cost = toNumber(row.querySelector('[data-edit="cost"]')?.value);
+    const purchase = toNumber(row.querySelector('[data-edit="purchase"]')?.value);
     const additional = toNumber(row.querySelector('[data-edit="additional"]')?.value);
     const fixed = toNumber(row.querySelector('[data-edit="fixed"]')?.value);
+    const drrPct = toNumber(row.querySelector('[data-edit="drr"]')?.value);
     const taxPct = toNumber(row.querySelector('[data-edit="tax"]')?.value);
     const commission = toNumber(row.dataset.commission);
     const newPriceInput = row.querySelector('[data-edit="new-price"]');
     const targetMargin = toNumber(row.querySelector('[data-edit="target-margin"]')?.value);
     const targetProfit = toNumber(row.querySelector('[data-edit="target-profit"]')?.value);
     let newPrice = toNumber(newPriceInput?.value);
-    const totalCost = cost + additional + fixed;
+    const inputs = row.querySelectorAll('.prices-inline-input');
+    let hasError = false;
+    inputs.forEach(input => {
+      const value = String(input.value || '').trim();
+      const invalid = value !== '' && toNumber(value) < 0;
+      input.classList.toggle('is-error', invalid);
+      hasError = hasError || invalid;
+    });
+    const totalCost = purchase + additional + fixed;
     if (targetProfit > 0) newPrice = totalCost + targetProfit;
-    if (targetMargin > 0 && targetMargin < 99) newPrice = totalCost / (1 - targetMargin / 100);
+    if (targetMargin > 0 && targetMargin < 99 && totalCost > 0) {
+      newPrice = totalCost / (1 - targetMargin / 100);
+    }
     if (newPriceInput && (targetProfit > 0 || targetMargin > 0)) {
       newPriceInput.value = newPrice.toFixed(2);
       newPriceInput.classList.add('is-dirty');
     }
     const tax = newPrice * taxPct / 100;
     const mpCosts = newPrice * commission;
-    const profit = newPrice - totalCost - tax - mpCosts;
+    const drr = newPrice * drrPct / 100;
+    const profit = newPrice - totalCost - tax - mpCosts - drr;
     const margin = newPrice > 0 ? profit / newPrice * 100 : NaN;
+    const fullCostNode = row.querySelector('[data-calc="full-cost"]');
     const profitNode = row.querySelector('[data-calc="new-profit"]');
     const marginNode = row.querySelector('[data-calc="new-margin"]');
+    if (fullCostNode) fullCostNode.textContent = fmtMoney(totalCost);
     if (profitNode) profitNode.textContent = fmtMoney(profit);
     if (marginNode) marginNode.textContent = fmtPct(margin);
-    row.classList.toggle('has-warning', profit < 0);
+    row.classList.toggle('has-warning', profit < 0 || purchase <= 0);
+    row.classList.toggle('has-error', hasError || totalCost < purchase);
   }
   document.querySelectorAll('.prices-inline-input').forEach(input => {
     input.addEventListener('input', function() {
