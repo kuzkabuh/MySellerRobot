@@ -9,9 +9,11 @@ updated: 2026-06-13
 
 import logging
 import math
+from csv import writer
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from html import escape
+from io import StringIO
 from typing import Any
 
 from fastapi import APIRouter, Form, Query, Request
@@ -110,6 +112,10 @@ def _profit(price: Decimal | None, cost: Decimal | None) -> Decimal | None:
     return price - cost
 
 
+def _display_price(row: Any) -> Decimal | None:
+    return row.wb_discounted_price or row.wb_price or row.ozon_price
+
+
 # ─── Page data loader ────────────────────────────────────────────────────────
 
 @dataclass(slots=True)
@@ -125,6 +131,9 @@ class PricesRow:
     ozon_min_price: Decimal | None
     ozon_synced_at: str | None
     cost_price: Decimal | None
+    package_cost: Decimal | None
+    additional_cost: Decimal | None
+    tax_rate: Decimal | None
     profit: Decimal | None
     margin_pct: Decimal | None
     wb_indicator: str
@@ -145,7 +154,15 @@ class PricesPageData:
     marketplace_filter: str
     sort_by: str
     sort_dir: str
+    category_filter: str
+    brand_filter: str
+    in_stock_only: bool
+    no_cost_only: bool
+    mismatch_only: bool
+    below_min_only: bool
     accounts: list[MarketplaceAccount]
+    categories: list[str]
+    brands: list[str]
     stats: dict[str, Any]
     price_synced: bool
     error_msg: str | None
@@ -159,6 +176,15 @@ async def _load_page_data(
     marketplace_filter: str,
     sort_by: str,
     sort_dir: str,
+    category_filter: str = "",
+    brand_filter: str = "",
+    in_stock_only: bool = False,
+    no_cost_only: bool = False,
+    mismatch_only: bool = False,
+    below_min_only: bool = False,
+    *,
+    limit: int = PAGE_SIZE,
+    offset: int | None = None,
 ) -> PricesPageData:
     # Accounts
     accts_result = await session.execute(
@@ -170,6 +196,14 @@ async def _load_page_data(
     accounts = list(accts_result.scalars().all())
     acct_map: dict[int, str] = {a.id: a.name or f"Аккаунт {a.id}" for a in accounts}
 
+    facets_q = select(Product.category, Product.brand).where(
+        Product.user_id == user_id,
+        Product.is_active.is_(True),
+    )
+    facets = (await session.execute(facets_q)).all()
+    categories = sorted({row[0] for row in facets if row[0]})
+    brands = sorted({row[1] for row in facets if row[1]})
+
     # Base product query
     q = select(Product).where(
         Product.user_id == user_id,
@@ -179,6 +213,10 @@ async def _load_page_data(
         q = q.where(Product.marketplace == Marketplace.WB)
     elif marketplace_filter == "OZON":
         q = q.where(Product.marketplace == Marketplace.OZON)
+    if category_filter:
+        q = q.where(Product.category == category_filter)
+    if brand_filter:
+        q = q.where(Product.brand == brand_filter)
 
     if search:
         pattern = f"%{search}%"
@@ -186,6 +224,8 @@ async def _load_page_data(
             or_(
                 Product.seller_article.ilike(pattern),
                 Product.title.ilike(pattern),
+                Product.barcode.ilike(pattern),
+                Product.marketplace_article.ilike(pattern),
                 cast(Product.external_product_id, String).ilike(pattern),
             )
         )
@@ -208,8 +248,8 @@ async def _load_page_data(
         q = q.order_by(order_col.asc().nulls_last())
 
     # Paginate
-    offset = (page - 1) * PAGE_SIZE
-    q = q.offset(offset).limit(PAGE_SIZE)
+    offset = (page - 1) * limit if offset is None else offset
+    q = q.offset(offset).limit(limit)
     products = list((await session.execute(q)).scalars().all())
 
     if not products:
@@ -218,6 +258,10 @@ async def _load_page_data(
             total_pages=max(1, math.ceil(total / PAGE_SIZE)),
             search=search, marketplace_filter=marketplace_filter,
             sort_by=sort_by, sort_dir=sort_dir, accounts=accounts,
+            category_filter=category_filter, brand_filter=brand_filter,
+            in_stock_only=in_stock_only, no_cost_only=no_cost_only,
+            mismatch_only=mismatch_only, below_min_only=below_min_only,
+            categories=categories, brands=brands,
             stats={}, price_synced=False, error_msg=None,
         )
 
@@ -265,10 +309,10 @@ async def _load_page_data(
             ozon_prices[row.offer_id] = row
 
     # Cost prices: product_id → latest cost_price
-    cost_prices: dict[int, Decimal] = {}
+    cost_rows: dict[int, ProductCostHistory] = {}
     if product_ids:
         cp_result = await session.execute(
-            select(ProductCostHistory.product_id, ProductCostHistory.cost_price)
+            select(ProductCostHistory)
             .where(
                 ProductCostHistory.product_id.in_(product_ids),
                 ProductCostHistory.valid_to.is_(None),
@@ -276,10 +320,10 @@ async def _load_page_data(
             .order_by(ProductCostHistory.valid_from.desc())
         )
         seen: set[int] = set()
-        for pid, cp in cp_result.all():
-            if pid not in seen:
-                cost_prices[pid] = cp
-                seen.add(pid)
+        for cost_row in cp_result.scalars().all():
+            if cost_row.product_id not in seen:
+                cost_rows[cost_row.product_id] = cost_row
+                seen.add(cost_row.product_id)
 
     # Stock quantities: product_id → latest total quantity
     stock_quantities: dict[int, int] = {}
@@ -347,7 +391,8 @@ async def _load_page_data(
             format_datetime_for_user(ozon_row.synced_at) if ozon_row and ozon_row.synced_at else None
         )
 
-        cost = cost_prices.get(p.id)
+        cost_row = cost_rows.get(p.id)
+        cost = cost_row.cost_price if cost_row else None
         display_price = wb_discounted or wb_price or ozon_price
         profit = _profit(display_price, cost)
         margin = _margin_pct(display_price, cost)
@@ -371,6 +416,9 @@ async def _load_page_data(
                 ozon_min_price=ozon_min,
                 ozon_synced_at=ozon_synced,
                 cost_price=cost,
+                package_cost=cost_row.package_cost if cost_row else None,
+                additional_cost=cost_row.additional_cost if cost_row else None,
+                tax_rate=cost_row.tax_rate if cost_row else None,
                 profit=profit,
                 margin_pct=margin,
                 wb_indicator=wb_indicator,
@@ -380,6 +428,24 @@ async def _load_page_data(
                 last_price_source=last_chg[1] if last_chg else None,
             )
         )
+
+    if in_stock_only:
+        rows = [row for row in rows if (row.stock_quantity or 0) > 0]
+    if no_cost_only:
+        rows = [row for row in rows if row.cost_price is None or row.cost_price <= 0]
+    if mismatch_only:
+        rows = [
+            row for row in rows
+            if row.wb_indicator == "price-indicator-bad"
+            or row.ozon_indicator == "price-indicator-bad"
+        ]
+    if below_min_only:
+        rows = [
+            row for row in rows
+            if _display_price(row) is not None
+            and row.product.min_price is not None
+            and _display_price(row) < row.product.min_price
+        ]
 
     # Stats
     wb_products = sum(1 for p in products if p.marketplace == Marketplace.WB)
@@ -412,7 +478,15 @@ async def _load_page_data(
         marketplace_filter=marketplace_filter,
         sort_by=sort_by,
         sort_dir=sort_dir,
+        category_filter=category_filter,
+        brand_filter=brand_filter,
+        in_stock_only=in_stock_only,
+        no_cost_only=no_cost_only,
+        mismatch_only=mismatch_only,
+        below_min_only=below_min_only,
         accounts=accounts,
+        categories=categories,
+        brands=brands,
         stats=stats,
         price_synced=False,
         error_msg=None,
@@ -427,6 +501,12 @@ async def prices_page(
     page_num: int = Query(default=1, alias="page", ge=1),
     search: str = Query(default=""),
     mp: str = Query(default=""),
+    category: str = Query(default=""),
+    brand: str = Query(default=""),
+    in_stock: bool = Query(default=False),
+    no_cost: bool = Query(default=False),
+    mismatch: bool = Query(default=False),
+    below_min: bool = Query(default=False),
     sort: str = Query(default="article"),
     dir: str = Query(default="asc"),
     synced: str = Query(default=""),
@@ -436,7 +516,19 @@ async def prices_page(
 ) -> str:
     try:
         data = await _load_page_data(
-            session, user.id, page_num, search, mp.upper(), sort, dir
+            session,
+            user.id,
+            page_num,
+            search,
+            mp.upper(),
+            sort,
+            dir,
+            category,
+            brand,
+            in_stock,
+            no_cost,
+            mismatch,
+            below_min,
         )
         data.price_synced = bool(synced)
         data.error_msg = error or None
@@ -449,6 +541,95 @@ async def prices_page(
         user.first_name or user.username or str(user.telegram_id),
         content,
         active_path="/web/prices",
+    )
+
+
+@router.get("/prices/export")
+async def prices_export_csv(
+    search: str = Query(default=""),
+    mp: str = Query(default=""),
+    category: str = Query(default=""),
+    brand: str = Query(default=""),
+    in_stock: bool = Query(default=False),
+    no_cost: bool = Query(default=False),
+    mismatch: bool = Query(default=False),
+    below_min: bool = Query(default=False),
+    sort: str = Query(default="article"),
+    dir: str = Query(default="asc"),
+    user=CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> Response:
+    data = await _load_page_data(
+        session,
+        user.id,
+        1,
+        search,
+        mp.upper(),
+        sort,
+        dir,
+        category,
+        brand,
+        in_stock,
+        no_cost,
+        mismatch,
+        below_min,
+        limit=10000,
+        offset=0,
+    )
+    output = StringIO()
+    csv_writer = writer(output, delimiter=";")
+    csv_writer.writerow(
+        [
+            "marketplace",
+            "seller_article",
+            "barcode",
+            "external_product_id",
+            "title",
+            "category",
+            "brand",
+            "cost_price",
+            "additional_cost",
+            "min_price",
+            "max_price",
+            "wb_price",
+            "wb_discounted_price",
+            "ozon_price",
+            "mp_control_price",
+            "profit",
+            "margin_pct",
+            "stock",
+            "last_price_change",
+        ]
+    )
+    for row in data.rows:
+        product = row.product
+        csv_writer.writerow(
+            [
+                product.marketplace.value,
+                product.seller_article or "",
+                product.barcode or "",
+                product.external_product_id,
+                product.title or "",
+                product.category or "",
+                product.brand or "",
+                row.cost_price or "",
+                row.additional_cost or "",
+                product.min_price or "",
+                product.max_price or "",
+                row.wb_price or "",
+                row.wb_discounted_price or "",
+                row.ozon_price or "",
+                product.mrc_price or "",
+                row.profit or "",
+                row.margin_pct or "",
+                row.stock_quantity if row.stock_quantity is not None else "",
+                row.last_price_change or "",
+            ]
+        )
+    return Response(
+        content="\ufeff" + output.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="prices.csv"'},
     )
 
 
@@ -881,6 +1062,17 @@ def _render_prices_page(data: PricesPageData) -> str:
     return f"""
 <div class="prices-page">
   {notice}
+  <div class="prices-header">
+    <div>
+      <h1>Цены</h1>
+      <div class="prices-tabs">
+        <a class="active" href="/web/prices">Цены</a>
+        <a href="#" id="tab-bulk-open">Массовое изменение цен</a>
+        <a href="/web/prices/history">История изменений</a>
+        <a href="#" id="tab-settings-open">Настройки цен</a>
+      </div>
+    </div>
+  </div>
   {stat_cards}
   <div class="prices-main-card">
     {filters}
@@ -900,33 +1092,93 @@ def _render_filters(data: PricesPageData) -> str:
         sel = ' selected' if data.marketplace_filter == val else ''
         mp_opts += f'<option value="{val}"{sel}>{label}</option>'
 
+    category_opts = '<option value="">Все категории</option>'
+    for category in data.categories:
+        sel = ' selected' if data.category_filter == category else ''
+        category_opts += f'<option value="{_e(category)}"{sel}>{_e(category)}</option>'
+
+    brand_opts = '<option value="">Все бренды</option>'
+    for brand in data.brands:
+        sel = ' selected' if data.brand_filter == brand else ''
+        brand_opts += f'<option value="{_e(brand)}"{sel}>{_e(brand)}</option>'
+
+    in_stock_checked = " checked" if data.in_stock_only else ""
+    no_cost_checked = " checked" if data.no_cost_only else ""
+    mismatch_checked = " checked" if data.mismatch_only else ""
+    below_min_checked = " checked" if data.below_min_only else ""
+
     return f"""
   <form class="prices-filters" method="get" action="/web/prices" id="prices-filter-form">
     <div class="prices-filter-row">
+      <button class="btn btn-ghost btn-sm" type="button" id="btn-filter-toggle">Фильтр</button>
       <input class="prices-search-input" type="text" name="search"
-             placeholder="Поиск: артикул, название, ID..."
+             placeholder="Название, штрих-код, SKU, артикул, nmID, offer_id"
              value="{_e(data.search)}">
       <select class="prices-filter-select" name="mp" onchange="this.form.submit()">
         {mp_opts}
       </select>
+      <label class="prices-toggle">
+        <input type="checkbox" name="in_stock" value="true"{in_stock_checked}
+               onchange="this.form.submit()"> В наличии
+      </label>
       <button class="btn btn-primary btn-sm" type="submit">Найти</button>
-      {'<a class="btn btn-ghost btn-sm" href="/web/prices">Сбросить</a>' if data.search or data.marketplace_filter else ''}
+      {'<a class="btn btn-ghost btn-sm" href="/web/prices">Сбросить</a>' if _has_active_filters(data) else ''}
+    </div>
+    <div class="prices-filter-drawer" id="prices-filter-drawer" hidden>
+      <div class="prices-filter-grid">
+        <label>Категория<select name="category">{category_opts}</select></label>
+        <label>Бренд<select name="brand">{brand_opts}</select></label>
+        <label>Стратегия<select disabled><option>Все стратегии</option></select></label>
+        <label>Теги<select disabled><option>Все теги</option></select></label>
+        <label>Остаток<select disabled><option>FBS/FBO суммарно</option></select></label>
+        <label>Тип карточки<select disabled><option>Все типы</option></select></label>
+      </div>
+      <div class="prices-filter-chips">
+        <label><input type="checkbox" name="no_cost" value="true"{no_cost_checked}> Нет закупочной цены</label>
+        <label><input type="checkbox" name="mismatch" value="true"{mismatch_checked}> Цена отличается от маркетплейса</label>
+        <label><input type="checkbox" name="below_min" value="true"{below_min_checked}> Цена ниже минимальной</label>
+        <label><input type="checkbox" disabled> Товары созданы в WB</label>
+        <label><input type="checkbox" disabled> Товары созданы в Ozon</label>
+        <label><input type="checkbox" disabled> Избранные</label>
+        <label><input type="checkbox" disabled> Архив</label>
+      </div>
+      <div class="prices-filter-actions">
+        <button class="btn btn-primary btn-sm" type="submit">Применить фильтры</button>
+        <a class="btn btn-ghost btn-sm" href="/web/prices">Очистить</a>
+      </div>
     </div>
   </form>"""
 
 
 def _render_toolbar(data: PricesPageData) -> str:
-    return """
+    export_url = (
+        "/web/prices/export?"
+        f"search={escape(data.search)}&mp={data.marketplace_filter}"
+        f"&category={escape(data.category_filter)}&brand={escape(data.brand_filter)}"
+        f"&in_stock={str(data.in_stock_only).lower()}"
+        f"&no_cost={str(data.no_cost_only).lower()}"
+        f"&mismatch={str(data.mismatch_only).lower()}"
+        f"&below_min={str(data.below_min_only).lower()}"
+        f"&sort={data.sort_by}&dir={data.sort_dir}"
+    )
+    return f"""
   <div class="prices-toolbar">
     <div class="prices-toolbar-left">
+      <button class="btn btn-ghost btn-sm" type="button" id="btn-columns-open">Столбцы</button>
       <button class="btn btn-ghost btn-sm" type="button" id="btn-select-all">
         Выбрать всё
       </button>
       <button class="btn btn-secondary btn-sm" type="button" id="btn-bulk-open" disabled>
         Массовое изменение
       </button>
+      <button class="btn btn-ghost btn-sm" type="button" id="btn-fill-new-price">
+        Заполнить новую цену со скидкой
+      </button>
     </div>
     <div class="prices-toolbar-right">
+      <a class="btn btn-ghost btn-sm" href="{export_url}">Скачать цены</a>
+      <button class="btn btn-ghost btn-sm" type="button" disabled>Импорт</button>
+      <button class="btn btn-ghost btn-sm" type="button" disabled>Обновить закупочные цены</button>
       <form method="post" action="/web/prices/sync-wb" style="display:inline">
         <button class="btn btn-ghost btn-sm" type="submit">↻ Синхр. WB</button>
       </form>
@@ -938,6 +1190,49 @@ def _render_toolbar(data: PricesPageData) -> str:
   </div>"""
 
 
+def _has_active_filters(data: PricesPageData) -> bool:
+    return any(
+        [
+            data.search,
+            data.marketplace_filter,
+            data.category_filter,
+            data.brand_filter,
+            data.in_stock_only,
+            data.no_cost_only,
+            data.mismatch_only,
+            data.below_min_only,
+        ]
+    )
+
+
+def _editable_number(name: str, value: Decimal | int | None) -> str:
+    display_value = "" if value is None else str(value)
+    return (
+        f'<input class="prices-inline-input" type="number" step="0.01" '
+        f'data-edit="{name}" value="{_e(display_value)}">'
+    )
+
+
+def _row_status_badges(row: PricesRow) -> str:
+    badges: list[str] = []
+    current_price = _display_price(row)
+    if row.cost_price is None or row.cost_price <= 0:
+        badges.append('<span class="prices-badge prices-badge-warn">Нет себестоимости</span>')
+    if (row.stock_quantity or 0) <= 0:
+        badges.append('<span class="prices-badge prices-badge-muted">Нет остатка</span>')
+    if (
+        current_price is not None
+        and row.product.min_price is not None
+        and current_price < row.product.min_price
+    ):
+        badges.append('<span class="prices-badge prices-badge-danger">Ниже минимальной</span>')
+    if row.wb_indicator == "price-indicator-bad" or row.ozon_indicator == "price-indicator-bad":
+        badges.append('<span class="prices-badge prices-badge-warn">Цена отличается</span>')
+    if not badges:
+        badges.append('<span class="prices-badge prices-badge-ok">Готово</span>')
+    return "".join(badges)
+
+
 def _render_table(data: PricesPageData) -> str:
     if not data.rows:
         return '<div class="prices-empty">Товары не найдены. Измените параметры поиска.</div>'
@@ -947,30 +1242,68 @@ def _render_table(data: PricesPageData) -> str:
         if data.sort_by == key:
             icon = " ↑" if data.sort_dir == "asc" else " ↓"
         sd = "desc" if (data.sort_by == key and data.sort_dir == "asc") else "asc"
-        q = f"?sort={key}&dir={sd}&search={escape(data.search)}&mp={data.marketplace_filter}&page={data.page}"
-        return f'<th class="prices-th"><a href="/web/prices{q}">{label}{icon}</a></th>'
+        q = (
+            f"?sort={key}&dir={sd}&search={escape(data.search)}"
+            f"&mp={data.marketplace_filter}&category={escape(data.category_filter)}"
+            f"&brand={escape(data.brand_filter)}&in_stock={str(data.in_stock_only).lower()}"
+            f"&no_cost={str(data.no_cost_only).lower()}"
+            f"&mismatch={str(data.mismatch_only).lower()}"
+            f"&below_min={str(data.below_min_only).lower()}&page={data.page}"
+        )
+        return (
+            f'<th class="prices-th" data-col="{key}">'
+            f'<a href="/web/prices{q}">{label}{icon}</a></th>'
+        )
 
     header = f"""
     <thead>
       <tr>
-        <th class="prices-th prices-th-check"><input type="checkbox" id="check-all" title="Выбрать всё"></th>
-        <th class="prices-th">Фото</th>
-        {_th("Артикул", "article")}
-        {_th("Название", "title")}
+        <th class="prices-th prices-th-check sticky-col-1" data-col="select"><input type="checkbox" id="check-all" title="Выбрать всё"></th>
+        <th class="prices-th sticky-col-2" data-col="photo">Фото</th>
         {_th("Бренд", "brand")}
+        {_th("Название", "title")}
+        <th class="prices-th" data-col="marketplace">МП</th>
+        {_th("Артикул продавца", "article")}
+        <th class="prices-th" data-col="sku">SKU</th>
+        <th class="prices-th" data-col="barcode">Barcode</th>
+        <th class="prices-th" data-col="wb_nm">WB nmID</th>
+        <th class="prices-th" data-col="ozon_product">Ozon product_id</th>
+        <th class="prices-th" data-col="ozon_offer">Ozon offer_id</th>
+        <th class="prices-th" data-col="size">Размер</th>
         {_th("Категория", "category")}
-        <th class="prices-th">МП</th>
-        <th class="prices-th">Цена WB</th>
-        <th class="prices-th">Скидка WB</th>
-        <th class="prices-th">Цена Ozon</th>
-        <th class="prices-th">МРЦ</th>
-        <th class="prices-th">Мин. цена</th>
-        <th class="prices-th">Себест.</th>
-        <th class="prices-th">Прибыль</th>
-        <th class="prices-th">Маржа</th>
-        <th class="prices-th">Остаток</th>
-        <th class="prices-th">Изм. цены</th>
-        <th class="prices-th">Действия</th>
+        <th class="prices-th" data-col="cost">Себестоимость</th>
+        <th class="prices-th" data-col="purchase">Закупочная цена</th>
+        <th class="prices-th" data-col="additional">Доп. расходы</th>
+        <th class="prices-th" data-col="fixed">Постоянные, руб.</th>
+        <th class="prices-th" data-col="tax">Налог, %</th>
+        <th class="prices-th" data-col="min">Мин. цена</th>
+        <th class="prices-th" data-col="max">Макс. цена</th>
+        <th class="prices-th" data-col="wb_price">Цена WB текущая</th>
+        <th class="prices-th" data-col="ozon_price">Цена Ozon текущая</th>
+        <th class="prices-th" data-col="system">Цена MP Control</th>
+        <th class="prices-th" data-col="discounted">Цена со скидкой</th>
+        <th class="prices-th" data-col="full_price">Цена без скидки</th>
+        <th class="prices-th" data-col="discount">Скидка текущая</th>
+        <th class="prices-th" data-col="new_price">Новая цена</th>
+        <th class="prices-th" data-col="new_discount">Новая скидка</th>
+        <th class="prices-th" data-col="target_margin">Желаемая маржа</th>
+        <th class="prices-th" data-col="target_profit">Желаемая прибыль</th>
+        <th class="prices-th" data-col="new_margin">Новая маржа</th>
+        <th class="prices-th" data-col="current_margin">Текущая маржа</th>
+        <th class="prices-th" data-col="current_profit">Прибыль текущая</th>
+        <th class="prices-th" data-col="new_profit">Прибыль новая</th>
+        <th class="prices-th" data-col="commission">Комиссия, %</th>
+        <th class="prices-th" data-col="logistics">Логистика, руб.</th>
+        <th class="prices-th" data-col="acquiring">Эквайринг Ozon</th>
+        <th class="prices-th" data-col="mp_costs">Расходы МП</th>
+        <th class="prices-th" data-col="stock">Суммарный остаток</th>
+        <th class="prices-th" data-col="fbo">Остаток FBO</th>
+        <th class="prices-th" data-col="fbs">Остаток FBS</th>
+        <th class="prices-th" data-col="turnover">Оборачиваемость</th>
+        <th class="prices-th" data-col="updated">Последнее обновление цены</th>
+        <th class="prices-th" data-col="api_error">Последняя ошибка API</th>
+        <th class="prices-th" data-col="status">Статус обновления</th>
+        <th class="prices-th" data-col="actions">Действия</th>
       </tr>
     </thead>"""
 
@@ -983,33 +1316,75 @@ def _render_table(data: PricesPageData) -> str:
         wb_discount_cell = f'{r.wb_discount}%' if r.wb_discount else '—'
         ozon_price_cell = f'<span class="{r.ozon_indicator}">{_fmt(r.ozon_price)}</span>' if r.ozon_price else '—'
         mrc_cell = _fmt(p.mrc_price)
-        min_cell = _fmt(p.min_price)
+        current_price = _display_price(r)
+        new_price_seed = current_price or p.min_price or Decimal("0")
+        commission = p.marketplace_commission_rate or Decimal("0")
+        tax_percent = (r.tax_rate * Decimal("100")) if r.tax_rate is not None else None
+        mp_costs = None
+        if current_price is not None:
+            mp_costs = current_price * commission
+        status_badges = _row_status_badges(r)
+        last_update = r.wb_synced_at or r.ozon_synced_at or r.last_price_change or "—"
 
         mp_val = p.marketplace.value if p.marketplace else ""
         acct_id = p.marketplace_account_id
+        wb_nm = p.external_product_id if p.marketplace == Marketplace.WB else ""
+        ozon_product_id = p.external_product_id if p.marketplace == Marketplace.OZON else ""
+        ozon_offer_id = p.seller_article if p.marketplace == Marketplace.OZON else ""
 
         rows_html += f"""
-      <tr class="prices-row" data-product-id="{p.id}" data-mp="{mp_val}" data-account-id="{acct_id}">
-        <td class="prices-td-check">
+      <tr class="prices-row" data-product-id="{p.id}" data-mp="{mp_val}" data-account-id="{acct_id}"
+          data-current-price="{current_price or ''}" data-cost="{r.cost_price or ''}"
+          data-additional="{r.additional_cost or ''}" data-min-price="{p.min_price or ''}"
+          data-max-price="{p.max_price or ''}" data-commission="{commission or ''}">
+        <td class="prices-td-check sticky-col-1" data-col="select">
           <input type="checkbox" class="row-check" value="{p.id}" data-mp="{mp_val}" data-account-id="{acct_id}">
         </td>
-        <td class="prices-td">{img}</td>
-        <td class="prices-td prices-article">{_e(p.seller_article) or _e(p.external_product_id)}</td>
-        <td class="prices-td prices-title" title="{_e(p.title)}">{_e(p.title or '')[:50]}</td>
-        <td class="prices-td">{_e(p.brand or '—')}</td>
-        <td class="prices-td">{_e(p.category or '—')}</td>
-        <td class="prices-td">{mp_badge}</td>
-        <td class="prices-td prices-price">{wb_price_cell}</td>
-        <td class="prices-td">{wb_discount_cell}</td>
-        <td class="prices-td prices-price">{ozon_price_cell}</td>
-        <td class="prices-td prices-mrc">{mrc_cell}</td>
-        <td class="prices-td">{min_cell}</td>
-        <td class="prices-td">{_fmt(r.cost_price)}</td>
-        <td class="prices-td prices-profit">{_fmt(r.profit)}</td>
-        <td class="prices-td">{_pct(r.margin_pct)}</td>
-        <td class="prices-td">{r.stock_quantity if r.stock_quantity is not None else '—'}</td>
-        <td class="prices-td prices-date" title="{_e(r.last_price_source or '')}">{_e(r.last_price_change or '—')}</td>
-        <td class="prices-td">
+        <td class="prices-td sticky-col-2" data-col="photo">{img}</td>
+        <td class="prices-td" data-col="brand">{_e(p.brand or '—')}</td>
+        <td class="prices-td prices-title" data-col="title" title="{_e(p.title)}">{_e(p.title or '')[:60]}</td>
+        <td class="prices-td" data-col="marketplace">{mp_badge}</td>
+        <td class="prices-td prices-article" data-col="article">{_e(p.seller_article) or _e(p.external_product_id)}</td>
+        <td class="prices-td" data-col="sku">{_e(p.marketplace_article or '—')}</td>
+        <td class="prices-td" data-col="barcode">{_e(p.barcode or '—')}</td>
+        <td class="prices-td" data-col="wb_nm">{_e(wb_nm or '—')}</td>
+        <td class="prices-td" data-col="ozon_product">{_e(ozon_product_id or '—')}</td>
+        <td class="prices-td" data-col="ozon_offer">{_e(ozon_offer_id or '—')}</td>
+        <td class="prices-td" data-col="size">{_e(p.chrt_id or '—')}</td>
+        <td class="prices-td" data-col="category">{_e(p.category or '—')}</td>
+        <td class="prices-td" data-col="cost">{_editable_number("cost", r.cost_price)}</td>
+        <td class="prices-td" data-col="purchase">{_editable_number("purchase", r.cost_price)}</td>
+        <td class="prices-td" data-col="additional">{_editable_number("additional", r.additional_cost)}</td>
+        <td class="prices-td" data-col="fixed">{_editable_number("fixed", r.package_cost)}</td>
+        <td class="prices-td" data-col="tax">{_editable_number("tax", tax_percent)}</td>
+        <td class="prices-td" data-col="min">{_editable_number("min", p.min_price)}</td>
+        <td class="prices-td" data-col="max">{_editable_number("max", p.max_price)}</td>
+        <td class="prices-td prices-price" data-col="wb_price">{wb_price_cell}</td>
+        <td class="prices-td prices-price" data-col="ozon_price">{ozon_price_cell}</td>
+        <td class="prices-td prices-mrc" data-col="system">{mrc_cell}</td>
+        <td class="prices-td prices-price" data-col="discounted">{_fmt(r.wb_discounted_price or r.ozon_price)}</td>
+        <td class="prices-td prices-price" data-col="full_price">{_fmt(r.wb_price or r.ozon_old_price)}</td>
+        <td class="prices-td" data-col="discount">{wb_discount_cell}</td>
+        <td class="prices-td" data-col="new_price">{_editable_number("new-price", new_price_seed)}</td>
+        <td class="prices-td" data-col="new_discount">{_editable_number("new-discount", r.wb_discount)}</td>
+        <td class="prices-td" data-col="target_margin">{_editable_number("target-margin", None)}</td>
+        <td class="prices-td" data-col="target_profit">{_editable_number("target-profit", None)}</td>
+        <td class="prices-td prices-price" data-col="new_margin"><span data-calc="new-margin">—</span></td>
+        <td class="prices-td" data-col="current_margin">{_pct(r.margin_pct)}</td>
+        <td class="prices-td prices-profit" data-col="current_profit">{_fmt(r.profit)}</td>
+        <td class="prices-td prices-price" data-col="new_profit"><span data-calc="new-profit">—</span></td>
+        <td class="prices-td" data-col="commission">{_pct(commission * Decimal("100"))}</td>
+        <td class="prices-td" data-col="logistics">{_fmt(r.package_cost)}</td>
+        <td class="prices-td" data-col="acquiring">—</td>
+        <td class="prices-td" data-col="mp_costs">{_fmt(mp_costs)}</td>
+        <td class="prices-td" data-col="stock">{r.stock_quantity if r.stock_quantity is not None else '—'}</td>
+        <td class="prices-td" data-col="fbo">—</td>
+        <td class="prices-td" data-col="fbs">{r.stock_quantity if r.stock_quantity is not None else '—'}</td>
+        <td class="prices-td" data-col="turnover">—</td>
+        <td class="prices-td prices-date" data-col="updated" title="{_e(r.last_price_source or '')}">{_e(last_update)}</td>
+        <td class="prices-td" data-col="api_error">—</td>
+        <td class="prices-td" data-col="status">{status_badges}</td>
+        <td class="prices-td" data-col="actions">
           <button class="btn btn-xs btn-accent prices-edit-btn"
                   data-product-id="{p.id}"
                   data-mp="{mp_val}"
@@ -1027,7 +1402,7 @@ def _render_table(data: PricesPageData) -> str:
 
     return f"""
   <div class="prices-table-wrap">
-    <table class="prices-table">
+    <table class="prices-table" id="prices-table">
       {header}
       <tbody>{rows_html}</tbody>
     </table>
@@ -1040,7 +1415,15 @@ def _render_pagination(data: PricesPageData) -> str:
     items = ""
     for p in range(1, data.total_pages + 1):
         active = ' pagination-active' if p == data.page else ''
-        q = f"?page={p}&search={escape(data.search)}&mp={data.marketplace_filter}&sort={data.sort_by}&dir={data.sort_dir}"
+        q = (
+            f"?page={p}&search={escape(data.search)}&mp={data.marketplace_filter}"
+            f"&category={escape(data.category_filter)}&brand={escape(data.brand_filter)}"
+            f"&in_stock={str(data.in_stock_only).lower()}"
+            f"&no_cost={str(data.no_cost_only).lower()}"
+            f"&mismatch={str(data.mismatch_only).lower()}"
+            f"&below_min={str(data.below_min_only).lower()}"
+            f"&sort={data.sort_by}&dir={data.sort_dir}"
+        )
         items += f'<a class="pagination-item{active}" href="/web/prices{q}">{p}</a>'
     info = f'Показано {(data.page - 1) * PAGE_SIZE + 1}–{min(data.page * PAGE_SIZE, data.total)} из {data.total}'
     return f'<div class="prices-pagination"><span class="pagination-info">{info}</span><div class="pagination-pages">{items}</div></div>'
@@ -1050,7 +1433,63 @@ def _render_modals(data: PricesPageData) -> str:
     bulk_op_opts = "".join(
         f'<option value="{k}">{v}</option>' for k, v in BULK_OP_LABELS.items()
     )
+    column_labels = [
+        ("photo", "Фото"),
+        ("title", "Название"),
+        ("marketplace", "Маркетплейс"),
+        ("article", "Артикул продавца"),
+        ("sku", "SKU"),
+        ("barcode", "Barcode"),
+        ("wb_nm", "WB nmID"),
+        ("ozon_product", "Ozon product_id"),
+        ("ozon_offer", "Ozon offer_id"),
+        ("category", "Категория"),
+        ("brand", "Бренд"),
+        ("cost", "Себестоимость"),
+        ("additional", "Доп. расходы"),
+        ("min", "Минимальная цена"),
+        ("max", "Максимальная цена"),
+        ("wb_price", "Цена WB"),
+        ("ozon_price", "Цена Ozon"),
+        ("new_price", "Новая цена"),
+        ("target_margin", "Желаемая маржа"),
+        ("target_profit", "Желаемая прибыль"),
+        ("new_margin", "Новая маржа"),
+        ("new_profit", "Прибыль новая"),
+        ("stock", "Остаток"),
+        ("updated", "Обновлено"),
+        ("status", "Статус"),
+    ]
+    column_items = "".join(
+        f'<label><input type="checkbox" class="column-toggle" value="{key}" checked> {label}</label>'
+        for key, label in column_labels
+    )
+
     return f"""
+<div id="modal-columns" class="modal-overlay" hidden>
+  <div class="modal-box modal-box-lg">
+    <div class="modal-header">
+      <h3 class="modal-title">Столбцы таблицы</h3>
+      <button class="modal-close" type="button" data-close="modal-columns">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="columns-grid">{column_items}</div>
+      <div class="form-group mt-3">
+        <label class="form-label" for="row-density">Высота строки</label>
+        <select class="form-select" id="row-density">
+          <option value="compact">Компактная</option>
+          <option value="normal">Обычная</option>
+          <option value="comfortable">Свободная</option>
+        </select>
+      </div>
+      <p class="form-hint">Настройки сохраняются в браузере для текущего пользователя.</p>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" type="button" data-close="modal-columns">Готово</button>
+    </div>
+  </div>
+</div>
+
 <div id="modal-edit" class="modal-overlay" hidden>
   <div class="modal-box">
     <div class="modal-header">
@@ -1481,6 +1920,98 @@ textarea.form-input { resize: vertical; }
 }
 .analytics-card h3 { margin: 0 0 16px; font-size: 14px; color: var(--text-secondary); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
 .analytics-chart-wrap { position: relative; height: 260px; }
+.prices-header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  margin-bottom: 16px;
+}
+.prices-header h1 { margin: 0 0 10px; font-size: 24px; line-height: 1.2; }
+.prices-tabs {
+  display: flex; gap: 4px; flex-wrap: wrap;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 4px;
+}
+.prices-tabs a {
+  text-decoration: none; color: var(--text-secondary); font-size: 13px;
+  font-weight: 600; padding: 7px 10px; border-radius: 6px;
+}
+.prices-tabs a.active, .prices-tabs a:hover { color: #fff; background: var(--accent); }
+.prices-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; color: var(--text-secondary); white-space: nowrap;
+}
+.prices-filter-drawer {
+  margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-light);
+}
+.prices-filter-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+}
+.prices-filter-grid label {
+  display: grid; gap: 4px; font-size: 12px; color: var(--text-secondary);
+}
+.prices-filter-grid select {
+  height: 32px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-card); color: var(--text); padding: 0 8px;
+}
+.prices-filter-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.prices-filter-chips label {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 9px;
+  border: 1px solid var(--border); border-radius: 999px;
+  background: var(--bg-card); font-size: 12px; color: var(--text-secondary);
+}
+.prices-filter-actions { display: flex; gap: 8px; margin-top: 12px; }
+.prices-toolbar-left, .prices-toolbar-right { flex-wrap: wrap; }
+.prices-table-wrap { overflow: auto; max-height: 72vh; }
+.prices-table {
+  border-collapse: separate; border-spacing: 0; font-size: 12px; min-width: 3600px;
+}
+.prices-table.density-compact .prices-td { padding-top: 5px; padding-bottom: 5px; }
+.prices-table.density-comfortable .prices-td { padding-top: 13px; padding-bottom: 13px; }
+.sticky-col-1 { position: sticky; left: 0; z-index: 3; background: var(--bg-card); }
+.sticky-col-2 { position: sticky; left: 38px; z-index: 3; background: var(--bg-card); }
+th.sticky-col-1, th.sticky-col-2 { z-index: 5; background: var(--bg-muted); }
+.prices-inline-input {
+  width: 92px; height: 28px; padding: 0 7px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg-card); color: var(--text); font-size: 12px;
+}
+.prices-inline-input.is-dirty {
+  border-color: var(--accent); background: var(--accent-soft);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.prices-badge {
+  display: inline-flex; align-items: center; margin: 2px 4px 2px 0;
+  padding: 3px 7px; border-radius: 999px; font-size: 11px; font-weight: 700;
+}
+.prices-badge-ok {
+  background: var(--success-soft); color: var(--success);
+  border: 1px solid var(--success-border);
+}
+.prices-badge-warn {
+  background: var(--warning-soft); color: var(--warning);
+  border: 1px solid var(--warning-border);
+}
+.prices-badge-danger {
+  background: var(--danger-soft); color: var(--danger);
+  border: 1px solid var(--danger-border);
+}
+.prices-badge-muted {
+  background: var(--bg-muted); color: var(--text-secondary); border: 1px solid var(--border);
+}
+.columns-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+}
+.columns-grid label {
+  display: flex; align-items: center; gap: 7px;
+  padding: 7px 8px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--bg-muted); font-size: 12px;
+}
+@media (max-width: 780px) {
+  .prices-toolbar { align-items: stretch; }
+  .prices-toolbar-left, .prices-toolbar-right { width: 100%; }
+  .prices-search-input { min-width: 100%; }
+}
 </style>"""
 
 
@@ -1541,6 +2072,126 @@ def _prices_js() -> str:
   document.querySelectorAll('.modal-overlay').forEach(overlay => {
     overlay.addEventListener('click', function(e) {
       if (e.target === this) closeModal(this.id);
+    });
+  });
+  document.getElementById('btn-columns-open')?.addEventListener('click', () => openModal('modal-columns'));
+  document.getElementById('tab-settings-open')?.addEventListener('click', function(e) {
+    e.preventDefault();
+    openModal('modal-columns');
+  });
+  document.getElementById('tab-bulk-open')?.addEventListener('click', function(e) {
+    e.preventDefault();
+    if (btnBulkOpen && !btnBulkOpen.disabled) openModal('modal-bulk');
+  });
+  document.getElementById('btn-filter-toggle')?.addEventListener('click', function() {
+    const drawer = document.getElementById('prices-filter-drawer');
+    if (drawer) drawer.hidden = !drawer.hidden;
+  });
+
+  // ── Column preferences ─────────────────────────────────────────────────
+  const table = document.getElementById('prices-table');
+  const prefKey = 'mp-control-prices-table-v2';
+  function readPrefs() {
+    try { return JSON.parse(localStorage.getItem(prefKey) || '{}'); }
+    catch (_) { return {}; }
+  }
+  function writePrefs(prefs) {
+    localStorage.setItem(prefKey, JSON.stringify(prefs));
+  }
+  function applyColumnPrefs() {
+    const prefs = readPrefs();
+    const hidden = new Set(prefs.hidden || []);
+    document.querySelectorAll('[data-col]').forEach(cell => {
+      const key = cell.dataset.col;
+      cell.style.display = hidden.has(key) ? 'none' : '';
+    });
+    document.querySelectorAll('.column-toggle').forEach(input => {
+      input.checked = !hidden.has(input.value);
+    });
+    if (table) {
+      table.classList.remove('density-compact', 'density-comfortable');
+      if (prefs.density === 'compact') table.classList.add('density-compact');
+      if (prefs.density === 'comfortable') table.classList.add('density-comfortable');
+    }
+    const density = document.getElementById('row-density');
+    if (density && prefs.density) density.value = prefs.density;
+  }
+  document.querySelectorAll('.column-toggle').forEach(input => {
+    input.addEventListener('change', function() {
+      const prefs = readPrefs();
+      const hidden = new Set(prefs.hidden || []);
+      if (this.checked) hidden.delete(this.value); else hidden.add(this.value);
+      prefs.hidden = Array.from(hidden);
+      writePrefs(prefs);
+      applyColumnPrefs();
+    });
+  });
+  document.getElementById('row-density')?.addEventListener('change', function() {
+    const prefs = readPrefs();
+    prefs.density = this.value;
+    writePrefs(prefs);
+    applyColumnPrefs();
+  });
+  applyColumnPrefs();
+
+  // ── Inline price calculations ──────────────────────────────────────────
+  function toNumber(value) {
+    const n = parseFloat(String(value || '').replace(',', '.'));
+    return Number.isFinite(n) ? n : 0;
+  }
+  function fmtMoney(value) {
+    if (!Number.isFinite(value)) return '—';
+    return Math.round(value).toLocaleString('ru-RU') + ' ₽';
+  }
+  function fmtPct(value) {
+    if (!Number.isFinite(value)) return '—';
+    return value.toFixed(1) + '%';
+  }
+  function recalcRow(row) {
+    const cost = toNumber(row.querySelector('[data-edit="cost"]')?.value);
+    const additional = toNumber(row.querySelector('[data-edit="additional"]')?.value);
+    const fixed = toNumber(row.querySelector('[data-edit="fixed"]')?.value);
+    const taxPct = toNumber(row.querySelector('[data-edit="tax"]')?.value);
+    const commission = toNumber(row.dataset.commission);
+    const newPriceInput = row.querySelector('[data-edit="new-price"]');
+    const targetMargin = toNumber(row.querySelector('[data-edit="target-margin"]')?.value);
+    const targetProfit = toNumber(row.querySelector('[data-edit="target-profit"]')?.value);
+    let newPrice = toNumber(newPriceInput?.value);
+    const totalCost = cost + additional + fixed;
+    if (targetProfit > 0) newPrice = totalCost + targetProfit;
+    if (targetMargin > 0 && targetMargin < 99) newPrice = totalCost / (1 - targetMargin / 100);
+    if (newPriceInput && (targetProfit > 0 || targetMargin > 0)) {
+      newPriceInput.value = newPrice.toFixed(2);
+      newPriceInput.classList.add('is-dirty');
+    }
+    const tax = newPrice * taxPct / 100;
+    const mpCosts = newPrice * commission;
+    const profit = newPrice - totalCost - tax - mpCosts;
+    const margin = newPrice > 0 ? profit / newPrice * 100 : NaN;
+    const profitNode = row.querySelector('[data-calc="new-profit"]');
+    const marginNode = row.querySelector('[data-calc="new-margin"]');
+    if (profitNode) profitNode.textContent = fmtMoney(profit);
+    if (marginNode) marginNode.textContent = fmtPct(margin);
+    row.classList.toggle('has-warning', profit < 0);
+  }
+  document.querySelectorAll('.prices-inline-input').forEach(input => {
+    input.addEventListener('input', function() {
+      this.classList.add('is-dirty');
+      const row = this.closest('tr');
+      if (row) recalcRow(row);
+    });
+  });
+  document.querySelectorAll('.prices-row').forEach(recalcRow);
+  document.getElementById('btn-fill-new-price')?.addEventListener('click', function() {
+    document.querySelectorAll('.prices-row').forEach(row => {
+      const minPrice = toNumber(row.dataset.minPrice);
+      const current = toNumber(row.dataset.currentPrice);
+      const input = row.querySelector('[data-edit="new-price"]');
+      if (input) {
+        input.value = Math.max(current, minPrice, 1).toFixed(2);
+        input.classList.add('is-dirty');
+      }
+      recalcRow(row);
     });
   });
 
