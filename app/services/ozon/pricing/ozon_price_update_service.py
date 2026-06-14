@@ -79,7 +79,12 @@ class OzonPriceUpdateService:
 
         for item in items:
             product = await self.session.get(Product, item.product_id)
-            if product is None:
+            if (
+                product is None
+                or product.user_id != user_id
+                or product.marketplace_account_id != marketplace_account_id
+                or product.marketplace != Marketplace.OZON
+            ):
                 results.append(
                     OzonPriceUpdateResult(
                         product_id=item.product_id,
@@ -87,13 +92,16 @@ class OzonPriceUpdateService:
                         status=STATUS_SKIPPED,
                         old_price=None,
                         new_price=item.new_price,
-                        error="Товар не найден",
+                        error="Товар Ozon не найден в выбранном кабинете",
                     )
                 )
                 continue
 
             old_price = await self._get_current_price(marketplace_account_id, item.offer_id)
-            error = self._validate(item, product)
+            current_min_price = await self._get_current_min_price(
+                marketplace_account_id, item.offer_id, product
+            )
+            error = self._validate(item, product, current_min_price)
             if error:
                 await self._log(
                     user_id=user_id,
@@ -142,14 +150,14 @@ class OzonPriceUpdateService:
                 )
                 continue
 
-            upload_items.append(
-                {
-                    "offer_id": item.offer_id,
-                    "price": str(item.new_price),
-                    "old_price": str(item.new_old_price) if item.new_old_price else "0",
-                    "min_price": "0",
-                }
-            )
+            payload = {
+                "offer_id": item.offer_id,
+                "price": str(item.new_price),
+                "old_price": str(item.new_old_price) if item.new_old_price else "0",
+            }
+            if current_min_price is not None:
+                payload["min_price"] = str(current_min_price)
+            upload_items.append(payload)
             upload_context.append((item, old_price, product))
 
         if upload_items and not dry_run:
@@ -194,11 +202,17 @@ class OzonPriceUpdateService:
 
         return results
 
-    def _validate(self, item: OzonPriceUpdateItem, product: Product) -> str | None:
+    def _validate(
+        self,
+        item: OzonPriceUpdateItem,
+        product: Product,
+        current_min_price: Decimal | None,
+    ) -> str | None:
         if item.new_price <= 0:
             return "Цена должна быть больше 0"
-        if product.min_price and item.new_price < product.min_price:
-            return f"Цена {item.new_price} ниже минимальной {product.min_price}"
+        min_price = product.min_price or current_min_price
+        if min_price and item.new_price < min_price:
+            return f"Цена {item.new_price} ниже минимальной {min_price}"
         if product.max_price and item.new_price > product.max_price:
             return f"Цена {item.new_price} выше максимальной {product.max_price}"
         return None
@@ -210,6 +224,23 @@ class OzonPriceUpdateService:
             select(OzonCurrentPrice.price).where(
                 OzonCurrentPrice.marketplace_account_id == marketplace_account_id,
                 OzonCurrentPrice.offer_id == offer_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def _get_current_min_price(
+        self,
+        marketplace_account_id: int,
+        offer_id: str,
+        product: Product,
+    ) -> Decimal | None:
+        if product.min_price:
+            return product.min_price
+        result = await self.session.execute(
+            select(OzonCurrentPrice.min_price).where(
+                OzonCurrentPrice.marketplace_account_id == marketplace_account_id,
+                OzonCurrentPrice.offer_id == offer_id,
+                OzonCurrentPrice.min_price.isnot(None),
             )
         )
         return result.scalar_one_or_none()

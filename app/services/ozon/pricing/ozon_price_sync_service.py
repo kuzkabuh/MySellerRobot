@@ -159,6 +159,8 @@ class OzonPriceSyncService:
 
             product = products_by_offer.get(offer_id)
             product_id = product.id if product else None
+            if product is not None and min_price is not None:
+                product.min_price = min_price
 
             existing_result = await self.session.execute(
                 select(OzonCurrentPrice).where(

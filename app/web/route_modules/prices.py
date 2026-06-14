@@ -596,7 +596,6 @@ async def prices_bulk_apply(
     operation: str = Form(...),
     value: str = Form(...),
     round_to: str = Form(default="0"),
-    marketplace_account_id: int = Form(...),
     reason: str = Form(default=""),
     comment: str = Form(default=""),
     request: Request = None,
@@ -616,7 +615,6 @@ async def prices_bulk_apply(
         svc = PriceManagementService(session)
         results = await svc.apply_bulk_prices(
             user_id=user.id,
-            marketplace_account_id=marketplace_account_id,
             product_ids=ids,
             params=params,
             reason=reason.strip() or None,
@@ -644,7 +642,7 @@ async def _render_analytics_page(
 ) -> str:
     from datetime import UTC, datetime, timedelta
 
-    from sqlalchemy import func, and_
+    from sqlalchemy import func
 
     cutoff = datetime.now(tz=UTC) - timedelta(days=days)
 
@@ -734,7 +732,7 @@ async def _render_analytics_page(
       <div class="prices-stat-label">Изменений цен</div>
     </div>
     <div class="prices-stat-card">
-      <div class="prices-stat-value">{"%.0f ₽" % avg_price if avg_price else "—"}</div>
+      <div class="prices-stat-value">{f"{avg_price:.0f} ₽" if avg_price else "—"}</div>
       <div class="prices-stat-label">Средняя новая цена</div>
     </div>
     <div class="prices-stat-card">
@@ -1175,7 +1173,11 @@ async def _render_history_page(
             "dry_run": "badge badge-info",
             "pending": "badge",
         }.get(log.status, "badge")
-        mp_badge = f'<span class="badge badge-wb">WB</span>' if log.marketplace == "WB" else f'<span class="badge badge-ozon">Ozon</span>'
+        mp_badge = (
+            '<span class="badge badge-wb">WB</span>'
+            if log.marketplace == "WB"
+            else '<span class="badge badge-ozon">Ozon</span>'
+        )
         old_p = _fmt(log.old_price)
         new_p = _fmt(log.new_price)
         change_pct = ""
@@ -1304,10 +1306,13 @@ def _render_bulk_preview(
       <input type="hidden" name="operation" value="{_e(params.operation.value)}">
       <input type="hidden" name="value" value="{params.value}">
       <input type="hidden" name="round_to" value="{params.round_to}">
-      <input type="hidden" name="marketplace_account_id" value="0">
       <div class="form-group">
         <label class="form-label" for="bulk-reason-final">Причина</label>
         <input class="form-input" type="text" id="bulk-reason-final" name="reason" placeholder="Необязательно">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="bulk-comment-final">Комментарий</label>
+        <textarea class="form-input" id="bulk-comment-final" name="comment" rows="2" placeholder="Необязательно"></textarea>
       </div>
       <div class="modal-actions">
         <button class="btn btn-primary" type="submit" {'disabled' if can_count == 0 else ''}>

@@ -8,9 +8,9 @@ updated: 2026-06-13
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
-from enum import Enum
+from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Decimal
+from enum import StrEnum
 from typing import Any
 
 from sqlalchemy import select
@@ -37,7 +37,7 @@ SOURCE_MANUAL = "manual"
 SOURCE_BULK = "bulk"
 
 
-class BulkOperation(str, Enum):
+class BulkOperation(StrEnum):
     SET = "set"
     INCREASE_PERCENT = "increase_percent"
     DECREASE_PERCENT = "decrease_percent"
@@ -101,6 +101,7 @@ class PriceManagementService:
         item: PriceEditItem,
         *,
         dry_run: bool = False,
+        source: str = SOURCE_MANUAL,
         changed_by_ip: str | None = None,
     ) -> PriceEditResult:
         """Edit price for a single product. Applies via marketplace API."""
@@ -113,9 +114,25 @@ class PriceManagementService:
                 new_price=item.new_price,
                 error="Товар не найден",
             )
+        if product.marketplace_account_id != marketplace_account_id:
+            return PriceEditResult(
+                product_id=item.product_id,
+                status=STATUS_SKIPPED,
+                old_price=None,
+                new_price=item.new_price,
+                error="Товар относится к другому кабинету",
+            )
+        if product.marketplace.value != item.marketplace:
+            return PriceEditResult(
+                product_id=item.product_id,
+                status=STATUS_SKIPPED,
+                old_price=None,
+                new_price=item.new_price,
+                error="Маркетплейс товара не совпадает с операцией",
+            )
 
         old_price = await self._get_current_price(product)
-        validation_error = self._validate_price(item.new_price, product)
+        validation_error = await self._validate_price(item.new_price, product)
         if validation_error:
             return PriceEditResult(
                 product_id=item.product_id,
@@ -134,6 +151,7 @@ class PriceManagementService:
                 old_price=old_price,
                 status=STATUS_DRY_RUN,
                 dry_run=True,
+                source=source,
                 changed_by_ip=changed_by_ip,
             )
             return PriceEditResult(
@@ -152,27 +170,46 @@ class PriceManagementService:
                 new_price=item.new_price,
                 error="Аккаунт не найден",
             )
+        if (
+            account.id != product.marketplace_account_id
+            or account.marketplace != product.marketplace
+        ):
+            return PriceEditResult(
+                product_id=item.product_id,
+                status=STATUS_FAILED,
+                old_price=old_price,
+                new_price=item.new_price,
+                error="Кабинет не соответствует товару",
+            )
 
         try:
             if item.marketplace == "WB":
                 api_error = await self._apply_wb_price(account, product, item)
             else:
-                api_error = await self._apply_ozon_price(account, product, item)
+                api_error = await self._apply_ozon_price(
+                    account,
+                    product,
+                    item,
+                    source=source,
+                    changed_by_ip=changed_by_ip,
+                )
         except Exception as exc:
             api_error = str(exc)
 
         status = STATUS_FAILED if api_error else STATUS_APPLIED
-        await self._write_log(
-            user_id=user_id,
-            marketplace_account_id=marketplace_account_id,
-            product=product,
-            item=item,
-            old_price=old_price,
-            status=status,
-            dry_run=False,
-            changed_by_ip=changed_by_ip,
-            error=api_error,
-        )
+        if item.marketplace != Marketplace.OZON.value:
+            await self._write_log(
+                user_id=user_id,
+                marketplace_account_id=marketplace_account_id,
+                product=product,
+                item=item,
+                old_price=old_price,
+                status=status,
+                dry_run=False,
+                source=source,
+                changed_by_ip=changed_by_ip,
+                error=api_error,
+            )
         return PriceEditResult(
             product_id=item.product_id,
             status=status,
@@ -199,7 +236,7 @@ class PriceManagementService:
             error = None
             can_apply = True
             if new_price is not None:
-                error = self._validate_price(new_price, product)
+                error = await self._validate_price(new_price, product)
                 can_apply = error is None
             else:
                 can_apply = False
@@ -221,10 +258,10 @@ class PriceManagementService:
     async def apply_bulk_prices(
         self,
         user_id: int,
-        marketplace_account_id: int,
         product_ids: list[int],
         params: BulkPriceParams,
         *,
+        marketplace_account_id: int | None = None,
         reason: str | None = None,
         comment: str | None = None,
         changed_by_ip: str | None = None,
@@ -234,6 +271,18 @@ class PriceManagementService:
         for pid in product_ids:
             product = await self.session.get(Product, pid)
             if product is None or product.user_id != user_id:
+                continue
+            account_id = marketplace_account_id or product.marketplace_account_id
+            if account_id != product.marketplace_account_id:
+                results.append(
+                    PriceEditResult(
+                        product_id=pid,
+                        status=STATUS_SKIPPED,
+                        old_price=None,
+                        new_price=None,
+                        error="Товар относится к другому кабинету",
+                    )
+                )
                 continue
             current_price = await self._get_current_price(product)
             cost_price = await self._get_cost_price(product)
@@ -258,8 +307,9 @@ class PriceManagementService:
             )
             result = await self.edit_single_price(
                 user_id=user_id,
-                marketplace_account_id=marketplace_account_id,
+                marketplace_account_id=account_id,
                 item=item,
+                source=SOURCE_BULK,
                 changed_by_ip=changed_by_ip,
             )
             results.append(result)
@@ -323,13 +373,31 @@ class PriceManagementService:
 
         return max(Decimal("1"), new_price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-    def _validate_price(self, price: Decimal, product: Product) -> str | None:
+    async def _validate_price(self, price: Decimal, product: Product) -> str | None:
         if price <= 0:
             return "Цена должна быть больше 0"
-        if product.min_price and price < product.min_price:
-            return f"Цена {price} ниже минимальной {product.min_price}"
+        min_price = await self._get_effective_min_price(product)
+        if min_price and price < min_price:
+            return f"Цена {price} ниже минимальной {min_price}"
         if product.max_price and price > product.max_price:
             return f"Цена {price} выше максимальной {product.max_price}"
+        return None
+
+    async def _get_effective_min_price(self, product: Product) -> Decimal | None:
+        if product.min_price:
+            return product.min_price
+        if product.marketplace == Marketplace.OZON:
+            offer_id = product.seller_article or product.external_product_id
+            if not offer_id:
+                return None
+            result = await self.session.execute(
+                select(OzonCurrentPrice.min_price).where(
+                    OzonCurrentPrice.marketplace_account_id == product.marketplace_account_id,
+                    OzonCurrentPrice.offer_id == offer_id,
+                    OzonCurrentPrice.min_price.isnot(None),
+                )
+            )
+            return result.scalar_one_or_none()
         return None
 
     async def _get_current_price(self, product: Product) -> Decimal | None:
@@ -342,13 +410,16 @@ class PriceManagementService:
             except (ValueError, TypeError):
                 return None
             result = await self.session.execute(
-                select(WbProductPrice.discounted_price).where(
+                select(WbProductPrice.discounted_price, WbProductPrice.price).where(
                     WbProductPrice.marketplace_account_id == product.marketplace_account_id,
                     WbProductPrice.wb_nm_id == nm_id,
-                    WbProductPrice.discounted_price.isnot(None),
                 )
             )
-            return result.scalar_one_or_none()
+            row = result.one_or_none()
+            if row is None:
+                return None
+            discounted_price, price = row
+            return discounted_price or price
         elif product.marketplace == Marketplace.OZON:
             offer_id = product.seller_article or product.external_product_id
             if not offer_id:
@@ -390,7 +461,9 @@ class PriceManagementService:
         except (ValueError, TypeError):
             return f"Некорректный nmID: {nm_id_str}"
 
-        discount = Decimal(str(item.new_discount)) if item.new_discount is not None else Decimal("75")
+        discount = (
+            Decimal(str(item.new_discount)) if item.new_discount is not None else Decimal("75")
+        )
         payload = calculate_wb_price_payload_for_target(
             target_discounted_price=item.new_price,
             discount_percent=discount,
@@ -409,7 +482,13 @@ class PriceManagementService:
             return str(exc)
 
     async def _apply_ozon_price(
-        self, account: MarketplaceAccount, product: Product, item: PriceEditItem
+        self,
+        account: MarketplaceAccount,
+        product: Product,
+        item: PriceEditItem,
+        *,
+        source: str,
+        changed_by_ip: str | None,
     ) -> str | None:
         from app.services.ozon.pricing.ozon_price_update_service import (
             OzonPriceUpdateItem,
@@ -431,6 +510,8 @@ class PriceManagementService:
             user_id=product.user_id,
             marketplace_account_id=account.id,
             items=[update_item],
+            source=source,
+            changed_by_ip=changed_by_ip,
         )
         if results and results[0].error:
             return results[0].error
@@ -446,6 +527,7 @@ class PriceManagementService:
         old_price: Decimal | None,
         status: str,
         dry_run: bool,
+        source: str,
         changed_by_ip: str | None,
         error: str | None = None,
         raw_response: dict[str, Any] | None = None,
@@ -460,7 +542,7 @@ class PriceManagementService:
             old_price=old_price,
             new_price=item.new_price,
             new_discount=item.new_discount,
-            source=SOURCE_MANUAL,
+            source=source,
             reason=item.reason,
             comment=item.comment,
             changed_by_user_id=user_id,
