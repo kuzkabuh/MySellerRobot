@@ -11,13 +11,14 @@ import logging
 import math
 from csv import writer
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from html import escape
 from io import StringIO
 from typing import Any
 
 from fastapi import APIRouter, Form, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import Response
@@ -126,6 +127,123 @@ def _display_price(row: Any) -> Decimal | None:
     return row.wb_discounted_price or row.wb_price or row.ozon_price
 
 
+def _parse_optional_decimal(value: str) -> Decimal | None:
+    text = (value or "").replace(",", ".").strip()
+    if not text:
+        return None
+    try:
+        return Decimal(text)
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError(f"Некорректное число: {value}") from exc
+
+
+def _parse_optional_int(value: str) -> int | None:
+    text = (value or "").strip()
+    if not text:
+        return None
+    try:
+        return int(text)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Некорректное целое число: {value}") from exc
+
+
+async def _latest_cost_row(
+    session: AsyncSession,
+    product_id: int,
+) -> ProductCostHistory | None:
+    result = await session.execute(
+        select(ProductCostHistory)
+        .where(ProductCostHistory.product_id == product_id)
+        .where(ProductCostHistory.valid_to.is_(None))
+        .order_by(ProductCostHistory.valid_from.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def _save_cost_components(
+    session: AsyncSession,
+    product: Product,
+    *,
+    purchase_price: Decimal | None,
+    additional_cost: Decimal | None,
+    fixed_costs: Decimal | None,
+    tax_percent: Decimal | None,
+    valid_from: datetime,
+) -> None:
+    if all(value is None for value in [purchase_price, additional_cost, fixed_costs, tax_percent]):
+        return
+    latest = await _latest_cost_row(session, product.id)
+    next_purchase = purchase_price if purchase_price is not None else (
+        latest.purchase_price if latest else Decimal("0")
+    )
+    next_additional = additional_cost if additional_cost is not None else (
+        latest.extra_costs if latest else Decimal("0")
+    )
+    next_fixed = fixed_costs if fixed_costs is not None else (
+        latest.fixed_costs if latest else Decimal("0")
+    )
+    next_tax = (tax_percent / Decimal("100")) if tax_percent is not None else (
+        latest.tax_rate if latest else Decimal("0")
+    )
+    if latest is not None:
+        unchanged = (
+            latest.purchase_price == next_purchase
+            and latest.extra_costs == next_additional
+            and latest.fixed_costs == next_fixed
+            and latest.tax_rate == next_tax
+        )
+        if unchanged:
+            return
+        latest.valid_to = valid_from
+    session.add(
+        ProductCostHistory(
+            product_id=product.id,
+            cost_price=next_purchase,
+            additional_cost=next_additional,
+            package_cost=next_fixed,
+            tax_rate=next_tax,
+            valid_from=valid_from,
+            comment="Обновлено из раздела цен",
+        )
+    )
+
+
+async def _get_current_product_price(
+    session: AsyncSession,
+    product: Product,
+) -> Decimal | None:
+    if product.marketplace == Marketplace.WB:
+        nm_id_str = product.external_product_id or product.marketplace_article
+        if not nm_id_str:
+            return None
+        try:
+            nm_id = int(nm_id_str)
+        except (TypeError, ValueError):
+            return None
+        result = await session.execute(
+            select(WbProductPrice.discounted_price, WbProductPrice.price).where(
+                WbProductPrice.marketplace_account_id == product.marketplace_account_id,
+                WbProductPrice.wb_nm_id == nm_id,
+            )
+        )
+        row = result.one_or_none()
+        if row is None:
+            return None
+        discounted_price, price = row
+        return discounted_price or price
+    offer_id = product.seller_article or product.external_product_id
+    if not offer_id:
+        return None
+    result = await session.execute(
+        select(OzonCurrentPrice.price).where(
+            OzonCurrentPrice.marketplace_account_id == product.marketplace_account_id,
+            OzonCurrentPrice.offer_id == offer_id,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
 # ─── Page data loader ────────────────────────────────────────────────────────
 
 @dataclass(slots=True)
@@ -152,6 +270,8 @@ class PricesRow:
     stock_quantity: int | None
     last_price_change: str | None
     last_price_source: str | None
+    price_status: str
+    last_api_error: str | None
 
 
 @dataclass(slots=True)
@@ -348,27 +468,30 @@ async def _load_page_data(
             if pid is not None:
                 stock_quantities[pid] = int(qty or 0)
 
-    # Last price changes: product_id → (created_at_str, source)
-    last_price_changes: dict[int, tuple[str, str]] = {}
+    # Last price changes: product_id → (created_at_str, source, status, error)
+    last_price_changes: dict[int, tuple[str, str, str, str | None]] = {}
     if product_ids:
         pcl_result = await session.execute(
             select(
                 PriceChangeLog.product_id,
                 PriceChangeLog.created_at,
                 PriceChangeLog.source,
+                PriceChangeLog.status,
+                PriceChangeLog.error,
             )
             .where(
                 PriceChangeLog.product_id.in_(product_ids),
-                PriceChangeLog.status == "applied",
             )
             .order_by(PriceChangeLog.created_at.desc())
         )
         seen_pcl: set[int] = set()
-        for pid, ts, src in pcl_result.all():
+        for pid, ts, src, status, error in pcl_result.all():
             if pid not in seen_pcl and pid is not None:
                 last_price_changes[pid] = (
                     format_datetime_for_user(ts) if ts else "",
                     src or "",
+                    status or "",
+                    error,
                 )
                 seen_pcl.add(pid)
 
@@ -441,6 +564,8 @@ async def _load_page_data(
                 stock_quantity=stock_quantities.get(p.id),
                 last_price_change=last_chg[0] if last_chg else None,
                 last_price_source=last_chg[1] if last_chg else None,
+                price_status=last_chg[2] if last_chg else "actual",
+                last_api_error=last_chg[3] if last_chg else None,
             )
         )
 
@@ -756,6 +881,184 @@ async def prices_edit_single(
         logger.exception("prices_edit_single_error", extra={"user_id": user.id, "product_id": product_id})
         await session.rollback()
         return RedirectResponse(url="/web/prices?error=edit_failed", status_code=303)
+
+
+@router.post("/prices/save-row")
+async def prices_save_row(
+    product_id: int = Form(...),
+    new_price: str = Form(default=""),
+    new_discount: str = Form(default=""),
+    purchase_price: str = Form(default=""),
+    additional_cost: str = Form(default=""),
+    fixed_costs: str = Form(default=""),
+    tax_percent: str = Form(default=""),
+    min_price: str = Form(default=""),
+    max_price: str = Form(default=""),
+    auto_send: str = Form(default=""),
+    request: Request = None,
+    user=CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> JSONResponse:
+    product = await session.get(Product, product_id)
+    if product is None or product.user_id != user.id:
+        return JSONResponse({"ok": False, "error": "Товар не найден"}, status_code=404)
+
+    try:
+        parsed_new_price = _parse_optional_decimal(new_price)
+        parsed_new_discount = _parse_optional_int(new_discount)
+        parsed_purchase = _parse_optional_decimal(purchase_price)
+        parsed_additional = _parse_optional_decimal(additional_cost)
+        parsed_fixed = _parse_optional_decimal(fixed_costs)
+        parsed_tax_percent = _parse_optional_decimal(tax_percent)
+        parsed_min = _parse_optional_decimal(min_price)
+        parsed_max = _parse_optional_decimal(max_price)
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+
+    for label, value in [
+        ("закупочная цена", parsed_purchase),
+        ("доп. расходы", parsed_additional),
+        ("постоянные расходы", parsed_fixed),
+        ("минимальная цена", parsed_min),
+        ("максимальная цена", parsed_max),
+    ]:
+        if value is not None and value < 0:
+            return JSONResponse({"ok": False, "error": f"{label} не может быть отрицательной"}, status_code=400)
+    if parsed_new_price is not None and parsed_new_price <= 0:
+        return JSONResponse({"ok": False, "error": "Новая цена должна быть больше 0"}, status_code=400)
+    if parsed_min is not None and parsed_new_price is not None and parsed_new_price < parsed_min:
+        return JSONResponse({"ok": False, "error": "Новая цена ниже минимальной"}, status_code=400)
+    if parsed_max is not None and parsed_new_price is not None and parsed_new_price > parsed_max:
+        return JSONResponse({"ok": False, "error": "Новая цена выше максимальной"}, status_code=400)
+
+    now = datetime.now(tz=UTC)
+    client_ip = request.client.host if request and request.client else None
+    try:
+        product.min_price = parsed_min
+        product.max_price = parsed_max
+        await _save_cost_components(
+            session,
+            product,
+            purchase_price=parsed_purchase,
+            additional_cost=parsed_additional,
+            fixed_costs=parsed_fixed,
+            tax_percent=parsed_tax_percent,
+            valid_from=now,
+        )
+        if parsed_new_price is not None:
+            old_price = await _get_current_product_price(session, product)
+            log = PriceChangeLog(
+                user_id=user.id,
+                marketplace_account_id=product.marketplace_account_id,
+                product_id=product.id,
+                marketplace=product.marketplace.value,
+                external_product_id=product.external_product_id or "",
+                seller_article=product.seller_article,
+                old_price=old_price,
+                new_price=parsed_new_price,
+                old_discount=None,
+                new_discount=parsed_new_discount,
+                source="manual",
+                reason="saved_in_mp_control",
+                comment="Сохранено в MP Control, не отправлено",
+                changed_by_user_id=user.id,
+                changed_by_ip=client_ip,
+                status="pending",
+                dry_run=False,
+            )
+            session.add(log)
+        await session.commit()
+    except Exception:
+        logger.exception("prices_save_row_error", extra={"user_id": user.id, "product_id": product_id})
+        await session.rollback()
+        return JSONResponse({"ok": False, "error": "Ошибка сохранения"}, status_code=500)
+
+    if auto_send and parsed_new_price is not None:
+        return await prices_send_row(product_id=product_id, request=request, user=user, session=session)
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "status": "pending",
+            "label": "Сохранено · Не отправлено",
+            "saved_at": format_datetime_for_user(now),
+        }
+    )
+
+
+@router.post("/prices/send-row")
+async def prices_send_row(
+    product_id: int = Form(...),
+    request: Request = None,
+    user=CURRENT_WEB_USER_DEPENDENCY,
+    session: AsyncSession = SESSION_DEPENDENCY,
+) -> JSONResponse:
+    product = await session.get(Product, product_id)
+    if product is None or product.user_id != user.id:
+        return JSONResponse({"ok": False, "error": "Товар не найден"}, status_code=404)
+
+    pending_result = await session.execute(
+        select(PriceChangeLog)
+        .where(
+            PriceChangeLog.user_id == user.id,
+            PriceChangeLog.product_id == product.id,
+            PriceChangeLog.status.in_(["pending", "failed"]),
+        )
+        .order_by(PriceChangeLog.created_at.desc())
+        .limit(1)
+    )
+    pending = pending_result.scalar_one_or_none()
+    if pending is None:
+        return JSONResponse({"ok": False, "error": "Нет сохранённой цены для отправки"}, status_code=400)
+
+    pending.status = "sending"
+    await session.commit()
+
+    client_ip = request.client.host if request and request.client else None
+    service = PriceManagementService(session)
+    item = PriceEditItem(
+        product_id=product.id,
+        marketplace=product.marketplace.value,
+        new_price=pending.new_price,
+        new_discount=pending.new_discount,
+        reason="send_saved_price",
+        comment="Отправка сохранённой цены",
+    )
+    try:
+        result = await service.edit_single_price(
+            user_id=user.id,
+            marketplace_account_id=product.marketplace_account_id,
+            item=item,
+            changed_by_ip=client_ip,
+        )
+        pending.status = "applied" if result.status == "applied" else "failed"
+        pending.error = result.error
+        pending.comment = "Отправлено на маркетплейс" if result.status == "applied" else "Ошибка API"
+        await session.commit()
+    except Exception as exc:
+        logger.exception("prices_send_row_error", extra={"user_id": user.id, "product_id": product_id})
+        await session.rollback()
+        return JSONResponse({"ok": False, "status": "failed", "error": str(exc)}, status_code=500)
+
+    if pending.status == "applied":
+        return JSONResponse(
+            {
+                "ok": True,
+                "status": "applied",
+                "label": "Обновлено",
+                "sent_at": format_datetime_for_user(datetime.now(tz=UTC)),
+                "marketplace": product.marketplace.value,
+            }
+        )
+    return JSONResponse(
+        {
+            "ok": False,
+            "status": "failed",
+            "label": "Ошибка",
+            "error": pending.error or "Ошибка отправки",
+        },
+        status_code=400,
+    )
 
 
 @router.post("/prices/bulk-preview", response_class=HTMLResponse)
@@ -1190,9 +1493,27 @@ def _render_toolbar(data: PricesPageData) -> str:
       <button class="btn btn-secondary btn-sm" type="button" id="btn-bulk-open" disabled>
         Массовое изменение
       </button>
+      <button class="btn btn-primary btn-sm" type="button" id="btn-save-all" disabled>
+        Сохранить все изменения
+      </button>
+      <button class="btn btn-secondary btn-sm" type="button" id="btn-send-all" disabled>
+        Отправить все изменения
+      </button>
+      <button class="btn btn-ghost btn-sm" type="button" id="btn-send-wb" disabled>
+        Отправить только WB
+      </button>
+      <button class="btn btn-ghost btn-sm" type="button" id="btn-send-ozon" disabled>
+        Отправить только Ozon
+      </button>
+      <button class="btn btn-ghost btn-sm" type="button" id="btn-cancel-all" disabled>
+        Отменить все изменения
+      </button>
       <button class="btn btn-ghost btn-sm" type="button" id="btn-fill-new-price">
         Заполнить новую цену со скидкой
       </button>
+      <label class="prices-toggle">
+        <input type="checkbox" id="auto-send-after-save"> Автоматически отправлять после сохранения
+      </label>
     </div>
     <div class="prices-toolbar-right">
       <a class="btn btn-ghost btn-sm" href="{export_url}">Скачать цены</a>
@@ -1253,6 +1574,42 @@ def _row_status_badges(row: PricesRow) -> str:
     if not badges:
         badges.append('<span class="prices-badge prices-badge-ok">Готово</span>')
     return "".join(badges)
+
+
+def _price_status_badge(status: str) -> str:
+    normalized = (status or "actual").lower()
+    labels = {
+        "actual": "Актуально",
+        "pending": "Сохранено · Не отправлено",
+        "sending": "Отправляется",
+        "applied": "Обновлено",
+        "failed": "Ошибка",
+        "skipped": "Ошибка",
+        "dry_run": "Сохранено",
+    }
+    tones = {
+        "actual": "ok",
+        "pending": "info",
+        "sending": "info",
+        "applied": "ok",
+        "failed": "danger",
+        "skipped": "danger",
+        "dry_run": "info",
+    }
+    label = labels.get(normalized, "Актуально")
+    tone = tones.get(normalized, "ok")
+    return f'<span class="prices-status-dot prices-status-{tone}"></span>{_e(label)}'
+
+
+def _price_status_row_class(status: str) -> str:
+    normalized = (status or "actual").lower()
+    if normalized == "pending":
+        return "is-saved"
+    if normalized in {"failed", "skipped"}:
+        return "is-error"
+    if normalized == "sending":
+        return "is-sending"
+    return ""
 
 
 def _render_table(data: PricesPageData) -> str:
@@ -1333,7 +1690,8 @@ def _render_table(data: PricesPageData) -> str:
         <th class="prices-th" data-col="turnover">Оборачиваемость</th>
         <th class="prices-th" data-col="updated">Последнее обновление цены</th>
         <th class="prices-th" data-col="api_error">Последняя ошибка API</th>
-        <th class="prices-th" data-col="status">Статус обновления</th>
+        <th class="prices-th" data-col="price_status">Статус цены</th>
+        <th class="prices-th" data-col="status">Проверки</th>
         <th class="prices-th" data-col="actions">Действия</th>
       </tr>
     </thead>"""
@@ -1356,6 +1714,10 @@ def _render_table(data: PricesPageData) -> str:
         if current_price is not None:
             mp_costs = current_price * commission
         status_badges = _row_status_badges(r)
+        row_state_class = _price_status_row_class(r.price_status)
+        save_disabled = " disabled"
+        send_disabled = "" if r.price_status in {"pending", "failed"} else " disabled"
+        cancel_disabled = "" if r.price_status in {"pending", "failed"} else " disabled"
         last_update = r.wb_synced_at or r.ozon_synced_at or r.last_price_change or "—"
 
         mp_val = p.marketplace.value if p.marketplace else ""
@@ -1365,7 +1727,7 @@ def _render_table(data: PricesPageData) -> str:
         ozon_offer_id = p.seller_article if p.marketplace == Marketplace.OZON else ""
 
         rows_html += f"""
-      <tr class="prices-row" data-product-id="{p.id}" data-mp="{mp_val}" data-account-id="{acct_id}"
+      <tr class="prices-row {row_state_class}" data-product-id="{p.id}" data-mp="{mp_val}" data-account-id="{acct_id}"
           data-current-price="{current_price or ''}" data-cost="{full_cost or ''}"
           data-additional="{r.additional_cost or ''}" data-min-price="{p.min_price or ''}"
           data-max-price="{p.max_price or ''}" data-commission="{commission or ''}">
@@ -1417,9 +1779,14 @@ def _render_table(data: PricesPageData) -> str:
         <td class="prices-td" data-col="fbs">{r.stock_quantity if r.stock_quantity is not None else '—'}</td>
         <td class="prices-td" data-col="turnover">—</td>
         <td class="prices-td prices-date" data-col="updated" title="{_e(r.last_price_source or '')}">{_e(last_update)}</td>
-        <td class="prices-td" data-col="api_error">—</td>
+        <td class="prices-td" data-col="api_error"><span data-api-error>{_e(r.last_api_error or '—')}</span></td>
+        <td class="prices-td" data-col="price_status"><span data-price-status>{_price_status_badge(r.price_status)}</span></td>
         <td class="prices-td" data-col="status">{status_badges}</td>
         <td class="prices-td" data-col="actions">
+          <button class="btn btn-xs btn-primary prices-save-row" type="button"{save_disabled}>Сохранить</button>
+          <button class="btn btn-xs btn-secondary prices-send-row" type="button"{send_disabled}>Отправить</button>
+          <button class="btn btn-xs btn-ghost prices-cancel-row" type="button"{cancel_disabled}>Отменить</button>
+          <a class="btn btn-xs btn-ghost" href="/web/prices/history?search={_e(p.seller_article or p.external_product_id)}">История</a>
           <button class="btn btn-xs btn-accent prices-edit-btn"
                   data-product-id="{p.id}"
                   data-mp="{mp_val}"
@@ -2064,6 +2431,18 @@ th.sticky-col-1, th.sticky-col-2 { z-index: 5; background: var(--bg-muted); }
 .prices-badge-muted {
   background: var(--bg-muted); color: var(--text-secondary); border: 1px solid var(--border);
 }
+.prices-badge-info {
+  background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent);
+}
+.prices-row.is-modified td { background-color: rgba(219, 234, 254, .45); }
+.prices-row.is-sending td[data-col="price_status"] { background: var(--accent-soft); }
+.prices-status-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 999px;
+  margin-right: 6px; vertical-align: middle; background: var(--text-secondary);
+}
+.prices-status-ok { background: var(--success); }
+.prices-status-info { background: var(--accent); }
+.prices-status-danger { background: var(--danger); }
 .columns-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 8px;
@@ -2088,6 +2467,11 @@ def _prices_js() -> str:
   const checkAll = document.getElementById('check-all');
   const btnSelectAll = document.getElementById('btn-select-all');
   const btnBulkOpen = document.getElementById('btn-bulk-open');
+  const btnSaveAll = document.getElementById('btn-save-all');
+  const btnSendAll = document.getElementById('btn-send-all');
+  const btnSendWb = document.getElementById('btn-send-wb');
+  const btnSendOzon = document.getElementById('btn-send-ozon');
+  const btnCancelAll = document.getElementById('btn-cancel-all');
 
   function getChecked() {
     return Array.from(document.querySelectorAll('.row-check:checked'));
@@ -2095,6 +2479,10 @@ def _prices_js() -> str:
   function updateBulkBtn() {
     const checked = getChecked();
     if (btnBulkOpen) btnBulkOpen.disabled = checked.length === 0;
+    const changedRows = document.querySelectorAll('.prices-row.is-modified');
+    const sendableRows = document.querySelectorAll('.prices-row.is-saved, .prices-row.is-error');
+    [btnSaveAll, btnCancelAll].forEach(btn => { if (btn) btn.disabled = changedRows.length === 0; });
+    [btnSendAll, btnSendWb, btnSendOzon].forEach(btn => { if (btn) btn.disabled = sendableRows.length === 0; });
   }
   document.querySelectorAll('.row-check').forEach(cb => {
     cb.addEventListener('change', function() {
@@ -2213,6 +2601,75 @@ def _prices_js() -> str:
     if (!Number.isFinite(value)) return '—';
     return value.toFixed(1) + '%';
   }
+  function statusHtml(status, label) {
+    const tone = status === 'failed' ? 'danger' : (status === 'actual' || status === 'applied' ? 'ok' : 'info');
+    return '<span class="prices-status-dot prices-status-' + tone + '"></span>' + label;
+  }
+  function setRowStatus(row, status, label, error) {
+    const node = row.querySelector('[data-price-status]');
+    const errorNode = row.querySelector('[data-api-error]');
+    if (node) node.innerHTML = statusHtml(status, label);
+    if (errorNode) errorNode.textContent = error || '—';
+    row.classList.toggle('is-modified', status === 'changed');
+    row.classList.toggle('is-saved', status === 'pending');
+    row.classList.toggle('is-sending', status === 'sending');
+    row.classList.toggle('is-error', status === 'failed');
+    row.querySelector('.prices-save-row')?.toggleAttribute('disabled', status !== 'changed');
+    row.querySelector('.prices-send-row')?.toggleAttribute('disabled', !['pending', 'failed'].includes(status));
+    row.querySelector('.prices-cancel-row')?.toggleAttribute('disabled', !['changed', 'pending', 'failed'].includes(status));
+    updateBulkBtn();
+  }
+  function collectRowData(row) {
+    const form = new FormData();
+    form.set('product_id', row.dataset.productId);
+    form.set('new_price', row.querySelector('[data-edit="new-price"]')?.value || '');
+    form.set('new_discount', row.querySelector('[data-edit="new-discount"]')?.value || '');
+    form.set('purchase_price', row.querySelector('[data-edit="purchase"]')?.value || '');
+    form.set('additional_cost', row.querySelector('[data-edit="additional"]')?.value || '');
+    form.set('fixed_costs', row.querySelector('[data-edit="fixed"]')?.value || '');
+    form.set('tax_percent', row.querySelector('[data-edit="tax"]')?.value || '');
+    form.set('min_price', row.querySelector('[data-edit="min"]')?.value || '');
+    form.set('max_price', row.querySelector('[data-edit="max"]')?.value || '');
+    if (document.getElementById('auto-send-after-save')?.checked) form.set('auto_send', '1');
+    return form;
+  }
+  async function saveRow(row) {
+    setRowStatus(row, 'sending', 'Сохраняется');
+    const response = await fetch('/web/prices/save-row', { method: 'POST', body: collectRowData(row) });
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      setRowStatus(row, 'failed', 'Ошибка', data.error || 'Ошибка сохранения');
+      return false;
+    }
+    if (data.status === 'applied') {
+      setRowStatus(row, 'applied', data.label || 'Обновлено');
+    } else {
+      setRowStatus(row, 'pending', data.label || 'Сохранено · Не отправлено');
+    }
+    row.querySelectorAll('.prices-inline-input').forEach(input => {
+      input.dataset.originalValue = input.value;
+      input.classList.remove('is-dirty');
+      input.classList.add('is-saved');
+      setTimeout(() => input.classList.remove('is-saved'), 900);
+    });
+    return true;
+  }
+  async function sendRow(row) {
+    setRowStatus(row, 'sending', 'Отправляется');
+    const form = new FormData();
+    form.set('product_id', row.dataset.productId);
+    const response = await fetch('/web/prices/send-row', { method: 'POST', body: form });
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      setRowStatus(row, 'failed', 'Ошибка', data.error || 'Ошибка отправки');
+      return false;
+    }
+    setRowStatus(row, 'applied', data.label || 'Обновлено');
+    return true;
+  }
+  function markRowChanged(row) {
+    setRowStatus(row, 'changed', 'Изменено · Есть несохранённые изменения');
+  }
   function recalcRow(row) {
     const purchase = toNumber(row.querySelector('[data-edit="purchase"]')?.value);
     const additional = toNumber(row.querySelector('[data-edit="additional"]')?.value);
@@ -2256,13 +2713,63 @@ def _prices_js() -> str:
     row.classList.toggle('has-error', hasError || totalCost < purchase);
   }
   document.querySelectorAll('.prices-inline-input').forEach(input => {
+    input.dataset.originalValue = input.value;
     input.addEventListener('input', function() {
       this.classList.add('is-dirty');
       const row = this.closest('tr');
-      if (row) recalcRow(row);
+      if (row) {
+        recalcRow(row);
+        markRowChanged(row);
+      }
     });
   });
   document.querySelectorAll('.prices-row').forEach(recalcRow);
+  document.querySelectorAll('.prices-save-row').forEach(btn => {
+    btn.addEventListener('click', () => saveRow(btn.closest('tr')));
+  });
+  document.querySelectorAll('.prices-send-row').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      if (row?.classList.contains('is-modified')) {
+        const saved = await saveRow(row);
+        if (!saved) return;
+      }
+      await sendRow(row);
+    });
+  });
+  document.querySelectorAll('.prices-cancel-row').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const row = this.closest('tr');
+      row.querySelectorAll('.prices-inline-input').forEach(input => {
+        input.value = input.dataset.originalValue || '';
+        input.classList.remove('is-dirty', 'is-error');
+      });
+      recalcRow(row);
+      setRowStatus(row, 'actual', 'Актуально');
+    });
+  });
+  async function forRows(rows, action) {
+    for (const row of rows) await action(row);
+  }
+  btnSaveAll?.addEventListener('click', () => forRows(document.querySelectorAll('.prices-row.is-modified'), saveRow));
+  btnSendAll?.addEventListener('click', async () => {
+    await forRows(document.querySelectorAll('.prices-row.is-modified'), saveRow);
+    await forRows(document.querySelectorAll('.prices-row.is-saved, .prices-row.is-error'), sendRow);
+  });
+  btnSendWb?.addEventListener('click', async () => {
+    await forRows(document.querySelectorAll('.prices-row.is-modified[data-mp="WB"]'), saveRow);
+    await forRows(document.querySelectorAll('.prices-row.is-saved[data-mp="WB"], .prices-row.is-error[data-mp="WB"]'), sendRow);
+  });
+  btnSendOzon?.addEventListener('click', async () => {
+    await forRows(document.querySelectorAll('.prices-row.is-modified[data-mp="OZON"]'), saveRow);
+    await forRows(document.querySelectorAll('.prices-row.is-saved[data-mp="OZON"], .prices-row.is-error[data-mp="OZON"]'), sendRow);
+  });
+  btnCancelAll?.addEventListener('click', () => {
+    document.querySelectorAll('.prices-row.is-modified').forEach(row => {
+      row.querySelector('.prices-cancel-row')?.click();
+    });
+  });
+  updateBulkBtn();
   document.getElementById('btn-fill-new-price')?.addEventListener('click', function() {
     document.querySelectorAll('.prices-row').forEach(row => {
       const minPrice = toNumber(row.dataset.minPrice);
